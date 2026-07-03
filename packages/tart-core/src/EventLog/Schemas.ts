@@ -1,7 +1,7 @@
 import { Schema } from 'effect'
 import { Prompt, Response } from 'effect/unstable/ai'
 
-import { AgentId, CompactionId, MessageId, SessionId, StateId, ToolCallId } from '../ids.ts'
+import { AgentId, CompactionId, MessageId, SessionId, StateId, ToolCallId } from '../Ids.ts'
 
 /** The sequence number of a log entry. The first entry in a session is seq 0. */
 export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
@@ -54,8 +54,6 @@ export const ActiveModel = Schema.Struct({
 	reasoningLevel: ReasoningLevel,
 }).annotate({ identifier: 'ActiveModel' })
 export type ActiveModel = typeof ActiveModel.Type
-
-
 
 /** Encoded schema object to JSON for persisted system messages. */
 export const SystemMessageEncoded = Schema.toEncoded(Prompt.SystemMessage)
