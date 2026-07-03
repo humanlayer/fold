@@ -36,6 +36,8 @@ CANONICAL references on Effect v4 (effect-smol):
 
 > See `REFERENCE.md` for the annotated file skeleton, copy-paste stubs, and the anti-pattern catalog with
 > in-repo line references.
+> See `SCHEMA-DOMAIN-PATTERNS.md` for schema-first domain modeling: `Schema.TaggedClass`, branded IDs,
+> `Schema.TaggedErrorClass`, and deriving TypeScript types from schemas instead of hand-writing parallel types.
 
 ## 1. Anatomy — the file set
 
@@ -44,7 +46,7 @@ Split by responsibility. Names like `client`/`dispatch`/`persistence`/`oauth` ar
 | File                                         | Owns                                                                                    |
 | -------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `x.service.ts`                               | the `Context.Service` **shape** + the **live layer** (`Layer.effect`)                   |
-| `x.errors.ts`                                | all `Data.TaggedError` classes + the internal/public error unions                       |
+| `x.errors.ts`                                | all `Schema.TaggedErrorClass` classes + the internal/public error unions                |
 | `x.types.ts`                                 | domain types (and optionally the service shape — both fine)                             |
 | `x.client.ts`                                | the external adapter: wraps the SDK/HTTP, emits typed errors, owns the SDK-error mapper |
 | `x.persistence.ts`                           | DB operations (Drizzle), each mapping driver errors to a tagged error                   |
@@ -63,8 +65,9 @@ A small service may stay in one file. Split when it spans external-call + persis
   internally; a shallow `listChannels({ botToken })` leaks an internal.
 - **But accept the domain inputs the caller legitimately holds, as named types.** Not "pass a `taskId` and
   look it up" — if callers have the `Task`, take a `Task`. Don't destructure its fields into the signature.
-- **IDs:** raw `string` is fine, but **always in a named input object** (`{ organizationId }`) — never positional
-  bare strings or same-typed positional args. Branding is optional/aspirational.
+- **IDs:** branded IDs are the default for identity values. Use raw `string` only for non-identity text,
+  provider-owned names, opaque external strings, or display values. Always pass IDs in named input objects
+  (`{ organizationId }`) — never positional bare strings or same-typed positional args.
 - **Decision rule:** _to produce this argument, would the caller have to know how the module works inside?_
   Yes → the module resolves it. No, it's a value they already hold → accept it as its domain type.
 - **Deletion test:** removing the module must _spread_ complexity to callers, not erase it. Shallow tells: a
@@ -72,7 +75,8 @@ A small service may stay in one file. Split when it spans external-call + persis
 
 ## 3. Errors
 
-- **`Data.TaggedError`** for every expected failure — stable tag, structured safe fields, optional `cause: unknown`.
+- **`Schema.TaggedErrorClass`** for every expected failure — stable tag, structured safe fields, optional
+  `cause: Schema.Defect()`. Derive operation/status/id field types from schemas, not duplicate TypeScript types.
 - **Two tiers.** Internal: the rich vocabulary of everything that can break (transport + API-body + persistence).
   Public: a small union of caller-actionable outcomes per method.
 - **Model the decision, not the status.** `SlackNeedsReauthError`, `retryable`, `…Unavailable`, `AlreadyRequested`
@@ -124,6 +128,9 @@ A small service may stay in one file. Split when it spans external-call + persis
 - **Parse untrusted boundaries into domain types** at the adapter edge (HTTP/SDK/JSON/webhooks/user input).
   Slack maps raw `conversations.list` objects → `SlackChannel`. Parsing of inbound request bodies happens at
   the oRPC/webhook entrypoint; the service receives already-parsed domain inputs.
+- **Schema-first domain modeling.** Domain records, commands, durable events, and discriminated unions should be
+  modeled as schemas first (`Schema.TaggedClass` for tagged variants; branded schemas for IDs), then exported as
+  `type X = typeof X.Type`. Avoid hand-written object types that duplicate schema fields.
 - **DB rows: scalar trust, jsonb parse.** Trust Drizzle `$inferSelect` types for straightforward scalar columns
   (Postgres enforces them). **Parse `jsonb`** — Postgres does not enforce jsonb shape — with the existing **Zod**
   schemas (`@codelayer/db/zodschemas/*`, `drizzle-zod` select schemas). No Effect Schema bridging.
@@ -173,7 +180,7 @@ comment + lint-disable reason). `readonly` by default. `??` not `||` for "absent
 
 - [ ] Public surface small, domain-shaped; per-method error union narrow + distinct from internal.
 - [ ] No `$inferSelect` row, `any`, or `unknown` across the public seam.
-- [ ] Errors are `Data.TaggedError`, model caller actions; classified in-channel; **one** SDK-error mapper.
+- [ ] Errors are `Schema.TaggedErrorClass`, model caller actions; classified in-channel; **one** SDK-error mapper.
 - [ ] Capture (log + Sentry) happens on the raw error **before** narrowing/swallowing; `catchCause` at top nets.
 - [ ] `Effect.withSpan` on every public method; safe annotations; secrets `Redacted`.
 - [ ] All deps in `R`; no service/layer/effect passed as an argument; no errors-as-values.

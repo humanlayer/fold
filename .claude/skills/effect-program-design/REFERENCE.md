@@ -11,18 +11,41 @@ anti-patterns — see the catalog). Foils to avoid: `workos/`, `resend/`, `strip
 ### `widget.errors.ts` — tagged errors, two-tier unions
 
 ```ts
-import { Data } from 'effect'
+import { Schema } from 'effect'
+
+import { OrganizationId } from './widget.ids'
 
 // Internal vocabulary: everything that can break at the boundary.
-export class WidgetTokenRevokedError extends Data.TaggedError('WidgetTokenRevokedError')<{ cause?: unknown }> {}
-export class WidgetRateLimitError extends Data.TaggedError('WidgetRateLimitError')<{ retryAfterMs?: number; cause?: unknown }> {}
-export class WidgetApiUnavailableError extends Data.TaggedError('WidgetApiUnavailableError')<{ cause?: unknown }> {}
-export class WidgetUnexpectedResponseError extends Data.TaggedError('WidgetUnexpectedResponseError')<{ code?: string; cause?: unknown }> {}
+export class WidgetTokenRevokedError extends Schema.TaggedErrorClass<WidgetTokenRevokedError>()(
+  'WidgetTokenRevokedError',
+  { cause: Schema.optional(Schema.Defect()) },
+) {}
+export class WidgetRateLimitError extends Schema.TaggedErrorClass<WidgetRateLimitError>()(
+  'WidgetRateLimitError',
+  { retryAfterMs: Schema.optional(Schema.Number), cause: Schema.optional(Schema.Defect()) },
+) {}
+export class WidgetApiUnavailableError extends Schema.TaggedErrorClass<WidgetApiUnavailableError>()(
+  'WidgetApiUnavailableError',
+  { cause: Schema.optional(Schema.Defect()) },
+) {}
+export class WidgetUnexpectedResponseError extends Schema.TaggedErrorClass<WidgetUnexpectedResponseError>()(
+  'WidgetUnexpectedResponseError',
+  { code: Schema.optional(Schema.String), cause: Schema.optional(Schema.Defect()) },
+) {}
 
 // Public vocabulary: small, caller-actionable. Models the decision, not the HTTP status.
-export class WidgetNotConnectedError extends Data.TaggedError('WidgetNotConnectedError')<{ organizationId: string }> {}
-export class WidgetNeedsReauthError extends Data.TaggedError('WidgetNeedsReauthError')<{ organizationId: string; lastErrorCode?: string }> {}
-export class WidgetUnavailableError extends Data.TaggedError('WidgetUnavailableError')<{ cause?: unknown }> {}
+export class WidgetNotConnectedError extends Schema.TaggedErrorClass<WidgetNotConnectedError>()(
+  'WidgetNotConnectedError',
+  { organizationId: OrganizationId },
+) {}
+export class WidgetNeedsReauthError extends Schema.TaggedErrorClass<WidgetNeedsReauthError>()(
+  'WidgetNeedsReauthError',
+  { organizationId: OrganizationId, lastErrorCode: Schema.optional(Schema.String) },
+) {}
+export class WidgetUnavailableError extends Schema.TaggedErrorClass<WidgetUnavailableError>()(
+  'WidgetUnavailableError',
+  { cause: Schema.optional(Schema.Defect()) },
+) {}
 
 export type WidgetProviderError =
   | WidgetTokenRevokedError | WidgetRateLimitError | WidgetApiUnavailableError | WidgetUnexpectedResponseError
