@@ -1,12 +1,12 @@
 import { Effect, Layer } from 'effect'
 
-import { HookRunner, type HookRunnerService } from '@/HookRunner/HookRunnerService'
+import { HookRunner, type HookRunnerService } from '../../src/HookRunner/HookRunnerService.ts'
 import type {
 	OnCompleteHookInput,
 	PostToolUseHookInput,
 	PreRequestHookInput,
 	PreToolUseHookInput,
-} from '@/HookRunner/Schema'
+} from '../../src/HookRunner/Schema.ts'
 
 /**
  * Hook Runner test layer that no-ops for each - i.e. no change. 

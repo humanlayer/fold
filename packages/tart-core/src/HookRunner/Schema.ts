@@ -1,6 +1,6 @@
 import { Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
-import { AgentId, ToolCallId } from '@/Ids'
+import { AgentId, ToolCallId } from '../Ids.ts'
 
 /**
  * Input for hooks that can transform the outgoing model request.
