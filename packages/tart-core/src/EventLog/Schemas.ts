@@ -283,6 +283,7 @@ export const ToolResultLogEntryInput = Schema.TaggedStruct('tool-result', {
 	toolCallId: ToolCallId,
 	messageId: MessageId,
 	message: ToolMessageEncoded,
+	executedInput: Schema.optional(Schema.Unknown), // if the hook modifies
 }).annotate({ identifier: 'ToolResultLogEntryInput' })
 export type ToolResultLogEntryInput = typeof ToolResultLogEntryInput.Type
 
@@ -295,6 +296,7 @@ export const ToolResultLogEntry = Schema.TaggedStruct('tool-result', {
 	toolCallId: ToolCallId,
 	messageId: MessageId,
 	message: ToolMessageEncoded,
+	executedInput: Schema.optional(Schema.Unknown), // e.g. if the hook modifies
 }).annotate({ identifier: 'ToolResultLogEntry' })
 export type ToolResultLogEntry = typeof ToolResultLogEntry.Type
 
