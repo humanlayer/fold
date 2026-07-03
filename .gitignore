@@ -141,3 +141,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# HumanLayer local workspace overrides (machine-specific, do not commit)
+.humanlayer/workspace.local.json
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/

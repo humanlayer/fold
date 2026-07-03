@@ -1,0 +1,12 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	// Mirrors synclayer: tabs, indent width 4, line width 120, single quotes, no semicolons.
+	"printWidth": 120,
+	"tabWidth": 4,
+	"useTabs": true,
+	"singleQuote": true,
+	"semi": false,
+	"sortImports": true,
+	// Leave package.json key order alone; the formatter still normalizes whitespace.
+	"sortPackageJson": false,
+}

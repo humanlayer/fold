@@ -1,0 +1,20 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	// Mirrors synclayer's oxlint setup. The `correctness` category (native recommended)
+	// is enabled by default. Setting `plugins` overrides the default set; we keep
+	// typescript + oxc and add `vitest` (rules are API-gated to test files). `react` is
+	// omitted until tart has React code.
+	"plugins": ["typescript", "oxc", "vitest"],
+	"ignorePatterns": ["**/node_modules/**", "**/dist/**"],
+	"rules": {
+		// Tighten barrel files to errors.
+		"oxc/no-barrel-file": "error",
+		// Keep visible as warnings rather than off.
+		"typescript/no-explicit-any": "warn",
+		"typescript/no-non-null-assertion": "warn",
+		// `@effect/vitest`'s `it.effect(() => Effect.gen(...))` places assertions inside an
+		// Effect generator, which the vitest plugin can't see as a test block. Disabled to
+		// avoid a false positive on every Effect test.
+		"vitest/no-standalone-expect": "off",
+	},
+}

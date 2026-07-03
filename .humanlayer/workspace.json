@@ -1,0 +1,56 @@
+{
+	"disabled": false,
+	"pathTemplate": "~/.humanlayer/workspaces/tart/{{ TASKSLUG }}/{{ REPOBASENAME }}",
+	"branchTemplate": "{{ TASKSLUG }}",
+	"sourceRef": "HEAD",
+	"setupCommand": "bun install",
+	"copyGlobs": [
+		".env",
+		".env.local",
+		".env.development.local",
+		".claude/settings.local.json",
+		".humanlayer/workspace.local.json",
+		"AGENTS.local.md",
+		"CLAUDE.local.md"
+	],
+	"repos": [
+		{
+			"localPath": ".",
+			"description": "tart — bun monorepo (coordination + primary)",
+			"primary": true
+		},
+		{
+			"localPath": "../synclayer",
+			"description": "SyncLayer (bun) is humanlayer's primary closed-source monorepo for all our products and cloud. The riptide-daemon in particular drives the agentlayer repos' agents/codelayer Codelayer agent"
+		},
+		{
+			"localPath": "../agentlayer",
+			"description": "agentlayer (bun) - HumanLayer's legacy agent SDK, agents/codelayer is HumanLayer's current agent"
+		},
+		{
+			"localPath": "../clanka",
+			"description": "clanka (pnpm) - Effectful Technologies's experimental coding agent library",
+			"setupCommand": "pnpm install"
+		},
+		{
+			"localPath": "../pi",
+			"description": "pi (npm) - reference, checkout only - minimal open-source headless coding agent monorepo with core, tui, sdk, etc ",
+			"setupCommand": "npm install"
+		},
+		{
+			"localPath": "../opencode",
+			"description": "opencode (bun) — reference, checkout only; open-source coding agent",
+			"setupCommand": ""
+		},
+		{
+			"localPath": "../opentui",
+			"description": "opentui (bun) — reference, checkout only",
+			"setupCommand": ""
+		},
+		{
+			"localPath": "../effect-smol",
+			"description": "effect-smol (pnpm) — reference, checkout only - effect v4 source code",
+			"setupCommand": ""
+		}
+	]
+}

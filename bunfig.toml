@@ -1,0 +1,3 @@
+[install]
+# Pin exact versions on add — pairs well with the workspace catalog.
+exact = true

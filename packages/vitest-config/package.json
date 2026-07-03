@@ -1,0 +1,16 @@
+{
+	"name": "@humanlayer/tart-vitest-config",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./base": "./src/base.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"vitest": "catalog:"
+	}
+}

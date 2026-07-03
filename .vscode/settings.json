@@ -1,0 +1,23 @@
+{
+	"editor.defaultFormatter": "oxc.oxc-vscode",
+	"editor.formatOnSave": true,
+	"editor.formatOnPaste": true,
+	"editor.formatOnSaveMode": "file",
+	"editor.tabSize": 4,
+	"editor.insertSpaces": false,
+	"editor.codeActionsOnSave": {
+		"source.format.oxc": "always",
+		"source.fixAll.oxc": "explicit",
+		"source.removeUnusedImports": "explicit",
+		"source.addMissingImports.ts": "explicit"
+	},
+	"typescript.tsdk": "node_modules/typescript/lib",
+	"typescript.enablePromptUseWorkspaceTsdk": true,
+	"typescript.referencesCodeLens.enabled": true,
+	"typescript.preferences.importModuleSpecifier": "non-relative",
+	"javascript.preferences.importModuleSpecifier": "non-relative",
+	"typescript.updateImportsOnFileMove.enabled": "always",
+	"files.associations": {
+		"*.mdx": "markdown"
+	}
+}
