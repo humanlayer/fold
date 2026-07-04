@@ -1,8 +1,8 @@
 import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from 'effect'
 
-import type { LogEntry, LogEntryInput, LogSeq } from './Schemas.ts'
-import { EventLog, type EventLogService } from './EventLogService.ts'
-import { makeStoredLogEntry } from './LogEntryFactory.ts'
+import { EventLog, type EventLogService } from './EventLogService'
+import { makeStoredLogEntry } from './LogEntryFactory'
+import type { LogEntry, LogEntryInput, LogSeq } from './Schemas'
 
 const entriesFrom = (entries: ReadonlyArray<LogEntry>, fromSeq: LogSeq) =>
 	entries.filter((entry) => entry.seq >= fromSeq)

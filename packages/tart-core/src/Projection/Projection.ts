@@ -49,7 +49,7 @@ export type ProjectedUserMessage = ProjectedLogEntry<UserMessageLogEntry, 'messa
 /** Assistant message that should be visible in the model context, retaining finish metadata for usage/cost folds. */
 export type ProjectedAssistantMessage = ProjectedLogEntry<AssistantMessageLogEntry, 'messageId' | 'message' | 'finish'>
 
-/** Tool result that should be visible in the model context, grouped by the tool call it answers. */
+/** tool result that is visible in the model context when building the prompt from the durable log*/
 export type ProjectedToolResult = ProjectedLogEntry<ToolResultLogEntry, 'toolCallId' | 'messageId' | 'message'>
 
 /** Projection-only stand-in for history replaced by a compaction entry. */

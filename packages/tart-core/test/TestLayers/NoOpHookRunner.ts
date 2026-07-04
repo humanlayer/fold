@@ -1,15 +1,15 @@
 import { Effect, Layer } from 'effect'
 
-import { HookRunner, type HookRunnerService } from '../../src/HookRunner/HookRunnerService.ts'
+import { HookRunner, type HookRunnerService } from '../../src/HookRunner/HookRunnerService'
 import type {
 	OnCompleteHookInput,
 	PostToolUseHookInput,
 	PreRequestHookInput,
 	PreToolUseHookInput,
-} from '../../src/HookRunner/Schema.ts'
+} from '../../src/HookRunner/Schema'
 
 /**
- * Hook Runner test layer that no-ops for each - i.e. no change. 
+ * Hook Runner test layer that no-ops for each - i.e. no change.
  * Safe for runtime if no hooks are provided
  */
 const noopHooks: HookRunnerService = {
@@ -29,7 +29,7 @@ const noopHooks: HookRunnerService = {
 	),
 
 	onComplete: Effect.fn('tart.hook_runner.on_complete.noop')((_input: OnCompleteHookInput) =>
-		Effect.succeed({ _tag: 'allow' as const }),
+		Effect.succeed({ _tag: 'complete' as const }),
 	),
 }
 

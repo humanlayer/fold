@@ -15,8 +15,8 @@ import {
 	type SystemMessageEncoded,
 	type ToolMessageEncoded,
 	type UserMessageEncoded,
-} from '../../src/index.ts'
-import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime.ts'
+} from '../../src/index'
+import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 
 const testLayer = Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 10_000 }))
 
@@ -392,5 +392,118 @@ it.effect('projects compaction as a summary plus entries after the cut', () =>
 		])
 		expect(projected[1]).toMatchObject({ _tag: 'compaction-summary', summary: 'summary of old history' })
 		expect(projected[2]).toMatchObject({ _tag: 'user-message', message: { content: 'new user' } })
+	}),
+)
+
+it.effect('drops all pre-compaction messages except the leading system message', () =>
+	Effect.gen(function* () {
+		const result = yield* Effect.gen(function* () {
+			const log = yield* EventLog
+			const ids = yield* Ids
+			const rootAgentId = yield* appendRoot()
+			const oldToolCallId = yield* toolCallId
+			const newToolCallId = yield* toolCallId
+
+			yield* log.append({
+				_tag: 'system-message',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: yield* messageId,
+				message: systemMessage('system survives compaction'),
+				placement: 'leading',
+			})
+			yield* log.append({
+				_tag: 'user-message',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: yield* messageId,
+				message: userMessage('old user should be hidden'),
+			})
+			yield* log.append({
+				_tag: 'assistant-message',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: yield* messageId,
+				message: assistantWithToolCalls([oldToolCallId]),
+				finish: null,
+			})
+			yield* log.append({
+				_tag: 'tool-result',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: oldToolCallId,
+				messageId: yield* messageId,
+				message: toolMessage(oldToolCallId, 0),
+			})
+
+			const cutSeq = lastSeq(yield* readEntries)
+
+			yield* log.append({
+				_tag: 'compaction',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				compactionId: yield* ids.makeCompactionId,
+				summary: 'compacted old user, assistant, and tool result',
+				replacesThroughSeq: cutSeq,
+				tokensBefore: 456,
+			})
+			yield* log.append({
+				_tag: 'user-message',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: yield* messageId,
+				message: userMessage('new user is visible'),
+			})
+			yield* log.append({
+				_tag: 'assistant-message',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: yield* messageId,
+				message: assistantWithToolCalls([newToolCallId]),
+				finish: null,
+			})
+			yield* log.append({
+				_tag: 'tool-result',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: newToolCallId,
+				messageId: yield* messageId,
+				message: toolMessage(newToolCallId, 0),
+			})
+
+			return { entries: yield* readEntries, newToolCallId, rootAgentId }
+		}).pipe(Effect.provide(testLayer))
+
+		const projected = messagesForAgent(result.entries, result.rootAgentId)
+
+		expect(projected.map((message) => message._tag)).toEqual([
+			'system-message',
+			'compaction-summary',
+			'user-message',
+			'assistant-message',
+			'tool-result',
+		])
+		expect(projected[0]).toMatchObject({
+			_tag: 'system-message',
+			message: { content: 'system survives compaction' },
+		})
+		expect(projected[1]).toMatchObject({
+			_tag: 'compaction-summary',
+			summary: 'compacted old user, assistant, and tool result',
+		})
+		expect(projected[2]).toMatchObject({ _tag: 'user-message', message: { content: 'new user is visible' } })
+		expect(projected[4]).toMatchObject({ _tag: 'tool-result', toolCallId: result.newToolCallId })
+		expect(projected).not.toContainEqual(
+			expect.objectContaining({
+				_tag: 'user-message',
+				message: expect.objectContaining({ content: 'old user should be hidden' }),
+			}),
+		)
 	}),
 )

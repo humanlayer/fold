@@ -1,7 +1,7 @@
 import { Clock, Effect, Schema } from 'effect'
 
-import { EventLogInvalidEntryError } from './Errors.ts'
-import { LogEntry, LogEntryInput, type LogSeq } from './Schemas.ts'
+import { EventLogInvalidEntryError } from './Errors'
+import { LogEntry, LogEntryInput, type LogSeq } from './Schemas'
 
 const invalidEntryError = (message: string, cause: unknown) =>
 	new EventLogInvalidEntryError({

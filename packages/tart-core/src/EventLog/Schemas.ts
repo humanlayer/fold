@@ -1,7 +1,7 @@
 import { Schema } from 'effect'
 import { Prompt, Response } from 'effect/unstable/ai'
 
-import { AgentId, CompactionId, MessageId, SessionId, StateId, ToolCallId } from '../Ids.ts'
+import { AgentId, CompactionId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
 
 /** The sequence number of a log entry. The first entry in a session is seq 0. */
 export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({

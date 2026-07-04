@@ -1,6 +1,7 @@
 import { Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
-import { AgentId, ToolCallId } from '../Ids.ts'
+
+import { AgentId, ToolCallId } from '../Ids'
 
 /**
  * Input for hooks that can transform the outgoing model request.
@@ -10,8 +11,8 @@ import { AgentId, ToolCallId } from '../Ids.ts'
  */
 export const PreRequestHookInput = Schema.Struct({
 	agentId: AgentId,
-	prompt: Prompt.Prompt
-}).annotate({identifier: 'PreRequestHookInput'})
+	prompt: Prompt.Prompt,
+}).annotate({ identifier: 'PreRequestHookInput' })
 export type PreRequestHookInput = typeof PreRequestHookInput.Type
 
 /**
@@ -22,14 +23,14 @@ export type PreRequestHookInput = typeof PreRequestHookInput.Type
 export const PreRequestHookDecision = Schema.Union([
 	Schema.TaggedStruct('unchanged', {}),
 	Schema.TaggedStruct('changed', {
-		prompt: Prompt.Prompt
-	})
+		prompt: Prompt.Prompt,
+	}),
 ]).annotate({ identifier: 'PreRequestHookDecision', discriminator: '_tag' })
 export type PreRequestHookDecision = typeof PreRequestHookDecision.Type
 
 /**
  * Input for hooks that run AFTER the model generates a tool call but BEFORE the function is executed
- * 
+ *
  * ToolRuntime calls this after the assistant tool call message has been persisted and
  * before the tool handler function is invoked
  */
@@ -37,7 +38,7 @@ export const PreToolUseHookInput = Schema.Struct({
 	agentId: AgentId,
 	toolCallId: ToolCallId,
 	toolName: Schema.String,
-	params: Schema.Json
+	params: Schema.Unknown,
 })
 export type PreToolUseHookInput = typeof PreToolUseHookInput.Type
 
@@ -48,15 +49,14 @@ export type PreToolUseHookInput = typeof PreToolUseHookInput.Type
  */
 export const PreToolUseHookDecision = Schema.Union([
 	Schema.TaggedStruct('continue', {
-		params: Schema.Json,
+		params: Schema.Unknown,
 	}),
 	Schema.TaggedStruct('replaceResult', {
-		result: Schema.Json,
+		result: Schema.Unknown,
 		isFailure: Schema.Boolean,
 	}),
 ]).annotate({ identifier: 'PreToolUseHookDecision', discriminator: '_tag' })
 export type PreToolUseHookDecision = typeof PreToolUseHookDecision.Type
-
 
 /**
  * Input for hooks that run after a successful tool handler result.
@@ -67,7 +67,7 @@ export const PostToolUseHookInput = Schema.Struct({
 	agentId: AgentId,
 	toolCallId: ToolCallId,
 	toolName: Schema.String,
-	result: Schema.Json,
+	result: Schema.Unknown,
 	isFailure: Schema.Boolean,
 }).annotate({ identifier: 'PostToolUseHookInput' })
 export type PostToolUseHookInput = typeof PostToolUseHookInput.Type
@@ -78,7 +78,7 @@ export type PostToolUseHookInput = typeof PostToolUseHookInput.Type
 export const PostToolUseHookDecision = Schema.Union([
 	Schema.TaggedStruct('keep', {}),
 	Schema.TaggedStruct('replace', {
-		result: Schema.Json,
+		result: Schema.Unknown,
 		isFailure: Schema.Boolean,
 	}),
 ]).annotate({ identifier: 'PostToolUseHookDecision', discriminator: '_tag' })
@@ -95,12 +95,11 @@ export const OnCompleteHookInput = Schema.Struct({
 }).annotate({ identifier: 'OnCompleteHookInput' })
 export type OnCompleteHookInput = typeof OnCompleteHookInput.Type
 
-
 /**
- * An onComplete hook can allow the run to finish or continue with another user message.
+ * An onComplete hook can complete the run or continue with another user message.
  */
 export const OnCompleteHookDecision = Schema.Union([
-	Schema.TaggedStruct('allow', {}),
+	Schema.TaggedStruct('complete', {}),
 	Schema.TaggedStruct('continueWith', {
 		text: Schema.String,
 	}),

@@ -2,7 +2,7 @@ import { it } from '@effect/vitest'
 import { Effect, Schema } from 'effect'
 import { expect } from 'vitest'
 
-import { LogSeq, ToolCallId } from '../src/index.ts'
+import { LogSeq, ToolCallId } from '../src/index'
 
 it.effect('defines core schemas', () =>
 	Effect.gen(function* () {

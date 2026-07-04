@@ -10,8 +10,8 @@ import {
 	PreRequestHookDecision,
 	PreToolUseHookDecision,
 	ToolCallId,
-} from '../../src/index.ts'
-import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner.ts'
+} from '../../src/index'
+import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
 
 const makePrompt = () =>
 	Prompt.fromMessages([
@@ -56,7 +56,7 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 		expect(preRequest).toEqual({ _tag: 'unchanged' })
 		expect(preToolUse).toEqual({ _tag: 'continue', params })
 		expect(postToolUse).toEqual({ _tag: 'keep' })
-		expect(onComplete).toEqual({ _tag: 'allow' })
+		expect(onComplete).toEqual({ _tag: 'complete' })
 	}).pipe(Effect.provide(hookRunnerNoop)),
 )
 

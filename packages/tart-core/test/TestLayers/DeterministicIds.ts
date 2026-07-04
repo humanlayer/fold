@@ -1,6 +1,6 @@
 import { Effect, Layer, Ref } from 'effect'
 
-import { AgentId, CompactionId, Ids, MessageId, SessionId, StateId, ToolCallId } from '../../src/index.ts'
+import { AgentId, CompactionId, Ids, MessageId, SessionId, StateId, ToolCallId } from '../../src/index'
 
 export type DeterministicIdsOptions = {
 	readonly start?: number

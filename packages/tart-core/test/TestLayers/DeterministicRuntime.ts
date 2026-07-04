@@ -1,7 +1,7 @@
 import { Layer } from 'effect'
 
-import { layerDeterministicClock, type DeterministicClockOptions } from './DeterministicClock.ts'
-import { layerDeterministicIds, type DeterministicIdsOptions } from './DeterministicIds.ts'
+import { layerDeterministicClock, type DeterministicClockOptions } from './DeterministicClock'
+import { layerDeterministicIds, type DeterministicIdsOptions } from './DeterministicIds'
 
 export type DeterministicRuntimeOptions = DeterministicIdsOptions & DeterministicClockOptions
 
