@@ -2,7 +2,13 @@ import { expect, it } from '@effect/vitest'
 import { Deferred, Effect, Fiber, Layer, Schema } from 'effect'
 import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
 
-import { layerMemory, liveToolRuntimeLayer, ToolRuntime, toolsetLayerFromToolkit } from '../../src/index'
+import {
+	layerMemory,
+	liveToolRuntimeLayer,
+	messagesForAgent,
+	ToolRuntime,
+	toolsetLayerFromToolkit,
+} from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
 import { agentId, collectEntries, layerNoopToolEvents, toolCallId } from './ToolRuntimeTestHelpers'
@@ -79,6 +85,15 @@ it.effect('writes a synthetic interrupted tool-result when a running tool fiber 
 		if (toolResult?._tag !== 'tool-result') return
 
 		expect(toolResult.message.content[0]).toMatchObject({
+			type: 'tool-result',
+			id: 'tool_call_aaaaaaaaaaaaaaaaaaaaaaaa',
+			name: 'block',
+			isFailure: true,
+			result: '<system-information>The user interrupted the execution of this tool call.</system-information>',
+		})
+
+		const projectedToolResult = messagesForAgent(entries, agentId).find((message) => message._tag === 'tool-result')
+		expect(projectedToolResult?.message.content[0]).toMatchObject({
 			type: 'tool-result',
 			id: 'tool_call_aaaaaaaaaaaaaaaaaaaaaaaa',
 			name: 'block',
