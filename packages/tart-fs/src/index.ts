@@ -1,1 +1,1 @@
-export * from './EventLog/JsonlLayer.ts'
+export * from './EventLog/JsonlLayer'

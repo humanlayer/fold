@@ -19,5 +19,6 @@
 	"typescript.updateImportsOnFileMove.enabled": "always",
 	"files.associations": {
 		"*.mdx": "markdown"
-	}
+	},
+	"js/ts.tsdk.path": "node_modules/typescript/lib"
 }

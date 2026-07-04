@@ -4,7 +4,7 @@
 	// is enabled by default. Setting `plugins` overrides the default set; we keep
 	// typescript + oxc and add `vitest` (rules are API-gated to test files). `react` is
 	// omitted until tart has React code.
-	"plugins": ["typescript", "oxc", "vitest"],
+	"plugins": ["typescript", "oxc", "vitest", "import"],
 	"ignorePatterns": ["**/node_modules/**", "**/dist/**"],
 	"rules": {
 		// Tighten barrel files to errors.
@@ -16,5 +16,25 @@
 		// Effect generator, which the vitest plugin can't see as a test block. Disabled to
 		// avoid a false positive on every Effect test.
 		"vitest/no-standalone-expect": "off",
+		// Disallow `.ts` extensions in imports; TypeScript resolves them without extensions.
+		"import/extensions": ["error", "never"],
 	},
+	"overrides": [
+		{
+			// The vitest-config package needs explicit `.ts` extensions for Node's strict
+			// ESM resolution when Vite externalizes the workspace package.
+			"files": ["packages/vitest-config/**/*.ts"],
+			"rules": {
+				"import/extensions": "off",
+			},
+		},
+		{
+			// Package entrypoints are intentional public API barrels; the no-barrel rule
+			// remains enabled for internal modules.
+			"files": ["packages/*/src/index.ts"],
+			"rules": {
+				"oxc/no-barrel-file": "off",
+			},
+		},
+	],
 }

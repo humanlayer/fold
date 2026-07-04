@@ -1,4 +1,4 @@
-import { createId, isCuid } from '@paralleldrive/cuid2'
+import { createId } from '@paralleldrive/cuid2'
 import { Brand, Schema } from 'effect'
 
 // ---------------------------------------------------------------------------

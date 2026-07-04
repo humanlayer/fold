@@ -5,7 +5,7 @@ import { it, expect } from '@effect/vitest'
 import { AgentId, EventLog, EventLogCorruptEntryError, SessionId, type LogEntryInput } from '@humanlayer/tart-core'
 import { Effect, Fiber, FileSystem, Stream } from 'effect'
 
-import { layerJsonl } from '../../src/index.ts'
+import { layerJsonl } from '../../src/index'
 
 const makeSessionStarted = (cwd: string): LogEntryInput => ({
 	_tag: 'session_started',
