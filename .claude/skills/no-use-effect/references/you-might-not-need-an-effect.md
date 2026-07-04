@@ -3,6 +3,7 @@ Title: You Might Not Need an Effect – React
 URL Source: https://react.dev/learn/you-might-not-need-an-effect
 
 Markdown Content:
+
 # You Might Not Need an Effect – React
 
 [![Image 1: logo by @sawaratsuki1004](https://react.dev/_next/image?url=%2Fimages%2Fuwu.png&w=128&q=75)](https://react.dev/)
@@ -27,74 +28,74 @@ Search⌘Ctrl K
 
 ### GET STARTED
 
-*   [Quick Start](https://react.dev/learn "Quick Start")
+- [Quick Start](https://react.dev/learn 'Quick Start')
 
-    *   [Tutorial: Tic-Tac-Toe](https://react.dev/learn/tutorial-tic-tac-toe "Tutorial: Tic-Tac-Toe")
-    *   [Thinking in React](https://react.dev/learn/thinking-in-react "Thinking in React")
+    - [Tutorial: Tic-Tac-Toe](https://react.dev/learn/tutorial-tic-tac-toe 'Tutorial: Tic-Tac-Toe')
+    - [Thinking in React](https://react.dev/learn/thinking-in-react 'Thinking in React')
 
-*   [Installation](https://react.dev/learn/installation "Installation")
+- [Installation](https://react.dev/learn/installation 'Installation')
 
-    *   [Creating a React App](https://react.dev/learn/creating-a-react-app "Creating a React App")
-    *   [Build a React App from Scratch](https://react.dev/learn/build-a-react-app-from-scratch "Build a React App from Scratch")
-    *   [Add React to an Existing Project](https://react.dev/learn/add-react-to-an-existing-project "Add React to an Existing Project")
+    - [Creating a React App](https://react.dev/learn/creating-a-react-app 'Creating a React App')
+    - [Build a React App from Scratch](https://react.dev/learn/build-a-react-app-from-scratch 'Build a React App from Scratch')
+    - [Add React to an Existing Project](https://react.dev/learn/add-react-to-an-existing-project 'Add React to an Existing Project')
 
-*   [Setup](https://react.dev/learn/setup "Setup")
+- [Setup](https://react.dev/learn/setup 'Setup')
 
-    *   [Editor Setup](https://react.dev/learn/editor-setup "Editor Setup")
-    *   [Using TypeScript](https://react.dev/learn/typescript "Using TypeScript")
-    *   [React Developer Tools](https://react.dev/learn/react-developer-tools "React Developer Tools")
+    - [Editor Setup](https://react.dev/learn/editor-setup 'Editor Setup')
+    - [Using TypeScript](https://react.dev/learn/typescript 'Using TypeScript')
+    - [React Developer Tools](https://react.dev/learn/react-developer-tools 'React Developer Tools')
 
-*   [React Compiler](https://react.dev/learn/react-compiler "React Compiler")
+- [React Compiler](https://react.dev/learn/react-compiler 'React Compiler')
 
-    *   [Introduction](https://react.dev/learn/react-compiler/introduction "Introduction")
-    *   [Installation](https://react.dev/learn/react-compiler/installation "Installation")
-    *   [Incremental Adoption](https://react.dev/learn/react-compiler/incremental-adoption "Incremental Adoption")
-    *   [Debugging and Troubleshooting](https://react.dev/learn/react-compiler/debugging "Debugging and Troubleshooting")
+    - [Introduction](https://react.dev/learn/react-compiler/introduction 'Introduction')
+    - [Installation](https://react.dev/learn/react-compiler/installation 'Installation')
+    - [Incremental Adoption](https://react.dev/learn/react-compiler/incremental-adoption 'Incremental Adoption')
+    - [Debugging and Troubleshooting](https://react.dev/learn/react-compiler/debugging 'Debugging and Troubleshooting')
 
 ### LEARN REACT
 
-*   [Describing the UI](https://react.dev/learn/describing-the-ui "Describing the UI")
+- [Describing the UI](https://react.dev/learn/describing-the-ui 'Describing the UI')
 
-    *   [Your First Component](https://react.dev/learn/your-first-component "Your First Component")
-    *   [Importing and Exporting Components](https://react.dev/learn/importing-and-exporting-components "Importing and Exporting Components")
-    *   [Writing Markup with JSX](https://react.dev/learn/writing-markup-with-jsx "Writing Markup with JSX")
-    *   [JavaScript in JSX with Curly Braces](https://react.dev/learn/javascript-in-jsx-with-curly-braces "JavaScript in JSX with Curly Braces")
-    *   [Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component "Passing Props to a Component")
-    *   [Conditional Rendering](https://react.dev/learn/conditional-rendering "Conditional Rendering")
-    *   [Rendering Lists](https://react.dev/learn/rendering-lists "Rendering Lists")
-    *   [Keeping Components Pure](https://react.dev/learn/keeping-components-pure "Keeping Components Pure")
-    *   [Your UI as a Tree](https://react.dev/learn/understanding-your-ui-as-a-tree "Your UI as a Tree")
+    - [Your First Component](https://react.dev/learn/your-first-component 'Your First Component')
+    - [Importing and Exporting Components](https://react.dev/learn/importing-and-exporting-components 'Importing and Exporting Components')
+    - [Writing Markup with JSX](https://react.dev/learn/writing-markup-with-jsx 'Writing Markup with JSX')
+    - [JavaScript in JSX with Curly Braces](https://react.dev/learn/javascript-in-jsx-with-curly-braces 'JavaScript in JSX with Curly Braces')
+    - [Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component 'Passing Props to a Component')
+    - [Conditional Rendering](https://react.dev/learn/conditional-rendering 'Conditional Rendering')
+    - [Rendering Lists](https://react.dev/learn/rendering-lists 'Rendering Lists')
+    - [Keeping Components Pure](https://react.dev/learn/keeping-components-pure 'Keeping Components Pure')
+    - [Your UI as a Tree](https://react.dev/learn/understanding-your-ui-as-a-tree 'Your UI as a Tree')
 
-*   [Adding Interactivity](https://react.dev/learn/adding-interactivity "Adding Interactivity")
+- [Adding Interactivity](https://react.dev/learn/adding-interactivity 'Adding Interactivity')
 
-    *   [Responding to Events](https://react.dev/learn/responding-to-events "Responding to Events")
-    *   [State: A Component's Memory](https://react.dev/learn/state-a-components-memory "State: A Component's Memory")
-    *   [Render and Commit](https://react.dev/learn/render-and-commit "Render and Commit")
-    *   [State as a Snapshot](https://react.dev/learn/state-as-a-snapshot "State as a Snapshot")
-    *   [Queueing a Series of State Updates](https://react.dev/learn/queueing-a-series-of-state-updates "Queueing a Series of State Updates")
-    *   [Updating Objects in State](https://react.dev/learn/updating-objects-in-state "Updating Objects in State")
-    *   [Updating Arrays in State](https://react.dev/learn/updating-arrays-in-state "Updating Arrays in State")
+    - [Responding to Events](https://react.dev/learn/responding-to-events 'Responding to Events')
+    - [State: A Component's Memory](https://react.dev/learn/state-a-components-memory "State: A Component's Memory")
+    - [Render and Commit](https://react.dev/learn/render-and-commit 'Render and Commit')
+    - [State as a Snapshot](https://react.dev/learn/state-as-a-snapshot 'State as a Snapshot')
+    - [Queueing a Series of State Updates](https://react.dev/learn/queueing-a-series-of-state-updates 'Queueing a Series of State Updates')
+    - [Updating Objects in State](https://react.dev/learn/updating-objects-in-state 'Updating Objects in State')
+    - [Updating Arrays in State](https://react.dev/learn/updating-arrays-in-state 'Updating Arrays in State')
 
-*   [Managing State](https://react.dev/learn/managing-state "Managing State")
+- [Managing State](https://react.dev/learn/managing-state 'Managing State')
 
-    *   [Reacting to Input with State](https://react.dev/learn/reacting-to-input-with-state "Reacting to Input with State")
-    *   [Choosing the State Structure](https://react.dev/learn/choosing-the-state-structure "Choosing the State Structure")
-    *   [Sharing State Between Components](https://react.dev/learn/sharing-state-between-components "Sharing State Between Components")
-    *   [Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state "Preserving and Resetting State")
-    *   [Extracting State Logic into a Reducer](https://react.dev/learn/extracting-state-logic-into-a-reducer "Extracting State Logic into a Reducer")
-    *   [Passing Data Deeply with Context](https://react.dev/learn/passing-data-deeply-with-context "Passing Data Deeply with Context")
-    *   [Scaling Up with Reducer and Context](https://react.dev/learn/scaling-up-with-reducer-and-context "Scaling Up with Reducer and Context")
+    - [Reacting to Input with State](https://react.dev/learn/reacting-to-input-with-state 'Reacting to Input with State')
+    - [Choosing the State Structure](https://react.dev/learn/choosing-the-state-structure 'Choosing the State Structure')
+    - [Sharing State Between Components](https://react.dev/learn/sharing-state-between-components 'Sharing State Between Components')
+    - [Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state 'Preserving and Resetting State')
+    - [Extracting State Logic into a Reducer](https://react.dev/learn/extracting-state-logic-into-a-reducer 'Extracting State Logic into a Reducer')
+    - [Passing Data Deeply with Context](https://react.dev/learn/passing-data-deeply-with-context 'Passing Data Deeply with Context')
+    - [Scaling Up with Reducer and Context](https://react.dev/learn/scaling-up-with-reducer-and-context 'Scaling Up with Reducer and Context')
 
-*   [Escape Hatches](https://react.dev/learn/escape-hatches "Escape Hatches")
+- [Escape Hatches](https://react.dev/learn/escape-hatches 'Escape Hatches')
 
-    *   [Referencing Values with Refs](https://react.dev/learn/referencing-values-with-refs "Referencing Values with Refs")
-    *   [Manipulating the DOM with Refs](https://react.dev/learn/manipulating-the-dom-with-refs "Manipulating the DOM with Refs")
-    *   [Synchronizing with Effects](https://react.dev/learn/synchronizing-with-effects "Synchronizing with Effects")
-    *   [You Might Not Need an Effect](https://react.dev/learn/you-might-not-need-an-effect "You Might Not Need an Effect")
-    *   [Lifecycle of Reactive Effects](https://react.dev/learn/lifecycle-of-reactive-effects "Lifecycle of Reactive Effects")
-    *   [Separating Events from Effects](https://react.dev/learn/separating-events-from-effects "Separating Events from Effects")
-    *   [Removing Effect Dependencies](https://react.dev/learn/removing-effect-dependencies "Removing Effect Dependencies")
-    *   [Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks "Reusing Logic with Custom Hooks")
+    - [Referencing Values with Refs](https://react.dev/learn/referencing-values-with-refs 'Referencing Values with Refs')
+    - [Manipulating the DOM with Refs](https://react.dev/learn/manipulating-the-dom-with-refs 'Manipulating the DOM with Refs')
+    - [Synchronizing with Effects](https://react.dev/learn/synchronizing-with-effects 'Synchronizing with Effects')
+    - [You Might Not Need an Effect](https://react.dev/learn/you-might-not-need-an-effect 'You Might Not Need an Effect')
+    - [Lifecycle of Reactive Effects](https://react.dev/learn/lifecycle-of-reactive-effects 'Lifecycle of Reactive Effects')
+    - [Separating Events from Effects](https://react.dev/learn/separating-events-from-effects 'Separating Events from Effects')
+    - [Removing Effect Dependencies](https://react.dev/learn/removing-effect-dependencies 'Removing Effect Dependencies')
+    - [Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks 'Reusing Logic with Custom Hooks')
 
 [Learn React](https://react.dev/learn)
 
@@ -102,31 +103,31 @@ Search⌘Ctrl K
 
 Copy page Copy
 
-# You Might Not Need an Effect[](https://react.dev/learn/you-might-not-need-an-effect#undefined "Link for this heading")
+# You Might Not Need an Effect[](https://react.dev/learn/you-might-not-need-an-effect#undefined 'Link for this heading')
 
 Effects are an escape hatch from the React paradigm. They let you “step outside” of React and synchronize your components with some external system like a non-React widget, network, or the browser DOM. If there is no external system involved (for example, if you want to update a component’s state when some props or state change), you shouldn’t need an Effect. Removing unnecessary Effects will make your code easier to follow, faster to run, and less error-prone.
 
 ### You will learn
 
-*   Why and how to remove unnecessary Effects from your components
-*   How to cache expensive computations without Effects
-*   How to reset and adjust component state without Effects
-*   How to share logic between event handlers
-*   Which logic should be moved to event handlers
-*   How to notify parent components about changes
+- Why and how to remove unnecessary Effects from your components
+- How to cache expensive computations without Effects
+- How to reset and adjust component state without Effects
+- How to share logic between event handlers
+- Which logic should be moved to event handlers
+- How to notify parent components about changes
 
-## How to remove unnecessary Effects [](https://react.dev/learn/you-might-not-need-an-effect#how-to-remove-unnecessary-effects "Link for How to remove unnecessary Effects ")
+## How to remove unnecessary Effects [](https://react.dev/learn/you-might-not-need-an-effect#how-to-remove-unnecessary-effects 'Link for How to remove unnecessary Effects ')
 
 There are two common cases in which you don’t need Effects:
 
-*   **You don’t need Effects to transform data for rendering.** For example, let’s say you want to filter a list before displaying it. You might feel tempted to write an Effect that updates a state variable when the list changes. However, this is inefficient. When you update the state, React will first call your component functions to calculate what should be on the screen. Then React will [“commit”](https://react.dev/learn/render-and-commit) these changes to the DOM, updating the screen. Then React will run your Effects. If your Effect _also_ immediately updates the state, this restarts the whole process from scratch! To avoid the unnecessary render passes, transform all the data at the top level of your components. That code will automatically re-run whenever your props or state change.
-*   **You don’t need Effects to handle user events.** For example, let’s say you want to send an `/api/buy` POST request and show a notification when the user buys a product. In the Buy button click event handler, you know exactly what happened. By the time an Effect runs, you don’t know _what_ the user did (for example, which button was clicked). This is why you’ll usually handle user events in the corresponding event handlers.
+- **You don’t need Effects to transform data for rendering.** For example, let’s say you want to filter a list before displaying it. You might feel tempted to write an Effect that updates a state variable when the list changes. However, this is inefficient. When you update the state, React will first call your component functions to calculate what should be on the screen. Then React will [“commit”](https://react.dev/learn/render-and-commit) these changes to the DOM, updating the screen. Then React will run your Effects. If your Effect _also_ immediately updates the state, this restarts the whole process from scratch! To avoid the unnecessary render passes, transform all the data at the top level of your components. That code will automatically re-run whenever your props or state change.
+- **You don’t need Effects to handle user events.** For example, let’s say you want to send an `/api/buy` POST request and show a notification when the user buys a product. In the Buy button click event handler, you know exactly what happened. By the time an Effect runs, you don’t know _what_ the user did (for example, which button was clicked). This is why you’ll usually handle user events in the corresponding event handlers.
 
 You _do_ need Effects to [synchronize](https://react.dev/learn/synchronizing-with-effects#what-are-effects-and-how-are-they-different-from-events) with external systems. For example, you can write an Effect that keeps a jQuery widget synchronized with the React state. You can also fetch data with Effects: for example, you can synchronize the search results with the current search query. Keep in mind that modern [frameworks](https://react.dev/learn/creating-a-react-app#full-stack-frameworks) provide more efficient built-in data fetching mechanisms than writing Effects directly in your components.
 
 To help you gain the right intuition, let’s look at some common concrete examples!
 
-### Updating state based on props or state [](https://react.dev/learn/you-might-not-need-an-effect#updating-state-based-on-props-or-state "Link for Updating state based on props or state ")
+### Updating state based on props or state [](https://react.dev/learn/you-might-not-need-an-effect#updating-state-based-on-props-or-state 'Link for Updating state based on props or state ')
 
 Suppose you have a component with two state variables: `firstName` and `lastName`. You want to calculate a `fullName` from them by concatenating them. Moreover, you’d like `fullName` to update whenever `firstName` or `lastName` change. Your first instinct might be to add a `fullName` state variable and update it in an Effect:
 
@@ -138,7 +139,7 @@ This is more complicated than necessary. It is inefficient too: it does an entir
 
 **When something can be calculated from the existing props or state, [don’t put it in state.](https://react.dev/learn/choosing-the-state-structure#avoid-redundant-state) Instead, calculate it during rendering.** This makes your code faster (you avoid the extra “cascading” updates), simpler (you remove some code), and less error-prone (you avoid bugs caused by different state variables getting out of sync with each other). If this approach feels new to you, [Thinking in React](https://react.dev/learn/thinking-in-react#step-3-find-the-minimal-but-complete-representation-of-ui-state) explains what should go into state.
 
-### Caching expensive calculations [](https://react.dev/learn/you-might-not-need-an-effect#caching-expensive-calculations "Link for Caching expensive calculations ")
+### Caching expensive calculations [](https://react.dev/learn/you-might-not-need-an-effect#caching-expensive-calculations 'Link for Caching expensive calculations ')
 
 This component computes `visibleTodos` by taking the `todos` it receives by props and filtering them according to the `filter` prop. You might feel tempted to store the result in state and update it from an Effect:
 
@@ -168,7 +169,7 @@ The function you wrap in [`useMemo`](https://react.dev/reference/react/useMemo) 
 
 ##### Deep Dive
 
-#### How to tell if a calculation is expensive? [](https://react.dev/learn/you-might-not-need-an-effect#how-to-tell-if-a-calculation-is-expensive "Link for How to tell if a calculation is expensive? ")
+#### How to tell if a calculation is expensive? [](https://react.dev/learn/you-might-not-need-an-effect#how-to-tell-if-a-calculation-is-expensive 'Link for How to tell if a calculation is expensive? ')
 
 Show Details
 
@@ -186,7 +187,7 @@ Keep in mind that your machine is probably faster than your users’ so it’s a
 
 Also note that measuring performance in development will not give you the most accurate results. (For example, when [Strict Mode](https://react.dev/reference/react/StrictMode) is on, you will see each component render twice rather than once.) To get the most accurate timings, build your app for production and test it on a device like your users have.
 
-### Resetting all state when a prop changes [](https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes "Link for Resetting all state when a prop changes ")
+### Resetting all state when a prop changes [](https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes 'Link for Resetting all state when a prop changes ')
 
 This `ProfilePage` component receives a `userId` prop. The page contains a comment input, and you use a `comment` state variable to hold its value. One day, you notice a problem: when you navigate from one profile to another, the `comment` state does not get reset. As a result, it’s easy to accidentally post a comment on a wrong user’s profile. To fix the issue, you want to clear out the `comment` state variable whenever the `userId` changes:
 
@@ -202,7 +203,7 @@ Normally, React preserves the state when the same component is rendered in the s
 
 Note that in this example, only the outer `ProfilePage` component is exported and visible to other files in the project. Components rendering `ProfilePage` don’t need to pass the key to it: they pass `userId` as a regular prop. The fact `ProfilePage` passes it as a `key` to the inner `Profile` component is an implementation detail.
 
-### Adjusting some state when a prop changes [](https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes "Link for Adjusting some state when a prop changes ")
+### Adjusting some state when a prop changes [](https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes 'Link for Adjusting some state when a prop changes ')
 
 Sometimes, you might want to reset or adjust a part of the state on a prop change, but not all of it.
 
@@ -226,7 +227,7 @@ When you update a component during rendering, React throws away the returned JSX
 
 Now there is no need to “adjust” the state at all. If the item with the selected ID is in the list, it remains selected. If it’s not, the `selection` calculated during rendering will be `null` because no matching item was found. This behavior is different, but arguably better because most changes to `items` preserve the selection.
 
-### Sharing logic between event handlers [](https://react.dev/learn/you-might-not-need-an-effect#sharing-logic-between-event-handlers "Link for Sharing logic between event handlers ")
+### Sharing logic between event handlers [](https://react.dev/learn/you-might-not-need-an-effect#sharing-logic-between-event-handlers 'Link for Sharing logic between event handlers ')
 
 Let’s say you have a product page with two buttons (Buy and Checkout) that both let you buy that product. You want to show a notification whenever the user puts the product in the cart. Calling `showNotification()` in both buttons’ click handlers feels repetitive so you might be tempted to place this logic in an Effect:
 
@@ -240,7 +241,7 @@ This Effect is unnecessary. It will also most likely cause bugs. For example, le
 
 This both removes the unnecessary Effect and fixes the bug.
 
-### Sending a POST request [](https://react.dev/learn/you-might-not-need-an-effect#sending-a-post-request "Link for Sending a POST request ")
+### Sending a POST request [](https://react.dev/learn/you-might-not-need-an-effect#sending-a-post-request 'Link for Sending a POST request ')
 
 This `Form` component sends two kinds of POST requests. It sends an analytics event when it mounts. When you fill in the form and click the Submit button, it will send a POST request to the `/api/register` endpoint:
 
@@ -256,7 +257,7 @@ However, the `/api/register` POST request is not caused by the form being _displ
 
 When you choose whether to put some logic into an event handler or an Effect, the main question you need to answer is _what kind of logic_ it is from the user’s perspective. If this logic is caused by a particular interaction, keep it in the event handler. If it’s caused by the user _seeing_ the component on the screen, keep it in the Effect.
 
-### Chains of computations [](https://react.dev/learn/you-might-not-need-an-effect#chains-of-computations "Link for Chains of computations ")
+### Chains of computations [](https://react.dev/learn/you-might-not-need-an-effect#chains-of-computations 'Link for Chains of computations ')
 
 Sometimes you might feel tempted to chain Effects that each adjust a piece of state based on other state:
 
@@ -278,7 +279,7 @@ Remember that inside event handlers, [state behaves like a snapshot.](https://re
 
 In some cases, you _can’t_ calculate the next state directly in the event handler. For example, imagine a form with multiple dropdowns where the options of the next dropdown depend on the selected value of the previous dropdown. Then, a chain of Effects is appropriate because you are synchronizing with network.
 
-### Initializing the application [](https://react.dev/learn/you-might-not-need-an-effect#initializing-the-application "Link for Initializing the application ")
+### Initializing the application [](https://react.dev/learn/you-might-not-need-an-effect#initializing-the-application 'Link for Initializing the application ')
 
 Some logic should only run once when the app loads.
 
@@ -298,7 +299,7 @@ You can also run it during module initialization and before the app renders:
 
 Code at the top level runs once when your component is imported—even if it doesn’t end up being rendered. To avoid slowdown or surprising behavior when importing arbitrary components, don’t overuse this pattern. Keep app-wide initialization logic to root component modules like `App.js` or in your application’s entry point.
 
-### Notifying parent components about state changes [](https://react.dev/learn/you-might-not-need-an-effect#notifying-parent-components-about-state-changes "Link for Notifying parent components about state changes ")
+### Notifying parent components about state changes [](https://react.dev/learn/you-might-not-need-an-effect#notifying-parent-components-about-state-changes 'Link for Notifying parent components about state changes ')
 
 Let’s say you’re writing a `Toggle` component with an internal `isOn` state which can be either `true` or `false`. There are a few different ways to toggle it (by clicking or dragging). You want to notify the parent component whenever the `Toggle` internal state changes, so you expose an `onChange` event and call it from an Effect:
 
@@ -318,7 +319,7 @@ You might also be able to remove the state altogether, and instead receive `isOn
 
 [“Lifting state up”](https://react.dev/learn/sharing-state-between-components) lets the parent component fully control the `Toggle` by toggling the parent’s own state. This means the parent component will have to contain more logic, but there will be less state overall to worry about. Whenever you try to keep two different state variables synchronized, try lifting state up instead!
 
-### Passing data to the parent [](https://react.dev/learn/you-might-not-need-an-effect#passing-data-to-the-parent "Link for Passing data to the parent ")
+### Passing data to the parent [](https://react.dev/learn/you-might-not-need-an-effect#passing-data-to-the-parent 'Link for Passing data to the parent ')
 
 This `Child` component fetches some data and then passes it to the `Parent` component in an Effect:
 
@@ -330,7 +331,7 @@ In React, data flows from the parent components to their children. When you see 
 
 This is simpler and keeps the data flow predictable: the data flows down from the parent to the child.
 
-### Subscribing to an external store [](https://react.dev/learn/you-might-not-need-an-effect#subscribing-to-an-external-store "Link for Subscribing to an external store ")
+### Subscribing to an external store [](https://react.dev/learn/you-might-not-need-an-effect#subscribing-to-an-external-store 'Link for Subscribing to an external store ')
 
 Sometimes, your components may need to subscribe to some data outside of the React state. This data could be from a third-party library or a built-in browser API. Since this data can change without React’s knowledge, you need to manually subscribe your components to it. This is often done with an Effect, for example:
 
@@ -344,7 +345,7 @@ Although it’s common to use Effects for this, React has a purpose-built Hook f
 
 This approach is less error-prone than manually syncing mutable data to React state with an Effect. Typically, you’ll write a custom Hook like `useOnlineStatus()` above so that you don’t need to repeat this code in the individual components. [Read more about subscribing to external stores from React components.](https://react.dev/reference/react/useSyncExternalStore)
 
-### Fetching data [](https://react.dev/learn/you-might-not-need-an-effect#fetching-data "Link for Fetching data ")
+### Fetching data [](https://react.dev/learn/you-might-not-need-an-effect#fetching-data 'Link for Fetching data ')
 
 Many apps use Effects to kick off data fetching. It is quite common to write a data fetching Effect like this:
 
@@ -376,24 +377,24 @@ You’ll likely also want to add some logic for error handling and to track whet
 
 In general, whenever you have to resort to writing Effects, keep an eye out for when you can extract a piece of functionality into a custom Hook with a more declarative and purpose-built API like `useData` above. The fewer raw `useEffect` calls you have in your components, the easier you will find to maintain your application.
 
-## Recap[](https://react.dev/learn/you-might-not-need-an-effect#recap "Link for Recap")
+## Recap[](https://react.dev/learn/you-might-not-need-an-effect#recap 'Link for Recap')
 
-*   If you can calculate something during render, you don’t need an Effect.
-*   To cache expensive calculations, add `useMemo` instead of `useEffect`.
-*   To reset the state of an entire component tree, pass a different `key` to it.
-*   To reset a particular bit of state in response to a prop change, set it during rendering.
-*   Code that runs because a component was _displayed_ should be in Effects, the rest should be in events.
-*   If you need to update the state of several components, it’s better to do it during a single event.
-*   Whenever you try to synchronize state variables in different components, consider lifting state up.
-*   You can fetch data with Effects, but you need to implement cleanup to avoid race conditions.
+- If you can calculate something during render, you don’t need an Effect.
+- To cache expensive calculations, add `useMemo` instead of `useEffect`.
+- To reset the state of an entire component tree, pass a different `key` to it.
+- To reset a particular bit of state in response to a prop change, set it during rendering.
+- Code that runs because a component was _displayed_ should be in Effects, the rest should be in events.
+- If you need to update the state of several components, it’s better to do it during a single event.
+- Whenever you try to synchronize state variables in different components, consider lifting state up.
+- You can fetch data with Effects, but you need to implement cleanup to avoid race conditions.
 
-## Try out some challenges[](https://react.dev/learn/you-might-not-need-an-effect#challenges "Link for Try out some challenges")
+## Try out some challenges[](https://react.dev/learn/you-might-not-need-an-effect#challenges 'Link for Try out some challenges')
 
-1. Transform data without Effects 2. Cache a calculation without Effects 3. Reset state without Effects 4. Submit a form without Effects 
+1. Transform data without Effects 2. Cache a calculation without Effects 3. Reset state without Effects 4. Submit a form without Effects
 
-#### Challenge 1 of 4: 
+#### Challenge 1 of 4:
 
-Transform data without Effects [](https://react.dev/learn/you-might-not-need-an-effect#transform-data-without-effects "Link for this heading")
+Transform data without Effects [](https://react.dev/learn/you-might-not-need-an-effect#transform-data-without-effects 'Link for this heading')
 
 The `TodoList` below displays a list of todos. When the “Show only active todos” checkbox is ticked, completed todos are not displayed in the list. Regardless of which todos are visible, the footer displays the count of todos that are not yet completed.
 
@@ -403,73 +404,75 @@ App.js todos.js
 
 App.js
 
-Reload Clear[Fork](https://codesandbox.io/api/v1/sandboxes/define?undefined&environment=create-react-app "Open in CodeSandbox")
+Reload Clear[Fork](https://codesandbox.io/api/v1/sandboxes/define?undefined&environment=create-react-app 'Open in CodeSandbox')
 
 import { useState, useEffect } from 'react';
 import { initialTodos, createTodo } from './todos.js';
 
 export default function TodoList() {
-  const [todos, setTodos] = useState(initialTodos);
-  const [showActive, setShowActive] = useState(false);
-  const [activeTodos, setActiveTodos] = useState([]);
-  const [visibleTodos, setVisibleTodos] = useState([]);
-  const [footer, setFooter] = useState(null);
+const [todos, setTodos] = useState(initialTodos);
+const [showActive, setShowActive] = useState(false);
+const [activeTodos, setActiveTodos] = useState([]);
+const [visibleTodos, setVisibleTodos] = useState([]);
+const [footer, setFooter] = useState(null);
 
-  useEffect(() => {
-    setActiveTodos(todos.filter(todo => !todo.completed));
-  }, [todos]);
+useEffect(() => {
+setActiveTodos(todos.filter(todo => !todo.completed));
+}, [todos]);
 
-  useEffect(() => {
-    setVisibleTodos(showActive ? activeTodos : todos);
-  }, [showActive, todos, activeTodos]);
+useEffect(() => {
+setVisibleTodos(showActive ? activeTodos : todos);
+}, [showActive, todos, activeTodos]);
 
-  useEffect(() => {
-    setFooter(
-      <footer>
-        {activeTodos.length} todos left
-      </footer>
-    );
-  }, [activeTodos]);
+useEffect(() => {
+setFooter(
 
-  return (
-    <>
-      <label>
-        <input
-          type="checkbox"
-          checked={showActive}
-          onChange={e => setShowActive(e.target.checked)}
-        />
-        Show only active todos
-      </label>
-      <NewTodo onAdd={newTodo => setTodos([...todos, newTodo])} />
-      <ul>
-        {visibleTodos.map(todo => (
-          <li key={todo.id}>
-            {todo.completed ? <s>{todo.text}</s> : todo.text}
-          </li>
-        ))}
-      </ul>
-      {footer}
-    </>
-  );
+<footer>
+{activeTodos.length} todos left
+</footer>
+);
+}, [activeTodos]);
+
+return (
+<>
+<label>
+<input
+type="checkbox"
+checked={showActive}
+onChange={e => setShowActive(e.target.checked)}
+/>
+Show only active todos
+</label>
+<NewTodo onAdd={newTodo => setTodos([...todos, newTodo])} />
+
+<ul>
+{visibleTodos.map(todo => (
+<li key={todo.id}>
+{todo.completed ? <s>{todo.text}</s> : todo.text}
+</li>
+))}
+</ul>
+{footer}
+</>
+);
 }
 
 function NewTodo({ onAdd }) {
-  const [text, setText] = useState('');
+const [text, setText] = useState('');
 
-  function handleAddClick() {
-    setText('');
-    onAdd(createTodo(text));
-  }
+function handleAddClick() {
+setText('');
+onAdd(createTodo(text));
+}
 
-  return (
-    <>
-      <input value={text} onChange={e => setText(e.target.value)} />
-      <button onClick={handleAddClick}>
-        Add
-      </button>
-    </>
-  );
+return (
+<>
+<input value={text} onChange={e => setText(e.target.value)} />
+<button onClick={handleAddClick}>
+Add
+</button>
+</>
+);
 }
 
 Show more
@@ -480,7 +483,7 @@ Next Challenge
 
 [Previous Synchronizing with Effects](https://react.dev/learn/synchronizing-with-effects)[Next Lifecycle of Reactive Effects](https://react.dev/learn/lifecycle-of-reactive-effects)
 
-* * *
+---
 
 [](https://opensource.fb.com/)
 
@@ -536,19 +539,19 @@ More
 
 ## On this page
 
-*   [Overview](https://react.dev/learn/you-might-not-need-an-effect#)
-*   [How to remove unnecessary Effects](https://react.dev/learn/you-might-not-need-an-effect#how-to-remove-unnecessary-effects)
-*   [Updating state based on props or state](https://react.dev/learn/you-might-not-need-an-effect#updating-state-based-on-props-or-state)
-*   [Caching expensive calculations](https://react.dev/learn/you-might-not-need-an-effect#caching-expensive-calculations)
-*   [Resetting all state when a prop changes](https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes)
-*   [Adjusting some state when a prop changes](https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
-*   [Sharing logic between event handlers](https://react.dev/learn/you-might-not-need-an-effect#sharing-logic-between-event-handlers)
-*   [Sending a POST request](https://react.dev/learn/you-might-not-need-an-effect#sending-a-post-request)
-*   [Chains of computations](https://react.dev/learn/you-might-not-need-an-effect#chains-of-computations)
-*   [Initializing the application](https://react.dev/learn/you-might-not-need-an-effect#initializing-the-application)
-*   [Notifying parent components about state changes](https://react.dev/learn/you-might-not-need-an-effect#notifying-parent-components-about-state-changes)
-*   [Passing data to the parent](https://react.dev/learn/you-might-not-need-an-effect#passing-data-to-the-parent)
-*   [Subscribing to an external store](https://react.dev/learn/you-might-not-need-an-effect#subscribing-to-an-external-store)
-*   [Fetching data](https://react.dev/learn/you-might-not-need-an-effect#fetching-data)
-*   [Recap](https://react.dev/learn/you-might-not-need-an-effect#recap)
-*   [Challenges](https://react.dev/learn/you-might-not-need-an-effect#challenges)
+- [Overview](https://react.dev/learn/you-might-not-need-an-effect#)
+- [How to remove unnecessary Effects](https://react.dev/learn/you-might-not-need-an-effect#how-to-remove-unnecessary-effects)
+- [Updating state based on props or state](https://react.dev/learn/you-might-not-need-an-effect#updating-state-based-on-props-or-state)
+- [Caching expensive calculations](https://react.dev/learn/you-might-not-need-an-effect#caching-expensive-calculations)
+- [Resetting all state when a prop changes](https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes)
+- [Adjusting some state when a prop changes](https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
+- [Sharing logic between event handlers](https://react.dev/learn/you-might-not-need-an-effect#sharing-logic-between-event-handlers)
+- [Sending a POST request](https://react.dev/learn/you-might-not-need-an-effect#sending-a-post-request)
+- [Chains of computations](https://react.dev/learn/you-might-not-need-an-effect#chains-of-computations)
+- [Initializing the application](https://react.dev/learn/you-might-not-need-an-effect#initializing-the-application)
+- [Notifying parent components about state changes](https://react.dev/learn/you-might-not-need-an-effect#notifying-parent-components-about-state-changes)
+- [Passing data to the parent](https://react.dev/learn/you-might-not-need-an-effect#passing-data-to-the-parent)
+- [Subscribing to an external store](https://react.dev/learn/you-might-not-need-an-effect#subscribing-to-an-external-store)
+- [Fetching data](https://react.dev/learn/you-might-not-need-an-effect#fetching-data)
+- [Recap](https://react.dev/learn/you-might-not-need-an-effect#recap)
+- [Challenges](https://react.dev/learn/you-might-not-need-an-effect#challenges)

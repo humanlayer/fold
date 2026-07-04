@@ -485,9 +485,9 @@ Create `agent-browser.json` in the project root for persistent settings:
 
 ```json
 {
-  "headed": true,
-  "proxy": "http://localhost:8080",
-  "profile": "./browser-data"
+	"headed": true,
+	"proxy": "http://localhost:8080",
+	"profile": "./browser-data"
 }
 ```
 
@@ -500,32 +500,36 @@ Priority (lowest to highest): `~/.agent-browser/config.json` < `./agent-browser.
 When adding agent-browser verification steps to a plan:
 
 1. **Check for existing authenticated profile** before writing test steps:
-   ```bash
-   ls -la ~/.agent-browser/profiles/
-   ```
+
+    ```bash
+    ls -la ~/.agent-browser/profiles/
+    ```
 
 2. **If no profile exists**, tell the user to set one up:
-   ```
-   I need to set up an authenticated browser session for the test steps.
-   Run: agent-browser --headed --profile ~/.agent-browser/profiles/riptide open http://localhost:3000
-   Log in, then let me know when done.
-   ```
+
+    ```
+    I need to set up an authenticated browser session for the test steps.
+    Run: agent-browser --headed --profile ~/.agent-browser/profiles/riptide open http://localhost:3000
+    Log in, then let me know when done.
+    ```
 
 3. **Verify the session works** before finalizing the plan:
-   ```bash
-   agent-browser --profile ~/.agent-browser/profiles/riptide open http://localhost:3000 && \
-   agent-browser wait --load networkidle && \
-   agent-browser snapshot -i | head -5
-   ```
-   If you see a login page instead of app content, the session needs to be re-authenticated.
+
+    ```bash
+    agent-browser --profile ~/.agent-browser/profiles/riptide open http://localhost:3000 && \
+    agent-browser wait --load networkidle && \
+    agent-browser snapshot -i | head -5
+    ```
+
+    If you see a login page instead of app content, the session needs to be re-authenticated.
 
 4. **Use `--profile` not `--session-name`** for apps with httpOnly cookies (most auth flows):
-   - `--session-name` only persists localStorage/sessionStorage
-   - `--profile ~/.agent-browser/profiles/<app>` persists cookies, IndexedDB, and cache
+    - `--session-name` only persists localStorage/sessionStorage
+    - `--profile ~/.agent-browser/profiles/<app>` persists cookies, IndexedDB, and cache
 
 5. **Standard profile paths**:
-   - `~/.agent-browser/profiles/riptide` - riptide-ui at localhost:3000
-   - `~/.agent-browser/profiles/storybook` - Storybook (usually no auth needed)
+    - `~/.agent-browser/profiles/riptide` - riptide-ui at localhost:3000
+    - `~/.agent-browser/profiles/storybook` - Storybook (usually no auth needed)
 
 </important>
 
@@ -534,34 +538,37 @@ When adding agent-browser verification steps to a plan:
 When a plan contains agent-browser verification steps:
 
 1. **Before running agent-browser commands**, verify the profile exists and is authenticated:
-   ```bash
-   agent-browser --profile ~/.agent-browser/profiles/riptide open http://localhost:3000 && \
-   agent-browser wait --load networkidle && \
-   agent-browser snapshot -i | head -5
-   ```
+
+    ```bash
+    agent-browser --profile ~/.agent-browser/profiles/riptide open http://localhost:3000 && \
+    agent-browser wait --load networkidle && \
+    agent-browser snapshot -i | head -5
+    ```
 
 2. **If you see a login page**, stop and tell the user:
-   ```
-   The browser session needs re-authentication.
-   Run: agent-browser close && agent-browser --headed --profile ~/.agent-browser/profiles/riptide open http://localhost:3000
-   Log in, then let me know when done.
-   ```
+
+    ```
+    The browser session needs re-authentication.
+    Run: agent-browser close && agent-browser --headed --profile ~/.agent-browser/profiles/riptide open http://localhost:3000
+    Log in, then let me know when done.
+    ```
 
 3. **If the dev server isn't running**, tell the user:
-   ```
-   The dev server doesn't appear to be running at localhost:3000.
-   Start it with: bun run riptide (web) or bun run riptide:native (native app)
-   ```
+
+    ```
+    The dev server doesn't appear to be running at localhost:3000.
+    Start it with: bun run riptide (web) or bun run riptide:native (native app)
+    ```
 
 4. **After verification steps fail**, don't just report failure - diagnose:
-   - Take a screenshot: `agent-browser screenshot /tmp/debug.png`
-   - Check console errors: `agent-browser errors`
-   - Get current URL: `agent-browser get url`
+    - Take a screenshot: `agent-browser screenshot /tmp/debug.png`
+    - Check console errors: `agent-browser errors`
+    - Get current URL: `agent-browser get url`
 
 5. **Clean up after testing**:
-   ```bash
-   agent-browser close
-   ```
+    ```bash
+    agent-browser close
+    ```
 
 </important>
 
@@ -594,6 +601,7 @@ agent-browser --engine lightpanda --executable-path /path/to/lightpanda open exa
 ```
 
 Supported engines:
+
 - `chrome` (default) -- Chrome/Chromium via CDP
 - `lightpanda` -- Lightpanda headless browser via CDP (10x faster, 10x less memory than Chrome)
 

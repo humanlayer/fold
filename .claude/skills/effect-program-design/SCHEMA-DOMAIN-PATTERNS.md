@@ -36,7 +36,7 @@ in public service inputs and persisted schemas; callers should not pass position
 
 ```ts
 export type WidgetService = {
-  readonly listWidgets: (input: { readonly organizationId: OrganizationId }) => Effect.Effect<readonly Widget[]>
+	readonly listWidgets: (input: { readonly organizationId: OrganizationId }) => Effect.Effect<readonly Widget[]>
 }
 ```
 
@@ -48,17 +48,17 @@ Small constrained values should also start as schemas.
 import { Schema } from 'effect'
 
 export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
-  identifier: 'LogSeq',
+	identifier: 'LogSeq',
 })
 export type LogSeq = typeof LogSeq.Type
 
 export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
-  identifier: 'EpochMillis',
+	identifier: 'EpochMillis',
 })
 export type EpochMillis = typeof EpochMillis.Type
 
 export const ProviderKind = Schema.Literals(['anthropic', 'openai-compatible', 'codex']).annotate({
-  identifier: 'ProviderKind',
+	identifier: 'ProviderKind',
 })
 export type ProviderKind = typeof ProviderKind.Type
 ```
@@ -85,59 +85,59 @@ export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotat
 export type LogSeq = typeof LogSeq.Type
 
 export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
-  identifier: 'EpochMillis',
+	identifier: 'EpochMillis',
 })
 export type EpochMillis = typeof EpochMillis.Type
 
 const StoredEnvelopeFields = {
-  seq: LogSeq,
-  ts: EpochMillis,
+	seq: LogSeq,
+	ts: EpochMillis,
 } as const
 
 const AgentScopedFields = {
-  agentId: AgentId,
-  parentAgentId: Schema.NullOr(AgentId),
+	agentId: AgentId,
+	parentAgentId: Schema.NullOr(AgentId),
 } as const
 
 export class UserMessageInput extends Schema.TaggedClass<UserMessageInput>()('user-message', {
-  ...AgentScopedFields,
-  messageId: MessageId,
-  text: Schema.String,
+	...AgentScopedFields,
+	messageId: MessageId,
+	text: Schema.String,
 }) {}
 export type UserMessageInput = typeof UserMessageInput.Type
 
 export class UserMessageEntry extends Schema.TaggedClass<UserMessageEntry>()('user-message', {
-  ...StoredEnvelopeFields,
-  ...AgentScopedFields,
-  messageId: MessageId,
-  text: Schema.String,
+	...StoredEnvelopeFields,
+	...AgentScopedFields,
+	messageId: MessageId,
+	text: Schema.String,
 }) {}
 export type UserMessageEntry = typeof UserMessageEntry.Type
 
 export class ToolResultInput extends Schema.TaggedClass<ToolResultInput>()('tool-result', {
-  ...AgentScopedFields,
-  messageId: MessageId,
-  output: Schema.String,
+	...AgentScopedFields,
+	messageId: MessageId,
+	output: Schema.String,
 }) {}
 export type ToolResultInput = typeof ToolResultInput.Type
 
 export class ToolResultEntry extends Schema.TaggedClass<ToolResultEntry>()('tool-result', {
-  ...StoredEnvelopeFields,
-  ...AgentScopedFields,
-  messageId: MessageId,
-  output: Schema.String,
+	...StoredEnvelopeFields,
+	...AgentScopedFields,
+	messageId: MessageId,
+	output: Schema.String,
 }) {}
 export type ToolResultEntry = typeof ToolResultEntry.Type
 
 export const LogEntryInput = Schema.Union([UserMessageInput, ToolResultInput]).annotate({
-  identifier: 'LogEntryInput',
-  discriminator: '_tag',
+	identifier: 'LogEntryInput',
+	discriminator: '_tag',
 })
 export type LogEntryInput = typeof LogEntryInput.Type
 
 export const LogEntry = Schema.Union([UserMessageEntry, ToolResultEntry]).annotate({
-  identifier: 'LogEntry',
-  discriminator: '_tag',
+	identifier: 'LogEntry',
+	discriminator: '_tag',
 })
 export type LogEntry = typeof LogEntry.Type
 ```
@@ -148,28 +148,28 @@ duplicating TypeScript object types. If a variant has invariants, pass a checked
 
 ```ts
 type AgentRunContext = {
-  readonly parentAgentId: AgentId | null
-  readonly toolCallId: ToolCallId | null
+	readonly parentAgentId: AgentId | null
+	readonly toolCallId: ToolCallId | null
 }
 
 const AgentRunContextFilter = Schema.makeFilter<AgentRunContext>(
-  ({ parentAgentId, toolCallId }) => {
-    const bothNull = parentAgentId === null && toolCallId === null
-    const bothSet = parentAgentId !== null && toolCallId !== null
+	({ parentAgentId, toolCallId }) => {
+		const bothNull = parentAgentId === null && toolCallId === null
+		const bothSet = parentAgentId !== null && toolCallId !== null
 
-    return bothNull || bothSet ? undefined : 'parentAgentId and toolCallId must both be null or both be set'
-  },
-  { identifier: 'AgentRunContext' },
+		return bothNull || bothSet ? undefined : 'parentAgentId and toolCallId must both be null or both be set'
+	},
+	{ identifier: 'AgentRunContext' },
 )
 
 export class AgentStartedInput extends Schema.TaggedClass<AgentStartedInput>()(
-  'agent-started',
-  Schema.Struct({
-    agentId: AgentId,
-    parentAgentId: Schema.NullOr(AgentId),
-    toolCallId: Schema.NullOr(ToolCallId),
-    model: Schema.String,
-  }).check(AgentRunContextFilter),
+	'agent-started',
+	Schema.Struct({
+		agentId: AgentId,
+		parentAgentId: Schema.NullOr(AgentId),
+		toolCallId: Schema.NullOr(ToolCallId),
+		model: Schema.String,
+	}).check(AgentRunContextFilter),
 ) {}
 export type AgentStartedInput = typeof AgentStartedInput.Type
 ```
@@ -188,27 +188,27 @@ import { Schema } from 'effect'
 import { OrganizationId } from './ids'
 
 export const WidgetOperation = Schema.Literals(['list', 'sync', 'notify']).annotate({
-  identifier: 'WidgetOperation',
+	identifier: 'WidgetOperation',
 })
 export type WidgetOperation = typeof WidgetOperation.Type
 
 export class WidgetUnavailableError extends Schema.TaggedErrorClass<WidgetUnavailableError>()(
-  'WidgetUnavailableError',
-  {
-    operation: WidgetOperation,
-    retryable: Schema.Boolean,
-    message: Schema.String,
-    cause: Schema.optional(Schema.Defect()),
-  },
+	'WidgetUnavailableError',
+	{
+		operation: WidgetOperation,
+		retryable: Schema.Boolean,
+		message: Schema.String,
+		cause: Schema.optional(Schema.Defect()),
+	},
 ) {}
 
 export class WidgetNeedsReauthError extends Schema.TaggedErrorClass<WidgetNeedsReauthError>()(
-  'WidgetNeedsReauthError',
-  {
-    operation: WidgetOperation,
-    organizationId: OrganizationId,
-    message: Schema.String,
-  },
+	'WidgetNeedsReauthError',
+	{
+		operation: WidgetOperation,
+		organizationId: OrganizationId,
+		message: Schema.String,
+	},
 ) {}
 
 export type WidgetError = WidgetUnavailableError | WidgetNeedsReauthError
@@ -223,10 +223,10 @@ Decode at trust boundaries and keep service internals typed.
 
 ```ts
 const decodeLogEntry = (input: unknown): Effect.Effect<LogEntry, ParseError> =>
-  Schema.decodeUnknownEffect(LogEntry)(input)
+	Schema.decodeUnknownEffect(LogEntry)(input)
 
 const encodeLogEntry = (entry: LogEntry): Effect.Effect<typeof LogEntry.Encoded, ParseError> =>
-  Schema.encodeUnknownEffect(LogEntry)(entry)
+	Schema.encodeUnknownEffect(LogEntry)(entry)
 ```
 
 Use `Schema.decodeUnknownEffect` for inbound JSON, webhooks, CLI input, provider responses, and JSONL/database
@@ -237,29 +237,29 @@ JSON blobs. Use `Schema.encodeUnknownEffect` before persisting or sending schema
 ```ts
 // Wrong: schema and type can drift.
 export const UserMessage = Schema.Struct({
-  messageId: MessageId,
-  text: Schema.String,
+	messageId: MessageId,
+	text: Schema.String,
 })
 export type UserMessage = {
-  readonly messageId: string
-  readonly text: string
+	readonly messageId: string
+	readonly text: string
 }
 
 // Wrong: identity values are interchangeable strings.
 export type AppendInput = {
-  readonly agentId: string
-  readonly messageId: string
+	readonly agentId: string
+	readonly messageId: string
 }
 
 // Wrong: tagged union exists only in TypeScript and cannot decode/encode itself.
 export type LogEntry =
-  | { readonly _tag: 'user-message'; readonly messageId: MessageId; readonly text: string }
-  | { readonly _tag: 'tool-result'; readonly messageId: MessageId; readonly output: string }
+	| { readonly _tag: 'user-message'; readonly messageId: MessageId; readonly text: string }
+	| { readonly _tag: 'tool-result'; readonly messageId: MessageId; readonly output: string }
 
 // Wrong: expected error is not schema-modeled.
 export class WidgetUnavailableError extends Data.TaggedError('WidgetUnavailableError')<{
-  readonly message: string
-  readonly cause?: unknown
+	readonly message: string
+	readonly cause?: unknown
 }> {}
 ```
 

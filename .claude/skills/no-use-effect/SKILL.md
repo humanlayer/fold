@@ -1,10 +1,10 @@
 ---
 name: no-use-effect
 description: |
-  Enforce the no-useEffect rule when writing or reviewing React code.
-  ACTIVATE when writing React components, refactoring existing useEffect calls,
-  reviewing PRs with useEffect, or when an agent adds useEffect "just in case."
-  Provides the five replacement patterns and the useMountEffect escape hatch.
+    Enforce the no-useEffect rule when writing or reviewing React code.
+    ACTIVATE when writing React components, refactoring existing useEffect calls,
+    reviewing PRs with useEffect, or when an agent adds useEffect "just in case."
+    Provides the five replacement patterns and the useMountEffect escape hatch.
 ---
 
 # No useEffect
@@ -12,15 +12,16 @@ description: |
 Never call `useEffect` directly. Use derived state, event handlers, data-fetching libraries, or `useMountEffect` instead.
 
 ## Quick Reference
-This skill is dervied from the  React docs: [You Might Not Need an Effect]($SKILLBASE/references/you-might-not-need-an-effect.md). IMPORTANT: when this skill is invoked you MUST read this post in entirety.
 
-| Instead of useEffect for... | Use |
-|----------------------------|-----|
-| Deriving state from other state/props | Inline computation (Rule 1) |
-| Fetching data | `useQuery` / data-fetching library (Rule 2) |
-| Responding to user actions | Event handlers (Rule 3) |
-| One-time external sync on mount | `useMountEffect` (Rule 4) |
-| Resetting state when a prop changes | `key` prop on parent (Rule 5) |
+This skill is dervied from the React docs: [You Might Not Need an Effect]($SKILLBASE/references/you-might-not-need-an-effect.md). IMPORTANT: when this skill is invoked you MUST read this post in entirety.
+
+| Instead of useEffect for...           | Use                                         |
+| ------------------------------------- | ------------------------------------------- |
+| Deriving state from other state/props | Inline computation (Rule 1)                 |
+| Fetching data                         | `useQuery` / data-fetching library (Rule 2) |
+| Responding to user actions            | Event handlers (Rule 3)                     |
+| One-time external sync on mount       | `useMountEffect` (Rule 4)                   |
+| Resetting state when a prop changes   | `key` prop on parent (Rule 5)               |
 
 ## When to Use This Skill
 
@@ -54,8 +55,8 @@ The implementation wraps `useEffect` with an empty dependency array to make inte
 
 ```typescript
 export function useMountEffect(effect: () => void | (() => void)) {
-  /* eslint-disable no-restricted-syntax */
-  useEffect(effect, []);
+	/* eslint-disable no-restricted-syntax */
+	useEffect(effect, [])
 }
 ```
 
@@ -68,18 +69,18 @@ Most effects that set state from other state are unnecessary and add extra rende
 ```typescript
 // BAD: Two render cycles - first stale, then filtered
 function ProductList() {
-  const [products, setProducts] = useState([]);
-  const [filteredProducts, setFilteredProducts] = useState([]);
+	const [products, setProducts] = useState([])
+	const [filteredProducts, setFilteredProducts] = useState([])
 
-  useEffect(() => {
-    setFilteredProducts(products.filter((p) => p.inStock));
-  }, [products]);
+	useEffect(() => {
+		setFilteredProducts(products.filter((p) => p.inStock))
+	}, [products])
 }
 
 // GOOD: Compute inline in one render
 function ProductList() {
-  const [products, setProducts] = useState([]);
-  const filteredProducts = products.filter((p) => p.inStock);
+	const [products, setProducts] = useState([])
+	const filteredProducts = products.filter((p) => p.inStock)
 }
 ```
 
@@ -92,18 +93,16 @@ Effect-based fetching creates race conditions and duplicated caching logic.
 ```typescript
 // BAD: Race condition risk
 function ProductPage({ productId }) {
-  const [product, setProduct] = useState(null);
+	const [product, setProduct] = useState(null)
 
-  useEffect(() => {
-    fetchProduct(productId).then(setProduct);
-  }, [productId]);
+	useEffect(() => {
+		fetchProduct(productId).then(setProduct)
+	}, [productId])
 }
 
 // GOOD: Query library handles cancellation/caching/staleness
 function ProductPage({ productId }) {
-  const { data: product } = useQuery(['product', productId], () =>
-    fetchProduct(productId)
-  );
+	const { data: product } = useQuery(['product', productId], () => fetchProduct(productId))
 }
 ```
 
@@ -164,16 +163,16 @@ Use `useMountEffect` for stable dependencies (singletons, refs, context values t
 ```typescript
 // BAD: useEffect with dependency that never changes
 useEffect(() => {
-  connectionManager.on('connected', handleConnect);
-  return () => connectionManager.off('connected', handleConnect);
-}, [connectionManager]); // connectionManager is a singleton from context
+	connectionManager.on('connected', handleConnect)
+	return () => connectionManager.off('connected', handleConnect)
+}, [connectionManager]) // connectionManager is a singleton from context
 
 // GOOD: useMountEffect for stable dependencies
 
 useMountEffect(() => {
-  connectionManager.on('connected', handleConnect);
-  return () => connectionManager.off('connected', handleConnect);
-});
+	connectionManager.on('connected', handleConnect)
+	return () => connectionManager.off('connected', handleConnect)
+})
 ```
 
 **Smell test:** You are synchronizing with an external system, and the behavior is naturally "setup on mount, cleanup on unmount."
