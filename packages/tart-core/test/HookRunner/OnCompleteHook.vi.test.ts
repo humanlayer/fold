@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import { AgentId, HookRunner, makeHookRunner, type OnCompleteHook } from '../../src'
+import { AgentId, HookRunner, type OnCompleteHook } from '../../src'
+import { runWithHookRunner } from '../TestLayers/HookRunnerTestHarness'
 
 describe('HookRunner onComplete hooks', () => {
 	it.effect('runs complete hooks in order', () =>
@@ -24,10 +25,17 @@ describe('HookRunner onComplete hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.onComplete({ agentId: AgentId.create(), resultText: 'done' })
-			}).pipe(Effect.provide(makeHookRunner({ onComplete: hooks })))
+			const result = yield* runWithHookRunner(
+				{ onComplete: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.onComplete({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						resultText: 'done',
+					})
+				}),
+			)
 
 			expect(calls).toEqual(['first', 'second'])
 			expect(result).toEqual({ _tag: 'complete' })
@@ -54,10 +62,17 @@ describe('HookRunner onComplete hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.onComplete({ agentId: AgentId.create(), resultText: 'done' })
-			}).pipe(Effect.provide(makeHookRunner({ onComplete: hooks })))
+			const result = yield* runWithHookRunner(
+				{ onComplete: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.onComplete({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						resultText: 'done',
+					})
+				}),
+			)
 
 			expect(calls).toEqual(['continue'])
 			expect(result).toEqual({ _tag: 'continueWith', text: 'keep going' })

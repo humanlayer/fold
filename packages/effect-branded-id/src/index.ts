@@ -6,15 +6,6 @@ import { Brand, Schema } from 'effect'
 // ---------------------------------------------------------------------------
 
 /**
- * Attaches static factory methods to a schema.
- * Inspired by opencode's statics pattern.
- */
-const statics =
-	<S extends object, M extends Record<string, unknown>>(methods: (schema: S) => M) =>
-	(schema: S): S & M =>
-		Object.assign(schema, methods(schema))
-
-/**
  * Prefix validation regex - lowercase letters and underscores, 1-63 chars
  */
 const prefixRegex = /^[a-z][a-z_]{0,61}[a-z]?$/
@@ -124,6 +115,59 @@ type DefaultBrandName<Prefix extends string> = Prefix extends `${infer Head}_${i
 	: `${Capitalize<Prefix>}Id`
 
 /**
+ * Runtime counterpart of {@link DefaultBrandName}. The overloads of {@link makeBrandedId} carry the
+ * type-level derivation, so this stays a plain string function with no assertions.
+ */
+const defaultBrandName = (prefix: string): string =>
+	`${prefix
+		.split('_')
+		.map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
+		.join('')}Id`
+
+/** Build the branded schema plus static helpers for one (prefix, brand) pair. */
+const makeBrandedIdSchema = <const Name extends string>(prefix: string, brand: Name) => {
+	// Validation function that checks both prefix and CUID
+	const isValid = (input: string): boolean => parseId(input, prefix) !== null
+
+	// Create error message based on input
+	const getErrorMessage = (input: string): string => {
+		const separatorIndex = input.lastIndexOf('_')
+		if (separatorIndex === -1) {
+			return `Invalid ${brand}: missing prefix, expected format "${prefix}_<cuid2>"`
+		}
+		const actualPrefix = input.slice(0, separatorIndex)
+		if (actualPrefix !== prefix) {
+			return `Invalid ${brand}: expected prefix "${prefix}_", got "${actualPrefix}_"`
+		}
+		return `Invalid ${brand}: invalid CUID2 suffix`
+	}
+
+	// Create a filter using Effect 4.x API: Schema.makeFilter
+	const idFilter = Schema.makeFilter<string>((input) => (isValid(input) ? undefined : getErrorMessage(input)), {
+		identifier: brand,
+	})
+
+	// String -> check with filter -> brand
+	const base = Schema.String.check(idFilter).pipe(Schema.brand(brand))
+
+	// The schema's own branded Type. For any concrete brand this is exactly `BrandedId<Name>`;
+	// annotating against the schema type keeps `create`/`is` provable without assertions.
+	type Id = (typeof base)['Type']
+
+	return Object.assign(base, {
+		brand,
+		prefix,
+		create: (): Id => base.make(`${prefix}_${createId()}`),
+		is: (input: string): input is Id => isValid(input),
+	})
+}
+
+/**
+ * The schema type produced by {@link makeBrandedId}: the branded string schema plus static helpers.
+ */
+export type BrandedIdSchema<Name extends string> = ReturnType<typeof makeBrandedIdSchema<Name>>
+
+/**
  * Creates a branded ID schema with a custom prefix and CUID2 suffix.
  *
  * The generated IDs follow the format: `{prefix}_{cuid2}`
@@ -152,10 +196,12 @@ type DefaultBrandName<Prefix extends string> = Prefix extends `${infer Head}_${i
  * @param options - Optional configuration including custom brand name
  * @returns A branded ID schema with create/make/is methods
  */
-export const makeBrandedId = <const Prefix extends string, const Name extends string = DefaultBrandName<Prefix>>(
+export function makeBrandedId<const Prefix extends string, const Name extends string>(
 	prefix: Prefix,
-	options?: BrandedIdOptions<Name>,
-) => {
+	options: BrandedIdOptions<Name>,
+): BrandedIdSchema<Name>
+export function makeBrandedId<const Prefix extends string>(prefix: Prefix): BrandedIdSchema<DefaultBrandName<Prefix>>
+export function makeBrandedId(prefix: string, options?: BrandedIdOptions<string>): BrandedIdSchema<string> {
 	// Validate prefix at schema creation time
 	if (!isValidPrefix(prefix)) {
 		throw new Error(
@@ -163,45 +209,7 @@ export const makeBrandedId = <const Prefix extends string, const Name extends st
 		)
 	}
 
-	// Derive brand name from prefix if not provided
-	const brand = (options?.brand ??
-		prefix
-			.split('_')
-			.map((part) => `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}`)
-			.join('') + 'Id') as Name
-
-	// Validation function that checks both prefix and CUID
-	const isValid = (input: string): boolean => parseId(input, prefix) !== null
-
-	// Create error message based on input
-	const getErrorMessage = (input: string): string => {
-		const separatorIndex = input.lastIndexOf('_')
-		if (separatorIndex === -1) {
-			return `Invalid ${brand}: missing prefix, expected format "${prefix}_<cuid2>"`
-		}
-		const actualPrefix = input.slice(0, separatorIndex)
-		if (actualPrefix !== prefix) {
-			return `Invalid ${brand}: expected prefix "${prefix}_", got "${actualPrefix}_"`
-		}
-		return `Invalid ${brand}: invalid CUID2 suffix`
-	}
-
-	// Create a filter using Effect 4.x API: Schema.makeFilter
-	const idFilter = Schema.makeFilter<string>((input) => (isValid(input) ? undefined : getErrorMessage(input)), {
-		identifier: brand,
-	})
-
-	// Build the schema using pipe pattern like opencode:
-	// String -> check with filter -> brand -> statics
-	return Schema.String.check(idFilter).pipe(
-		Schema.brand(brand),
-		statics((s) => ({
-			brand,
-			prefix,
-			create: (): BrandedId<Name> => s.make(`${prefix}_${createId()}`) as unknown as BrandedId<Name>,
-			is: (input: string): input is BrandedId<Name> => isValid(input),
-		})),
-	)
+	return makeBrandedIdSchema(prefix, options?.brand ?? defaultBrandName(prefix))
 }
 
 // ---------------------------------------------------------------------------

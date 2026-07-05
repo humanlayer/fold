@@ -5,6 +5,10 @@
  */
 import { Context, Effect, Stream } from 'effect'
 import { Toolkit } from 'effect/unstable/ai'
+import type { Tool } from 'effect/unstable/ai'
+
+import type { StopController, ToolEvents } from './ToolContextServices'
+import type { ToolState } from './ToolStateService'
 
 /** Type-erased handler output from Effect AI Toolkit. Preliminary outputs are UI/progress only. */
 export type ToolHandlerOutput = {
@@ -20,8 +24,21 @@ export type ToolsetService = {
 	readonly names: Effect.Effect<ReadonlyArray<string>>
 	/** Return the underlying Effect AI Toolkit so prompt construction can advertise its schemas. */
 	readonly toolkit: Effect.Effect<Toolkit.Any>
-	/** Run one named handler with model-supplied parameters and stream its toolkit outputs. */
-	readonly handle: (name: string, params: unknown) => Effect.Effect<Stream.Stream<ToolHandlerOutput, unknown>>
+	/**
+	 * Return the resolved handler-bearing toolkit for model requests. AgentRuntime passes this to
+	 * `LanguageModel.streamText` with `disableToolCallResolution: true`, so the model sees the tool
+	 * schemas while tool execution stays owned by ToolRuntime.
+	 */
+	readonly withHandler: Effect.Effect<Toolkit.WithHandler<Record<string, Tool.Any>>>
+	/**
+	 * Run one named handler with model-supplied parameters and stream its toolkit outputs. Handler
+	 * streams may consume the ambient per-call services (ToolState, ToolEvents, StopController);
+	 * ToolRuntime provides them around consumption.
+	 */
+	readonly handle: (
+		name: string,
+		params: unknown,
+	) => Effect.Effect<Stream.Stream<ToolHandlerOutput, unknown, ToolState | ToolEvents | StopController>>
 }
 
 /** Active toolset shared by AgentRuntime and ToolRuntime. */

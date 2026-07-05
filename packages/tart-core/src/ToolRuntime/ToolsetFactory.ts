@@ -31,19 +31,25 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 	Layer.effect(
 		Toolset,
 		Effect.gen(function* () {
-			const withHandlers = yield* toolkit
+			// SAFETY: Toolkit's `handle` is typed for statically-known tool names, but this seam
+			// dispatches model-supplied names at runtime (guarded by `names.includes` below). TypeScript
+			// cannot express dynamic dispatch over a heterogeneous toolkit; the library erases internally
+			// for the same reason (Toolkit.ts: `handle: handle as any`). The one sanctioned assertion.
+			// oxlint-disable-next-line typescript/consistent-type-assertions
+			const withHandlers = (yield* toolkit) as unknown as Toolkit.WithHandler<Record<string, Tool.Any>>
 			const names = Object.keys(toolkit.tools)
 
 			return {
 				names: Effect.succeed(names),
 				toolkit: Effect.succeed(toolkit),
+				withHandler: Effect.succeed(withHandlers),
 
 				/** Run one named toolkit handler, mapping unavailable tools and startup failures to final outputs. */
 				handle: (name, params) => {
 					if (!names.includes(name))
 						return Effect.succeed(Stream.succeed(unavailableToolFailureOutput(name, names)))
 
-					return withHandlers.handle(name as keyof Tools, params as never).pipe(
+					return withHandlers.handle(name, params).pipe(
 						Effect.matchEffect({
 							onFailure: (cause) => Effect.succeed(Stream.succeed(toolStartupFailureOutput(name, cause))),
 							onSuccess: (stream) =>
@@ -57,7 +63,8 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 												preliminary: output.preliminary,
 											}),
 										),
-									) as Stream.Stream<ToolHandlerOutput, unknown>,
+										Stream.mapError((error): unknown => error),
+									),
 								),
 						}),
 					)

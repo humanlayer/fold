@@ -12,6 +12,10 @@
 		// Keep visible as warnings rather than off.
 		"typescript/no-explicit-any": "error",
 		"typescript/no-non-null-assertion": "error",
+		// No type assertions (`x as T`, `<T>x`): they bypass the type system and hide unsound code.
+		// Parse with schemas or narrow with type guards instead; `satisfies` checks without lying.
+		// `as const` stays allowed - const assertions only narrow literals and cannot lie.
+		"typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
 		// `@effect/vitest`'s `it.effect(() => Effect.gen(...))` places assertions inside an
 		// Effect generator, which the vitest plugin can't see as a test block. Disabled to
 		// avoid a false positive on every Effect test.

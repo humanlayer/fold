@@ -1,7 +1,7 @@
 import { Effect, Ref, Schema } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 
-import { defineToolState, ToolEvents, ToolState } from '../../src/index'
+import { defineToolState, StopController, ToolEvents, ToolState } from '../../src/index'
 
 export const EchoState = defineToolState({
 	namespace: 'echo',
@@ -16,7 +16,7 @@ export const EchoTool = Tool.make('echo', {
 	success: Schema.Struct({ echoed: Schema.String }),
 	failure: Schema.Struct({ message: Schema.String }),
 	failureMode: 'return',
-	dependencies: [ToolState, ToolEvents],
+	dependencies: [ToolState, ToolEvents, StopController],
 })
 
 export const TestToolkit = Toolkit.make(EchoTool)
@@ -62,6 +62,21 @@ export const layerEventfulEchoTool = (recorder: EchoRecorder) =>
 				Effect.gen(function* () {
 					const events = yield* ToolEvents
 					yield* events.emit({ progress: `working:${text}` })
+					yield* Ref.update(recorder.calls, (calls) => [...calls, text])
+
+					return { echoed: text }
+				}),
+		}),
+	)
+
+/** Echo variant that requests a cooperative stop mid-handler and still returns a normal result. */
+export const layerStoppingEchoTool = (recorder: EchoRecorder) =>
+	TestToolkit.toLayer(
+		TestToolkit.of({
+			echo: ({ text }) =>
+				Effect.gen(function* () {
+					const stop = yield* StopController
+					yield* stop.requestStop(`echo requested stop: ${text}`)
 					yield* Ref.update(recorder.calls, (calls) => [...calls, text])
 
 					return { echoed: text }

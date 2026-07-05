@@ -89,7 +89,11 @@ it.effect('memory append maps invalid input to EventLogInvalidEntryError', () =>
 		const error = yield* Effect.gen(function* () {
 			const log = yield* EventLog
 			return yield* log
-				.append({ ...(yield* makeSessionStarted('/tmp/bad')), version: 2 } as unknown as LogEntryInput)
+				.append(
+					// Intentionally invalid input: this test exercises append's schema-validation failure path.
+					// oxlint-disable-next-line typescript/consistent-type-assertions
+					{ ...(yield* makeSessionStarted('/tmp/bad')), version: 2 } as unknown as LogEntryInput,
+				)
 				.pipe(Effect.flip)
 		}).pipe(Effect.provide(testLayer))
 

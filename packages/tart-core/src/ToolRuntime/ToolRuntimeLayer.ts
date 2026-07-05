@@ -308,7 +308,7 @@ const finalOutputFromToolHandler = (input: {
 	readonly toolCallId: ToolCallId
 	readonly toolName: string
 	readonly params: unknown
-}): Effect.Effect<FinalToolOutput, never, Toolset | ToolEventSink> =>
+}): Effect.Effect<FinalToolOutput, never, Toolset | ToolEventSink | ToolState | ToolEvents | StopController> =>
 	Effect.gen(function* () {
 		const toolset = yield* Toolset
 		const stream = yield* toolset
@@ -411,7 +411,7 @@ const settlePreparedToolCall = (input: {
 		const output: Effect.Effect<
 			ToolResultAppendInput,
 			HookExecutionError,
-			HookRunner | StopController | Toolset | ToolEventSink
+			HookRunner | StopController | Toolset | ToolEventSink | ToolState | ToolEvents
 		> = Effect.gen(function* () {
 			if (input.prepared._tag === 'replaceResult') {
 				return {

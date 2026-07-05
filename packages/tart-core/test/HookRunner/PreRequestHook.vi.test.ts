@@ -2,7 +2,8 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
-import { AgentId, HookRunner, makeHookRunner, type PreRequestHook } from '../../src'
+import { AgentId, HookRunner, type PreRequestHook } from '../../src'
+import { runWithHookRunner } from '../TestLayers/HookRunnerTestHarness'
 
 const makePrompt = (text: string) =>
 	Prompt.fromMessages([
@@ -35,10 +36,17 @@ describe('HookRunner preRequest hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.preRequest({ agentId: AgentId.create(), prompt: originalPrompt })
-			}).pipe(Effect.provide(makeHookRunner({ preRequest: hooks })))
+			const result = yield* runWithHookRunner(
+				{ preRequest: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.preRequest({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						prompt: originalPrompt,
+					})
+				}),
+			)
 
 			expect(calls).toEqual([originalPrompt, firstPrompt])
 			expect(result).toEqual({ _tag: 'changed', prompt: secondPrompt })
@@ -59,10 +67,17 @@ describe('HookRunner preRequest hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.preRequest({ agentId: AgentId.create(), prompt: makePrompt('original') })
-			}).pipe(Effect.provide(makeHookRunner({ preRequest: hooks })))
+			const result = yield* runWithHookRunner(
+				{ preRequest: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.preRequest({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						prompt: makePrompt('original'),
+					})
+				}),
+			)
 
 			expect(result).toEqual({ _tag: 'changed', prompt: changedPrompt })
 		}),

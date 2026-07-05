@@ -2,7 +2,14 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { it, expect } from '@effect/vitest'
-import { AgentId, EventLog, EventLogCorruptEntryError, SessionId, type LogEntryInput } from '@humanlayer/tart-core'
+import {
+	AgentId,
+	EventLog,
+	EventLogCorruptEntryError,
+	SessionId,
+	StateId,
+	type LogEntryInput,
+} from '@humanlayer/tart-core'
 import { Effect, Fiber, FileSystem, Stream } from 'effect'
 
 import { layerJsonl } from '../../src/index'
@@ -19,6 +26,17 @@ const makeSessionStarted = (cwd: string): LogEntryInput => ({
 	meta: {},
 })
 
+const makeToolState = (value: unknown): LogEntryInput => ({
+	_tag: 'tool_state',
+	agentId: AgentId.create(),
+	parentAgentId: null,
+	toolCallId: null,
+	namespace: 'guard',
+	stateId: StateId.create(),
+	key: 'count',
+	value,
+})
+
 it.effect('jsonl layer writes one entry per line and reopens existing logs', () =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -30,6 +48,7 @@ it.effect('jsonl layer writes one entry per line and reopens existing logs', () 
 				const log = yield* EventLog
 				yield* log.append(makeSessionStarted('/tmp/one'))
 				yield* log.append(makeSessionStarted('/tmp/two'))
+				yield* log.append(makeToolState(41))
 
 				return yield* Stream.runCollect(log.entries())
 			}).pipe(Effect.provide(layerJsonl(filePath)))
@@ -41,11 +60,19 @@ it.effect('jsonl layer writes one entry per line and reopens existing logs', () 
 				return yield* Stream.runCollect(log.entries(1))
 			}).pipe(Effect.provide(layerJsonl(filePath)))
 
-			expect(firstRead.map((entry) => entry.seq)).toEqual([0, 1])
-			expect(lines).toHaveLength(2)
+			expect(firstRead.map((entry) => entry.seq)).toEqual([0, 1, 2])
+			expect(lines).toHaveLength(3)
 			expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ _tag: 'session_started', seq: 0 })
 			expect(JSON.parse(lines[1] ?? '{}')).toMatchObject({ _tag: 'session_started', seq: 1 })
-			expect(reopenedRead.map((entry) => entry.seq)).toEqual([1])
+			expect(JSON.parse(lines[2] ?? '{}')).toMatchObject({
+				_tag: 'tool_state',
+				seq: 2,
+				namespace: 'guard',
+				key: 'count',
+				value: 41,
+				toolCallId: null,
+			})
+			expect(reopenedRead.map((entry) => entry.seq)).toEqual([1, 2])
 		}),
 	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
@@ -64,8 +91,10 @@ it.effect('jsonl layer maps invalid persisted lines to EventLogCorruptEntryError
 				return yield* Stream.runCollect(log.entries())
 			}).pipe(Effect.provide(layerJsonl(filePath)), Effect.flip)
 
-			expect(error).toBeInstanceOf(EventLogCorruptEntryError)
-			expect((error as EventLogCorruptEntryError).line).toBe(1)
+			if (!(error instanceof EventLogCorruptEntryError)) {
+				throw new Error(`expected EventLogCorruptEntryError, got ${error._tag}`)
+			}
+			expect(error.line).toBe(1)
 		}),
 	).pipe(Effect.provide(NodeFileSystem.layer)),
 )

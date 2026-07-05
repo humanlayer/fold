@@ -48,5 +48,11 @@ export type StopControllerService = {
 	readonly isStopRequested: Effect.Effect<boolean>
 }
 
-/** Ambient stop controller. */
+/**
+ * Ambient stop controller. Intentionally provided by the caller's scope (a tool settlement batch or an
+ * agent run) and passed through service methods such as HookRunner's hook points, so any hook or tool
+ * handler can request a cooperative stop.
+ *
+ * @effect-leakable-service
+ */
 export class StopController extends Context.Service<StopController, StopControllerService>()('tart/StopController') {}

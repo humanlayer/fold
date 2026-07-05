@@ -7,14 +7,18 @@ import { Context, Effect, Schema } from 'effect'
 
 type ToolStateKeySchemas = Readonly<Record<string, Schema.ConstraintDecoder<unknown>>>
 type ToolStateKey<Keys extends ToolStateKeySchemas> = Extract<keyof Keys, string>
-type ToolStateValue<Keys extends ToolStateKeySchemas, Key extends ToolStateKey<Keys>> = Schema.Schema.Type<Keys[Key]>
+type ToolStateValue<Keys extends ToolStateKeySchemas, Key extends ToolStateKey<Keys>> = Keys[Key]['Type']
 
-/** Durable tool state access scoped to one agent and one namespace. */
+/**
+ * Durable tool state access scoped to one agent and one tool call. The namespace is supplied per
+ * operation - typically by a {@link defineToolState} definition passing its declared namespace - so the
+ * declaration is the single source of truth for which namespace a read or write targets.
+ */
 export type ToolStateService = {
-	/** Read a raw state value by key, returning null when no value has been written. */
-	readonly get: (key: string) => Effect.Effect<unknown>
-	/** Write or clear a raw state value by key. */
-	readonly set: (key: string, value: unknown) => Effect.Effect<void>
+	/** Read a raw state value by namespace and key, returning null when no value has been written. */
+	readonly get: (namespace: string, key: string) => Effect.Effect<unknown>
+	/** Write or clear a raw state value by namespace and key. */
+	readonly set: (namespace: string, key: string, value: unknown) => Effect.Effect<void>
 }
 
 /** Typed ToolState namespace definition for a tool or hook. */
@@ -41,12 +45,15 @@ export const defineToolState = <const Keys extends ToolStateKeySchemas>(input: {
 	readonly keys: Keys
 }): ToolStateDefinition<Keys> => {
 	/** Return the declared schema for one known key in this namespace. */
-	const schemaFor = <Key extends ToolStateKey<Keys>>(
-		key: Key,
-	): Schema.ConstraintDecoder<ToolStateValue<Keys, Key>> => {
-		// SAFETY: `key` is constrained to the declared keys of `input.keys`; TypeScript still widens indexed
-		// access under noUncheckedIndexedAccess for generic records.
-		return input.keys[key] as Schema.ConstraintDecoder<ToolStateValue<Keys, Key>>
+	const schemaFor = <Key extends ToolStateKey<Keys>>(key: Key): Keys[Key] => {
+		const schema = input.keys[key]
+
+		// `Key` is constrained to the declared keys, so absence means the definition itself is broken.
+		if (schema === undefined) {
+			throw new Error(`ToolState namespace "${input.namespace}" declares no schema for key "${key}"`)
+		}
+
+		return schema
 	}
 
 	/** Decode one candidate value with the schema declared for the requested key. */
@@ -59,11 +66,11 @@ export const defineToolState = <const Keys extends ToolStateKeySchemas>(input: {
 		namespace: input.namespace,
 		keys: input.keys,
 
-		/** Read and decode one key through the ambient ToolState service. */
+		/** Read and decode one key through the ambient ToolState service in this definition's namespace. */
 		get: (key) =>
 			ToolState.pipe(
 				Effect.flatMap((state) =>
-					state.get(key).pipe(
+					state.get(input.namespace, key).pipe(
 						Effect.flatMap((value) => {
 							if (value === null) return Effect.succeed(null)
 
@@ -73,13 +80,15 @@ export const defineToolState = <const Keys extends ToolStateKeySchemas>(input: {
 				),
 			),
 
-		/** Validate and write one key through the ambient ToolState service. */
+		/** Validate and write one key through the ambient ToolState service in this definition's namespace. */
 		set: (key, value) =>
 			ToolState.pipe(
 				Effect.flatMap((state) => {
-					if (value === null) return state.set(key, null)
+					if (value === null) return state.set(input.namespace, key, null)
 
-					return decodeValue(key, value).pipe(Effect.flatMap((decoded) => state.set(key, decoded)))
+					return decodeValue(key, value).pipe(
+						Effect.flatMap((decoded) => state.set(input.namespace, key, decoded)),
+					)
 				}),
 			),
 	}

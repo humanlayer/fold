@@ -300,11 +300,11 @@ export const ToolResultLogEntry = Schema.TaggedStruct('tool-result', {
 }).annotate({ identifier: 'ToolResultLogEntry' })
 export type ToolResultLogEntry = typeof ToolResultLogEntry.Type
 
-/** Input for a tool state update log entry. */
+/** Input for a tool state update log entry. toolCallId is null when a hook writes outside a tool call. */
 export const ToolStateLogEntryInput = Schema.TaggedStruct('tool_state', {
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
-	toolCallId: ToolCallId,
+	toolCallId: Schema.NullOr(ToolCallId),
 	namespace: Schema.String,
 	stateId: StateId,
 	key: Schema.String,
@@ -312,13 +312,13 @@ export const ToolStateLogEntryInput = Schema.TaggedStruct('tool_state', {
 }).annotate({ identifier: 'ToolStateLogEntryInput' })
 export type ToolStateLogEntryInput = typeof ToolStateLogEntryInput.Type
 
-/** Schema for a tool state update log entry. */
+/** Schema for a tool state update log entry. toolCallId is null when a hook writes outside a tool call. */
 export const ToolStateLogEntry = Schema.TaggedStruct('tool_state', {
 	seq: LogSeq,
 	ts: EpochMillis,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
-	toolCallId: ToolCallId,
+	toolCallId: Schema.NullOr(ToolCallId),
 	namespace: Schema.String,
 	stateId: StateId,
 	key: Schema.String,

@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Schema } from 'effect'
+import { Effect, Layer, Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import {
@@ -12,6 +12,7 @@ import {
 	ToolCallId,
 } from '../../src/index'
 import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
+import { layerNoopStopController } from '../TestLayers/TestStopController'
 
 const makePrompt = () =>
 	Prompt.fromMessages([
@@ -30,11 +31,13 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 
 		const preRequest = yield* hooks.preRequest({
 			agentId,
+			parentAgentId: null,
 			prompt,
 		})
 
 		const preToolUse = yield* hooks.preToolUse({
 			agentId,
+			parentAgentId: null,
 			toolCallId,
 			toolName: 'echo',
 			params,
@@ -42,6 +45,7 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 
 		const postToolUse = yield* hooks.postToolUse({
 			agentId,
+			parentAgentId: null,
 			toolCallId,
 			toolName: 'echo',
 			result: { echoed: 'hello' },
@@ -50,6 +54,7 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 
 		const onComplete = yield* hooks.onComplete({
 			agentId,
+			parentAgentId: null,
 			resultText: 'done',
 		})
 
@@ -57,7 +62,7 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 		expect(preToolUse).toEqual({ _tag: 'continue', params })
 		expect(postToolUse).toEqual({ _tag: 'keep' })
 		expect(onComplete).toEqual({ _tag: 'complete' })
-	}).pipe(Effect.provide(hookRunnerNoop)),
+	}).pipe(Effect.provide(Layer.mergeAll(hookRunnerNoop, layerNoopStopController))),
 )
 
 it.effect('defines schema-derived hook decision types', () =>

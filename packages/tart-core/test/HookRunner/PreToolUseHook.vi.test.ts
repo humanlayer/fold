@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import { AgentId, HookRunner, makeHookRunner, ToolCallId, type PreToolUseHook } from '../../src'
+import { AgentId, HookRunner, ToolCallId, type PreToolUseHook } from '../../src'
+import { runWithHookRunner } from '../TestLayers/HookRunnerTestHarness'
 
 describe('HookRunner preToolUse hooks', () => {
 	it.effect('runs hooks in order and passes updated params to the next hook', () =>
@@ -24,15 +25,19 @@ describe('HookRunner preToolUse hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.preToolUse({
-					agentId: AgentId.create(),
-					toolCallId: ToolCallId.create(),
-					toolName: 'echo',
-					params: { step: 0 },
-				})
-			}).pipe(Effect.provide(makeHookRunner({ preToolUse: hooks })))
+			const result = yield* runWithHookRunner(
+				{ preToolUse: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.preToolUse({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						toolCallId: ToolCallId.create(),
+						toolName: 'echo',
+						params: { step: 0 },
+					})
+				}),
+			)
 
 			expect(calls).toEqual([{ step: 0 }, { step: 1 }])
 			expect(result).toEqual({ _tag: 'continue', params: { step: 2 } })
@@ -61,15 +66,19 @@ describe('HookRunner preToolUse hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.preToolUse({
-					agentId: AgentId.create(),
-					toolCallId: ToolCallId.create(),
-					toolName: 'echo',
-					params: { original: true },
-				})
-			}).pipe(Effect.provide(makeHookRunner({ preToolUse: hooks })))
+			const result = yield* runWithHookRunner(
+				{ preToolUse: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.preToolUse({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						toolCallId: ToolCallId.create(),
+						toolName: 'echo',
+						params: { original: true },
+					})
+				}),
+			)
 
 			expect(calls).toEqual(['matched'])
 			expect(result).toEqual({ _tag: 'continue', params: { params: { original: true }, matched: true } })
@@ -100,15 +109,19 @@ describe('HookRunner preToolUse hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.preToolUse({
-					agentId: AgentId.create(),
-					toolCallId: ToolCallId.create(),
-					toolName: 'echo',
-					params: { original: true },
-				})
-			}).pipe(Effect.provide(makeHookRunner({ preToolUse: hooks })))
+			const result = yield* runWithHookRunner(
+				{ preToolUse: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.preToolUse({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						toolCallId: ToolCallId.create(),
+						toolName: 'echo',
+						params: { original: true },
+					})
+				}),
+			)
 
 			expect(calls).toEqual(['replace'])
 			expect(result).toEqual({ _tag: 'replaceResult', result: { blocked: true }, isFailure: true })

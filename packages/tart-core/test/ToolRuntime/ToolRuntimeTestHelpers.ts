@@ -6,6 +6,7 @@ import {
 	AgentId,
 	EventLog,
 	HookRunner,
+	Ids,
 	layerMemory,
 	liveToolRuntimeLayer,
 	noopToolEventSink,
@@ -54,18 +55,23 @@ export const layerRecordingToolEvents = (
 export const layerNoopToolEvents: Layer.Layer<ToolEventSink> = Layer.succeed(ToolEventSink, noopToolEventSink)
 
 export const toolRuntimeBaseLayer = (
-	hookLayer: Layer.Layer<HookRunner>,
+	hookLayer: Layer.Layer<HookRunner, never, EventLog | Ids>,
 	toolHandlerLayer: Layer.Layer<TestToolHandlers>,
 	eventLayer: Layer.Layer<ToolEventSink> = layerNoopToolEvents,
-) =>
-	liveToolRuntimeLayer.pipe(
+) => {
+	const memoryLayer = layerMemory
+	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
+	const hookDeps = Layer.mergeAll(memoryLayer, idsLayer)
+
+	return liveToolRuntimeLayer.pipe(
 		Layer.provideMerge(
 			Layer.mergeAll(
-				layerMemory,
-				layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
+				memoryLayer,
+				idsLayer,
 				toolsetLayerFromToolkit(TestToolkit).pipe(Layer.provide(toolHandlerLayer)),
-				hookLayer,
+				hookLayer.pipe(Layer.provide(hookDeps)),
 				eventLayer,
 			),
 		),
 	)
+}

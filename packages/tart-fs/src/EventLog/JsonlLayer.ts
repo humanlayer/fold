@@ -63,7 +63,7 @@ const decodeJsonlLine = (line: string, lineNumber: number): Effect.Effect<LogEnt
 		}
 
 		const parsed = yield* Effect.try({
-			try: () => JSON.parse(line) as unknown,
+			try: (): unknown => JSON.parse(line),
 			catch: (cause) => corruptEntryError(lineNumber, `Invalid JSON at line ${lineNumber}`, cause),
 		})
 		const entry = yield* Schema.decodeUnknownEffect(LogEntrySchema)(parsed).pipe(

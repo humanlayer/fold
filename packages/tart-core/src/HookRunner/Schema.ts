@@ -11,6 +11,7 @@ import { AgentId, ToolCallId } from '../Ids'
  */
 export const PreRequestHookInput = Schema.Struct({
 	agentId: AgentId,
+	parentAgentId: Schema.NullOr(AgentId),
 	prompt: Prompt.Prompt,
 }).annotate({ identifier: 'PreRequestHookInput' })
 export type PreRequestHookInput = typeof PreRequestHookInput.Type
@@ -36,6 +37,7 @@ export type PreRequestHookDecision = typeof PreRequestHookDecision.Type
  */
 export const PreToolUseHookInput = Schema.Struct({
 	agentId: AgentId,
+	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: ToolCallId,
 	toolName: Schema.String,
 	params: Schema.Unknown,
@@ -65,6 +67,7 @@ export type PreToolUseHookDecision = typeof PreToolUseHookDecision.Type
  */
 export const PostToolUseHookInput = Schema.Struct({
 	agentId: AgentId,
+	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: ToolCallId,
 	toolName: Schema.String,
 	result: Schema.Unknown,
@@ -91,6 +94,7 @@ export type PostToolUseHookDecision = typeof PostToolUseHookDecision.Type
  */
 export const OnCompleteHookInput = Schema.Struct({
 	agentId: AgentId,
+	parentAgentId: Schema.NullOr(AgentId),
 	resultText: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'OnCompleteHookInput' })
 export type OnCompleteHookInput = typeof OnCompleteHookInput.Type

@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import { AgentId, HookRunner, makeHookRunner, ToolCallId, type PostToolUseHook } from '../../src'
+import { AgentId, HookRunner, ToolCallId, type PostToolUseHook } from '../../src'
+import { runWithHookRunner } from '../TestLayers/HookRunnerTestHarness'
 
 describe('HookRunner postToolUse hooks', () => {
 	it.effect('runs hooks in order and passes replaced result to the next hook', () =>
@@ -24,16 +25,20 @@ describe('HookRunner postToolUse hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.postToolUse({
-					agentId: AgentId.create(),
-					toolCallId: ToolCallId.create(),
-					toolName: 'echo',
-					result: { step: 0 },
-					isFailure: false,
-				})
-			}).pipe(Effect.provide(makeHookRunner({ postToolUse: hooks })))
+			const result = yield* runWithHookRunner(
+				{ postToolUse: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.postToolUse({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						toolCallId: ToolCallId.create(),
+						toolName: 'echo',
+						result: { step: 0 },
+						isFailure: false,
+					})
+				}),
+			)
 
 			expect(calls).toEqual([
 				{ result: { step: 0 }, isFailure: false },
@@ -57,16 +62,20 @@ describe('HookRunner postToolUse hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.postToolUse({
-					agentId: AgentId.create(),
-					toolCallId: ToolCallId.create(),
-					toolName: 'echo',
-					result: { original: true },
-					isFailure: false,
-				})
-			}).pipe(Effect.provide(makeHookRunner({ postToolUse: hooks })))
+			const result = yield* runWithHookRunner(
+				{ postToolUse: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.postToolUse({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						toolCallId: ToolCallId.create(),
+						toolName: 'echo',
+						result: { original: true },
+						isFailure: false,
+					})
+				}),
+			)
 
 			expect(result).toEqual({ _tag: 'replace', result: { replaced: true }, isFailure: true })
 		}),
@@ -94,16 +103,20 @@ describe('HookRunner postToolUse hooks', () => {
 				},
 			]
 
-			const result = yield* Effect.gen(function* () {
-				const hookRunner = yield* HookRunner
-				return yield* hookRunner.postToolUse({
-					agentId: AgentId.create(),
-					toolCallId: ToolCallId.create(),
-					toolName: 'echo',
-					result: { original: true },
-					isFailure: false,
-				})
-			}).pipe(Effect.provide(makeHookRunner({ postToolUse: hooks })))
+			const result = yield* runWithHookRunner(
+				{ postToolUse: hooks },
+				Effect.gen(function* () {
+					const hookRunner = yield* HookRunner
+					return yield* hookRunner.postToolUse({
+						agentId: AgentId.create(),
+						parentAgentId: null,
+						toolCallId: ToolCallId.create(),
+						toolName: 'echo',
+						result: { original: true },
+						isFailure: false,
+					})
+				}),
+			)
 
 			expect(calls).toEqual(['matched'])
 			expect(result).toEqual({ _tag: 'replace', result: { matched: true }, isFailure: false })
