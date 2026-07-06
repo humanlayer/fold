@@ -27,7 +27,8 @@ export const testModel: ActiveModel = {
 	providerKind: 'openai-compatible',
 	modelId: 'scripted-model',
 	role: null,
-	reasoningLevel: 'off',
+	requestedReasoningLevel: 'off',
+	reasoning: { _tag: 'disabled' },
 }
 
 export const startInput = (overrides?: Partial<StartAgentInput>): StartAgentInput => ({

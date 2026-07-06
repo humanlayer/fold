@@ -143,11 +143,11 @@ export const runtimeForAgent = (entries: ReadonlyArray<LogEntry>, agentId: Agent
 			case 'agent_started':
 				activeModel = entry.model
 				activeTools = entry.tools
-				reasoningLevel = entry.model.reasoningLevel
+				reasoningLevel = entry.model.requestedReasoningLevel
 				break
 			case 'model-change':
 				activeModel = entry.model
-				reasoningLevel = entry.model.reasoningLevel
+				reasoningLevel = entry.model.requestedReasoningLevel
 				break
 			case 'thinking-change':
 				reasoningLevel = entry.reasoningLevel

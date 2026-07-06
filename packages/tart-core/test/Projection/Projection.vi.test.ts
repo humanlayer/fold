@@ -25,7 +25,8 @@ const model: ActiveModel = {
 	providerKind: 'openai-compatible',
 	modelId: 'gpt-test',
 	role: 'smart',
-	reasoningLevel: 'low',
+	requestedReasoningLevel: 'low',
+	reasoning: { _tag: 'effort', effort: 'low' },
 }
 
 const fastModel: ActiveModel = {
@@ -33,7 +34,8 @@ const fastModel: ActiveModel = {
 	providerKind: 'openai-compatible',
 	modelId: 'gpt-test-fast',
 	role: 'fast',
-	reasoningLevel: 'minimal',
+	requestedReasoningLevel: 'minimal',
+	reasoning: { _tag: 'effort', effort: 'minimal' },
 }
 
 const systemMessage = (content: string): SystemMessageEncoded =>

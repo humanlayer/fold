@@ -45,14 +45,78 @@ export const ReasoningLevel = Schema.Literals(['off', 'minimal', 'low', 'medium'
 })
 export type ReasoningLevel = typeof ReasoningLevel.Type
 
-/** A safe, resolved model snapshot. Credentials and base URLs stay in config/auth services. */
-export const ActiveModel = Schema.Struct({
+/** OpenAI Responses API reasoning effort after catalog validation/mapping. */
+export const OpenAiReasoningEffort = Schema.Literals(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).annotate({
+	identifier: 'OpenAiReasoningEffort',
+})
+export type OpenAiReasoningEffort = typeof OpenAiReasoningEffort.Type
+
+/** OpenAI-compatible reasoning settings after catalog validation/mapping. */
+export const OpenAiReasoningSetting = Schema.Union([
+	Schema.TaggedStruct('disabled', {}),
+	Schema.TaggedStruct('effort', { effort: OpenAiReasoningEffort }),
+]).annotate({ identifier: 'OpenAiReasoningSetting', discriminator: '_tag' })
+export type OpenAiReasoningSetting = typeof OpenAiReasoningSetting.Type
+
+/** Codex reasoning settings after catalog validation/mapping. */
+export const CodexReasoningSetting = Schema.Union([
+	Schema.TaggedStruct('disabled', {}),
+	Schema.TaggedStruct('effort', {
+		effort: OpenAiReasoningEffort,
+		summary: Schema.Literal('auto'),
+	}),
+]).annotate({ identifier: 'CodexReasoningSetting', discriminator: '_tag' })
+export type CodexReasoningSetting = typeof CodexReasoningSetting.Type
+
+/** Anthropic thinking settings after catalog validation/mapping. */
+export const AnthropicThinkingSetting = Schema.Union([
+	Schema.TaggedStruct('disabled', {}),
+	Schema.TaggedStruct('budget', {
+		budgetTokens: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1024)),
+	}),
+]).annotate({ identifier: 'AnthropicThinkingSetting', discriminator: '_tag' })
+export type AnthropicThinkingSetting = typeof AnthropicThinkingSetting.Type
+
+/** A safe, resolved OpenAI-compatible model snapshot. Credentials and base URLs stay in config/auth services. */
+export const OpenAiCompatibleActiveModel = Schema.Struct({
 	providerId: LlmProviderId,
-	providerKind: LlmProviderKind,
+	providerKind: Schema.Literal('openai-compatible'),
 	modelId: LlmModelId,
 	role: Schema.NullOr(ModelRole),
-	reasoningLevel: ReasoningLevel,
-}).annotate({ identifier: 'ActiveModel' })
+	requestedReasoningLevel: ReasoningLevel,
+	reasoning: OpenAiReasoningSetting,
+}).annotate({ identifier: 'OpenAiCompatibleActiveModel' })
+export type OpenAiCompatibleActiveModel = typeof OpenAiCompatibleActiveModel.Type
+
+/** A safe, resolved Anthropic model snapshot. Credentials and base URLs stay in config/auth services. */
+export const AnthropicActiveModel = Schema.Struct({
+	providerId: LlmProviderId,
+	providerKind: Schema.Literal('anthropic'),
+	modelId: LlmModelId,
+	role: Schema.NullOr(ModelRole),
+	requestedReasoningLevel: ReasoningLevel,
+	thinking: AnthropicThinkingSetting,
+}).annotate({ identifier: 'AnthropicActiveModel' })
+export type AnthropicActiveModel = typeof AnthropicActiveModel.Type
+
+/** A safe, resolved Codex model snapshot. Credentials and base URLs stay in config/auth services. */
+export const CodexActiveModel = Schema.Struct({
+	providerId: LlmProviderId,
+	providerKind: Schema.Literal('codex'),
+	modelId: LlmModelId,
+	role: Schema.NullOr(ModelRole),
+	requestedReasoningLevel: ReasoningLevel,
+	reasoning: CodexReasoningSetting,
+}).annotate({ identifier: 'CodexActiveModel' })
+export type CodexActiveModel = typeof CodexActiveModel.Type
+
+/** A safe, resolved model snapshot. Credentials and base URLs stay in config/auth services. */
+export const ActiveModel = Schema.Union([OpenAiCompatibleActiveModel, AnthropicActiveModel, CodexActiveModel]).annotate(
+	{
+		identifier: 'ActiveModel',
+		discriminator: 'providerKind',
+	},
+)
 export type ActiveModel = typeof ActiveModel.Type
 
 /** Encoded schema object to JSON for persisted system messages. */
