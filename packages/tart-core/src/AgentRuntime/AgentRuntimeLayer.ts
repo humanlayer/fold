@@ -26,9 +26,7 @@ const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 const encodeUsage = Schema.encodeUnknownSync(Response.Usage)
 
 /** Result of one private model/tool turn. */
-type TurnResult =
-	| { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry }
-	| { readonly _tag: 'continue' }
+type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
 
 /** Derive a short human-readable message from a model provider failure. */
 const describeModelError = (error: unknown): string => {
@@ -43,9 +41,7 @@ const describeModelError = (error: unknown): string => {
 
 /** Concatenate the text parts of an assistant message, or null when it produced no text. */
 const assistantResultText = (message: Prompt.AssistantMessage): string | null => {
-	const text = message.content
-		.flatMap((part) => (part.type === 'text' ? [part.text] : []))
-		.join('')
+	const text = message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 
 	return text.length > 0 ? text : null
 }
@@ -65,8 +61,8 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const toolRuntime = yield* ToolRuntime
 		const languageModel = yield* LanguageModel.LanguageModel
 
-
-		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> => eventLog.append(input).pipe(Effect.orDie)
+		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
+			eventLog.append(input).pipe(Effect.orDie)
 
 		const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
 			Effect.orDie,
@@ -112,7 +108,9 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			})
 
 		/** Rewrite provider tool-call ids to freshly minted tart ids, stashing the provider id per part. */
-		const rewriteAssistantToolCallIds = (message: Prompt.AssistantMessage): Effect.Effect<Prompt.AssistantMessage> =>
+		const rewriteAssistantToolCallIds = (
+			message: Prompt.AssistantMessage,
+		): Effect.Effect<Prompt.AssistantMessage> =>
 			Effect.gen(function* () {
 				const content: Array<Prompt.AssistantMessage['content'][number]> = []
 

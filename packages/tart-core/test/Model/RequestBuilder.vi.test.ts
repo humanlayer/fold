@@ -63,7 +63,9 @@ const projectedConversation: ReadonlyArray<ProjectedMessage> = [
 		toolCallId,
 		message: {
 			role: 'tool',
-			content: [{ type: 'tool-result', id: toolCallId, name: 'echo', result: { echoed: 'hi' }, isFailure: false }],
+			content: [
+				{ type: 'tool-result', id: toolCallId, name: 'echo', result: { echoed: 'hi' }, isFailure: false },
+			],
 		},
 	},
 ]
@@ -103,7 +105,13 @@ it.effect('keeps tart ids when no provider id was stashed', () =>
 				message: {
 					role: 'assistant',
 					content: [
-						{ type: 'tool-call', id: toolCallId, name: 'echo', params: { text: 'hi' }, providerExecuted: false },
+						{
+							type: 'tool-call',
+							id: toolCallId,
+							name: 'echo',
+							params: { text: 'hi' },
+							providerExecuted: false,
+						},
 					],
 				},
 			},

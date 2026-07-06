@@ -99,9 +99,7 @@ const scriptedFailure = (message: string): AiError.AiError =>
 	})
 
 /** Build a scripted LanguageModel from an ordered list of turns. */
-export const makeScriptedLanguageModel = (
-	turns: ReadonlyArray<ScriptedTurn>,
-): Effect.Effect<ScriptedLanguageModel> =>
+export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): Effect.Effect<ScriptedLanguageModel> =>
 	Effect.gen(function* () {
 		const turnsRef = yield* Ref.make<ReadonlyArray<ScriptedTurn>>(turns)
 		const promptsRef = yield* Ref.make<ReadonlyArray<Prompt.Prompt>>([])
@@ -122,7 +120,9 @@ export const makeScriptedLanguageModel = (
 
 		const service = yield* LanguageModel.make({
 			generateText: () =>
-				Effect.die(new Error('ScriptedLanguageModel supports streamText only - the agent loop uses streamText')),
+				Effect.die(
+					new Error('ScriptedLanguageModel supports streamText only - the agent loop uses streamText'),
+				),
 			streamText: (options) =>
 				Stream.unwrap(
 					nextTurn(options.prompt).pipe(

@@ -64,10 +64,7 @@ type HookStateScope = {
 /** Provide one hook handler its durable ToolState scoped to (agent, tool call), leaving StopController to the caller. */
 const provideHookState =
 	(eventLog: EventLogService, ids: IdsService) =>
-	<A>(
-		effect: Effect.Effect<A, never, HookScope>,
-		scope: HookStateScope,
-	): Effect.Effect<A, never, StopController> =>
+	<A>(effect: Effect.Effect<A, never, HookScope>, scope: HookStateScope): Effect.Effect<A, never, StopController> =>
 		Effect.gen(function* () {
 			const state = yield* toolStateServiceForToolCall({
 				agentId: scope.agentId,

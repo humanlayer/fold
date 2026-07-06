@@ -58,9 +58,7 @@ it.effect('runs a tool turn end to end, rewriting and restoring provider tool-ca
 		expect(persistedToolCall.options).toMatchObject({ tart: { providerToolCallId: 'provider-call-1' } })
 
 		// The durable tool result is grouped under the minted tart id.
-		const toolResult = result.entries.find(
-			(entry): entry is ToolResultLogEntry => entry._tag === 'tool-result',
-		)
+		const toolResult = result.entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
 		expect(toolResult?.toolCallId).toBe(persistedToolCall.id)
 
 		// The continuation request restores the provider's original id on both sides of the exchange.
