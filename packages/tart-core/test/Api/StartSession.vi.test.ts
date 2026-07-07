@@ -1,75 +1,42 @@
 /**
  * Facade tests: startSession lowers agent/log/model descriptors into the full runtime graph. Real
  * EventLog, projections, hook runner, tool runtime, and session facade run under scripted language
- * models - only descriptors appear in test setup, mirroring how SDK callers use the API.
+ * models - only descriptors appear in test setup, mirroring how SDK callers use the API. Model and
+ * configuration switching is covered separately in SwitchModel.vi.test.ts, cross-session isolation in
+ * SessionIsolation.vi.test.ts.
  */
 import { expect, it } from '@effect/vitest'
-import { Context, Effect, Layer, Schema, Stream } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { Context, Effect, Fiber, Layer, Schema, Stream } from 'effect'
 
 import {
-	customModel,
 	defineAgent,
 	defineTool,
+	defineToolState,
 	eventLogSource,
 	startSession,
 	EventLog,
 	layerInMemoryEventLog,
-	type ActiveModel,
+	ToolEvents,
 	type AgentStartedLogEntry,
-	type ModelChangeLogEntry,
+	type HookConfig,
+	type PreToolUseHookDecision,
 	type SessionStartedLogEntry,
-	type SystemMessageLogEntry,
-	type TartModel,
-	type ToolsChangeLogEntry,
+	type ToolResultLogEntry,
+	type ToolStateLogEntry,
 } from '../../src/index'
-import {
-	makeScriptedLanguageModel,
-	textTurn,
-	toolCallTurn,
-	type ScriptedLanguageModel,
-	type ScriptedTurn,
-} from '../TestLayers/ScriptedLanguageModel'
+import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
+import { echoTool, gptActiveModel, makeRecordedTool, scriptedModel } from './ApiTestHelpers'
 
-const gptActiveModel: ActiveModel = {
-	providerId: 'scripted-openai',
-	providerKind: 'openai-compatible',
-	modelId: 'gpt-scripted',
-	role: null,
-	requestedReasoningLevel: 'off',
-	reasoning: { _tag: 'disabled' },
+/** The encoded tool-result content part of the first durable tool-result entry. */
+const firstToolResultPart = (entries: ReadonlyArray<{ readonly _tag: string }>) => {
+	const toolResult = entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+	if (toolResult === undefined) throw new Error('expected a tool-result entry')
+
+	const part = toolResult.message.content[0]
+	if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result content part')
+
+	return part
 }
-
-const claudeActiveModel: ActiveModel = {
-	providerId: 'scripted-anthropic',
-	providerKind: 'anthropic',
-	modelId: 'claude-scripted',
-	role: null,
-	requestedReasoningLevel: 'off',
-	thinking: { _tag: 'disabled' },
-}
-
-/** A scripted model exposed as a facade descriptor plus its recorded requests. */
-const scriptedModel = (
-	activeModel: ActiveModel,
-	turns: ReadonlyArray<ScriptedTurn>,
-): Effect.Effect<{ readonly model: TartModel; readonly scripted: ScriptedLanguageModel }> =>
-	Effect.gen(function* () {
-		const scripted = yield* makeScriptedLanguageModel(turns)
-		const make = Layer.build(scripted.layer).pipe(
-			Effect.map((context) => Context.get(context, LanguageModel.LanguageModel)),
-		)
-
-		return { model: customModel({ activeModel, make }), scripted }
-	})
-
-const echoTool = defineTool({
-	name: 'echo',
-	description: 'Echoes text back to the model.',
-	parameters: Schema.Struct({ text: Schema.String }),
-	success: Schema.Struct({ echoed: Schema.String }),
-	handler: ({ text }) => Effect.succeed({ echoed: text }),
-})
 
 it.effect('runs a tool-calling turn end to end from descriptors only', () =>
 	Effect.gen(function* () {
@@ -85,6 +52,8 @@ it.effect('runs a tool-calling turn end to end from descriptors only', () =>
 				systemPrompt: 'You are a test agent.',
 				tools: [echoTool],
 			}),
+			cwd: '/tmp/facade-demo',
+			meta: { suite: 'facade' },
 		})
 
 		const finished = yield* session.send('echo something')
@@ -108,11 +77,17 @@ it.effect('runs a tool-calling turn end to end from descriptors only', () =>
 			(entry): entry is SessionStartedLogEntry => entry._tag === 'session_started',
 		)
 		expect(sessionStarted?.sessionId).toBe(session.sessionId)
+		expect(sessionStarted?.cwd).toBe('/tmp/facade-demo')
+		expect(sessionStarted?.meta['suite']).toBe('facade')
 		expect(sessionStarted?.meta['agentName']).toBe('facade-demo')
 
 		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started')
 		expect(agentStarted?.agentId).toBe(session.rootAgentId)
 		expect(agentStarted?.tools).toEqual(['echo'])
+
+		const resultPart = firstToolResultPart(entries)
+		expect(resultPart.isFailure).toBe(false)
+		expect(resultPart.result).toEqual({ echoed: 'hello facade' })
 
 		expect(yield* scripted.remainingTurns).toBe(0)
 	}).pipe(Effect.scoped),
@@ -134,86 +109,165 @@ it.effect('runs a tool-free agent with defaults (memory log, no tools, no failur
 	}).pipe(Effect.scoped),
 )
 
-it.effect('switchModel continues the same log on a new provider and records the epoch transition', () =>
+// ── Ambient tool services and the merged event stream ───────────────────────
+
+const ProgressState = defineToolState({
+	namespace: 'progress-echo',
+	keys: { last: Schema.String },
+})
+
+it.effect('tool handlers reach ToolState and ToolEvents; session.events carries rows, text deltas, and progress', () =>
 	Effect.gen(function* () {
-		// A second installed tool that the family policy hides from claude models, so the recorded
-		// tools-change proves the toolset re-resolved for the new family.
-		const patchTool = defineTool({
-			name: 'apply_patch',
-			description: 'Applies a patch (test stub).',
-			parameters: Schema.Struct({ patch: Schema.String }),
-			success: Schema.Struct({ ok: Schema.Boolean }),
-			handler: () => Effect.succeed({ ok: true }),
+		const progressTool = defineTool({
+			name: 'echo',
+			description: 'Echoes text, reporting progress and recording durable state.',
+			parameters: Schema.Struct({ text: Schema.String }),
+			success: Schema.Struct({ echoed: Schema.String }),
+			handler: ({ text }) =>
+				Effect.gen(function* () {
+					const events = yield* ToolEvents
+					yield* events.emit({ progress: `working:${text}` })
+					yield* ProgressState.set('last', text)
+
+					return { echoed: text }
+				}),
 		})
 
-		const first = yield* scriptedModel(gptActiveModel, [textTurn('from gpt')])
-		const second = yield* scriptedModel(claudeActiveModel, [textTurn('from claude')])
+		const { model } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-1', name: 'echo', params: { text: 'hi' } }]),
+			textTurn('Tool said hi'),
+		])
 
 		const session = yield* startSession({
-			agent: defineAgent({
-				model: first.model,
-				systemPrompt: 'Agent block.',
-				basePrompts: { gpt: 'GPT base.', claude: 'Claude base.' },
-				tools: [echoTool, patchTool],
-			}),
+			agent: defineAgent({ model, systemPrompt: 'You are a test agent.', tools: [progressTool] }),
 		})
 
-		const turnOne = yield* session.send('first turn')
-		yield* session.switchModel(second.model, { reason: 'switch providers' })
-		const turnTwo = yield* session.send('second turn')
+		// Subscribe before sending: deltas are live-only (durable rows replay from seq 0 regardless).
+		// `startImmediately` + one yield lets the merge's subscription fibers register first.
+		const collector = yield* session.events().pipe(
+			Stream.takeUntil((event) => event.kind === 'log' && event.entry._tag === 'agent-finished'),
+			Stream.runCollect,
+			Effect.forkChild({ startImmediately: true }),
+		)
+		yield* Effect.yieldNow
 
-		expect(turnOne.resultText).toBe('from gpt')
-		expect(turnTwo.resultText).toBe('from claude')
+		const finished = yield* session.send('use the echo tool')
+		const collected = yield* Fiber.join(collector)
 
-		// Each provider served exactly its own epoch: the runtime actually swapped.
-		expect(yield* first.scripted.remainingTurns).toBe(0)
-		expect((yield* first.scripted.requests).length).toBe(1)
-		expect((yield* second.scripted.requests).length).toBe(1)
+		expect(finished.resultText).toBe('Tool said hi')
 
-		const entries = yield* session.entries
-		expect(entries.map((entry) => entry._tag)).toEqual([
+		const logTags = collected.flatMap((event) => (event.kind === 'log' ? [event.entry._tag] : []))
+		expect(logTags).toEqual([
 			'session_started',
 			'agent_started',
 			'system-message',
 			'user-message',
 			'assistant-message',
-			'agent-finished',
-			'model-change',
-			'system-message',
-			'tools-change',
-			'user-message',
+			'tool_state',
+			'tool-result',
 			'assistant-message',
 			'agent-finished',
 		])
 
-		// The durable transition binds the new model, the recomposed family prompt, and the re-resolved toolset.
-		const modelChange = entries.find((entry): entry is ModelChangeLogEntry => entry._tag === 'model-change')
-		expect(modelChange?.model.modelId).toBe('claude-scripted')
-		expect(modelChange?.reason).toBe('switch providers')
+		const deltas = collected.flatMap((event) => (event.kind === 'delta' ? [event] : []))
+		const progressDeltas = deltas.filter((event) => event.part.type === 'tool-progress')
+		expect(progressDeltas).toHaveLength(1)
+		expect(progressDeltas[0]?.part).toEqual({
+			type: 'tool-progress',
+			toolName: 'echo',
+			payload: { progress: 'working:hi' },
+		})
+		expect(progressDeltas[0]?.agentId).toBe(session.rootAgentId)
+		expect(deltas.some((event) => event.part.type === 'text-delta')).toBe(true)
 
-		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
-		expect(systemEntries[0]?.messages.map((message) => message.content)).toEqual(['GPT base.', 'Agent block.'])
-		expect(systemEntries[1]?.messages.map((message) => message.content)).toEqual(['Claude base.', 'Agent block.'])
-
-		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started')
-		expect(agentStarted?.tools).toEqual(['echo', 'apply_patch'])
-
-		const toolsChange = entries.find((entry): entry is ToolsChangeLogEntry => entry._tag === 'tools-change')
-		expect(toolsChange?.tools).toEqual(['echo'])
-
-		// The new epoch's request advertises the re-resolved toolset and the recomposed leading prompt.
-		const claudeRequest = (yield* second.scripted.requests)[0]
-		expect(claudeRequest?.toolNames).toEqual(['echo'])
-		const systemContents = claudeRequest?.prompt.content
-			.filter((message) => message.role === 'system')
-			.map((message) => message.content)
-		expect(systemContents).toEqual(['Claude base.', 'Agent block.'])
-
-		// The old epoch really advertised the gpt-family toolset.
-		const gptRequest = (yield* first.scripted.requests)[0]
-		expect(gptRequest?.toolNames).toEqual(['echo', 'apply_patch'])
+		// The handler's ToolState write landed as a durable, namespaced tool_state entry.
+		const entries = yield* session.entries
+		const stateEntry = entries.find((entry): entry is ToolStateLogEntry => entry._tag === 'tool_state')
+		expect(stateEntry?.namespace).toBe('progress-echo')
+		expect(stateEntry?.key).toBe('last')
+		expect(stateEntry?.value).toBe('hi')
 	}).pipe(Effect.scoped),
 )
+
+// ── Hooks and typed tool failures ────────────────────────────────────────────
+
+it.effect('agent hooks run in the facade: a preToolUse deny replaces the result and the tool never executes', () =>
+	Effect.gen(function* () {
+		const recorded = yield* makeRecordedTool('echo')
+		const denyEcho: HookConfig = {
+			preToolUse: [
+				{
+					name: 'deny-echo',
+					tools: ['echo'],
+					handler: (): Effect.Effect<PreToolUseHookDecision> =>
+						Effect.succeed({
+							_tag: 'replaceResult',
+							result: { message: 'denied by policy hook' },
+							isFailure: true,
+						}),
+				},
+			],
+		}
+
+		const { model } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-1', name: 'echo', params: { text: 'blocked' } }]),
+			textTurn('Understood, the tool was denied.'),
+		])
+
+		const session = yield* startSession({
+			agent: defineAgent({
+				model,
+				systemPrompt: 'You are a test agent.',
+				tools: [recorded.tool],
+				hooks: denyEcho,
+			}),
+		})
+
+		const finished = yield* session.send('try the tool')
+		const entries = yield* session.entries
+
+		expect(finished.outcome).toBe('completed')
+		expect(yield* recorded.calls).toEqual([])
+
+		const resultPart = firstToolResultPart(entries)
+		expect(resultPart.isFailure).toBe(true)
+		expect(resultPart.result).toEqual({ message: 'denied by policy hook' })
+	}).pipe(Effect.scoped),
+)
+
+it.effect('a typed handler failure returns to the model schema-encoded with isFailure', () =>
+	Effect.gen(function* () {
+		const flakyTool = defineTool({
+			name: 'flaky',
+			description: 'Always fails with a typed, expected failure.',
+			parameters: Schema.Struct({}),
+			failure: Schema.Struct({ message: Schema.String }),
+			handler: () => Effect.fail({ message: 'expected failure' }),
+		})
+
+		const { model } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-1', name: 'flaky', params: {} }]),
+			textTurn('The tool failed, moving on.'),
+		])
+
+		const session = yield* startSession({
+			agent: defineAgent({ model, systemPrompt: 'You are a test agent.', tools: [flakyTool] }),
+		})
+
+		const finished = yield* session.send('run the flaky tool')
+		const entries = yield* session.entries
+
+		// The failure is a domain value the model sees (failureMode "return"), not a crashed run.
+		expect(finished.outcome).toBe('completed')
+		expect(finished.resultText).toBe('The tool failed, moving on.')
+
+		const resultPart = firstToolResultPart(entries)
+		expect(resultPart.isFailure).toBe(true)
+		expect(resultPart.result).toEqual({ message: 'expected failure' })
+	}).pipe(Effect.scoped),
+)
+
+// ── Log backends and descriptor validation ──────────────────────────────────
 
 it.effect('eventLogSource backs the session with a caller-supplied EventLog service', () =>
 	Effect.gen(function* () {

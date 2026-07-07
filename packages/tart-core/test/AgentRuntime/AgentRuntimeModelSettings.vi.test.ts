@@ -315,6 +315,8 @@ it.effect('switchModel from openai to anthropic rebinds prompt, toolset, and pro
 
 		expect(entries.map((entry) => entry._tag)).toContain('model-change')
 		expect(entries.map((entry) => entry._tag)).toContain('tools-change')
+		// Both models request level medium, so the transition writes no thinking-change entry.
+		expect(entries.map((entry) => entry._tag)).not.toContain('thinking-change')
 
 		const requests = yield* scripted.requests
 		expect(requests).toHaveLength(2)
@@ -331,6 +333,58 @@ it.effect('switchModel from openai to anthropic rebinds prompt, toolset, and pro
 			output_config: { effort: 'medium' },
 		})
 		expect(requests[1]?.openAiConfig).toBeNull()
+	}),
+)
+
+it.effect('switchModel appends thinking-change when the requested level changes and rebinds the next request', () =>
+	Effect.gen(function* () {
+		const openAiHighModel: ActiveModel = {
+			...openAiMediumModel,
+			requestedReasoningLevel: 'high',
+			reasoning: { _tag: 'effort', effort: 'high' },
+		}
+		const scripted = yield* makeScriptedLanguageModel([textTurn('one'), textTurn('two')])
+		const layer = familyAgentLayer(scripted.layer, familyBasePrompts)
+
+		const entries = yield* Effect.gen(function* () {
+			const runtime = yield* AgentRuntime
+
+			yield* runtime.start(startInput({ model: openAiMediumModel, systemPrompt: 'agent rules' }))
+			yield* runtime.run(runInput('first'))
+
+			yield* runtime.switchModel({
+				agentId,
+				parentAgentId: null,
+				toolCallId: null,
+				model: openAiHighModel,
+				systemPrompt: 'agent rules',
+				reason: 'test raises reasoning',
+			})
+
+			yield* runtime.run(runInput('second'))
+
+			return yield* collectEntries
+		}).pipe(Effect.provide(layer))
+
+		// The transition writes the D17 triple plus the reasoning change, in order.
+		const transitionTags = entries
+			.map((entry) => entry._tag)
+			.filter((tag) => ['model-change', 'system-message', 'tools-change', 'thinking-change'].includes(tag))
+		expect(transitionTags).toEqual([
+			'system-message',
+			'model-change',
+			'system-message',
+			'tools-change',
+			'thinking-change',
+		])
+
+		const thinkingChange = entries.find((entry) => entry._tag === 'thinking-change')
+		expect(thinkingChange).toMatchObject({ reasoningLevel: 'high', reason: 'test raises reasoning' })
+
+		// The projected level binds the very next request through the per-request provider config.
+		const requests = yield* scripted.requests
+		expect(requests[0]?.openAiConfig?.reasoning).toEqual({ effort: 'medium' })
+		expect(requests[1]?.openAiConfig?.reasoning).toEqual({ effort: 'high' })
 	}),
 )
 

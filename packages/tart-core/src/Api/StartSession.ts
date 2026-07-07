@@ -1,17 +1,18 @@
 /**
  * This file implements `startSession` - the ergonomic composition root of the public API. Callers
  * describe an agent (model, prompt, tools, hooks) and optionally an event log backend; this file lowers
- * those descriptors into the internal service graph (EventLog, Ids, AgentEvents, Toolset + resolver,
- * SystemPrompt, ModelRequestSettings, HookRunner, ToolRuntime, AgentRuntime, Session) and returns a
- * running session handle. Per the composition-root ruling, this is the only place descriptors become
- * layers; no public signature accepts or returns one.
+ * those descriptors into the internal service graph (EventLog, Ids, AgentEvents, SystemPrompt,
+ * ModelRequestSettings, HookRunner, and per-epoch Toolset + resolver + ToolRuntime + AgentRuntime,
+ * plus the Session facade) and returns a running session handle. Per the composition-root ruling, this
+ * is the only place descriptors become layers; no public signature accepts or returns one.
  *
- * Model switching: the AgentRuntime consumed by the Session is a delegating facade over a Ref of the
- * currently provisioned runtime. `TartSession.switchModel` first writes the durable D17 epoch transition
- * (`model-change`, recomposed leading `system-message`, `tools-change`) through the Session service, then
- * provisions a runtime for the new provider into the session scope and swaps the Ref - so the next send
- * runs on the new provider against the same durable log. This Ref is the interim form of the D15
- * AgentModels provisioning seam.
+ * Configuration switching: the AgentRuntime consumed by the Session is a delegating facade over a Ref
+ * of the currently provisioned runtime. `TartSession.switchModel` provisions a runtime for the new
+ * provider - and, when requested, a new installed toolset - into the session scope, swaps the Ref, then
+ * writes the durable epoch transition through the Session service (`model-change`, recomposed leading
+ * `system-message`, `tools-change` resolved over the newly installed tools, and `thinking-change` when
+ * the reasoning level changed - D17/D23). The next send runs the new configuration against the same
+ * durable log. This Ref is the interim form of the D15 AgentModels provisioning seam.
  */
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
@@ -52,6 +53,15 @@ export type StartSessionOptions = {
 	readonly meta?: Readonly<Record<string, typeof Schema.Json.Type>>
 }
 
+/** Options for {@link TartSession.switchModel}. Omitted fields keep the session's current configuration. */
+export type SwitchModelOptions = {
+	readonly reason?: string
+	/** Replace the agent's own leading prompt blocks from this epoch on. */
+	readonly systemPrompt?: string | ReadonlyArray<string>
+	/** Replace the installed tools from this epoch on. */
+	readonly tools?: ReadonlyArray<TartTool>
+}
+
 /**
  * A running tart session: one durable log, one root agent, already started. Every method is safe to
  * call without further wiring; `send` and `switchModel` are serialized against each other so a switch
@@ -63,16 +73,24 @@ export type TartSession = {
 	/** Run one user turn on the root agent and resolve with the durable `agent-finished` entry. */
 	readonly send: (text: string) => Effect.Effect<AgentFinishedLogEntry>
 	/**
-	 * Switch the root agent to a different provider/model. Durably records the D17 epoch transition
-	 * (`model-change`, recomposed leading `system-message`, `tools-change`) and provisions the new
-	 * provider for every subsequent send - the same log continues across the switch.
+	 * Switch the root agent to a different provider/model, optionally replacing its prompt blocks and
+	 * installed tools in the same transition. Durably records the epoch transition - `model-change`, the
+	 * recomposed leading `system-message`, `tools-change` over the (possibly new) installed toolset, and
+	 * `thinking-change` when the reasoning level changed - and provisions the new configuration for every
+	 * subsequent send. The same log continues across the switch.
 	 */
-	readonly switchModel: (model: TartModel, options?: { readonly reason?: string }) => Effect.Effect<void>
+	readonly switchModel: (model: TartModel, options?: SwitchModelOptions) => Effect.Effect<void>
 	/** Merged stream of durable log rows and ephemeral streaming deltas. */
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<TartEvent>
 	/** Snapshot of all durable log entries appended so far. */
 	readonly entries: Effect.Effect<ReadonlyArray<LogEntry>>
 	readonly interrupt: Effect.Effect<void>
+}
+
+/** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
+type SessionAgentConfig = {
+	readonly systemPrompt: string | ReadonlyArray<string> | null
+	readonly tools: ReadonlyArray<TartTool>
 }
 
 /** Lower the event log descriptor to its EventLog layer. */
@@ -107,7 +125,7 @@ const languageModelLayerFor = (model: TartModel): Layer.Layer<LanguageModel.Lang
 	}
 }
 
-/** Assemble the agent's tool descriptors into the installed Toolset layer. */
+/** Assemble tool descriptors into the installed Toolset layer for one epoch. */
 const toolsetLayerFor = (tools: ReadonlyArray<TartTool>) => {
 	const toolkit = Toolkit.make(...tools.map((tartTool) => tartTool.tool))
 	// SAFETY: the dispatch table is keyed by tool name over erased handlers; each handler is only ever
@@ -121,6 +139,17 @@ const toolsetLayerFor = (tools: ReadonlyArray<TartTool>) => {
 	return toolsetLayerFromToolkit(toolkit).pipe(Layer.provide(toolkit.toLayer(handlers)))
 }
 
+/** Fail fast (as a defect) when two tool descriptors claim the same name. */
+const validateToolNames = (tools: ReadonlyArray<TartTool>): Effect.Effect<void> => {
+	const duplicates = [
+		...new Set(tools.map((tool) => tool.name).filter((name, index, names) => names.indexOf(name) !== index)),
+	]
+
+	return duplicates.length === 0
+		? Effect.void
+		: Effect.die(new Error(`duplicate tool names: ${duplicates.join(', ')}`))
+}
+
 /**
  * Start one session for the given agent definition and return its running handle. The session lives in
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
@@ -129,27 +158,21 @@ const toolsetLayerFor = (tools: ReadonlyArray<TartTool>) => {
 export const startSession = (options: StartSessionOptions): Effect.Effect<TartSession, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const agent = options.agent
-		const tools = agent.tools ?? []
-
-		const duplicateNames = [
-			...new Set(tools.map((tool) => tool.name).filter((name, index, names) => names.indexOf(name) !== index)),
-		]
-		if (duplicateNames.length > 0) {
-			return yield* Effect.die(new Error(`startSession: duplicate tool names: ${duplicateNames.join(', ')}`))
+		const initialConfig: SessionAgentConfig = {
+			systemPrompt: agent.systemPrompt ?? null,
+			tools: agent.tools ?? [],
 		}
+		yield* validateToolNames(initialConfig.tools)
 
-		// One shared service graph per session; every provisioned model runtime closes over these same
-		// instances (one EventLog, one AgentEvents PubSub, one Toolset).
+		// One shared service graph per session; every provisioned epoch runtime closes over these same
+		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one HookRunner).
 		const infraLayer = Layer.mergeAll(
 			eventLogLayerFor(options.log ?? { _tag: 'memory' }),
 			layerLiveIdFactory,
 			liveAgentEventsLayer,
 		)
-		const toolsetLayer = toolsetLayerFor(tools)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
-			toolsetLayer,
-			makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			makeHookRunner(agent.hooks ?? {}).pipe(Layer.provide(infraLayer)),
@@ -161,23 +184,34 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 		// every model switch the previous epoch's memoized runtime.
 		const sessionScope = yield* Effect.scope
 		const sessionMemoMap = yield* Layer.makeMemoMap
-		const sessionServices = yield* Layer.buildWithMemoMap(
-			liveToolRuntimeLayer.pipe(Layer.provideMerge(servicesLayer)),
-			sessionMemoMap,
-			sessionScope,
-		).pipe(Effect.orDie)
+		const sessionServices = yield* Layer.buildWithMemoMap(servicesLayer, sessionMemoMap, sessionScope).pipe(
+			Effect.orDie,
+		)
 		const sessionServicesLayer = Layer.succeedContext(sessionServices)
 
-		// Provision one AgentRuntime per model into the session scope; the delegating runtime below lets
-		// the Session service survive swaps (interim AgentModels seam - D15). Each provision builds with
-		// its own memo map so the runtime layer rebuilds against the new model layer instead of hitting
-		// the previous epoch's memoized instance.
-		const provisionRuntime = (model: TartModel): Effect.Effect<AgentRuntimeService> =>
+		// Provision one runtime slice per epoch into the session scope: the installed Toolset, its family
+		// resolver, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
+		// provider. The delegating runtime below lets the Session service survive swaps (interim
+		// AgentModels seam - D15). Each provision builds with its own memo map so these module-level
+		// layers rebuild against the new model and toolset instead of hitting a previous epoch's
+		// memoized instances.
+		const provisionRuntime = (
+			model: TartModel,
+			tools: ReadonlyArray<TartTool>,
+		): Effect.Effect<AgentRuntimeService> =>
 			Effect.gen(function* () {
 				const memoMap = yield* Layer.makeMemoMap
+				const toolsetLayer = toolsetLayerFor(tools)
+				const epochServicesLayer = Layer.mergeAll(
+					toolsetLayer,
+					makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
+				)
+				const toolRuntimeLayer = liveToolRuntimeLayer.pipe(
+					Layer.provideMerge(Layer.mergeAll(sessionServicesLayer, epochServicesLayer)),
+				)
 				const context = yield* Layer.buildWithMemoMap(
 					liveAgentRuntimeLayer.pipe(
-						Layer.provide(Layer.mergeAll(sessionServicesLayer, languageModelLayerFor(model))),
+						Layer.provide(Layer.mergeAll(toolRuntimeLayer, languageModelLayerFor(model))),
 					),
 					memoMap,
 					sessionScope,
@@ -186,7 +220,8 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 				return Context.get(context, AgentRuntime)
 			})
 
-		const runtimeRef = yield* Ref.make(yield* provisionRuntime(agent.model))
+		const runtimeRef = yield* Ref.make(yield* provisionRuntime(agent.model, initialConfig.tools))
+		const configRef = yield* Ref.make(initialConfig)
 		const delegatingRuntime: AgentRuntimeService = {
 			start: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.start(input))),
 			run: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.run(input))),
@@ -207,7 +242,7 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 			.start({
 				cwd: options.cwd ?? null,
 				model: agent.model.activeModel,
-				systemPrompt: agent.systemPrompt ?? null,
+				systemPrompt: initialConfig.systemPrompt,
 				meta: {
 					...options.meta,
 					...(agent.name === undefined ? {} : { agentName: agent.name }),
@@ -222,17 +257,28 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 		const send = (text: string): Effect.Effect<AgentFinishedLogEntry> =>
 			gate.withPermit(session.send({ text }).pipe(Effect.orDie))
 
-		const switchModel = (model: TartModel, switchOptions?: { readonly reason?: string }): Effect.Effect<void> =>
+		const switchModel = (model: TartModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
 			gate.withPermit(
 				Effect.gen(function* () {
+					const current = yield* Ref.get(configRef)
+					const next: SessionAgentConfig = {
+						systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+						tools: switchOptions?.tools ?? current.tools,
+					}
+					yield* validateToolNames(next.tools)
+
+					// Provision against the new toolset before writing the transition, so the durable
+					// tools-change below resolves over the newly installed tools. Nothing can run in
+					// between: sends wait on the same gate.
+					yield* Ref.set(runtimeRef, yield* provisionRuntime(model, next.tools))
 					yield* session
 						.switchModel({
 							model: model.activeModel,
-							systemPrompt: agent.systemPrompt ?? null,
+							systemPrompt: next.systemPrompt,
 							reason: switchOptions?.reason ?? null,
 						})
 						.pipe(Effect.orDie)
-					yield* Ref.set(runtimeRef, yield* provisionRuntime(model))
+					yield* Ref.set(configRef, next)
 				}),
 			)
 

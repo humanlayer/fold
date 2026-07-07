@@ -382,6 +382,8 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					// Epoch-transition choreography (D17): a model switch opens a new epoch, so the leading
 					// system prompt and toolset re-resolve for the new family and all three facts land durably.
 					// The next run's projection binds them; the caller swaps the LanguageModel layer (D15).
+					const previousLevel = runtimeForAgent(yield* collectEntries, input.agentId).reasoningLevel
+
 					yield* appendToEventLog({
 						_tag: 'model-change',
 						agentId: input.agentId,
@@ -402,6 +404,21 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						tools: resolvedToolset.names,
 						reason: input.reason,
 					})
+
+					// Reasoning is part of the switched configuration: when the incoming model's requested
+					// level differs from the projected level, the change lands as its own durable fact. The
+					// model-change fold already rebinds the level (D23 - not an epoch boundary), so this entry
+					// is written for log legibility and skipped when nothing changed.
+					if (previousLevel !== input.model.requestedReasoningLevel) {
+						yield* appendToEventLog({
+							_tag: 'thinking-change',
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							reasoningLevel: input.model.requestedReasoningLevel,
+							reason: input.reason,
+						})
+					}
 				}),
 		)
 

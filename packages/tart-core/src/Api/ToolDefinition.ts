@@ -4,7 +4,7 @@
  * a plain descriptor - no Toolkit, handler layer, or Toolset plumbing appears in caller code; the Session
  * composition root lowers a list of these descriptors into the installed Toolset.
  */
-import type { Effect, Schema } from 'effect'
+import { Effect, Schema } from 'effect'
 import { Tool } from 'effect/unstable/ai'
 
 import { StopController, ToolEvents } from '../ToolRuntime/ToolContextServices'
@@ -52,6 +52,12 @@ export type DefineToolOptions<Params extends Schema.Top, Success extends Schema.
  * Expected failures follow the D12 convention (`failureMode: "return"`): a typed failure from the
  * handler is schema-encoded into the tool result with `isFailure: true`, so the model sees it and can
  * self-correct; defects stay defects and are captured at the tool-settlement seam.
+ *
+ * When `success` is omitted the handler is typed as returning void, but the lowered tool uses
+ * `Schema.Undefined` (with results normalized to undefined) rather than Effect AI's default
+ * `Schema.Void`: results encode through `Union([success, failure, AiError])`, and Void greedily
+ * encodes any value - including a returned failure - to undefined, which would erase the failure
+ * payload the model needs to self-correct.
  */
 export const defineTool = <
 	Params extends Schema.Top = Tool.EmptyParams,
@@ -63,13 +69,19 @@ export const defineTool = <
 	const tool = Tool.make(options.name, {
 		description: options.description,
 		...(options.parameters === undefined ? {} : { parameters: options.parameters }),
-		...(options.success === undefined ? {} : { success: options.success }),
+		success: options.success ?? Schema.Undefined,
 		...(options.failure === undefined ? {} : { failure: options.failure }),
 		failureMode: 'return',
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all three around each execution.
 		dependencies: [ToolState, ToolEvents, StopController],
 	})
+
+	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.
+	const handler =
+		options.success === undefined
+			? (params: Params['Type']) => options.handler(params).pipe(Effect.asVoid)
+			: options.handler
 
 	return {
 		name: options.name,
@@ -78,6 +90,6 @@ export const defineTool = <
 		// Effect AI decodes model-supplied params against `parameters` before invoking the handler,
 		// so it is only ever called with values of `Params['Type']`.
 		// oxlint-disable-next-line typescript/consistent-type-assertions
-		handler: options.handler as ErasedToolHandler,
+		handler: handler as ErasedToolHandler,
 	}
 }
