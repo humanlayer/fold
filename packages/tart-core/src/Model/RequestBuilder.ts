@@ -12,6 +12,7 @@ import { Effect, Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { ProjectedMessage } from '../Projection/Projection'
+import { ToolResultImageBlock } from '../Tools/ToolResultContent'
 
 /** Vendor key in a part's provider-options bag where tart stashes its own metadata. */
 export const tartPartOptionsKey = 'tart'
@@ -94,6 +95,70 @@ const compactionSummaryMessage = (summary: string): Prompt.UserMessage =>
 		content: [Prompt.textPart({ text: `<conversation-summary>\n${summary}\n</conversation-summary>` })],
 	})
 
+/** Placeholder left inside a tool result where an image block was lifted out (D3 delivery path). */
+export const imageOmittedPlaceholder =
+	'[Image omitted here. It is attached as a file part in the user message immediately following this tool result.]'
+
+const isImageBlock = Schema.is(ToolResultImageBlock)
+
+/**
+ * Split image blocks out of one tool-result value following the built-in content-block convention
+ * (`{ content: [text | image, ...] }`). Returns null when the value carries no images.
+ */
+const splitImageBlocks = (
+	result: unknown,
+): { readonly sanitized: unknown; readonly images: ReadonlyArray<ToolResultImageBlock> } | null => {
+	if (!isJsonRecord(result) || !Array.isArray(result.content)) return null
+
+	const images = result.content.filter(isImageBlock)
+	if (images.length === 0) return null
+
+	return {
+		sanitized: {
+			...result,
+			content: result.content.map((block: unknown) =>
+				isImageBlock(block) ? { type: 'text', text: imageOmittedPlaceholder } : block,
+			),
+		},
+		images,
+	}
+}
+
+/**
+ * Deliver image blocks from tool results as native user file parts (D3): the provider serializes
+ * custom tool results as JSON text (verified fact 1), so images inside tool_result would reach the
+ * model as base64 noise. The image block is replaced with placeholder text and re-sent as a user
+ * message file part immediately after the tool message - uniform across providers (fact 2).
+ */
+const liftImagesFromToolMessage = (
+	message: Prompt.ToolMessage,
+): { readonly message: Prompt.ToolMessage; readonly followUp: Prompt.UserMessage | null } => {
+	const imageParts: Array<Prompt.UserMessagePart> = []
+	const content = message.content.map((part) => {
+		if (part.type !== 'tool-result') return part
+
+		const split = splitImageBlocks(part.result)
+		if (split === null) return part
+
+		for (const image of split.images) {
+			imageParts.push(Prompt.filePart({ mediaType: image.mimeType, data: image.data }))
+		}
+		return Prompt.toolResultPart({ ...part, result: split.sanitized })
+	})
+
+	if (imageParts.length === 0) return { message, followUp: null }
+
+	return {
+		message: Prompt.toolMessage({ content, options: message.options }),
+		followUp: Prompt.userMessage({
+			content: [
+				Prompt.textPart({ text: 'The following image content belongs to the preceding tool result:' }),
+				...imageParts,
+			],
+		}),
+	}
+}
+
 /**
  * Build the live Prompt for one model request from an agent's projected messages.
  *
@@ -135,7 +200,11 @@ export const buildPrompt = (
 					const decoded = yield* decodeToolMessage(projected.message).pipe(
 						Effect.mapError(decodeErrorFor(projected)),
 					)
-					promptMessages.push(restoreToolResultIds(decoded, providerIdsByTartId))
+					const { message, followUp } = liftImagesFromToolMessage(
+						restoreToolResultIds(decoded, providerIdsByTartId),
+					)
+					promptMessages.push(message)
+					if (followUp !== null) promptMessages.push(followUp)
 					break
 				}
 

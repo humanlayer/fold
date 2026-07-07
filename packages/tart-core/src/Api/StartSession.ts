@@ -34,6 +34,8 @@ import { layerLiveIdFactory, type AgentId, type SessionId } from '../Ids'
 import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { liveSessionLayer } from '../Session/SessionLayer'
 import { Session } from '../Session/SessionService'
+import { skillSourceFor } from '../Skills/SkillSource'
+import { makeSkillTool, renderSkillsBlock } from '../Skills/SkillTool'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { liveToolRuntimeLayer } from '../ToolRuntime/ToolRuntimeLayer'
 import { toolsetLayerFromToolkit } from '../ToolRuntime/ToolsetFactory'
@@ -158,11 +160,41 @@ const validateToolNames = (tools: ReadonlyArray<TartTool>): Effect.Effect<void> 
 export const startSession = (options: StartSessionOptions): Effect.Effect<TartSession, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const agent = options.agent
+
+		// Skills roster is read exactly once, here at session start: the skills block and the skill
+		// tool's advertised roster stay byte-stable for the whole session (provider-cache law); later
+		// additions surface only through the tool's refresh flag (D20).
+		const skillsConfig = agent.skills
+		const skillsSetup =
+			skillsConfig === undefined
+				? null
+				: yield* Effect.gen(function* () {
+						const source = yield* skillSourceFor(skillsConfig)
+						const snapshot = yield* source.list.pipe(Effect.orDie)
+
+						return { tool: makeSkillTool({ source, snapshot }), block: renderSkillsBlock(snapshot) }
+					})
+
+		/** Append the skill tool to one epoch's installed tools when skills are configured. */
+		const installTools = (tools: ReadonlyArray<TartTool>): ReadonlyArray<TartTool> =>
+			skillsSetup === null ? tools : [...tools, skillsSetup.tool]
+
+		/** Append the session-start skills block to the agent's leading prompt blocks. */
+		const promptWithSkills = (
+			systemPrompt: string | ReadonlyArray<string> | null,
+		): string | ReadonlyArray<string> | null => {
+			if (skillsSetup === null || skillsSetup.block === null) return systemPrompt
+
+			const blocks =
+				systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : [...systemPrompt]
+			return [...blocks, skillsSetup.block]
+		}
+
 		const initialConfig: SessionAgentConfig = {
 			systemPrompt: agent.systemPrompt ?? null,
 			tools: agent.tools ?? [],
 		}
-		yield* validateToolNames(initialConfig.tools)
+		yield* validateToolNames(installTools(initialConfig.tools))
 
 		// One shared service graph per session; every provisioned epoch runtime closes over these same
 		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one HookRunner).
@@ -220,7 +252,7 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 				return Context.get(context, AgentRuntime)
 			})
 
-		const runtimeRef = yield* Ref.make(yield* provisionRuntime(agent.model, initialConfig.tools))
+		const runtimeRef = yield* Ref.make(yield* provisionRuntime(agent.model, installTools(initialConfig.tools)))
 		const configRef = yield* Ref.make(initialConfig)
 		const delegatingRuntime: AgentRuntimeService = {
 			start: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.start(input))),
@@ -242,7 +274,7 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 			.start({
 				cwd: options.cwd ?? null,
 				model: agent.model.activeModel,
-				systemPrompt: initialConfig.systemPrompt,
+				systemPrompt: promptWithSkills(initialConfig.systemPrompt),
 				meta: {
 					...options.meta,
 					...(agent.name === undefined ? {} : { agentName: agent.name }),
@@ -265,16 +297,16 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 						systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
 						tools: switchOptions?.tools ?? current.tools,
 					}
-					yield* validateToolNames(next.tools)
+					yield* validateToolNames(installTools(next.tools))
 
 					// Provision against the new toolset before writing the transition, so the durable
 					// tools-change below resolves over the newly installed tools. Nothing can run in
 					// between: sends wait on the same gate.
-					yield* Ref.set(runtimeRef, yield* provisionRuntime(model, next.tools))
+					yield* Ref.set(runtimeRef, yield* provisionRuntime(model, installTools(next.tools)))
 					yield* session
 						.switchModel({
 							model: model.activeModel,
-							systemPrompt: next.systemPrompt,
+							systemPrompt: promptWithSkills(next.systemPrompt),
 							reason: switchOptions?.reason ?? null,
 						})
 						.pipe(Effect.orDie)

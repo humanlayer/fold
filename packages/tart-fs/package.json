@@ -16,7 +16,9 @@
 	"dependencies": {
 		"@effect/platform-node": "catalog:",
 		"@humanlayer/tart-core": "workspace:*",
-		"effect": "catalog:"
+		"@silvia-odwyer/photon-node": "catalog:",
+		"effect": "catalog:",
+		"yaml": "catalog:"
 	},
 	"devDependencies": {
 		"@effect/vitest": "catalog:",
