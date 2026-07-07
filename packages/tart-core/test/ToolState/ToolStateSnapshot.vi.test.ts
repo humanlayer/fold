@@ -4,7 +4,7 @@ import { Effect, Layer, Stream } from 'effect'
 import {
 	AgentId,
 	EventLog,
-	layerMemory,
+	layerInMemoryEventLog,
 	StateId,
 	ToolCallId,
 	toolStateServiceForHandler,
@@ -15,7 +15,7 @@ import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 const agentId = AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
 const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
 
-const layer = Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }))
+const layer = Layer.mergeAll(layerInMemoryEventLog, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }))
 
 const appendSharedValue = (value: unknown) =>
 	Effect.gen(function* () {

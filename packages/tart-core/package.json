@@ -14,6 +14,7 @@
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
+		"@effect/ai-anthropic": "catalog:",
 		"@effect/ai-openai": "catalog:",
 		"@humanlayer/effect-branded-id": "workspace:*",
 		"effect": "catalog:"

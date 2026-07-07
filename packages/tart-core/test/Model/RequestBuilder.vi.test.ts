@@ -21,7 +21,7 @@ const projectedConversation: ReadonlyArray<ProjectedMessage> = [
 		sourceSeq: 1,
 		messageId,
 		placement: 'leading',
-		message: { role: 'system', content: 'be brief' },
+		messages: [{ role: 'system', content: 'be brief' }],
 	},
 	{
 		_tag: 'compaction-summary',
@@ -91,6 +91,37 @@ it.effect('decodes projected messages and restores provider tool-call ids on bot
 		const toolResult = toolMessage?.content.find((part) => part.type === 'tool-result')
 		if (toolResult?.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(toolResult.id).toBe('provider-call-1')
+	}),
+)
+
+it.effect('renders every block of a multi-block system message as consecutive system messages', () =>
+	Effect.gen(function* () {
+		const multiBlock: ReadonlyArray<ProjectedMessage> = [
+			{
+				_tag: 'system-message',
+				sourceSeq: 1,
+				messageId,
+				placement: 'leading',
+				messages: [
+					{ role: 'system', content: 'block one' },
+					{ role: 'system', content: 'block two' },
+				],
+			},
+			{
+				_tag: 'user-message',
+				sourceSeq: 2,
+				messageId,
+				message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+			},
+		]
+
+		const prompt = yield* buildPrompt(multiBlock)
+
+		expect(prompt.content.map((message) => message.role)).toEqual(['system', 'system', 'user'])
+		expect(prompt.content.flatMap((message) => (message.role === 'system' ? [message.content] : []))).toEqual([
+			'block one',
+			'block two',
+		])
 	}),
 )
 

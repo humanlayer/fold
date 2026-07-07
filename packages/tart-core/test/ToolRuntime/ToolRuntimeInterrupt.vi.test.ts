@@ -3,7 +3,7 @@ import { Deferred, Effect, Fiber, Layer, Schema } from 'effect'
 import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
 
 import {
-	layerMemory,
+	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	messagesForAgent,
 	ToolRuntime,
@@ -53,7 +53,7 @@ it.effect('writes a synthetic interrupted tool-result when a running tool fiber 
 		const layer = liveToolRuntimeLayer.pipe(
 			Layer.provideMerge(
 				Layer.mergeAll(
-					layerMemory,
+					layerInMemoryEventLog,
 					layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
 					toolsetLayerFromToolkit(BlockingToolkit).pipe(Layer.provide(handlerLayer)),
 					hookRunnerNoop,

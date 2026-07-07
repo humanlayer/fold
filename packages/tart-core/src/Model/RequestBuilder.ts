@@ -110,9 +110,11 @@ export const buildPrompt = (
 		for (const projected of messages) {
 			switch (projected._tag) {
 				case 'system-message':
-					promptMessages.push(
-						yield* decodeSystemMessage(projected.message).pipe(Effect.mapError(decodeErrorFor(projected))),
-					)
+					for (const encoded of projected.messages) {
+						promptMessages.push(
+							yield* decodeSystemMessage(encoded).pipe(Effect.mapError(decodeErrorFor(projected))),
+						)
+					}
 					break
 
 				case 'user-message':

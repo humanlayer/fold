@@ -43,7 +43,7 @@ export const makeSessionId = Ids.pipe(Effect.flatMap((ids) => ids.makeSessionId)
 export const makeStateId = Ids.pipe(Effect.flatMap((ids) => ids.makeStateId))
 export const makeToolCallId = Ids.pipe(Effect.flatMap((ids) => ids.makeToolCallId))
 
-export const layerLiveIds: Layer.Layer<Ids> = Layer.succeed(Ids, {
+export const layerLiveIdFactory: Layer.Layer<Ids> = Layer.succeed(Ids, {
 	makeAgentId: Effect.sync(() => AgentId.create()),
 	makeCompactionId: Effect.sync(() => CompactionId.create()),
 	makeMessageId: Effect.sync(() => MessageId.create()),

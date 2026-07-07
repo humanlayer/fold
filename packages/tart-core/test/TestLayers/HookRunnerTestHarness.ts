@@ -2,7 +2,7 @@ import { Effect, Layer } from 'effect'
 
 import {
 	HookRunner,
-	layerMemory,
+	layerInMemoryEventLog,
 	makeHookRunner,
 	StopController,
 	type HookConfig,
@@ -25,7 +25,10 @@ export const runWithHookRunner = <A, E>(
 		Effect.provide(
 			makeHookRunner(config).pipe(
 				Layer.provide(
-					Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })),
+					Layer.mergeAll(
+						layerInMemoryEventLog,
+						layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
+					),
 				),
 			),
 		),

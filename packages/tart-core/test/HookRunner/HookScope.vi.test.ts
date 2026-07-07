@@ -5,7 +5,7 @@ import {
 	AgentId,
 	defineToolState,
 	HookRunner,
-	layerMemory,
+	layerInMemoryEventLog,
 	makeHookRunner,
 	StopController,
 	ToolCallId,
@@ -27,7 +27,10 @@ const GuardState = defineToolState({
 
 /** Build one layer tree where the HookRunner and the assertions share the same memory EventLog. */
 const hookScopeLayer = (config: HookConfig) => {
-	const infra = Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }))
+	const infra = Layer.mergeAll(
+		layerInMemoryEventLog,
+		layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
+	)
 
 	return Layer.mergeAll(makeHookRunner(config).pipe(Layer.provide(infra)), infra)
 }

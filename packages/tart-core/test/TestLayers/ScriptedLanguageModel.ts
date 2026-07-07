@@ -1,12 +1,16 @@
 /**
  * This file provides a scripted LanguageModel test layer - a real `LanguageModel.make` provider whose
  * responses come from a fixed script of turns instead of a network call. Each streamText request
- * consumes the next turn and records the prompt it was sent, so tests can assert exactly what the
- * runtime asked the model and replay multi-turn conversations deterministically.
+ * consumes the next turn and records the request it was sent - the prompt, the advertised tool names,
+ * and the OpenAI per-request Config present in context (read exactly where the real provider reads it) -
+ * so tests can assert exactly what the runtime asked the model and replay multi-turn conversations
+ * deterministically.
  *
  * Turn helpers build provider-shaped encoded stream parts: `toolCallTurn` emits provider-style ids
  * (for example `provider-call-1`) so tests can prove tart's tool-call id rewriting.
  */
+import { AnthropicLanguageModel } from '@effect/ai-anthropic'
+import { OpenAiLanguageModel } from '@effect/ai-openai'
 import { Effect, Layer, Ref, Stream } from 'effect'
 import { AiError, LanguageModel, Response } from 'effect/unstable/ai'
 import type { Prompt } from 'effect/unstable/ai'
@@ -23,7 +27,8 @@ export type ScriptedTurn =
 	| { readonly _tag: 'parts'; readonly parts: ReadonlyArray<Response.StreamPartEncoded> }
 	| { readonly _tag: 'failure'; readonly message: string }
 
-const finishPart = (options?: ScriptedFinishOptions): Response.StreamPartEncoded => ({
+/** Build the encoded `finish` stream part for a scripted turn, so raw turns can reuse the standard shape. */
+export const finishPart = (options?: ScriptedFinishOptions): Response.StreamPartEncoded => ({
 	type: 'finish',
 	reason: options?.reason ?? 'stop',
 	response: undefined,
@@ -82,11 +87,24 @@ export const rawTurn = (parts: ReadonlyArray<Response.StreamPartEncoded>): Scrip
 	parts,
 })
 
-/** Handle to a scripted model: the layer under test plus the prompts the runtime actually sent. */
+/** One recorded model request: what the runtime sent and the request context it sent it under. */
+export type ScriptedRequest = {
+	readonly prompt: Prompt.Prompt
+	/** Tool names advertised to the model on this request. */
+	readonly toolNames: ReadonlyArray<string>
+	/** The OpenAI per-request Config in context at request time, or null when none was provided. */
+	readonly openAiConfig: typeof OpenAiLanguageModel.Config.Service | null
+	/** The Anthropic per-request Config in context at request time, or null when none was provided. */
+	readonly anthropicConfig: typeof AnthropicLanguageModel.Config.Service | null
+}
+
+/** Handle to a scripted model: the layer under test plus the requests the runtime actually sent. */
 export type ScriptedLanguageModel = {
 	readonly layer: Layer.Layer<LanguageModel.LanguageModel>
 	/** Every prompt the runtime sent, in request order. */
 	readonly prompts: Effect.Effect<ReadonlyArray<Prompt.Prompt>>
+	/** Every request the runtime sent (prompt, tool names, request config), in request order. */
+	readonly requests: Effect.Effect<ReadonlyArray<ScriptedRequest>>
 	/** Turns not yet consumed; tests can assert the script was fully used. */
 	readonly remainingTurns: Effect.Effect<number>
 }
@@ -102,11 +120,24 @@ const scriptedFailure = (message: string): AiError.AiError =>
 export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): Effect.Effect<ScriptedLanguageModel> =>
 	Effect.gen(function* () {
 		const turnsRef = yield* Ref.make<ReadonlyArray<ScriptedTurn>>(turns)
-		const promptsRef = yield* Ref.make<ReadonlyArray<Prompt.Prompt>>([])
+		const requestsRef = yield* Ref.make<ReadonlyArray<ScriptedRequest>>([])
 
-		const nextTurn = (prompt: Prompt.Prompt): Effect.Effect<ScriptedTurn> =>
+		const nextTurn = (options: LanguageModel.ProviderOptions): Effect.Effect<ScriptedTurn> =>
 			Effect.gen(function* () {
-				yield* Ref.update(promptsRef, (prompts) => [...prompts, prompt])
+				// Read the per-request provider Configs from the ambient context - the same services the real
+				// providers merge when they build a request - so tests observe exactly what a provider would.
+				const openAiConfig = yield* Effect.serviceOption(OpenAiLanguageModel.Config)
+				const anthropicConfig = yield* Effect.serviceOption(AnthropicLanguageModel.Config)
+
+				yield* Ref.update(requestsRef, (requests) => [
+					...requests,
+					{
+						prompt: options.prompt,
+						toolNames: options.tools.map((tool) => tool.name),
+						openAiConfig: openAiConfig._tag === 'Some' ? openAiConfig.value : null,
+						anthropicConfig: anthropicConfig._tag === 'Some' ? anthropicConfig.value : null,
+					},
+				])
 
 				const remaining = yield* Ref.get(turnsRef)
 				const turn = remaining[0]
@@ -125,7 +156,7 @@ export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): E
 				),
 			streamText: (options) =>
 				Stream.unwrap(
-					nextTurn(options.prompt).pipe(
+					nextTurn(options).pipe(
 						Effect.map((turn) =>
 							turn._tag === 'failure'
 								? Stream.fail(scriptedFailure(turn.message))
@@ -137,7 +168,8 @@ export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): E
 
 		return {
 			layer: Layer.succeed(LanguageModel.LanguageModel, service),
-			prompts: Ref.get(promptsRef),
+			prompts: Ref.get(requestsRef).pipe(Effect.map((requests) => requests.map((request) => request.prompt))),
+			requests: Ref.get(requestsRef),
 			remainingTurns: Ref.get(turnsRef).pipe(Effect.map((remaining) => remaining.length)),
 		}
 	})

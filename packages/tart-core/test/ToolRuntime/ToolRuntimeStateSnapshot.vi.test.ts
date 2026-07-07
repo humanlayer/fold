@@ -7,7 +7,7 @@ import {
 	EventLog,
 	HookRunner,
 	Ids,
-	layerMemory,
+	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	makeHookRunner,
 	ToolCallId,
@@ -47,7 +47,7 @@ const probeRuntimeLayer = (
 	hookLayer: Layer.Layer<HookRunner, never, EventLog | Ids>,
 	handlerLayer: Layer.Layer<ProbeHandlers>,
 ) => {
-	const memoryLayer = layerMemory
+	const memoryLayer = layerInMemoryEventLog
 	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
 	const hookDeps = Layer.mergeAll(memoryLayer, idsLayer)
 

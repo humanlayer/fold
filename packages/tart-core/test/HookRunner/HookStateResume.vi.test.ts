@@ -6,7 +6,7 @@ import {
 	defineToolState,
 	EventLog,
 	HookRunner,
-	layerMemory,
+	layerInMemoryEventLog,
 	makeHookRunner,
 	StateId,
 	StopController,
@@ -44,7 +44,10 @@ it.effect('a hook reproduces its state from tool_state entries already persisted
 			],
 		}
 
-		const infra = Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }))
+		const infra = Layer.mergeAll(
+			layerInMemoryEventLog,
+			layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
+		)
 		const layer = Layer.mergeAll(makeHookRunner(config).pipe(Layer.provide(infra)), infra)
 
 		const result = yield* Effect.gen(function* () {

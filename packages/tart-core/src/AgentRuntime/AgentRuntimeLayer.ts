@@ -3,22 +3,41 @@
  * appends the user message, then loops turns: project messages from the EventLog, build the prompt,
  * apply preRequest hooks, call the LanguageModel, persist the assistant message with tart tool-call
  * ids (stashing provider ids in part options), settle tool calls through ToolRuntime, and consult
- * onComplete hooks before writing the terminal agent-finished entry. Model provider failures become
- * durable error + agent-finished entries, never service failures.
+ * onComplete hooks before writing the terminal agent-finished entry. While the model streams, each
+ * text/reasoning delta is republished live through AgentEvents so UIs can render output as it arrives;
+ * those deltas are ephemeral and never persisted. Model provider failures become durable error +
+ * agent-finished entries, never service failures.
  */
-import { Effect, Layer, Ref, Result, Schema, Stream } from 'effect'
+import { Array as Arr, Effect, Layer, Ref, Result, Schema, Stream } from 'effect'
 import { LanguageModel, Prompt, Response } from 'effect/unstable/ai'
+import type { Tool, Toolkit } from 'effect/unstable/ai'
 
+import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { EventLog } from '../EventLog/EventLogService'
-import type { AgentFinishedLogEntry, AgentFinishedOutcome, LogEntry, LogEntryInput } from '../EventLog/Schemas'
+import type {
+	ActiveModel,
+	AgentFinishedLogEntry,
+	AgentFinishedOutcome,
+	LogEntry,
+	LogEntryInput,
+} from '../EventLog/Schemas'
 import { HookRunner } from '../HookRunner/HookRunnerService'
-import { Ids } from '../Ids'
+import { Ids, type AgentId, type ToolCallId } from '../Ids'
+import { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import { buildPrompt, providerToolCallIdKey, tartPartOptionsKey } from '../Model/RequestBuilder'
-import { messagesForAgent } from '../Projection/Projection'
+import { messagesForAgent, runtimeForAgent } from '../Projection/Projection'
+import { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import { StopController, type StopControllerService } from '../ToolRuntime/ToolContextServices'
 import { ToolRuntime } from '../ToolRuntime/ToolRuntimeService'
+import { ToolsetResolver } from '../ToolRuntime/ToolsetResolverService'
 import { Toolset } from '../ToolRuntime/ToolsetService'
-import { AgentRuntime, type AgentRuntimeService, type RunAgentInput, type StartAgentInput } from './AgentRuntimeService'
+import {
+	AgentRuntime,
+	type AgentRuntimeService,
+	type RunAgentInput,
+	type StartAgentInput,
+	type SwitchModelInput,
+} from './AgentRuntimeService'
 
 const encodeSystemMessage = Schema.encodeUnknownSync(Prompt.SystemMessage)
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
@@ -50,7 +69,16 @@ const assistantResultText = (message: Prompt.AssistantMessage): string | null =>
 export const liveAgentRuntimeLayer: Layer.Layer<
 	AgentRuntime,
 	never,
-	EventLog | Ids | HookRunner | Toolset | ToolRuntime | LanguageModel.LanguageModel
+	| EventLog
+	| Ids
+	| HookRunner
+	| Toolset
+	| ToolsetResolver
+	| SystemPrompt
+	| ModelRequestSettings
+	| ToolRuntime
+	| LanguageModel.LanguageModel
+	| AgentEvents
 > = Layer.effect(
 	AgentRuntime,
 	Effect.gen(function* () {
@@ -58,8 +86,12 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const ids = yield* Ids
 		const hooks = yield* HookRunner
 		const toolset = yield* Toolset
+		const toolsetResolver = yield* ToolsetResolver
+		const systemPrompt = yield* SystemPrompt
+		const modelRequestSettings = yield* ModelRequestSettings
 		const toolRuntime = yield* ToolRuntime
 		const languageModel = yield* LanguageModel.LanguageModel
+		const agentEvents = yield* AgentEvents
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)
@@ -141,6 +173,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		): Effect.Effect<TurnResult> =>
 			Effect.gen(function* () {
 				const entries = yield* collectEntries
+				const runtimeState = runtimeForAgent(entries, input.agentId)
 				const projected = messagesForAgent(entries, input.agentId)
 				const prompt = yield* buildPrompt(projected).pipe(Effect.orDie)
 
@@ -158,10 +191,47 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					return { _tag: 'finished', entry } as const
 				}
 
-				const toolkit = yield* toolset.withHandler
+				// Advertise only the epoch's active toolset (agent_started/tools-change fold): the installed
+				// toolkit is filtered to the projected active names, so a tools-change entry binds the very
+				// next request. Handlers stay untouched - settlement still executes against the full Toolset.
+				const withHandler = yield* toolset.withHandler
+				const activeToolEntries = Object.entries(withHandler.tools).filter(([name]) =>
+					runtimeState.activeTools.includes(name),
+				)
+				const toolkit: Toolkit.WithHandler<Record<string, Tool.Any>> = {
+					tools: Object.fromEntries(activeToolEntries),
+					handle: withHandler.handle,
+				}
+
+				// Tap the live model stream: republish each streamed text/reasoning delta as an ephemeral AgentEvents
+				// delta so UIs can render output as it arrives. All other part types publish nothing, and deltas never
+				// enter the durable log. A failing stream fails before any part, so failure turns publish no deltas.
+				// The whole collection runs under the active model request settings, so the provider reads the
+				// projected reasoning configuration when it builds the request (thinking-change binds next turn).
 				const modelParts = yield* Stream.runCollect(
-					languageModel.streamText({ prompt: requestPrompt, toolkit, disableToolCallResolution: true }),
-				).pipe(Effect.result)
+					languageModel.streamText({ prompt: requestPrompt, toolkit, disableToolCallResolution: true }).pipe(
+						Stream.tap((part) =>
+							part.type === 'text-delta' || part.type === 'reasoning-delta'
+								? agentEvents.publish({
+										kind: 'delta',
+										agentId: input.agentId,
+										parentAgentId: input.parentAgentId,
+										toolCallId: input.toolCallId,
+										part:
+											part.type === 'text-delta'
+												? { type: 'text-delta', id: part.id, delta: part.delta }
+												: { type: 'reasoning-delta', id: part.id, delta: part.delta },
+									})
+								: Effect.void,
+						),
+					),
+				).pipe(
+					modelRequestSettings.wrap({
+						model: runtimeState.activeModel,
+						reasoningLevel: runtimeState.reasoningLevel,
+					}),
+					Effect.result,
+				)
 
 				if (Result.isFailure(modelParts)) {
 					const message = describeModelError(modelParts.failure)
@@ -245,9 +315,45 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				return { _tag: 'finished', entry } as const
 			})
 
+		/** Shared epoch fields: whose log rows these are, and which model's leading prompt to compose. */
+		type LeadingSystemMessageInput = {
+			readonly agentId: AgentId
+			readonly parentAgentId: AgentId | null
+			readonly toolCallId: ToolCallId | null
+			readonly model: ActiveModel
+			readonly systemPrompt: string | ReadonlyArray<string> | null
+		}
+
+		/** Compose and append one epoch's leading system-message block set (agent start and model switch). */
+		const appendLeadingSystemMessage = (input: LeadingSystemMessageInput): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				const agentBlocks =
+					input.systemPrompt === null
+						? []
+						: typeof input.systemPrompt === 'string'
+							? [input.systemPrompt]
+							: input.systemPrompt
+
+				const blocks = yield* systemPrompt.compose({ model: input.model, agentBlocks })
+
+				if (Arr.isReadonlyArrayNonEmpty(blocks)) {
+					yield* appendToEventLog({
+						_tag: 'system-message',
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						messageId: yield* ids.makeMessageId,
+						messages: Arr.map(blocks, (content) => encodeSystemMessage(Prompt.systemMessage({ content }))),
+						placement: 'leading',
+					})
+				}
+			})
+
 		const start: AgentRuntimeService['start'] = Effect.fn('tart.agent_runtime.start')((input: StartAgentInput) =>
 			Effect.gen(function* () {
-				const tools = yield* toolset.names
+				// Epoch-open choreography (D17): resolve the family toolset and compose the leading system
+				// prompt block set once for the starting model; both are recorded durably.
+				const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
 
 				const entry = yield* appendToEventLog({
 					_tag: 'agent_started',
@@ -256,28 +362,47 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					toolCallId: input.toolCallId,
 					mode: 'fresh',
 					model: input.model,
-					tools,
+					tools: resolvedToolset.names,
 					skill: null,
 					fork: null,
 				})
 
-				if (input.systemPrompt !== null) {
-					yield* appendToEventLog({
-						_tag: 'system-message',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						messageId: yield* ids.makeMessageId,
-						message: encodeSystemMessage(Prompt.systemMessage({ content: input.systemPrompt })),
-						placement: 'leading',
-					})
-				}
+				yield* appendLeadingSystemMessage(input)
 
 				if (entry._tag === 'agent_started') return entry
 
 				// Invariant!
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending agent_started`))
 			}),
+		)
+
+		const switchModel: AgentRuntimeService['switchModel'] = Effect.fn('tart.agent_runtime.switch_model')(
+			(input: SwitchModelInput) =>
+				Effect.gen(function* () {
+					// Epoch-transition choreography (D17): a model switch opens a new epoch, so the leading
+					// system prompt and toolset re-resolve for the new family and all three facts land durably.
+					// The next run's projection binds them; the caller swaps the LanguageModel layer (D15).
+					yield* appendToEventLog({
+						_tag: 'model-change',
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						model: input.model,
+						reason: input.reason,
+					})
+
+					yield* appendLeadingSystemMessage(input)
+
+					const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
+					yield* appendToEventLog({
+						_tag: 'tools-change',
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						tools: resolvedToolset.names,
+						reason: input.reason,
+					})
+				}),
 		)
 
 		const run: AgentRuntimeService['run'] = Effect.fn('tart.agent_runtime.run')((input: RunAgentInput) =>
@@ -297,6 +422,6 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			}),
 		)
 
-		return { start, run }
+		return { start, run, switchModel }
 	}),
 )

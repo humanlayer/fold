@@ -2,61 +2,46 @@ import { Layer } from 'effect'
 import type { LanguageModel, Tool } from 'effect/unstable/ai'
 
 import {
-	AgentId,
 	layerDefaultSystemPrompt,
 	layerInMemoryEventLog,
 	liveAgentEventsLayer,
 	liveAgentRuntimeLayer,
 	liveModelRequestSettingsLayer,
+	liveSessionLayer,
 	liveToolRuntimeLayer,
 	makeHookRunner,
 	makeToolsetResolver,
-	noopToolEventSink,
-	ToolEventSink,
+	toolEventSinkLayerFromAgentEvents,
 	toolsetLayerFromToolkit,
-	type ActiveModel,
 	type HookConfig,
-	type RunAgentInput,
-	type StartAgentInput,
+	type StartSessionInput,
 } from '../../src/index'
+import { testModel } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { TestToolkit } from '../TestLayers/TestTools'
 
 type TestToolHandlers = Tool.HandlersFor<typeof TestToolkit.tools>
 
-export const agentId = AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+export { testModel }
 
-export const testModel: ActiveModel = {
-	providerId: 'scripted',
-	providerKind: 'openai-compatible',
-	modelId: 'scripted-model',
-	role: null,
-	requestedReasoningLevel: 'off',
-	reasoning: { _tag: 'disabled' },
-}
-
-export const startInput = (overrides?: Partial<StartAgentInput>): StartAgentInput => ({
-	agentId,
-	parentAgentId: null,
-	toolCallId: null,
+export const startSessionInput = (overrides?: Partial<StartSessionInput>): StartSessionInput => ({
+	cwd: '/test',
 	model: testModel,
 	systemPrompt: 'You are a test agent.',
 	...overrides,
 })
 
-export const runInput = (text: string): RunAgentInput => ({
-	agentId,
-	parentAgentId: null,
-	toolCallId: null,
-	text,
-})
-
 /**
- * Real AgentRuntime over real ToolRuntime, EventLog, projections, and the live HookRunner
- * interpreter. Only true externals vary per test: the scripted model layer, the tool handler
- * bodies, and optional hook configuration.
+ * Real Session over the real AgentRuntime, ToolRuntime, EventLog, projections, live HookRunner, and live
+ * AgentEvents. Mirrors `agentRuntimeBaseLayer` sharing discipline: one `layerInMemoryEventLog` reference,
+ * one `layerDeterministicRuntime` reference, and one `liveAgentEventsLayer` reference are shared across the
+ * whole graph so Effect layer memoization builds a single EventLog, clock/ids, and AgentEvents PubSub.
+ *
+ * Two differences from `agentRuntimeBaseLayer`: `ToolEventSink` is bridged into AgentEvents (so tool
+ * progress reaches `Session.events`), and `liveSessionLayer` is merged on top so tests can reach `Session`,
+ * `EventLog`, and `AgentEvents`.
  */
-export const agentRuntimeBaseLayer = (
+export const sessionBaseLayer = (
 	modelLayer: Layer.Layer<LanguageModel.LanguageModel>,
 	toolHandlerLayer: Layer.Layer<TestToolHandlers>,
 	hooks: HookConfig = {},
@@ -76,10 +61,14 @@ export const agentRuntimeBaseLayer = (
 		layerDefaultSystemPrompt,
 		liveModelRequestSettingsLayer,
 		makeHookRunner(hooks).pipe(Layer.provide(hookDeps)),
-		Layer.succeed(ToolEventSink, noopToolEventSink),
+		toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(agentEventsLayer)),
 	)
 
 	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))
 
-	return liveAgentRuntimeLayer.pipe(Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)))
+	const agentRuntimeLayer = liveAgentRuntimeLayer.pipe(
+		Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)),
+	)
+
+	return liveSessionLayer.pipe(Layer.provideMerge(agentRuntimeLayer))
 }

@@ -1,10 +1,13 @@
 import { it, expect } from '@effect/vitest'
 import { Effect, Fiber, Layer, Stream } from 'effect'
 
-import { EventLog, EventLogInvalidEntryError, Ids, layerMemory, type LogEntryInput } from '../../src/index'
+import { EventLog, EventLogInvalidEntryError, Ids, layerInMemoryEventLog, type LogEntryInput } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 
-const testLayer = Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }))
+const testLayer = Layer.mergeAll(
+	layerInMemoryEventLog,
+	layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
+)
 
 const makeSessionStarted = (cwd: string): Effect.Effect<LogEntryInput, never, Ids> =>
 	Effect.gen(function* () {

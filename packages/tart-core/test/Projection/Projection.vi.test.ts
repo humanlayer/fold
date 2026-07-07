@@ -5,7 +5,7 @@ import { Prompt } from 'effect/unstable/ai'
 import {
 	EventLog,
 	Ids,
-	layerMemory,
+	layerInMemoryEventLog,
 	messagesForAgent,
 	runtimeForAgent,
 	toolStateForAgent,
@@ -18,7 +18,7 @@ import {
 } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 
-const testLayer = Layer.mergeAll(layerMemory, layerDeterministicRuntime({ startMillis: 10_000 }))
+const testLayer = Layer.mergeAll(layerInMemoryEventLog, layerDeterministicRuntime({ startMillis: 10_000 }))
 
 const model: ActiveModel = {
 	providerId: 'primary',
@@ -205,7 +205,7 @@ it.effect('projects messages with the latest leading system message and assistan
 				parentAgentId: null,
 				toolCallId: null,
 				messageId: yield* messageId,
-				message: systemMessage('old system'),
+				messages: [systemMessage('old system')],
 				placement: 'leading',
 			})
 			yield* log.append({
@@ -214,7 +214,7 @@ it.effect('projects messages with the latest leading system message and assistan
 				parentAgentId: null,
 				toolCallId: null,
 				messageId: yield* messageId,
-				message: systemMessage('new system'),
+				messages: [systemMessage('new system'), systemMessage('stay terse')],
 				placement: 'leading',
 			})
 			yield* log.append({
@@ -263,7 +263,10 @@ it.effect('projects messages with the latest leading system message and assistan
 			'tool-result',
 			'tool-result',
 		])
-		expect(projected[0]).toMatchObject({ _tag: 'system-message', message: { content: 'new system' } })
+		expect(projected[0]).toMatchObject({
+			_tag: 'system-message',
+			messages: [{ content: 'new system' }, { content: 'stay terse' }],
+		})
 		expect(projected[3]).toMatchObject({ _tag: 'tool-result', toolCallId: result.firstToolCallId })
 		expect(projected[4]).toMatchObject({ _tag: 'tool-result', toolCallId: result.secondToolCallId })
 	}),
@@ -281,7 +284,7 @@ it.effect('projects forked agents through the parent fork sequence plus child en
 				parentAgentId: null,
 				toolCallId: null,
 				messageId: yield* messageId,
-				message: systemMessage('root system'),
+				messages: [systemMessage('root system')],
 				placement: 'leading',
 			})
 			yield* log.append({
@@ -349,7 +352,7 @@ it.effect('projects compaction as a summary plus entries after the cut', () =>
 				parentAgentId: null,
 				toolCallId: null,
 				messageId: yield* messageId,
-				message: systemMessage('system survives'),
+				messages: [systemMessage('system survives')],
 				placement: 'leading',
 			})
 			yield* log.append({
@@ -412,7 +415,7 @@ it.effect('drops all pre-compaction messages except the leading system message',
 				parentAgentId: null,
 				toolCallId: null,
 				messageId: yield* messageId,
-				message: systemMessage('system survives compaction'),
+				messages: [systemMessage('system survives compaction')],
 				placement: 'leading',
 			})
 			yield* log.append({
@@ -493,7 +496,7 @@ it.effect('drops all pre-compaction messages except the leading system message',
 		])
 		expect(projected[0]).toMatchObject({
 			_tag: 'system-message',
-			message: { content: 'system survives compaction' },
+			messages: [{ content: 'system survives compaction' }],
 		})
 		expect(projected[1]).toMatchObject({
 			_tag: 'compaction-summary',

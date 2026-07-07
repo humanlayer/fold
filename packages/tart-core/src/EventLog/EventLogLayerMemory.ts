@@ -8,7 +8,7 @@ const entriesFrom = (entries: ReadonlyArray<LogEntry>, fromSeq: LogSeq) =>
 	entries.filter((entry) => entry.seq >= fromSeq)
 
 /** In-memory EventLog implementation for tests, browser hosts, and transient sessions. */
-export const layerMemory: Layer.Layer<EventLog> = Layer.effect(
+export const layerInMemoryEventLog: Layer.Layer<EventLog> = Layer.effect(
 	EventLog,
 	Effect.gen(function* () {
 		const entriesRef = yield* Ref.make<ReadonlyArray<LogEntry>>([])

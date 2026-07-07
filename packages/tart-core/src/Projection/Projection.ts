@@ -40,8 +40,8 @@ type ProjectedLogEntryFields<Entry extends LogEntry, Keys extends keyof Entry> =
 	readonly sourceSeq: Entry['seq']
 }
 
-/** System instruction selected for the model context, retaining its source sequence for traceability. */
-export type ProjectedSystemMessage = ProjectedLogEntry<SystemMessageLogEntry, 'messageId' | 'placement' | 'message'>
+/** System instruction block set selected for the model context, retaining its source sequence for traceability. */
+export type ProjectedSystemMessage = ProjectedLogEntry<SystemMessageLogEntry, 'messageId' | 'placement' | 'messages'>
 
 /** User message that should be visible in the model context, retaining its source sequence for traceability. */
 export type ProjectedUserMessage = ProjectedLogEntry<UserMessageLogEntry, 'messageId' | 'message'>
@@ -257,7 +257,7 @@ const projectMessageEntry = (entry: LogEntry): ProjectedMessage | null => {
 				sourceSeq: entry.seq,
 				messageId: entry.messageId,
 				placement: entry.placement,
-				message: entry.message,
+				messages: entry.messages,
 			}
 		case 'user-message':
 			return { _tag: 'user-message', sourceSeq: entry.seq, messageId: entry.messageId, message: entry.message }
@@ -305,7 +305,7 @@ export const messagesForAgent = (
 			sourceSeq: leading.seq,
 			messageId: leading.messageId,
 			placement: leading.placement,
-			message: leading.message,
+			messages: leading.messages,
 		})
 	}
 

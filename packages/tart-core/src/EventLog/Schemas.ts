@@ -68,9 +68,15 @@ export const CodexReasoningSetting = Schema.Union([
 ]).annotate({ identifier: 'CodexReasoningSetting', discriminator: '_tag' })
 export type CodexReasoningSetting = typeof CodexReasoningSetting.Type
 
-/** Anthropic thinking settings after catalog validation/mapping. */
+/**
+ * Anthropic thinking settings after catalog validation/mapping. `adaptive` is the default for models
+ * that support it (Opus 4.6+, Sonnet 4.6+, Fable/Mythos) - the model decides when and how much to
+ * think, with depth steered per-request via effort. `budget` remains for pre-adaptive models
+ * (Haiku 4.5, Sonnet 4.5, and older), where a fixed token budget is the only thinking mechanism.
+ */
 export const AnthropicThinkingSetting = Schema.Union([
 	Schema.TaggedStruct('disabled', {}),
+	Schema.TaggedStruct('adaptive', {}),
 	Schema.TaggedStruct('budget', {
 		budgetTokens: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1024)),
 	}),
@@ -180,13 +186,13 @@ const AgentStartedContextFilter = Schema.makeFilter<AgentStartedContext>(
 	{ identifier: 'AgentStartedContext' },
 )
 
-/** Session started log entry input. The entry is session-scoped, but carries the root agent id. */
+/** Session started log entry input. The entry is session-scoped, but carries the root agent id. `cwd` is null on hosts without a filesystem (browser, workers). */
 export const SessionStartedLogEntryInput = Schema.TaggedStruct('session_started', {
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
 	version: LogVersion,
-	cwd: Schema.String,
+	cwd: Schema.NullOr(Schema.String),
 	sessionId: SessionId,
 	rootAgentId: AgentId,
 	meta: Schema.Record(Schema.String, Schema.Json),
@@ -201,7 +207,7 @@ export const SessionStartedLogEntry = Schema.TaggedStruct('session_started', {
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
 	version: LogVersion,
-	cwd: Schema.String,
+	cwd: Schema.NullOr(Schema.String),
 	sessionId: SessionId,
 	rootAgentId: AgentId,
 	meta: Schema.Record(Schema.String, Schema.Json),
@@ -248,20 +254,20 @@ export const SystemMessagePlacement = Schema.Literals(['leading', 'inline']).ann
 })
 export type SystemMessagePlacement = typeof SystemMessagePlacement.Type
 
-/** Input for a system message log entry. */
+/** Input for a system message log entry. One entry carries the full ordered block set - one encoded system message per block - so leading supersession stays atomic. */
 export const SystemMessageLogEntryInput = Schema.TaggedStruct('system-message', {
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
 	messageId: MessageId,
-	message: SystemMessageEncoded,
+	messages: Schema.NonEmptyArray(SystemMessageEncoded),
 	placement: SystemMessagePlacement,
 })
 	.check(AgentRunContextFilter)
 	.annotate({ identifier: 'SystemMessageLogEntryInput' })
 export type SystemMessageLogEntryInput = typeof SystemMessageLogEntryInput.Type
 
-/** Log entry for a system message. */
+/** Log entry for a system message block set. */
 export const SystemMessageLogEntry = Schema.TaggedStruct('system-message', {
 	seq: LogSeq,
 	ts: EpochMillis,
@@ -269,7 +275,7 @@ export const SystemMessageLogEntry = Schema.TaggedStruct('system-message', {
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
 	messageId: MessageId,
-	message: SystemMessageEncoded,
+	messages: Schema.NonEmptyArray(SystemMessageEncoded),
 	placement: SystemMessagePlacement,
 })
 	.check(AgentRunContextFilter)

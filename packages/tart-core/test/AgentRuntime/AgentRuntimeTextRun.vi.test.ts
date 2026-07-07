@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import { AgentRuntime, type AssistantMessageLogEntry } from '../../src/index'
+import { AgentRuntime, type AssistantMessageLogEntry, type SystemMessageLogEntry } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
 import { layerEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
 import { collectEntries } from '../ToolRuntime/ToolRuntimeTestHelpers'
@@ -45,5 +45,30 @@ it.effect('completes a text-only run with the full log shape', () =>
 		expect(assistant?.finish?.usage.outputTokens.total).toBe(5)
 
 		expect(yield* scripted.remainingTurns).toBe(0)
+	}),
+)
+
+it.effect('persists a multi-block system prompt as one leading entry with one message per block', () =>
+	Effect.gen(function* () {
+		const recorder = yield* makeEchoRecorder()
+		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
+		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
+
+		const entries = yield* Effect.gen(function* () {
+			const runtime = yield* AgentRuntime
+
+			yield* runtime.start(startInput({ systemPrompt: ['You are a test agent.', 'Stay terse.'] }))
+			yield* runtime.run(runInput('hi there'))
+
+			return yield* collectEntries
+		}).pipe(Effect.provide(layer))
+
+		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+		expect(systemEntries).toHaveLength(1)
+		expect(systemEntries[0]?.placement).toBe('leading')
+		expect(systemEntries[0]?.messages.map((message) => message.content)).toEqual([
+			'You are a test agent.',
+			'Stay terse.',
+		])
 	}),
 )
