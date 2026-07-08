@@ -32,6 +32,8 @@ import { Cause, Context, Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Semapho
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { TartEvent } from '../AgentEvents/AgentEventsService'
 import { AgentRuntime, type AgentRuntimeService } from '../AgentRuntime/AgentRuntimeService'
+import { compactionServiceFor } from '../Compaction/CompactionLayer'
+import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLog } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import type { AgentFinishedLogEntry, LogEntry, LogSeq } from '../EventLog/Schemas'
@@ -309,6 +311,10 @@ const assembleSessionGraph = (options: {
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
 			Layer.succeed(Subagents, delegatingSubagents),
+			// Session-wide auto-compaction policy (D11): the live service when the agent enabled it, the
+			// no-op default otherwise. Every provisioned runtime - root and subagent - shares this one
+			// policy while checking against its own projection and summarizing with its own model.
+			Layer.succeed(Compaction, compactionServiceFor(agent.autoCompact)),
 			Layer.effect(
 				SessionControls,
 				makeSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),

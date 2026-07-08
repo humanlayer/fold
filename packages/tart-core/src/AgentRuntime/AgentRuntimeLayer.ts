@@ -1,9 +1,11 @@
 /**
  * This file implements the live AgentRuntime layer - the imperative model loop for one agent. Each run
- * appends the user message, then loops turns: project messages from the EventLog, build the prompt,
- * apply preRequest hooks, call the LanguageModel, persist the assistant message with tart tool-call
- * ids (stashing provider ids in part options), settle tool calls through ToolRuntime, and consult
- * onComplete hooks before writing the terminal agent-finished entry. While the model streams, each
+ * appends the user message, then loops turns: drain steering, run the top-of-turn auto-compaction
+ * check (D11), project messages from the EventLog, build the prompt, apply preRequest hooks, call the
+ * LanguageModel, persist the assistant message with tart tool-call ids (stashing provider ids in part
+ * options), settle tool calls through ToolRuntime, and consult onComplete hooks before writing the
+ * terminal agent-finished entry. Provider context-overflow failures take the reactive compaction path
+ * (compact and restart the turn, once per run) before becoming durable error outcomes. While the model streams, each
  * text/reasoning delta is republished live through AgentEvents so UIs can render output as it arrives;
  * those deltas are ephemeral and never persisted. Model provider failures become durable error +
  * agent-finished entries, never service failures.
@@ -13,6 +15,8 @@ import { LanguageModel, Prompt, Response } from 'effect/unstable/ai'
 import type { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
+import { isContextOverflowError } from '../Compaction/CompactionEngine'
+import { Compaction, type CompactionTrigger } from '../Compaction/CompactionService'
 import { EventLog } from '../EventLog/EventLogService'
 import type {
 	ActiveModel,
@@ -95,6 +99,8 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const languageModel = yield* LanguageModel.LanguageModel
 		const agentEvents = yield* AgentEvents
 		const sessionControls = yield* SessionControls
+		// Defaulted reference (D11): resolves the session-installed live policy, or the disabled no-op.
+		const compaction = yield* Compaction
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)
@@ -189,11 +195,59 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				})
 			})
 
+		/**
+		 * Run one compaction against the agent's current projection (D11): plan through the Compaction
+		 * service - the summarization call runs on this runtime's own LanguageModel, so every agent
+		 * (root or subagent) summarizes with its own model - and append the durable `compaction` entry
+		 * under this run's envelope. A summarization failure never kills the run: it lands as a durable
+		 * `error` note and the turn proceeds uncompacted. Returns whether a compaction entry was written.
+		 */
+		const performCompaction = (
+			input: RunAgentInput,
+			entries: ReadonlyArray<LogEntry>,
+			model: ActiveModel | null,
+			trigger: CompactionTrigger,
+		): Effect.Effect<boolean> =>
+			Effect.gen(function* () {
+				const planned = yield* compaction
+					.plan({ agentId: input.agentId, entries, model, trigger })
+					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
+
+				if (Result.isFailure(planned)) {
+					yield* appendToEventLog({
+						_tag: 'error',
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						errorType: 'compaction',
+						message: planned.failure.message,
+						details: { trigger },
+					})
+					return false
+				}
+
+				if (planned.success === null) return false
+
+				yield* appendToEventLog({
+					_tag: 'compaction',
+					agentId: input.agentId,
+					parentAgentId: input.parentAgentId,
+					toolCallId: input.toolCallId,
+					compactionId: yield* ids.makeCompactionId,
+					summary: planned.success.summary,
+					replacesThroughSeq: planned.success.replacesThroughSeq,
+					tokensBefore: planned.success.tokensBefore,
+				})
+
+				return true
+			})
+
 		/** Run one model turn: build the request, call the model, persist, and settle tool calls. */
 		const runTurn = (
 			input: RunAgentInput,
 			stopController: StopControllerService,
 			stopRef: Ref.Ref<string | null>,
+			overflowRecoveryRef: Ref.Ref<boolean>,
 		): Effect.Effect<TurnResult> =>
 			Effect.gen(function* () {
 				// Drain queued steering before this turn's model call (D8): each steered message becomes an
@@ -203,8 +257,22 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					yield* appendUserMessage(input, text)
 				}
 
-				const entries = yield* collectEntries
-				const runtimeState = runtimeForAgent(entries, input.agentId)
+				const entriesBeforeCompaction = yield* collectEntries
+				const runtimeState = runtimeForAgent(entriesBeforeCompaction, input.agentId)
+
+				// Top-of-turn compaction check (D11): compare the last post-compaction API-reported usage
+				// against the model's usable budget, and compact BEFORE building this turn's request so
+				// the projection the model sees is the compacted one. Runs identically for root agents
+				// and subagents - each against its own projection and its own model's limits (D21).
+				const compacted = (yield* compaction.shouldCompact({
+					agentId: input.agentId,
+					entries: entriesBeforeCompaction,
+					model: runtimeState.activeModel,
+				}))
+					? yield* performCompaction(input, entriesBeforeCompaction, runtimeState.activeModel, 'threshold')
+					: false
+
+				const entries = compacted ? yield* collectEntries : entriesBeforeCompaction
 				const projected = messagesForAgent(entries, input.agentId)
 				const prompt = yield* buildPrompt(projected).pipe(Effect.orDie)
 
@@ -286,6 +354,25 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 				if (Result.isFailure(modelParts)) {
 					const message = describeModelError(modelParts.failure)
+
+					// Reactive overflow path (D11): when the provider says the request exceeded the context
+					// window, compact and restart the turn - once per run. A recovered attempt writes no
+					// error entry (transient, like a within-provider retry); a second overflow, or nothing
+					// safely compactable, falls through to the durable error outcome below.
+					if (
+						compaction.enabled &&
+						isContextOverflowError(message) &&
+						!(yield* Ref.get(overflowRecoveryRef))
+					) {
+						yield* Ref.set(overflowRecoveryRef, true)
+						const recovered = yield* performCompaction(
+							input,
+							yield* collectEntries,
+							runtimeState.activeModel,
+							'overflow',
+						)
+						if (recovered) return { _tag: 'continue' } as const
+					}
 
 					yield* appendToEventLog({
 						_tag: 'error',
@@ -504,13 +591,15 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					requestStop: (reason) => Ref.set(stopRef, reason),
 					isStopRequested: Ref.get(stopRef).pipe(Effect.map((reason) => reason !== null)),
 				}
+				// One reactive compact-and-retry per run (D11's guard, pi's single-attempt precedent).
+				const overflowRecoveryRef = yield* Ref.make(false)
 
 				for (const text of input.messages) {
 					yield* appendUserMessage(input, text)
 				}
 
 				while (true) {
-					const turn = yield* runTurn(input, stopController, stopRef)
+					const turn = yield* runTurn(input, stopController, stopRef, overflowRecoveryRef)
 					if (turn._tag === 'finished') return turn.entry
 				}
 			}),

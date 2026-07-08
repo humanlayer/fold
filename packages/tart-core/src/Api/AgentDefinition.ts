@@ -4,6 +4,7 @@
  * can run against any event log backend, and the same definition's prompt blocks are recomposed when the
  * session switches models (D17).
  */
+import type { AutoCompactConfig } from '../Compaction/CompactionService'
 import type { HookConfig } from '../HookRunner/Types'
 import type { ModelFamily } from '../Model/ModelFamily'
 import type { TartModel } from './ModelDescriptor'
@@ -31,6 +32,13 @@ export type AgentDefinition = {
 	 * to a model of a different family, the leading system prompt is recomposed with that family's base.
 	 */
 	readonly basePrompts?: Partial<Record<ModelFamily, string>>
+	/**
+	 * Auto-compaction policy (D11). Omitted means disabled. When enabled, every agent in the session -
+	 * root and subagents alike - compacts near its model's context limit: old history is summarized
+	 * (pi's structured checkpoint template by default; `compactionPrompt` replaces it) into a durable
+	 * `compaction` entry, and subsequent requests see the summary plus only the messages after the cut.
+	 */
+	readonly autoCompact?: AutoCompactConfig
 }
 
 /** Define one agent. Identity today; the single place agent-config validation lands later. */
