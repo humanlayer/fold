@@ -10,12 +10,14 @@ import {
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	noopToolEventSink,
+	Subagents,
 	ToolCallId,
 	ToolEventSink,
 	toolsetLayerFromToolkit,
 	type LogEntry,
 	type ToolRuntimeEvent,
 } from '../../src/index'
+import { noSubagentsStub } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { TestToolkit } from '../TestLayers/TestTools'
 
@@ -71,6 +73,7 @@ export const toolRuntimeBaseLayer = (
 				toolsetLayerFromToolkit(TestToolkit).pipe(Layer.provide(toolHandlerLayer)),
 				hookLayer.pipe(Layer.provide(hookDeps)),
 				eventLayer,
+				Layer.succeed(Subagents, noSubagentsStub),
 			),
 		),
 	)

@@ -7,7 +7,7 @@ import { Context, Effect, Stream } from 'effect'
 import { Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
 
-import type { StopController, ToolEvents } from './ToolContextServices'
+import type { CurrentAgent, CurrentToolCall, InterruptNote, StopController, ToolEvents } from './ToolContextServices'
 import type { ToolState } from './ToolStateService'
 
 /** Type-erased handler output from Effect AI Toolkit. Preliminary outputs are UI/progress only. */
@@ -32,13 +32,19 @@ export type ToolsetService = {
 	readonly withHandler: Effect.Effect<Toolkit.WithHandler<Record<string, Tool.Any>>>
 	/**
 	 * Run one named handler with model-supplied parameters and stream its toolkit outputs. Handler
-	 * streams may consume the ambient per-call services (ToolState, ToolEvents, StopController);
-	 * ToolRuntime provides them around consumption.
+	 * streams may consume the ambient per-call services (ToolState, ToolEvents, StopController,
+	 * CurrentAgent, CurrentToolCall, InterruptNote); ToolRuntime provides them around consumption.
 	 */
 	readonly handle: (
 		name: string,
 		params: unknown,
-	) => Effect.Effect<Stream.Stream<ToolHandlerOutput, unknown, ToolState | ToolEvents | StopController>>
+	) => Effect.Effect<
+		Stream.Stream<
+			ToolHandlerOutput,
+			unknown,
+			ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote
+		>
+	>
 }
 
 /** Active toolset shared by AgentRuntime and ToolRuntime. */

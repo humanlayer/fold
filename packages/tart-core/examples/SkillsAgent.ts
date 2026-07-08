@@ -9,10 +9,10 @@
  */
 import { Console, Effect } from 'effect'
 
-import { anthropicModel, defineAgent, skillsFromData, startSession } from '../src/index'
+import { anthropicModel, defineAgent, skillsFromData, skillTool, startSession } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
-const apiKey = Bun.env.ANTHROPIC_API_KEY
+const apiKey = process.env.ANTHROPIC_API_KEY
 
 const skills = skillsFromData([
 	{
@@ -38,7 +38,7 @@ const makeProgram = (apiKey: string) =>
 				name: 'skills-demo',
 				model: anthropicModel({ model: modelId, apiKey, reasoning: 'medium' }),
 				systemPrompt: 'You are a tiny Tart demo agent.',
-				skills,
+				tools: [skillTool(skills)],
 			}),
 		})
 

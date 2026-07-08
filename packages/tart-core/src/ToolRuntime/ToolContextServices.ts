@@ -56,3 +56,36 @@ export type StopControllerService = {
  * @effect-leakable-service
  */
 export class StopController extends Context.Service<StopController, StopControllerService>()('tart/StopController') {}
+
+/** The identity of the agent whose tool call is currently executing (D12). */
+export type CurrentAgentService = {
+	readonly agentId: AgentId
+	readonly parentAgentId: AgentId | null
+}
+
+/** Ambient per-call agent identity. ToolRuntime provides this around each handler. */
+export class CurrentAgent extends Context.Service<CurrentAgent, CurrentAgentService>()('tart/CurrentAgent') {}
+
+/** The identity of the tool call currently executing (D12). */
+export type CurrentToolCallService = {
+	readonly toolCallId: ToolCallId
+}
+
+/** Ambient per-call tool-call identity. ToolRuntime provides this around each handler. */
+export class CurrentToolCall extends Context.Service<CurrentToolCall, CurrentToolCallService>()(
+	'tart/CurrentToolCall',
+) {}
+
+/**
+ * Per-call note included in the synthetic tool result ToolRuntime writes when this tool call is
+ * interrupted. Handlers doing resumable or externally-visible work set it as soon as the fact exists
+ * (the subagent tool records the dispatched agent id and resume guidance; bash records the spill-file
+ * path holding partial output). Last write wins; unset means the generic interruption text stands.
+ */
+export type InterruptNoteService = {
+	/** Record the note to append inside the interrupted tool call's synthetic result. */
+	readonly set: (note: string) => Effect.Effect<void>
+}
+
+/** Ambient per-call interrupt note. ToolRuntime provides this around each handler. */
+export class InterruptNote extends Context.Service<InterruptNote, InterruptNoteService>()('tart/InterruptNote') {}

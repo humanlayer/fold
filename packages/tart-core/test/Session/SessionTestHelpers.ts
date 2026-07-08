@@ -10,13 +10,16 @@ import {
 	liveSessionLayer,
 	liveToolRuntimeLayer,
 	makeHookRunner,
+	makeSessionControls,
 	makeToolsetResolver,
+	SessionControls,
+	Subagents,
 	toolEventSinkLayerFromAgentEvents,
 	toolsetLayerFromToolkit,
 	type HookConfig,
 	type StartSessionInput,
 } from '../../src/index'
-import { testModel } from '../AgentRuntime/AgentRuntimeTestHelpers'
+import { noSubagentsStub, testModel } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { TestToolkit } from '../TestLayers/TestTools'
 
@@ -62,6 +65,8 @@ export const sessionBaseLayer = (
 		liveModelRequestSettingsLayer,
 		makeHookRunner(hooks).pipe(Layer.provide(hookDeps)),
 		toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(agentEventsLayer)),
+		Layer.succeed(Subagents, noSubagentsStub),
+		Layer.effect(SessionControls, makeSessionControls()),
 	)
 
 	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))

@@ -107,6 +107,11 @@ export type ScriptedLanguageModel = {
 	readonly requests: Effect.Effect<ReadonlyArray<ScriptedRequest>>
 	/** Turns not yet consumed; tests can assert the script was fully used. */
 	readonly remainingTurns: Effect.Effect<number>
+	/**
+	 * Append turns to the script between sends - for turns whose params embed values only known at
+	 * runtime, like a subagent's agent_id read from the log after a dispatch.
+	 */
+	readonly pushTurns: (turns: ReadonlyArray<ScriptedTurn>) => Effect.Effect<void>
 }
 
 const scriptedFailure = (message: string): AiError.AiError =>
@@ -171,5 +176,6 @@ export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): E
 			prompts: Ref.get(requestsRef).pipe(Effect.map((requests) => requests.map((request) => request.prompt))),
 			requests: Ref.get(requestsRef),
 			remainingTurns: Ref.get(turnsRef).pipe(Effect.map((remaining) => remaining.length)),
+			pushTurns: (extra) => Ref.update(turnsRef, (remaining) => [...remaining, ...extra]),
 		}
 	})

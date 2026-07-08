@@ -6,7 +6,7 @@ import { ToolResultContent } from '@humanlayer/tart-core'
 import { Effect, Schema } from 'effect'
 
 import { readTool } from '../../src/index'
-import { messageOf, runHandler, tempDir } from '../TestHelpers'
+import { handlerOf, messageOf, runHandler, tempDir } from '../TestHelpers'
 
 const onePixelPngBase64 =
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -49,7 +49,7 @@ it.effect('reads raw text with no line-number prefixes', () =>
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'plain.txt'), 'first line\nsecond line\n')
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'plain.txt' }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'plain.txt' }))
 
 		expect(firstText(result)).toBe('first line\nsecond line\n')
 	}),
@@ -60,7 +60,7 @@ it.effect('applies 1-indexed offset and limit with the more-lines notice', () =>
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'lines.txt'), Array.from({ length: 10 }, (_, index) => `line-${index + 1}`).join('\n'))
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'lines.txt', offset: 3, limit: 2 }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'lines.txt', offset: 3, limit: 2 }))
 
 		expect(firstText(result)).toBe('line-3\nline-4\n\n[6 more lines in file. Use offset=5 to continue.]')
 	}),
@@ -72,7 +72,7 @@ it.effect('head-truncates large files with pi verbatim notice', () =>
 		const lines = Array.from({ length: 2500 }, (_, index) => `l${index + 1}`)
 		writeFileSync(join(dir, 'big.txt'), lines.join('\n'))
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'big.txt' }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'big.txt' }))
 		const text = firstText(result)
 
 		expect(text.endsWith('[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]')).toBe(true)
@@ -85,7 +85,7 @@ it.effect('redirects oversized single lines to bash', () =>
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'huge-line.txt'), 'x'.repeat(60 * 1024))
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'huge-line.txt' }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'huge-line.txt' }))
 
 		expect(firstText(result)).toBe(
 			`[Line 1 is 60.0KB, exceeds 50.0KB limit. Use bash: sed -n '1p' huge-line.txt | head -c 51200]`,
@@ -98,7 +98,7 @@ it.effect('fails with the offset-beyond-EOF message', () =>
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'short.txt'), 'only\n')
 
-		const failure = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'short.txt', offset: 99 })).pipe(
+		const failure = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'short.txt', offset: 99 })).pipe(
 			Effect.flip,
 		)
 
@@ -110,7 +110,7 @@ it.effect('fails with a model-actionable message for missing files', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
 
-		const failure = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'nope.txt' })).pipe(Effect.flip)
+		const failure = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'nope.txt' })).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toContain('file not found: nope.txt')
 	}),
@@ -121,7 +121,7 @@ it.effect('returns PNG images as an image content block with a note (hard requir
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'pixel.png'), Buffer.from(onePixelPngBase64, 'base64'))
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'pixel.png' }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'pixel.png' }))
 		const blocks = contentOf(result)
 
 		expect(blocks[0]?.type).toBe('text')
@@ -140,7 +140,7 @@ it.effect('converts BMP to PNG with a conversion hint', () =>
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'pixel.bmp'), onePixelBmp())
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: 'pixel.bmp' }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'pixel.bmp' }))
 		const blocks = contentOf(result)
 
 		expect(firstText(result)).toContain('[Image converted from image/bmp to image/png.]')
@@ -155,7 +155,7 @@ it.effect('resolves macOS filename variants (curly apostrophe)', () =>
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'it’s a file.txt'), 'variant content\n')
 
-		const result = yield* runHandler(readTool({ cwd: dir }).handler({ path: "it's a file.txt" }))
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: "it's a file.txt" }))
 
 		expect(firstText(result)).toBe('variant content\n')
 	}),

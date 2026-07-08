@@ -13,9 +13,12 @@ import {
 	liveModelRequestSettingsLayer,
 	liveToolRuntimeLayer,
 	makeHookRunner,
+	makeSessionControls,
 	makeSystemPrompt,
 	makeToolsetResolver,
 	noopToolEventSink,
+	SessionControls,
+	Subagents,
 	SystemPrompt,
 	ToolEventSink,
 	toolsetLayerFromToolkit,
@@ -26,7 +29,14 @@ import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { makeScriptedLanguageModel, textTurn, type ScriptedRequest } from '../TestLayers/ScriptedLanguageModel'
 import { layerEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
 import { collectEntries } from '../ToolRuntime/ToolRuntimeTestHelpers'
-import { agentId, agentRuntimeBaseLayer, runInput, startInput, testModel } from './AgentRuntimeTestHelpers'
+import {
+	agentId,
+	agentRuntimeBaseLayer,
+	noSubagentsStub,
+	runInput,
+	startInput,
+	testModel,
+} from './AgentRuntimeTestHelpers'
 
 const openAiMediumModel: ActiveModel = {
 	providerId: 'openai',
@@ -187,6 +197,8 @@ const familyAgentLayer = (
 		liveModelRequestSettingsLayer,
 		makeHookRunner({}).pipe(Layer.provide(Layer.mergeAll(memoryLayer, idsLayer))),
 		Layer.succeed(ToolEventSink, noopToolEventSink),
+		Layer.succeed(Subagents, noSubagentsStub),
+		Layer.effect(SessionControls, makeSessionControls()),
 	)
 
 	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))

@@ -10,12 +10,14 @@ import {
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	makeHookRunner,
+	Subagents,
 	ToolCallId,
 	ToolRuntime,
 	ToolState,
 	toolsetLayerFromToolkit,
 	toolStateForAgent,
 } from '../../src/index'
+import { noSubagentsStub } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
 import { agentId, collectEntries, layerNoopToolEvents } from './ToolRuntimeTestHelpers'
@@ -59,6 +61,7 @@ const probeRuntimeLayer = (
 				toolsetLayerFromToolkit(ProbeToolkit).pipe(Layer.provide(handlerLayer)),
 				hookLayer.pipe(Layer.provide(hookDeps)),
 				layerNoopToolEvents,
+				Layer.succeed(Subagents, noSubagentsStub),
 			),
 		),
 	)

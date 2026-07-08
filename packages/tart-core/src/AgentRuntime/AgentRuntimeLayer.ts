@@ -8,7 +8,7 @@
  * those deltas are ephemeral and never persisted. Model provider failures become durable error +
  * agent-finished entries, never service failures.
  */
-import { Array as Arr, Effect, Layer, Ref, Result, Schema, Stream } from 'effect'
+import { Array as Arr, Cause, Effect, Exit, Layer, Ref, Result, Schema, Stream } from 'effect'
 import { LanguageModel, Prompt, Response } from 'effect/unstable/ai'
 import type { Tool, Toolkit } from 'effect/unstable/ai'
 
@@ -26,6 +26,7 @@ import { Ids, type AgentId, type ToolCallId } from '../Ids'
 import { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import { buildPrompt, providerToolCallIdKey, tartPartOptionsKey } from '../Model/RequestBuilder'
 import { messagesForAgent, runtimeForAgent } from '../Projection/Projection'
+import { SessionControls } from '../Session/SessionControls'
 import { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import { StopController, type StopControllerService } from '../ToolRuntime/ToolContextServices'
 import { ToolRuntime } from '../ToolRuntime/ToolRuntimeService'
@@ -79,6 +80,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 	| ToolRuntime
 	| LanguageModel.LanguageModel
 	| AgentEvents
+	| SessionControls
 > = Layer.effect(
 	AgentRuntime,
 	Effect.gen(function* () {
@@ -92,6 +94,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const toolRuntime = yield* ToolRuntime
 		const languageModel = yield* LanguageModel.LanguageModel
 		const agentEvents = yield* AgentEvents
+		const sessionControls = yield* SessionControls
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)
@@ -165,6 +168,27 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				return Prompt.assistantMessage({ content, options: message.options })
 			})
 
+		/**
+		 * Flush partial assistant text on interrupt (D10): whatever streamed before the interruption is
+		 * appended as an ordinary assistant-message, so resume sees coherent, honest history. Runs from an
+		 * uninterruptible onExit around the model stream; a turn that completed normally never reaches it.
+		 */
+		const flushPartialAssistantText = (input: RunAgentInput, partialText: Ref.Ref<string>): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				const text = yield* Ref.get(partialText)
+				if (text.length === 0) return
+
+				yield* appendToEventLog({
+					_tag: 'assistant-message',
+					agentId: input.agentId,
+					parentAgentId: input.parentAgentId,
+					toolCallId: input.toolCallId,
+					messageId: yield* ids.makeMessageId,
+					message: encodeAssistantMessage(Prompt.assistantMessage({ content: [Prompt.textPart({ text })] })),
+					finish: null,
+				})
+			})
+
 		/** Run one model turn: build the request, call the model, persist, and settle tool calls. */
 		const runTurn = (
 			input: RunAgentInput,
@@ -172,6 +196,13 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			stopRef: Ref.Ref<string | null>,
 		): Effect.Effect<TurnResult> =>
 			Effect.gen(function* () {
+				// Drain queued steering before this turn's model call (D8): each steered message becomes an
+				// ordinary user-message right here, so the log records it exactly where the model saw it.
+				const steered = yield* sessionControls.drainSteering(input.agentId)
+				for (const text of steered) {
+					yield* appendUserMessage(input, text)
+				}
+
 				const entries = yield* collectEntries
 				const runtimeState = runtimeForAgent(entries, input.agentId)
 				const projected = messagesForAgent(entries, input.agentId)
@@ -185,7 +216,11 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 				const requestPrompt = preRequestDecision._tag === 'changed' ? preRequestDecision.prompt : prompt
 
-				const stopReasonAfterPreRequest = yield* Ref.get(stopRef)
+				// Both stop tracks bind before the model call: this run's own StopController (a preRequest
+				// hook requested it) and the session-wide signal (D9 - external Session.stop reaches every
+				// agent's loop, so the whole tree stops at its batch boundaries).
+				const stopReasonAfterPreRequest =
+					(yield* Ref.get(stopRef)) ?? (yield* sessionControls.sessionStopReason)
 				if (stopReasonAfterPreRequest !== null) {
 					const entry = yield* appendFinished(input, 'stopped', null, stopReasonAfterPreRequest)
 					return { _tag: 'finished', entry } as const
@@ -208,20 +243,31 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// enter the durable log. A failing stream fails before any part, so failure turns publish no deltas.
 				// The whole collection runs under the active model request settings, so the provider reads the
 				// projected reasoning configuration when it builds the request (thinking-change binds next turn).
+				// Text deltas also accumulate outside the interruptible region: if this turn is interrupted
+				// mid-stream, the uninterruptible onExit below flushes the partial assistant text durably (D10).
+				const partialText = yield* Ref.make('')
 				const modelParts = yield* Stream.runCollect(
 					languageModel.streamText({ prompt: requestPrompt, toolkit, disableToolCallResolution: true }).pipe(
 						Stream.tap((part) =>
 							part.type === 'text-delta' || part.type === 'reasoning-delta'
-								? agentEvents.publish({
-										kind: 'delta',
-										agentId: input.agentId,
-										parentAgentId: input.parentAgentId,
-										toolCallId: input.toolCallId,
-										part:
-											part.type === 'text-delta'
-												? { type: 'text-delta', id: part.id, delta: part.delta }
-												: { type: 'reasoning-delta', id: part.id, delta: part.delta },
-									})
+								? agentEvents
+										.publish({
+											kind: 'delta',
+											agentId: input.agentId,
+											parentAgentId: input.parentAgentId,
+											toolCallId: input.toolCallId,
+											part:
+												part.type === 'text-delta'
+													? { type: 'text-delta', id: part.id, delta: part.delta }
+													: { type: 'reasoning-delta', id: part.id, delta: part.delta },
+										})
+										.pipe(
+											Effect.andThen(
+												part.type === 'text-delta'
+													? Ref.update(partialText, (text) => text + part.delta)
+													: Effect.void,
+											),
+										)
 								: Effect.void,
 						),
 					),
@@ -230,6 +276,11 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						model: runtimeState.activeModel,
 						reasoningLevel: runtimeState.reasoningLevel,
 					}),
+					Effect.onExit((exit) =>
+						Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)
+							? flushPartialAssistantText(input, partialText)
+							: Effect.void,
+					),
 					Effect.result,
 				)
 
@@ -291,6 +342,14 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						return { _tag: 'finished', entry } as const
 					}
 
+					// D9: a session-wide stop lets the in-flight batch finish and its results land (above),
+					// then ends the run here - no further LLM call.
+					const sessionStopAfterBatch = yield* sessionControls.sessionStopReason
+					if (sessionStopAfterBatch !== null) {
+						const entry = yield* appendFinished(input, 'stopped', null, sessionStopAfterBatch)
+						return { _tag: 'finished', entry } as const
+					}
+
 					return { _tag: 'continue' } as const
 				}
 
@@ -308,6 +367,16 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 				if (onCompleteDecision._tag === 'continueWith') {
 					yield* appendUserMessage(input, onCompleteDecision.text)
+					return { _tag: 'continue' } as const
+				}
+
+				// D8: follow-ups queued while this agent was running drain exactly where the run would
+				// complete naturally - each becomes an ordinary user-message and the run continues.
+				const followUps = yield* sessionControls.drainFollowUps(input.agentId)
+				if (followUps.length > 0) {
+					for (const text of followUps) {
+						yield* appendUserMessage(input, text)
+					}
 					return { _tag: 'continue' } as const
 				}
 
@@ -360,14 +429,20 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					agentId: input.agentId,
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
-					mode: 'fresh',
+					mode: input.mode,
 					model: input.model,
 					tools: resolvedToolset.names,
-					skill: null,
-					fork: null,
+					skill: input.skill,
+					fork: input.fork,
+					agentType: input.agentType,
 				})
 
-				yield* appendLeadingSystemMessage(input)
+				// A fork appends no leading system message: its projection folds the forked-from agent's
+				// history, leading blocks included, keeping the fork's prompt prefix byte-identical for
+				// provider-cache reuse (D21).
+				if (input.mode === 'fresh') {
+					yield* appendLeadingSystemMessage(input)
+				}
 
 				if (entry._tag === 'agent_started') return entry
 
@@ -430,7 +505,9 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					isStopRequested: Ref.get(stopRef).pipe(Effect.map((reason) => reason !== null)),
 				}
 
-				yield* appendUserMessage(input, input.text)
+				for (const text of input.messages) {
+					yield* appendUserMessage(input, text)
+				}
 
 				while (true) {
 					const turn = yield* runTurn(input, stopController, stopRef)

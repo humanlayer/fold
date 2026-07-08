@@ -5,9 +5,15 @@
  * model turns and tool settlements until the agent finishes.
  */
 import { Context } from 'effect'
-import type { Effect } from 'effect'
+import type { Array as Arr, Effect } from 'effect'
 
-import type { ActiveModel, AgentFinishedLogEntry, AgentStartedLogEntry } from '../EventLog/Schemas'
+import type {
+	ActiveModel,
+	AgentFinishedLogEntry,
+	AgentFork,
+	AgentLaunchMode,
+	AgentStartedLogEntry,
+} from '../EventLog/Schemas'
 import type { AgentId, ToolCallId } from '../Ids'
 
 /** Input for starting one agent. parentAgentId and toolCallId are null for root agents. */
@@ -15,6 +21,14 @@ export type StartAgentInput = {
 	readonly agentId: AgentId
 	readonly parentAgentId: AgentId | null
 	readonly toolCallId: ToolCallId | null
+	/** Fresh context window, or a by-reference fork of another agent's history (D2/D21). */
+	readonly mode: AgentLaunchMode
+	/** Fork provenance; required exactly when mode is "fork". Forks append no leading system message. */
+	readonly fork: AgentFork | null
+	/** Skill preloaded at dispatch (D21); recorded on agent_started, injected as a user message by the caller. */
+	readonly skill: string | null
+	/** Registry type name the agent was dispatched as (D21); null for the root agent and forks. */
+	readonly agentType: string | null
 	readonly model: ActiveModel
 	/** One leading system block, an ordered set of blocks (one system message each), or null for none. */
 	readonly systemPrompt: string | ReadonlyArray<string> | null
@@ -25,7 +39,11 @@ export type RunAgentInput = {
 	readonly agentId: AgentId
 	readonly parentAgentId: AgentId | null
 	readonly toolCallId: ToolCallId | null
-	readonly text: string
+	/**
+	 * Initial user messages for this run, appended in order before the first model turn. Multiple
+	 * messages carry a dispatch prompt followed by injected context such as a preloaded skill (D21).
+	 */
+	readonly messages: Arr.NonEmptyReadonlyArray<string>
 }
 
 /** Input for switching one started agent to a different model (a new epoch - D17). */

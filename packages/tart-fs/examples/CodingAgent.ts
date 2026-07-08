@@ -16,7 +16,7 @@ import { Console, Effect } from 'effect'
 import { codingTools, jsonlEventLog } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
-const apiKey = Bun.env.ANTHROPIC_API_KEY
+const apiKey = process.env.ANTHROPIC_API_KEY
 
 const makeProgram = (apiKey: string) =>
 	Effect.gen(function* () {

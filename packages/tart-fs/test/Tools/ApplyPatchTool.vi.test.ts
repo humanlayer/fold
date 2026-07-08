@@ -5,7 +5,7 @@ import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
 import { applyPatchTool } from '../../src/index'
-import { messageOf, runHandler, tempDir } from '../TestHelpers'
+import { handlerOf, messageOf, runHandler, tempDir } from '../TestHelpers'
 
 it.effect('applies a multi-op V4A patch: add, update with move, delete', () =>
 	Effect.gen(function* () {
@@ -14,7 +14,7 @@ it.effect('applies a multi-op V4A patch: add, update with move, delete', () =>
 		writeFileSync(join(dir, 'legacy.txt'), 'goodbye\n')
 
 		const result = yield* runHandler(
-			applyPatchTool({ cwd: dir }).handler({
+			handlerOf(applyPatchTool({ cwd: dir }))({
 				patch_text: [
 					'*** Begin Patch',
 					'*** Add File: docs/notes.md',
@@ -47,7 +47,7 @@ it.effect('applies a raw git diff (clanka superset input)', () =>
 		writeFileSync(join(dir, 'x.ts'), 'keep\nremove\n')
 
 		yield* runHandler(
-			applyPatchTool({ cwd: dir }).handler({
+			handlerOf(applyPatchTool({ cwd: dir }))({
 				patch_text: [
 					'diff --git a/x.ts b/x.ts',
 					'index 111..222 100644',
@@ -71,7 +71,7 @@ it.effect('a failing hunk means zero writes (validate-then-write atomicity)', ()
 		writeFileSync(join(dir, 'target.ts'), 'original content\n')
 
 		const failure = yield* runHandler(
-			applyPatchTool({ cwd: dir }).handler({
+			handlerOf(applyPatchTool({ cwd: dir }))({
 				patch_text: [
 					'*** Begin Patch',
 					'*** Add File: should-not-exist.txt',
@@ -98,7 +98,7 @@ it.effect('missing update target fails with the verification prefix', () =>
 		const dir = yield* tempDir
 
 		const failure = yield* runHandler(
-			applyPatchTool({ cwd: dir }).handler({
+			handlerOf(applyPatchTool({ cwd: dir }))({
 				patch_text: ['*** Begin Patch', '*** Update File: ghost.ts', '-a', '+b', '*** End Patch'].join('\n'),
 			}),
 		).pipe(Effect.flip)
@@ -112,7 +112,7 @@ it.effect('unparseable patch text fails with the verification prefix', () =>
 		const dir = yield* tempDir
 
 		const failure = yield* runHandler(
-			applyPatchTool({ cwd: dir }).handler({ patch_text: 'this is not a patch' }),
+			handlerOf(applyPatchTool({ cwd: dir }))({ patch_text: 'this is not a patch' }),
 		).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toBe(

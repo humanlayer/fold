@@ -1,49 +1,64 @@
 /**
- * This file implements `startSession` - the ergonomic composition root of the public API. Callers
- * describe an agent (model, prompt, tools, hooks) and optionally an event log backend; this file lowers
- * those descriptors into the internal service graph (EventLog, Ids, AgentEvents, SystemPrompt,
- * ModelRequestSettings, HookRunner, and per-epoch Toolset + resolver + ToolRuntime + AgentRuntime,
- * plus the Session facade) and returns a running session handle. Per the composition-root ruling, this
- * is the only place descriptors become layers; no public signature accepts or returns one.
+ * This file implements `startSession` and `resumeSession` - the ergonomic composition roots of the
+ * public API. Callers describe an agent (model, prompt, tools, hooks) and optionally an event log
+ * backend; this file lowers those descriptors into the internal service graph (EventLog, Ids,
+ * AgentEvents, SystemPrompt, ModelRequestSettings, SessionControls, the Subagents engine, and
+ * per-provision Toolset + resolver + HookRunner + ToolRuntime + AgentRuntime, plus the Session facade)
+ * and returns a running session handle. Per the composition-root ruling, this is the only place
+ * descriptors become layers; no public signature accepts or returns one.
  *
- * Configuration switching: the AgentRuntime consumed by the Session is a delegating facade over a Ref
- * of the currently provisioned runtime. `TartSession.switchModel` provisions a runtime for the new
- * provider - and, when requested, a new installed toolset - into the session scope, swaps the Ref, then
- * writes the durable epoch transition through the Session service (`model-change`, recomposed leading
- * `system-message`, `tools-change` resolved over the newly installed tools, and `thinking-change` when
- * the reasoning level changed - D17/D23). The next send runs the new configuration against the same
- * durable log. This Ref is the interim form of the D15 AgentModels provisioning seam.
+ * System tools are ordinary members of `tools` (round-five ruling): the composition root walks tools
+ * arrays from the root - following every `subagentTool([...])` value into the definitions it carries -
+ * to build the flat agent-type registry, and runs each distinct tool value's `init` exactly once (the
+ * skill tool's roster scan), collecting the realized tool and its leading-prompt block for every agent
+ * listing that value.
+ *
+ * Session control (slice 2, D8/D9/D10): every run executes on a fiber the facade forks and registers
+ * in SessionControls, so `interrupt` cancels the live fiber tree (uninterruptible finalizers write the
+ * durable markers - the root's `agent-finished{interrupted}` here, subagent markers in the Subagents
+ * engine, partial assistant text in the loop), `stop` raises the session-wide graceful-stop signal
+ * every agent's loop observes at its batch boundaries, `steer` queues onto a running agent's steering
+ * queue (drained between its turns), and `send` targets any agent - queueing a follow-up when the
+ * target is running, continuing a finished subagent directly otherwise.
+ *
+ * Resume (slice 2): `resumeSession` ADOPTS an existing log - no new `session_started`/`agent_started`
+ * rows; identity is recovered from the replayed `session_started`, and when the provided configuration
+ * differs from the log's projected state (model binding - D17 ruling - or the composed leading blocks,
+ * e.g. a changed skills roster - D20 rule), the facade writes one epoch transition before the first
+ * send.
  */
-import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
-import { Context, Effect, Layer, Ref, Schema, Semaphore, Stream } from 'effect'
-import type { Scope } from 'effect'
-import { LanguageModel, Toolkit } from 'effect/unstable/ai'
-import type { Tool } from 'effect/unstable/ai'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { Cause, Context, Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Semaphore, Stream } from 'effect'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { TartEvent } from '../AgentEvents/AgentEventsService'
-import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
 import { AgentRuntime, type AgentRuntimeService } from '../AgentRuntime/AgentRuntimeService'
 import { layerInMemoryEventLog } from '../EventLog/EventLogLayerMemory'
-import { EventLog } from '../EventLog/EventLogService'
+import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import type { AgentFinishedLogEntry, LogEntry, LogSeq } from '../EventLog/Schemas'
-import { makeHookRunner } from '../HookRunner/HookRunnerLayer'
 import { layerLiveIdFactory, type AgentId, type SessionId } from '../Ids'
 import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
+import { runtimeForAgent } from '../Projection/Projection'
+import type { AgentNotRunningError } from '../Session/Errors'
+import {
+	makeSessionControls,
+	SessionControls,
+	type SessionControlsService,
+	type SteeringMode,
+} from '../Session/SessionControls'
 import { liveSessionLayer } from '../Session/SessionLayer'
-import { Session } from '../Session/SessionService'
-import { skillSourceFor } from '../Skills/SkillSource'
-import { makeSkillTool, renderSkillsBlock } from '../Skills/SkillTool'
+import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
+import type { SkillSourceService } from '../Skills/SkillSource'
+import { agentRegistryFromDefinitions, collectSubagentDefinitions } from '../Subagents/AgentRegistry'
+import type { SubagentNotFoundError } from '../Subagents/Errors'
+import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
+import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
-import { liveToolRuntimeLayer } from '../ToolRuntime/ToolRuntimeLayer'
-import { toolsetLayerFromToolkit } from '../ToolRuntime/ToolsetFactory'
-import { makeToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
+import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
 import type { AgentDefinition } from './AgentDefinition'
 import type { TartEventLog } from './EventLogDescriptor'
 import type { TartModel } from './ModelDescriptor'
-import type { TartTool } from './ToolDefinition'
+import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
+import type { RealizedTartTool, SessionToolContribution, TartTool } from './ToolDefinition'
 
 /** Options for {@link startSession}. */
 export type StartSessionOptions = {
@@ -53,6 +68,22 @@ export type StartSessionOptions = {
 	/** Host working directory recorded on `session_started`; omit on hosts without a filesystem. */
 	readonly cwd?: string
 	readonly meta?: Readonly<Record<string, typeof Schema.Json.Type>>
+	/**
+	 * Pre-minted session id, for hosts that name the log location by session id (D5 layout). Defaults
+	 * to a freshly minted id.
+	 */
+	readonly sessionId?: SessionId
+	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
+	readonly steering?: SteeringMode
+}
+
+/** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
+export type ResumeSessionOptions = {
+	readonly agent: AgentDefinition
+	/** The existing event log to adopt; the session continues exactly where the log left off. */
+	readonly log: TartEventLog
+	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
+	readonly steering?: SteeringMode
 }
 
 /** Options for {@link TartSession.switchModel}. Omitted fields keep the session's current configuration. */
@@ -64,16 +95,51 @@ export type SwitchModelOptions = {
 	readonly tools?: ReadonlyArray<TartTool>
 }
 
+/** Target selector shared by `send`, `steer`, and `interrupt`; omitted means the root agent. */
+export type AgentTargetOptions = {
+	readonly agentId?: AgentId
+}
+
 /**
- * A running tart session: one durable log, one root agent, already started. Every method is safe to
- * call without further wiring; `send` and `switchModel` are serialized against each other so a switch
- * cannot interleave with an in-flight run.
+ * A running tart session: one durable log, one root agent, already started (or adopted). Every method
+ * is safe to call without further wiring; root runs and `switchModel` are serialized against each
+ * other so a switch cannot interleave with an in-flight root run.
  */
 export type TartSession = {
 	readonly sessionId: SessionId
 	readonly rootAgentId: AgentId
-	/** Run one user turn on the root agent and resolve with the durable `agent-finished` entry. */
-	readonly send: (text: string) => Effect.Effect<AgentFinishedLogEntry>
+	/**
+	 * Run one user turn on the target agent (root by default) and resolve with the durable
+	 * `agent-finished` entry. When the target is already running, the message queues as a follow-up and
+	 * joins that run at its natural completion boundary (D8); if the run ends without consuming it, a
+	 * fresh run starts for it. Targeting a finished subagent by id continues that agent's loop directly
+	 * (rows carry a null toolCallId - no tool dispatch caused them).
+	 */
+	readonly send: (
+		text: string,
+		options?: AgentTargetOptions,
+	) => Effect.Effect<AgentFinishedLogEntry, SubagentNotFoundError>
+	/**
+	 * Queue a steering message for a RUNNING agent (root by default). It drains between that agent's
+	 * turns - after the current tool batch, before the next model call - and is logged as an ordinary
+	 * user-message exactly at that point (D8). Steering an idle agent fails with AgentNotRunningError.
+	 */
+	readonly steer: (text: string, options?: AgentTargetOptions) => Effect.Effect<void, AgentNotRunningError>
+	/**
+	 * Request a session-wide graceful stop (D9): every running agent finishes its in-flight tool batch,
+	 * appends the results, and ends its run with `agent-finished{stopped}` - no further model calls.
+	 * The signal clears when the next send begins.
+	 */
+	readonly stop: (reason?: string) => Effect.Effect<void>
+	/**
+	 * Hard interrupt (D10). With no target, cancels every running agent's fiber tree (in-flight
+	 * inference, tools, hooks, and subagents); uninterruptible finalizers write the durable markers -
+	 * partial assistant text, interrupted tool results, subagent markers, and the terminal
+	 * `agent-finished{interrupted}` - so resume sees coherent, honest history. With a target agentId,
+	 * interrupts just that agent's run (a dispatched subagent's interruption folds into its
+	 * dispatcher's tool result; the dispatcher keeps running).
+	 */
+	readonly interrupt: (options?: AgentTargetOptions) => Effect.Effect<void>
 	/**
 	 * Switch the root agent to a different provider/model, optionally replacing its prompt blocks and
 	 * installed tools in the same transition. Durably records the epoch transition - `model-change`, the
@@ -86,11 +152,11 @@ export type TartSession = {
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<TartEvent>
 	/** Snapshot of all durable log entries appended so far. */
 	readonly entries: Effect.Effect<ReadonlyArray<LogEntry>>
-	readonly interrupt: Effect.Effect<void>
 }
 
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
 type SessionAgentConfig = {
+	readonly model: TartModel
 	readonly systemPrompt: string | ReadonlyArray<string> | null
 	readonly tools: ReadonlyArray<TartTool>
 }
@@ -99,105 +165,139 @@ type SessionAgentConfig = {
 const eventLogLayerFor = (log: TartEventLog): Layer.Layer<EventLog, unknown> =>
 	log._tag === 'memory' ? layerInMemoryEventLog : Layer.effect(EventLog, log.make)
 
-/** Lower a model descriptor to the LanguageModel layer for its provider connection. */
-const languageModelLayerFor = (model: TartModel): Layer.Layer<LanguageModel.LanguageModel> => {
-	const provider = model.provider
+/** Fold a leading-prompt config value into an ordered block list. */
+const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
+	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
 
-	switch (provider._tag) {
-		case 'openai-compatible': {
-			const clientLayer = OpenAiClient.layer({
-				apiKey: provider.apiKey,
-				...(provider.baseUrl === null ? {} : { apiUrl: provider.baseUrl }),
-			}).pipe(Layer.provide(FetchHttpClient.layer))
-
-			return OpenAiLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
-		}
-
-		case 'anthropic': {
-			const clientLayer = AnthropicClient.layer({
-				apiKey: provider.apiKey,
-				...(provider.baseUrl === null ? {} : { apiUrl: provider.baseUrl }),
-			}).pipe(Layer.provide(FetchHttpClient.layer))
-
-			return AnthropicLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
-		}
-
-		case 'custom':
-			return Layer.effect(LanguageModel.LanguageModel, provider.make)
-	}
-}
-
-/** Assemble tool descriptors into the installed Toolset layer for one epoch. */
-const toolsetLayerFor = (tools: ReadonlyArray<TartTool>) => {
-	const toolkit = Toolkit.make(...tools.map((tartTool) => tartTool.tool))
-	// SAFETY: the dispatch table is keyed by tool name over erased handlers; each handler is only ever
-	// invoked with params decoded by its own tool's parameters schema (see defineTool). This mirrors
-	// the sanctioned dynamic-dispatch assertion in ToolsetFactory.
-	// oxlint-disable-next-line typescript/consistent-type-assertions
-	const handlers = Object.fromEntries(
-		tools.map((tartTool) => [tartTool.name, tartTool.handler]),
-	) as Toolkit.HandlersFrom<Record<string, Tool.Any>>
-
-	return toolsetLayerFromToolkit(toolkit).pipe(Layer.provide(toolkit.toLayer(handlers)))
-}
-
-/** Fail fast (as a defect) when two tool descriptors claim the same name. */
-const validateToolNames = (tools: ReadonlyArray<TartTool>): Effect.Effect<void> => {
-	const duplicates = [
-		...new Set(tools.map((tool) => tool.name).filter((name, index, names) => names.indexOf(name) !== index)),
-	]
-
-	return duplicates.length === 0
-		? Effect.void
-		: Effect.die(new Error(`duplicate tool names: ${duplicates.join(', ')}`))
+/** Everything one assembled session shares between `startSession` and `resumeSession`. */
+type SessionGraph = {
+	readonly agent: AgentDefinition
+	readonly session: SessionService
+	readonly eventLog: EventLogService
+	readonly controls: SessionControlsService
+	readonly systemPromptService: SystemPromptService
+	readonly subagentsEngine: SubagentsService
+	readonly configRef: Ref.Ref<SessionAgentConfig>
+	readonly registryHasType: (name: string) => boolean
+	readonly ensureToolContributions: (tools: ReadonlyArray<TartTool>) => Effect.Effect<void>
+	readonly collectNewSubagentDefinitions: (
+		tools: ReadonlyArray<TartTool>,
+	) => Effect.Effect<ReadonlyArray<{ readonly name: string }>>
+	readonly provisionRootRuntime: (
+		model: TartModel,
+		tools: ReadonlyArray<TartTool>,
+	) => Effect.Effect<AgentRuntimeService>
+	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
+	readonly leadingPromptFor: (
+		systemPrompt: string | ReadonlyArray<string> | null,
+		tools: ReadonlyArray<TartTool>,
+	) => ReadonlyArray<string> | null
 }
 
 /**
- * Start one session for the given agent definition and return its running handle. The session lives in
- * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
- * runtimes.
+ * Assemble one session's whole service graph - registry, tool contributions, shared services,
+ * provisioner, Subagents engine, controls, and the delegating root runtime - without writing anything
+ * durable. `startSession` follows with `session.start`; `resumeSession` follows with adoption.
  */
-export const startSession = (options: StartSessionOptions): Effect.Effect<TartSession, never, Scope.Scope> =>
+const assembleSessionGraph = (options: {
+	readonly agent: AgentDefinition
+	readonly log?: TartEventLog
+	readonly steering?: SteeringMode
+}): Effect.Effect<SessionGraph, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const agent = options.agent
+		const rootTools = agent.tools ?? []
+		const rootHooks = agent.hooks ?? {}
 
-		// Skills roster is read exactly once, here at session start: the skills block and the skill
-		// tool's advertised roster stay byte-stable for the whole session (provider-cache law); later
-		// additions surface only through the tool's refresh flag (D20).
-		const skillsConfig = agent.skills
-		const skillsSetup =
-			skillsConfig === undefined
-				? null
-				: yield* Effect.gen(function* () {
-						const source = yield* skillSourceFor(skillsConfig)
-						const snapshot = yield* source.list.pipe(Effect.orDie)
+		// Walk the tools arrays from the root: every subagentTool value contributes its definitions
+		// (recursively, through THEIR tools), flattening into the session's one flat registry (§1a).
+		const subagentDefinitions = yield* collectSubagentDefinitions(rootTools)
+		const registry = agentRegistryFromDefinitions(subagentDefinitions)
 
-						return { tool: makeSkillTool({ source, snapshot }), block: renderSkillsBlock(snapshot) }
-					})
+		// Per-agent tool-name validation - deliberately no session-global name map, so distinct
+		// skillTool/subagentTool values never collide on their shared names across agents.
+		yield* validateToolNames(rootTools)
+		yield* Effect.forEach(subagentDefinitions, (definition) => validateToolNames(definition.tools ?? []), {
+			discard: true,
+		})
 
-		/** Append the skill tool to one epoch's installed tools when skills are configured. */
-		const installTools = (tools: ReadonlyArray<TartTool>): ReadonlyArray<TartTool> =>
-			skillsSetup === null ? tools : [...tools, skillsSetup.tool]
+		// Run each distinct tool value's init exactly once per session (for ordinary tools that is a
+		// constant; for the skill tool it is the roster scan): the contribution - realized tool,
+		// leading-prompt block, skill source - is reused by every agent listing that value, across
+		// epochs, and by every subagent dispatch (D20's one-snapshot law).
+		const toolContributions = new Map<TartTool, SessionToolContribution>()
+		const ensureToolContributions = (tools: ReadonlyArray<TartTool>): Effect.Effect<void> =>
+			Effect.forEach(
+				tools.filter((tool) => !toolContributions.has(tool)),
+				(tool) => tool.init.pipe(Effect.map((contribution) => toolContributions.set(tool, contribution))),
+				{ discard: true },
+			).pipe(Effect.asVoid)
 
-		/** Append the session-start skills block to the agent's leading prompt blocks. */
-		const promptWithSkills = (
+		yield* ensureToolContributions(rootTools)
+		yield* Effect.forEach(subagentDefinitions, (definition) => ensureToolContributions(definition.tools ?? []), {
+			discard: true,
+		})
+
+		/** Realize one agent's configured tools against the session-start contributions (§2.5). */
+		const realizeAgentTools = (tools: ReadonlyArray<TartTool>): RealizedAgentTools => {
+			const realized: Array<RealizedTartTool> = []
+			const promptBlocks: Array<string> = []
+			let skillSource: SkillSourceService | null = null
+
+			for (const tool of tools) {
+				const contribution = toolContributions.get(tool)
+				if (contribution === undefined) {
+					// Invariant: every reachable tool value ran its init above (or at switch time).
+					throw new Error(`tool "${tool.name}" was never initialized for this session`)
+				}
+
+				realized.push({ name: tool.name, tool: contribution.tool, handler: contribution.handler })
+				if (contribution.promptBlock !== null) promptBlocks.push(contribution.promptBlock)
+				if (contribution.skillSource !== undefined && skillSource === null) {
+					skillSource = contribution.skillSource
+				}
+			}
+
+			return { tools: realized, promptBlocks, skillSource }
+		}
+
+		/** One agent's leading blocks: its own, then its tools' contributed blocks (skills block, D20). */
+		const leadingPromptFor = (
 			systemPrompt: string | ReadonlyArray<string> | null,
-		): string | ReadonlyArray<string> | null => {
-			if (skillsSetup === null || skillsSetup.block === null) return systemPrompt
-
-			const blocks =
-				systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : [...systemPrompt]
-			return [...blocks, skillsSetup.block]
+			tools: ReadonlyArray<TartTool>,
+		): ReadonlyArray<string> | null => {
+			const blocks = [...promptBlocksOf(systemPrompt), ...realizeAgentTools(tools).promptBlocks]
+			return blocks.length === 0 ? null : blocks
 		}
 
 		const initialConfig: SessionAgentConfig = {
+			model: agent.model,
 			systemPrompt: agent.systemPrompt ?? null,
-			tools: agent.tools ?? [],
+			tools: rootTools,
 		}
-		yield* validateToolNames(installTools(initialConfig.tools))
 
-		// One shared service graph per session; every provisioned epoch runtime closes over these same
-		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one HookRunner).
+		// The Subagents engine is constructed after the provisioner (it provisions per dispatch), but the
+		// provisioner's runtimes need the Subagents service in their graph (tool handlers yield it as an
+		// ambient per-call service). A delegating value breaks the construction cycle: it is installed in
+		// the session services now and bound to the real engine right after construction below.
+		const subagentsHolder: { current: SubagentsService | null } = { current: null }
+		const requireSubagentsEngine: Effect.Effect<SubagentsService> = Effect.suspend(() =>
+			subagentsHolder.current === null
+				? Effect.die(new Error('Subagents engine consumed before session construction completed'))
+				: Effect.succeed(subagentsHolder.current),
+		)
+		const delegatingSubagents: SubagentsService = {
+			dispatch: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.dispatch(input))),
+			fork: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.fork(input))),
+			resume: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.resume(input))),
+			continueSubagent: (input) =>
+				requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.continueSubagent(input))),
+		}
+
+		// One shared service graph per session; every provisioned runtime closes over these same
+		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
+		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
+		// carries its own agent's hook chains (D16/D21).
 		const infraLayer = Layer.mergeAll(
 			eventLogLayerFor(options.log ?? { _tag: 'memory' }),
 			layerLiveIdFactory,
@@ -207,8 +307,12 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 			infraLayer,
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
-			makeHookRunner(agent.hooks ?? {}).pipe(Layer.provide(infraLayer)),
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
+			Layer.succeed(Subagents, delegatingSubagents),
+			Layer.effect(
+				SessionControls,
+				makeSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
+			),
 		)
 		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
 		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
@@ -221,39 +325,37 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 		)
 		const sessionServicesLayer = Layer.succeedContext(sessionServices)
 
-		// Provision one runtime slice per epoch into the session scope: the installed Toolset, its family
-		// resolver, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
-		// provider. The delegating runtime below lets the Session service survive swaps (interim
-		// AgentModels seam - D15). Each provision builds with its own memo map so these module-level
-		// layers rebuild against the new model and toolset instead of hitting a previous epoch's
-		// memoized instances.
-		const provisionRuntime = (
+		// Provision one runtime slice per epoch: the installed Toolset, its family resolver, the root's
+		// HookRunner, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
+		// provider (Provisioning.ts owns the fresh-memo-map and ambient-scope invariants). The
+		// delegating runtime below lets the Session service survive swaps (interim AgentModels seam -
+		// D15). Root provisions target the session scope explicitly: switchModel runs later, from the
+		// caller's own scope, and the provisioned provider client must outlive that caller.
+		const provisioner = makeAgentProvisioner(sessionServicesLayer)
+		const provisionRootRuntime = (
 			model: TartModel,
 			tools: ReadonlyArray<TartTool>,
 		): Effect.Effect<AgentRuntimeService> =>
-			Effect.gen(function* () {
-				const memoMap = yield* Layer.makeMemoMap
-				const toolsetLayer = toolsetLayerFor(tools)
-				const epochServicesLayer = Layer.mergeAll(
-					toolsetLayer,
-					makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
-				)
-				const toolRuntimeLayer = liveToolRuntimeLayer.pipe(
-					Layer.provideMerge(Layer.mergeAll(sessionServicesLayer, epochServicesLayer)),
-				)
-				const context = yield* Layer.buildWithMemoMap(
-					liveAgentRuntimeLayer.pipe(
-						Layer.provide(Layer.mergeAll(toolRuntimeLayer, languageModelLayerFor(model))),
-					),
-					memoMap,
-					sessionScope,
-				)
+			provisioner
+				.provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks })
+				.pipe(Scope.provide(sessionScope))
 
-				return Context.get(context, AgentRuntime)
-			})
-
-		const runtimeRef = yield* Ref.make(yield* provisionRuntime(agent.model, installTools(initialConfig.tools)))
 		const configRef = yield* Ref.make(initialConfig)
+		const currentRootAgent: Effect.Effect<RootAgentSnapshot> = Ref.get(configRef).pipe(
+			Effect.map((config) => ({
+				model: config.model,
+				tools: config.tools,
+				hooks: rootHooks,
+				systemPrompt: config.systemPrompt,
+			})),
+		)
+
+		const subagentsEngine = yield* makeSubagents({ registry, realizeAgentTools, currentRootAgent }).pipe(
+			Effect.provide(Layer.mergeAll(sessionServicesLayer, Layer.succeed(AgentProvisioner, provisioner))),
+		)
+		subagentsHolder.current = subagentsEngine
+
+		const runtimeRef = yield* Ref.make(yield* provisionRootRuntime(agent.model, rootTools))
 		const delegatingRuntime: AgentRuntimeService = {
 			start: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.start(input))),
 			run: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.run(input))),
@@ -267,60 +369,312 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<TartSe
 			sessionMemoMap,
 			sessionScope,
 		)
-		const session = Context.get(sessionContext, Session)
-		const eventLog = Context.get(sessionServices, EventLog)
 
-		const started = yield* session
+		return {
+			agent,
+			session: Context.get(sessionContext, Session),
+			eventLog: Context.get(sessionServices, EventLog),
+			controls: Context.get(sessionServices, SessionControls),
+			systemPromptService: Context.get(sessionServices, SystemPrompt),
+			subagentsEngine,
+			configRef,
+			registryHasType: (name: string) => registry.resolveAgentType(name) !== null,
+			ensureToolContributions,
+			collectNewSubagentDefinitions: (tools) => collectSubagentDefinitions(tools),
+			provisionRootRuntime,
+			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
+			leadingPromptFor,
+		}
+	})
+
+/** Build the public handle over one assembled, started-or-adopted session. */
+const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartSession => {
+	const { session, eventLog, controls, subagentsEngine, configRef } = graph
+	const rootAgentId = identity.rootAgentId
+
+	const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
+		Effect.orDie,
+		Effect.map((entries): ReadonlyArray<LogEntry> => entries),
+	)
+
+	/** The last durable terminal marker for one agent; interrupt paths read the finalizer-written row. */
+	const lastFinishedFor = (agentId: AgentId): Effect.Effect<AgentFinishedLogEntry> =>
+		collectEntries.pipe(
+			Effect.flatMap((entries) => {
+				const finished = entries.findLast(
+					(entry): entry is AgentFinishedLogEntry =>
+						entry._tag === 'agent-finished' && entry.agentId === agentId,
+				)
+				return finished === undefined
+					? Effect.die(new Error(`agent ${agentId} has no terminal marker after its run ended`))
+					: Effect.succeed(finished)
+			}),
+		)
+
+	/**
+	 * Uninterruptible exit marker for an interrupted root run (D10): the terminal
+	 * `agent-finished{interrupted}` row, seq-guarded because the root's runs all share the null
+	 * toolCallId envelope. Non-interrupt failures write nothing here - the loop already wrote its own
+	 * durable outcome (provider errors) or the defect propagates unchanged.
+	 */
+	const writeRootInterruptMarker =
+		(baselineSeq: LogSeq) =>
+		(exit: Exit.Exit<AgentFinishedLogEntry>): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				if (Exit.isSuccess(exit) || !Cause.hasInterrupts(exit.cause)) return
+
+				const entries = yield* collectEntries
+				const finishedThisRun = entries.some(
+					(entry) =>
+						entry._tag === 'agent-finished' && entry.agentId === rootAgentId && entry.seq > baselineSeq,
+				)
+				if (finishedThisRun) return
+
+				yield* eventLog
+					.append({
+						_tag: 'agent-finished',
+						agentId: rootAgentId,
+						parentAgentId: null,
+						toolCallId: null,
+						outcome: 'interrupted',
+						resultText: null,
+						reason: 'interrupted by the user',
+					})
+					.pipe(Effect.orDie, Effect.asVoid)
+			})
+
+	// Serialize root runs and switches: a switch must not swap the provisioned runtime under a run that
+	// is mid-flight, and the durable epoch entries must land before the next send projects them.
+	const gate = Semaphore.makeUnsafe(1)
+
+	/** One root run on a registered fiber: interruptible externally, honest markers on teardown. */
+	const runRootSend = (text: string): Effect.Effect<AgentFinishedLogEntry> =>
+		gate.withPermit(
+			Effect.gen(function* () {
+				// A new send clears a previous graceful-stop request (D9): stop targets current work.
+				yield* controls.clearSessionStop
+
+				const claimed = yield* controls.claimRunning(rootAgentId)
+				if (!claimed) {
+					return yield* Effect.die(new Error('root agent already running while the send gate was held'))
+				}
+
+				const entries = yield* collectEntries
+				const baselineSeq = entries.at(-1)?.seq
+				if (baselineSeq === undefined) {
+					return yield* Effect.die(new Error('send on an empty session log'))
+				}
+
+				const runFiber = yield* Effect.forkChild(
+					session
+						.send({ text })
+						.pipe(
+							Effect.orDie,
+							Effect.onExit(writeRootInterruptMarker(baselineSeq)),
+							Effect.ensuring(controls.releaseRunning(rootAgentId)),
+						),
+				)
+				yield* controls.setRunningFiber(rootAgentId, runFiber)
+
+				const exit = yield* Fiber.await(runFiber)
+				if (Exit.isSuccess(exit)) return exit.value
+				if (Cause.hasInterrupts(exit.cause)) {
+					// The marker finalizer already wrote the durable interrupted outcome; return it.
+					return yield* lastFinishedFor(rootAgentId)
+				}
+				return yield* Effect.failCause(exit.cause)
+			}),
+		)
+
+	const send = (
+		text: string,
+		options?: AgentTargetOptions,
+	): Effect.Effect<AgentFinishedLogEntry, SubagentNotFoundError> =>
+		Effect.gen(function* () {
+			const target = options?.agentId ?? rootAgentId
+
+			// D8: a running target gets the message as a follow-up that joins its current run at the
+			// natural completion boundary. If that run ends without consuming it (stopped, errored, or
+			// interrupted first), send still means "this message gets a run" - start one below.
+			if (yield* controls.isRunning(target)) {
+				const ticket = yield* controls
+					.pushFollowUp(target, text)
+					.pipe(Effect.catchTag('AgentNotRunningError', () => Effect.succeed(null)))
+
+				if (ticket !== null) {
+					const consumed = yield* ticket.consumed
+					if (consumed) {
+						const exit = yield* controls.awaitRunning(target)
+						if (exit !== null && Exit.isSuccess(exit)) return exit.value
+						return yield* lastFinishedFor(target)
+					}
+					return yield* send(text, options)
+				}
+			}
+
+			if (target === rootAgentId) {
+				return yield* runRootSend(text)
+			}
+
+			// A finished subagent continues directly (D8): null toolCallId - no tool dispatch caused it.
+			return yield* subagentsEngine
+				.continueSubagent({ agentId: target, prompt: text })
+				.pipe(Effect.catchTag('SubagentBusyError', () => send(text, options)))
+		})
+
+	const steer = (text: string, options?: AgentTargetOptions): Effect.Effect<void, AgentNotRunningError> =>
+		controls.steer(options?.agentId ?? rootAgentId, text)
+
+	const stop = (reason?: string): Effect.Effect<void> =>
+		controls.requestSessionStop(reason ?? 'the user requested a stop')
+
+	const interrupt = (options?: AgentTargetOptions): Effect.Effect<void> =>
+		options?.agentId === undefined
+			? controls.interruptAllRunning
+			: controls.interruptRunning(options.agentId).pipe(Effect.asVoid)
+
+	const switchModel = (model: TartModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
+		gate.withPermit(
+			Effect.gen(function* () {
+				const current = yield* Ref.get(configRef)
+				const next: SessionAgentConfig = {
+					model,
+					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+					tools: switchOptions?.tools ?? current.tools,
+				}
+				yield* validateToolNames(next.tools)
+
+				// A switch may introduce new session-initialized tools (a fresh skillTool): run their
+				// inits now, once per value. New subagent TYPES cannot be introduced mid-session - the
+				// registry is session-fixed (resume/roster integrity) - so any subagentTool in the new
+				// toolset must only reference definitions already registered at session start.
+				yield* graph.ensureToolContributions(next.tools)
+				const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
+				for (const definition of introduced) {
+					if (!graph.registryHasType(definition.name)) {
+						return yield* Effect.die(
+							new Error(
+								`switchModel cannot introduce new subagent type "${definition.name}": the agent-type registry is fixed at session start`,
+							),
+						)
+					}
+				}
+
+				// Provision against the new toolset before writing the transition, so the durable
+				// tools-change below resolves over the newly installed tools. Nothing can run in
+				// between: root runs wait on the same gate.
+				yield* graph.setProvisionedRuntime(yield* graph.provisionRootRuntime(model, next.tools))
+				yield* session
+					.switchModel({
+						model: model.activeModel,
+						systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
+						reason: switchOptions?.reason ?? null,
+					})
+					.pipe(Effect.orDie)
+				yield* Ref.set(configRef, next)
+			}),
+		)
+
+	return {
+		sessionId: identity.sessionId,
+		rootAgentId,
+		send,
+		steer,
+		stop,
+		interrupt,
+		switchModel,
+		events: (fromSeq?: LogSeq) => session.events(fromSeq),
+		entries: collectEntries,
+	}
+}
+
+/**
+ * Start one session for the given agent definition and return its running handle. The session lives in
+ * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
+ * runtimes.
+ */
+export const startSession = (options: StartSessionOptions): Effect.Effect<TartSession, never, Scope.Scope> =>
+	Effect.gen(function* () {
+		const graph = yield* assembleSessionGraph(options)
+		const config = yield* Ref.get(graph.configRef)
+
+		const started = yield* graph.session
 			.start({
 				cwd: options.cwd ?? null,
-				model: agent.model.activeModel,
-				systemPrompt: promptWithSkills(initialConfig.systemPrompt),
+				model: options.agent.model.activeModel,
+				systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
 				meta: {
 					...options.meta,
-					...(agent.name === undefined ? {} : { agentName: agent.name }),
+					...(options.agent.name === undefined ? {} : { agentName: options.agent.name }),
 				},
+				...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
 			})
 			.pipe(Effect.orDie)
 
-		// Serialize sends and switches: a switch must not swap the provisioned runtime under a run that
-		// is mid-flight, and the durable epoch entries must land before the next send projects them.
-		const gate = yield* Semaphore.make(1)
+		return makeSessionHandle(graph, started)
+	})
 
-		const send = (text: string): Effect.Effect<AgentFinishedLogEntry> =>
-			gate.withPermit(session.send({ text }).pipe(Effect.orDie))
+/**
+ * Resume an existing session log: ADOPT its identity (no new `session_started`/`agent_started` rows -
+ * the replayed log is the state) and continue with the given agent configuration. When the projected
+ * root state differs from the configuration - the model binding (D17 resume ruling) or the composed
+ * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
+ * transition is written before the first send.
+ */
+export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<TartSession, never, Scope.Scope> =>
+	Effect.gen(function* () {
+		const graph = yield* assembleSessionGraph(options)
+		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(
+			Effect.orDie,
+			Effect.map((collected): ReadonlyArray<LogEntry> => collected),
+		)
 
-		const switchModel = (model: TartModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
-			gate.withPermit(
-				Effect.gen(function* () {
-					const current = yield* Ref.get(configRef)
-					const next: SessionAgentConfig = {
-						systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
-						tools: switchOptions?.tools ?? current.tools,
-					}
-					yield* validateToolNames(installTools(next.tools))
-
-					// Provision against the new toolset before writing the transition, so the durable
-					// tools-change below resolves over the newly installed tools. Nothing can run in
-					// between: sends wait on the same gate.
-					yield* Ref.set(runtimeRef, yield* provisionRuntime(model, installTools(next.tools)))
-					yield* session
-						.switchModel({
-							model: model.activeModel,
-							systemPrompt: promptWithSkills(next.systemPrompt),
-							reason: switchOptions?.reason ?? null,
-						})
-						.pipe(Effect.orDie)
-					yield* Ref.set(configRef, next)
-				}),
+		const sessionStarted = entries.find((entry) => entry._tag === 'session_started')
+		if (sessionStarted === undefined || sessionStarted._tag !== 'session_started') {
+			return yield* Effect.die(
+				new Error('cannot resume: the log has no session_started row (use startSession for a fresh log)'),
 			)
-
-		return {
-			sessionId: started.sessionId,
-			rootAgentId: started.rootAgentId,
-			send,
-			switchModel,
-			events: (fromSeq?: LogSeq) => session.events(fromSeq),
-			entries: Stream.runCollect(eventLog.entries()).pipe(Effect.orDie),
-			interrupt: session.interrupt,
 		}
+
+		const identity: StartedSession = {
+			sessionId: sessionStarted.sessionId,
+			rootAgentId: sessionStarted.rootAgentId,
+		}
+		yield* graph.session.adopt(identity).pipe(Effect.orDie)
+
+		// D17 resume ruling + D20 resume roster rule: one epoch transition iff the configuration no
+		// longer matches the log's projected root state - the model binding, or the leading block set
+		// the current configuration would compose (the skills roster was freshly scanned above; a
+		// changed scan changes the composed blocks).
+		const config = yield* Ref.get(graph.configRef)
+		const projected = runtimeForAgent(entries, identity.rootAgentId)
+		const composedBlocks = yield* graph.systemPromptService.compose({
+			model: config.model.activeModel,
+			agentBlocks: graph.leadingPromptFor(config.systemPrompt, config.tools) ?? [],
+		})
+		const loggedLeading = entries.findLast(
+			(entry) =>
+				entry._tag === 'system-message' &&
+				entry.agentId === identity.rootAgentId &&
+				entry.placement === 'leading',
+		)
+		const loggedBlocks =
+			loggedLeading !== undefined && loggedLeading._tag === 'system-message'
+				? loggedLeading.messages.map((message) => message.content)
+				: []
+
+		const modelDiffers = JSON.stringify(projected.activeModel) !== JSON.stringify(config.model.activeModel)
+		const blocksDiffer = JSON.stringify(composedBlocks) !== JSON.stringify(loggedBlocks)
+
+		if (modelDiffers || blocksDiffer) {
+			yield* graph.session
+				.switchModel({
+					model: config.model.activeModel,
+					systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
+					reason: 'resume: the session configuration changed since this log was written',
+				})
+				.pipe(Effect.orDie)
+		}
+
+		return makeSessionHandle(graph, identity)
 	})

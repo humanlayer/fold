@@ -2,9 +2,15 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer, Ref } from 'effect'
 
 import {
+	AgentId,
+	CurrentAgent,
+	CurrentToolCall,
+	InterruptNote,
 	makeSkillTool,
 	skillSourceFromData,
 	StopController,
+	Subagents,
+	ToolCallId,
 	ToolEvents,
 	ToolState,
 	type SkillMeta,
@@ -17,6 +23,15 @@ const ambientServices = Layer.mergeAll(
 	Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
 	Layer.succeed(ToolEvents, { emit: () => Effect.void }),
 	Layer.succeed(StopController, { requestStop: () => Effect.void, isStopRequested: Effect.succeed(false) }),
+	Layer.succeed(CurrentAgent, { agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'), parentAgentId: null }),
+	Layer.succeed(CurrentToolCall, { toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa') }),
+	Layer.succeed(InterruptNote, { set: () => Effect.void }),
+	Layer.succeed(Subagents, {
+		dispatch: () => Effect.die(new Error('Subagents not available in this test')),
+		fork: () => Effect.die(new Error('Subagents not available in this test')),
+		resume: () => Effect.die(new Error('Subagents not available in this test')),
+		continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
+	}),
 )
 
 const skillContentOf = (result: unknown): string => {
@@ -40,9 +55,10 @@ describe('makeSkillTool', () => {
 			const source = yield* skillSourceFromData(demoSkills)
 			const snapshot = yield* source.list
 			const tool = makeSkillTool({ source, snapshot })
+			const realized = yield* tool.init
 
 			expect(tool.name).toBe('skill')
-			expect(tool.tool.description).toContain('Available skills: commit-helper, reviewer.')
+			expect(realized.tool.description).toContain('Available skills: commit-helper, reviewer.')
 		}),
 	)
 
@@ -50,9 +66,9 @@ describe('makeSkillTool', () => {
 		Effect.gen(function* () {
 			const source = yield* skillSourceFromData(demoSkills)
 			const snapshot = yield* source.list
-			const tool = makeSkillTool({ source, snapshot })
+			const realized = yield* makeSkillTool({ source, snapshot }).init
 
-			const result = yield* runHandler(tool.handler({ name: 'commit-helper' }))
+			const result = yield* runHandler(realized.handler({ name: 'commit-helper' }))
 
 			expect(result).toEqual({
 				content: '<skill name="commit-helper">\nWrite conventional commits.\n</skill>',
@@ -64,9 +80,9 @@ describe('makeSkillTool', () => {
 		Effect.gen(function* () {
 			const source = yield* skillSourceFromData(demoSkills)
 			const snapshot = yield* source.list
-			const tool = makeSkillTool({ source, snapshot })
+			const realized = yield* makeSkillTool({ source, snapshot }).init
 
-			const result = yield* runHandler(tool.handler({ name: 'missing' })).pipe(Effect.flip)
+			const result = yield* runHandler(realized.handler({ name: 'missing' })).pipe(Effect.flip)
 
 			expect(result).toEqual({
 				message: 'Skill "missing" not found. Available skills: commit-helper, reviewer',
@@ -89,14 +105,14 @@ describe('makeSkillTool', () => {
 						: Effect.die(new Error('unused')),
 			}
 			const snapshot = yield* source.list
-			const tool = makeSkillTool({ source, snapshot })
+			const realized = yield* makeSkillTool({ source, snapshot }).init
 
 			yield* Ref.set(skills, [
 				{ name: 'commit-helper', description: 'Craft commit messages' },
 				{ name: 'late-arrival', description: 'Added mid-session' },
 			])
 
-			const result = yield* runHandler(tool.handler({ name: 'commit-helper', refresh: true }))
+			const result = yield* runHandler(realized.handler({ name: 'commit-helper', refresh: true }))
 			const content = skillContentOf(result)
 
 			expect(content).toContain('<skill name="commit-helper">')
@@ -109,9 +125,9 @@ describe('makeSkillTool', () => {
 		Effect.gen(function* () {
 			const source = yield* skillSourceFromData(demoSkills)
 			const snapshot = yield* source.list
-			const tool = makeSkillTool({ source, snapshot })
+			const realized = yield* makeSkillTool({ source, snapshot }).init
 
-			const result = yield* runHandler(tool.handler({ name: 'reviewer', refresh: true }))
+			const result = yield* runHandler(realized.handler({ name: 'reviewer', refresh: true }))
 			const content = skillContentOf(result)
 
 			expect(content).toContain('The skill list has not changed since this session started.')
@@ -121,9 +137,9 @@ describe('makeSkillTool', () => {
 	it.effect('an empty snapshot steers the model toward refresh', () =>
 		Effect.gen(function* () {
 			const source = yield* skillSourceFromData([])
-			const tool = makeSkillTool({ source, snapshot: [] })
+			const realized = yield* makeSkillTool({ source, snapshot: [] }).init
 
-			expect(tool.tool.description).toContain('No skills were available when this session started')
+			expect(realized.tool.description).toContain('No skills were available when this session started')
 		}),
 	)
 })

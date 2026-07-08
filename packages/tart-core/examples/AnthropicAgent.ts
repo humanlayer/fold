@@ -11,7 +11,7 @@ import { Console, Effect, Schema } from 'effect'
 import { anthropicModel, defineAgent, defineTool, startSession } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
-const apiKey = Bun.env.ANTHROPIC_API_KEY
+const apiKey = process.env.ANTHROPIC_API_KEY
 
 const echo = defineTool({
 	name: 'echo',

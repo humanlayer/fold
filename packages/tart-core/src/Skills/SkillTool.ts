@@ -7,10 +7,10 @@
  */
 import { Effect } from 'effect'
 
-import { defineTool, type TartTool } from '../Api/ToolDefinition'
+import { defineTool, type SessionToolContribution, type TartTool } from '../Api/ToolDefinition'
 import { skillToolContract } from '../Tools/Contracts'
 import type { SkillMeta } from './Schemas'
-import type { SkillSourceService } from './SkillSource'
+import { skillSourceFor, type SkillSourceService, type TartSkills } from './SkillSource'
 
 /** Escape text destined for the XML-ish skills listing (pi parity). */
 const escapeXml = (text: string): string =>
@@ -68,6 +68,37 @@ export type MakeSkillToolInput = {
 }
 
 /**
+ * Build one skill tool value over a skills source (round-five public factory). The value is
+ * session-initialized: the composition root runs `init` ONCE per distinct value at session start -
+ * resolving the source, scanning the roster, and baking that one snapshot into both the realized tool
+ * description and the leading skills prompt block (they must share a snapshot or the refresh diff
+ * loses its baseline - D20). Listing the same value on several agents shares that one scan; a fresh
+ * `skillTool(...)` call gives an agent its own independent setup.
+ */
+export const skillTool = (source: TartSkills): TartTool => ({
+	name: skillToolContract.name,
+	init: Effect.gen(function* () {
+		const resolved = yield* skillSourceFor(source)
+		const snapshot = yield* resolved.list.pipe(Effect.orDie)
+		const realized = yield* makeSkillTool({ source: resolved, snapshot }).init
+
+		const contribution: SessionToolContribution = {
+			...realized,
+			promptBlock: renderSkillsBlock(snapshot),
+			skillSource: resolved,
+		}
+
+		return contribution
+	}),
+})
+
+/** The skill tool's model-facing failure payload (schema: message + availableSkills). */
+type SkillToolFailure = {
+	readonly message: string
+	readonly availableSkills: ReadonlyArray<string>
+}
+
+/**
  * Build the skill tool over a resolved source (D20). The description advertises the session-start
  * roster (names only - full descriptions live in the system prompt block); `refresh` re-runs `list`
  * and reports additions/removals without touching any cached prompt bytes.
@@ -87,16 +118,20 @@ export const makeSkillTool = (input: MakeSkillToolInput): TartTool => {
 				const refreshReport = params.refresh === true ? yield* refreshedRoster(input) : null
 
 				const skill = yield* input.source.load(params.name).pipe(
-					Effect.mapError((error) =>
-						error._tag === 'SkillNotFoundError'
-							? {
-									message: `Skill "${params.name}" not found. Available skills: ${
-										error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')
-									}`,
-									availableSkills: error.availableSkills,
-								}
-							: { message: `Skill source failed: ${error.message}`, availableSkills: snapshotNames },
-					),
+					Effect.catchTags({
+						SkillNotFoundError: (error) =>
+							Effect.fail<SkillToolFailure>({
+								message: `Skill "${params.name}" not found. Available skills: ${
+									error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')
+								}`,
+								availableSkills: error.availableSkills,
+							}),
+						SkillSourceError: (error) =>
+							Effect.fail<SkillToolFailure>({
+								message: `Skill source failed: ${error.message}`,
+								availableSkills: snapshotNames,
+							}),
+					}),
 				)
 
 				const content = renderSkillContent(skill)

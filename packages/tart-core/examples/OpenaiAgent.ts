@@ -10,7 +10,7 @@ import { Console, Effect, Schema } from 'effect'
 import { defineAgent, defineTool, openaiModel, startSession } from '../src/index'
 
 const modelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
-const apiKey = Bun.env.OPENAI_API_KEY
+const apiKey = process.env.OPENAI_API_KEY
 
 const echo = defineTool({
 	name: 'echo',

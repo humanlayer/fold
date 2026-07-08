@@ -16,7 +16,7 @@ import { Console, Effect } from 'effect'
 import { codingTools } from '../src/index'
 
 const modelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
-const apiKey = Bun.env.OPENAI_API_KEY
+const apiKey = process.env.OPENAI_API_KEY
 
 const makeProgram = (apiKey: string) =>
 	Effect.gen(function* () {

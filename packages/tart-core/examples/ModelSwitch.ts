@@ -16,8 +16,8 @@ import { anthropicModel, defineAgent, defineTool, openaiModel, startSession } fr
 
 const openAiModelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
 const anthropicModelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
-const openAiKey = Bun.env.OPENAI_API_KEY
-const anthropicKey = Bun.env.ANTHROPIC_API_KEY
+const openAiKey = process.env.OPENAI_API_KEY
+const anthropicKey = process.env.ANTHROPIC_API_KEY
 
 const echo = defineTool({
 	name: 'echo',

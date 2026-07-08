@@ -12,7 +12,16 @@ import type { LogEntry, ToolResultLogEntry } from '../EventLog/Schemas'
 import { HookExecutionError } from '../HookRunner/Errors'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, ToolCallId, type AgentId } from '../Ids'
-import { StopController, ToolEventSink, ToolEvents } from './ToolContextServices'
+import { Subagents } from '../Subagents/SubagentsService'
+import { modelVisibleErrorDetailsFromCause, systemInformation } from './ModelVisibleErrors'
+import {
+	CurrentAgent,
+	CurrentToolCall,
+	InterruptNote,
+	StopController,
+	ToolEventSink,
+	ToolEvents,
+} from './ToolContextServices'
 import { ToolRuntime, type ToolRuntimeService, type ToolSettlement } from './ToolRuntimeService'
 import { Toolset, type ToolHandlerOutput } from './ToolsetService'
 import { toolStateServiceForHandler } from './ToolStateFactory'
@@ -47,36 +56,16 @@ type ToolResultAppendInput = {
 const interruptedToolResult =
 	'<system-information>The user interrupted the execution of this tool call.</system-information>'
 
-const maxModelVisibleErrorMessageLength = 300
-
-const systemInformation = (message: string): string => `<system-information>${message}</system-information>`
-
-const escapeSystemInformationContent = (message: string): string =>
-	message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-const truncateModelVisibleErrorMessage = (message: string): string => {
-	const singleLine = message.replace(/\s+/g, ' ').trim()
-
-	if (singleLine.length <= maxModelVisibleErrorMessageLength) return singleLine
-
-	return `${singleLine.slice(0, maxModelVisibleErrorMessageLength - 3)}...`
-}
-
-const modelVisibleErrorDetailsFromUnknown = (value: unknown): string => {
-	const raw = value instanceof Error ? value.message : stringifyUnknown(value)
-
-	return escapeSystemInformationContent(truncateModelVisibleErrorMessage(raw === '' ? 'unknown error' : raw))
-}
-
-const modelVisibleErrorDetailsFromCause = (cause: Cause.Cause<unknown>): string => {
-	const reason = cause.reasons.find((reason) => !Cause.isInterruptReason(reason))
-
-	if (reason === undefined) return 'unknown error'
-	if (Cause.isDieReason(reason)) return modelVisibleErrorDetailsFromUnknown(reason.defect)
-	if (Cause.isFailReason(reason)) return modelVisibleErrorDetailsFromUnknown(reason.error)
-
-	return 'unknown error'
-}
+/**
+ * Compose the synthetic result for an interrupted tool call. When the handler recorded an
+ * {@link InterruptNote} before the interruption (the subagent tool's resume guidance, bash's
+ * partial-output path), the note rides inside the same system-information block so the model can act
+ * on it after a session resume.
+ */
+const interruptedToolResultWithNote = (note: string | null): string =>
+	note === null
+		? interruptedToolResult
+		: `<system-information>The user interrupted the execution of this tool call.\n${note}</system-information>`
 
 /** Return true when an assistant message part is a model-requested tool call. */
 const isToolCallPart = (part: Prompt.AssistantMessage['content'][number]): part is ToolCallPart =>
@@ -154,16 +143,6 @@ const valuesHaveSameJsonRepresentation = (left: unknown, right: unknown): boolea
 	}
 }
 
-const stringifyUnknown = (value: unknown): string => {
-	if (value instanceof Error) return value.message
-
-	try {
-		return JSON.stringify(value)
-	} catch {
-		return String(value)
-	}
-}
-
 const unexpectedToolFailureResult = (toolName: string, cause: Cause.Cause<unknown>): string =>
 	systemInformation(`Tool "${toolName}" failed unexpectedly: ${modelVisibleErrorDetailsFromCause(cause)}`)
 
@@ -198,15 +177,20 @@ const failedToolHandlerOutput = (toolName: string, cause: Cause.Cause<unknown>):
 	preliminary: false,
 })
 
-const interruptedToolHandlerOutput: ToolHandlerOutput = {
-	result: interruptedToolResult,
-	encodedResult: interruptedToolResult,
-	isFailure: true,
-	preliminary: false,
-}
-
-const failedOrInterruptedToolHandlerOutput = (toolName: string, cause: Cause.Cause<unknown>): ToolHandlerOutput =>
-	Cause.hasInterrupts(cause) ? interruptedToolHandlerOutput : failedToolHandlerOutput(toolName, cause)
+/** Build the handler output for a failed or interrupted handler stream, reading the interrupt note. */
+const failedOrInterruptedToolHandlerOutput = (
+	toolName: string,
+	cause: Cause.Cause<unknown>,
+	interruptNoteRef: Ref.Ref<string | null>,
+): Effect.Effect<ToolHandlerOutput> =>
+	Cause.hasInterrupts(cause)
+		? Ref.get(interruptNoteRef).pipe(
+				Effect.map((note): ToolHandlerOutput => {
+					const text = interruptedToolResultWithNote(note)
+					return { result: text, encodedResult: text, isFailure: true, preliminary: false }
+				}),
+			)
+		: Effect.succeed(failedToolHandlerOutput(toolName, cause))
 
 /** Apply pre-tool hooks and return either an executable call or a replacement result. */
 const toolCallPreparedByPreToolHooks = (input: {
@@ -308,18 +292,33 @@ const finalOutputFromToolHandler = (input: {
 	readonly toolCallId: ToolCallId
 	readonly toolName: string
 	readonly params: unknown
-}): Effect.Effect<FinalToolOutput, never, Toolset | ToolEventSink | ToolState | ToolEvents | StopController> =>
+	readonly interruptNoteRef: Ref.Ref<string | null>
+}): Effect.Effect<
+	FinalToolOutput,
+	never,
+	| Toolset
+	| ToolEventSink
+	| ToolState
+	| ToolEvents
+	| StopController
+	| CurrentAgent
+	| CurrentToolCall
+	| InterruptNote
+	| Subagents
+> =>
 	Effect.gen(function* () {
 		const toolset = yield* Toolset
 		const stream = yield* toolset
 			.handle(input.toolName, input.params)
 			.pipe(
 				Effect.catchCause((cause) =>
-					Effect.succeed(Stream.succeed(failedOrInterruptedToolHandlerOutput(input.toolName, cause))),
+					failedOrInterruptedToolHandlerOutput(input.toolName, cause, input.interruptNoteRef).pipe(
+						Effect.map(Stream.succeed),
+					),
 				),
 			)
 
-		const outputs = yield* stream.pipe(
+		const collectHandlerOutputs = stream.pipe(
 			Stream.tap((output) =>
 				emitPreliminaryToolOutput({
 					agentId: input.agentId,
@@ -330,7 +329,14 @@ const finalOutputFromToolHandler = (input: {
 				}),
 			),
 			Stream.runCollect,
-			Effect.catchCause((cause) => Effect.succeed([failedOrInterruptedToolHandlerOutput(input.toolName, cause)])),
+		)
+
+		const outputs = yield* collectHandlerOutputs.pipe(
+			Effect.catchCause((cause) =>
+				failedOrInterruptedToolHandlerOutput(input.toolName, cause, input.interruptNoteRef).pipe(
+					Effect.map((output): ReadonlyArray<ToolHandlerOutput> => [output]),
+				),
+			),
 		)
 
 		return finalToolOutputFromHandlerOutputs(outputs, input.toolName)
@@ -376,7 +382,7 @@ const settlePreparedToolCall = (input: {
 	readonly prepared: PreparedToolCall
 	readonly stopRef: Ref.Ref<string | null>
 	readonly stateSnapshot: ReadonlyArray<LogEntry>
-}): Effect.Effect<ToolResultLogEntry, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink> =>
+}): Effect.Effect<ToolResultLogEntry, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents> =>
 	Effect.gen(function* () {
 		const toolCallId = yield* decodeToolCallId(input.prepared.original)
 		const toolName = input.prepared.original.name
@@ -408,10 +414,27 @@ const settlePreparedToolCall = (input: {
 			isStopRequested: Ref.get(input.stopRef).pipe(Effect.map((reason) => reason !== null)),
 		}
 
+		// The per-call interrupt note: handlers set it as soon as resumable/externally-visible work
+		// exists, and finalizers may refine it during unwind; interrupt synthesis below reads it last.
+		const interruptNoteRef = yield* Ref.make<string | null>(null)
+		const interruptNote = {
+			/** Record the note appended inside this call's synthetic result if it is interrupted. */
+			set: (note: string) => Ref.set(interruptNoteRef, note),
+		}
+
 		const output: Effect.Effect<
 			ToolResultAppendInput,
 			HookExecutionError,
-			HookRunner | StopController | Toolset | ToolEventSink | ToolState | ToolEvents
+			| HookRunner
+			| StopController
+			| Toolset
+			| ToolEventSink
+			| ToolState
+			| ToolEvents
+			| CurrentAgent
+			| CurrentToolCall
+			| InterruptNote
+			| Subagents
 		> = Effect.gen(function* () {
 			if (input.prepared._tag === 'replaceResult') {
 				return {
@@ -426,6 +449,7 @@ const settlePreparedToolCall = (input: {
 				toolCallId,
 				toolName,
 				params: input.prepared.params,
+				interruptNoteRef,
 			})
 
 			const finalOutput = yield* finalOutputAfterPostToolHooks({
@@ -460,16 +484,23 @@ const settlePreparedToolCall = (input: {
 			Effect.provideService(ToolState, toolState),
 			Effect.provideService(ToolEvents, toolEvents),
 			Effect.provideService(StopController, stopController),
+			Effect.provideService(CurrentAgent, { agentId: input.agentId, parentAgentId: input.parentAgentId }),
+			Effect.provideService(CurrentToolCall, { toolCallId }),
+			Effect.provideService(InterruptNote, interruptNote),
 		)
 
 		return yield* Effect.uninterruptibleMask((restore) =>
 			restore(runnable).pipe(
 				Effect.catchCause((cause) =>
 					Cause.hasInterrupts(cause)
-						? Effect.succeed({
-								result: interruptedToolResult,
-								isFailure: true,
-							})
+						? // Handler finalizers already ran during unwind, so the note carries their final
+							// word (the subagent tool's agent_id + turn count, bash's spill-file path).
+							Ref.get(interruptNoteRef).pipe(
+								Effect.map((note) => ({
+									result: interruptedToolResultWithNote(note),
+									isFailure: true,
+								})),
+							)
 						: Effect.succeed({
 								result: failureResultFromCause(toolName, cause),
 								isFailure: true,
@@ -485,7 +516,7 @@ type SettleToolCallsInput = Parameters<ToolRuntimeService['settle']>[0]
 /** Settle every tool call in one assistant message and report whether a stop was requested. */
 const settleToolCalls = (
 	input: SettleToolCallsInput,
-): Effect.Effect<ToolSettlement, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink> =>
+): Effect.Effect<ToolSettlement, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents> =>
 	Effect.gen(function* () {
 		const stopRef = yield* Ref.make<string | null>(null)
 		const stopController = {
@@ -545,7 +576,7 @@ const settleToolCalls = (
 export const liveToolRuntimeLayer: Layer.Layer<
 	ToolRuntime,
 	never,
-	EventLog | Ids | HookRunner | Toolset | ToolEventSink
+	EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents
 > = Layer.effect(
 	ToolRuntime,
 	Effect.gen(function* () {
@@ -554,6 +585,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 		const hooks = yield* HookRunner
 		const toolset = yield* Toolset
 		const sink = yield* ToolEventSink
+		const subagents = yield* Subagents
 
 		const settle: ToolRuntimeService['settle'] = Effect.fn('tart.tool_runtime.settle')((input) =>
 			settleToolCalls(input).pipe(
@@ -562,6 +594,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 				Effect.provideService(HookRunner, hooks),
 				Effect.provideService(Toolset, toolset),
 				Effect.provideService(ToolEventSink, sink),
+				Effect.provideService(Subagents, subagents),
 			),
 		)
 

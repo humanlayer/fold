@@ -33,7 +33,9 @@ export type ToolFailure = typeof ToolFailure.Type
 
 const ReadParameters = Schema.Struct({
 	path: Schema.String.annotate({ description: 'Path to the file to read (relative or absolute)' }),
-	offset: Schema.optionalKey(Schema.Number).annotate({ description: 'Line number to start reading from (1-indexed)' }),
+	offset: Schema.optionalKey(Schema.Number).annotate({
+		description: 'Line number to start reading from (1-indexed)',
+	}),
 	limit: Schema.optionalKey(Schema.Number).annotate({ description: 'Maximum number of lines to read' }),
 })
 
@@ -192,6 +194,61 @@ export const skillToolContract = {
 	failure: SkillFailure,
 } satisfies ToolContract<typeof SkillParameters, typeof SkillSuccess, typeof SkillFailure>
 
+// --- subagent ---------------------------------------------------------------------------------------
+
+const SubagentParameters = Schema.Struct({
+	description: Schema.String.annotate({
+		description: 'A short (3-5 word) description of the task, used for progress display.',
+	}),
+	prompt: Schema.String.annotate({
+		description:
+			'The task for the subagent to perform. When resuming with agent_id, this is the follow-up ' +
+			'message the resumed subagent sees next.',
+	}),
+	agent: Schema.optionalKey(Schema.String).annotate({
+		description:
+			'The agent type to dispatch as a fresh subagent, from the available agent types list. ' +
+			'Provide exactly one of agent, agent_id, or fork.',
+	}),
+	agent_id: Schema.optionalKey(Schema.String).annotate({
+		description:
+			'Resume a previously dispatched subagent by the agent_id from its earlier result. It keeps ' +
+			'its full prior context - including work done before an error or interruption - and sees ' +
+			'prompt as a new message. Provide exactly one of agent, agent_id, or fork.',
+	}),
+	fork: Schema.optionalKey(Schema.Boolean).annotate({
+		description:
+			'Launch a subagent with a copy of YOUR current context window; prompt is appended as the ' +
+			'next message. Use for work needing everything you already know. Provide exactly one of ' +
+			'agent, agent_id, or fork.',
+	}),
+	skill: Schema.optionalKey(Schema.String).annotate({
+		description: 'Optional skill name (from your available skills) to preload into the subagent after the prompt.',
+	}),
+})
+
+const SubagentSuccess = Schema.Struct({
+	content: Schema.String,
+})
+
+const SubagentFailure = Schema.Struct({
+	message: Schema.String,
+	availableAgents: Schema.Array(Schema.String),
+})
+
+/** Contract for the subagent tool (D21): dispatch, fork, and resume subagents on the session log. */
+export const subagentToolContract = {
+	name: 'subagent',
+	description:
+		'Delegate work to a subagent with its own context window. Dispatch a fresh subagent by agent ' +
+		'type, resume a previous one by agent_id (its context is preserved across completions, errors, ' +
+		'and interruptions), or fork a copy of your own context. The result reports the agent_id, the ' +
+		'turns taken, and the final output.',
+	parameters: SubagentParameters,
+	success: SubagentSuccess,
+	failure: SubagentFailure,
+} satisfies ToolContract<typeof SubagentParameters, typeof SubagentSuccess, typeof SubagentFailure>
+
 /**
  * The isomorphic built-in toolkit: every core tool contract, without handlers (D18). Platform packages
  * bind handlers with `defineTool({ ...contract, handler })`; hosts on other substrates (browser,
@@ -203,4 +260,5 @@ export const builtinToolContracts = {
 	edit: editToolContract,
 	apply_patch: applyPatchToolContract,
 	skill: skillToolContract,
+	subagent: subagentToolContract,
 } as const

@@ -99,6 +99,7 @@ const appendRoot = (tools: ReadonlyArray<string> = ['read']) =>
 			tools: [...tools],
 			skill: null,
 			fork: null,
+			agentType: null,
 		})
 
 		return rootAgentId
@@ -318,6 +319,7 @@ it.effect('projects forked agents through the parent fork sequence plus child en
 				tools: ['read'],
 				skill: null,
 				fork: { fromAgentId: rootAgentId, atSeq: forkAtSeq },
+				agentType: null,
 			})
 			yield* log.append({
 				_tag: 'user-message',

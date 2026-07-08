@@ -6,7 +6,6 @@
  */
 import type { HookConfig } from '../HookRunner/Types'
 import type { ModelFamily } from '../Model/ModelFamily'
-import type { TartSkills } from '../Skills/SkillSource'
 import type { TartModel } from './ModelDescriptor'
 import type { TartTool } from './ToolDefinition'
 
@@ -18,16 +17,15 @@ export type AgentDefinition = {
 	readonly model: TartModel
 	/** The agent's own leading system prompt: one block or an ordered set of blocks. */
 	readonly systemPrompt?: string | ReadonlyArray<string>
-	/** Tools installed for this agent, from {@link defineTool}. */
-	readonly tools?: ReadonlyArray<TartTool>
-	/** Hook configuration, run by the session's HookRunner (D16). */
-	readonly hooks?: HookConfig
 	/**
-	 * Skills configuration (D20/D24): installs the skill tool and renders the skills block into the
-	 * leading system prompt. The roster is read once at session start (cache-stable); the tool's
-	 * refresh flag surfaces later additions.
+	 * Tools installed for this agent, from {@link defineTool} and the system-tool factories: skills
+	 * come from `skillTool(source)` and subagent dispatch from `subagentTool([...definitions])`, both
+	 * ordinary members of this array (round-five ruling; the former `skills` field is removed -
+	 * migrate `skills: src` to `tools: [..., skillTool(src)]`).
 	 */
-	readonly skills?: TartSkills
+	readonly tools?: ReadonlyArray<TartTool>
+	/** Hook configuration, run by this agent's HookRunner (D16). */
+	readonly hooks?: HookConfig
 	/**
 	 * Family-keyed base prompts prepended before the agent's own blocks (D17). When the session switches
 	 * to a model of a different family, the leading system prompt is recomposed with that family's base.

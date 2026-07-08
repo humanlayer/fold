@@ -11,6 +11,7 @@ import {
 	defineAgent,
 	skillSource,
 	skillsFromData,
+	skillTool,
 	startSession,
 	type AgentStartedLogEntry,
 	type SkillMeta,
@@ -42,7 +43,7 @@ it.effect('renders the skills block into the leading prompt and installs the ski
 			agent: defineAgent({
 				model,
 				systemPrompt: 'You are a demo agent.',
-				skills: skillsFromData(demoSkills),
+				tools: [skillTool(skillsFromData(demoSkills))],
 			}),
 		})
 
@@ -90,7 +91,11 @@ it.effect('adding a skill mid-session never changes rendered prompt bytes; refre
 		])
 
 		const session = yield* startSession({
-			agent: defineAgent({ model, systemPrompt: 'base', skills: skillSource(Effect.succeed(source)) }),
+			agent: defineAgent({
+				model,
+				systemPrompt: 'base',
+				tools: [skillTool(skillSource(Effect.succeed(source)))],
+			}),
 		})
 
 		yield* session.send('hello')
@@ -128,7 +133,11 @@ it.effect('a model switch carries the session-start skills block and skill tool 
 		const second = yield* scriptedModel(claudeActiveModel, [textTurn('from claude')])
 
 		const session = yield* startSession({
-			agent: defineAgent({ model: first.model, systemPrompt: 'base', skills: skillsFromData(demoSkills) }),
+			agent: defineAgent({
+				model: first.model,
+				systemPrompt: 'base',
+				tools: [skillTool(skillsFromData(demoSkills))],
+			}),
 		})
 
 		yield* session.send('one')

@@ -224,6 +224,8 @@ export const AgentStartedLogEntryInput = Schema.TaggedStruct('agent_started', {
 	tools: Schema.Array(Schema.String),
 	skill: Schema.NullOr(Schema.String),
 	fork: Schema.NullOr(AgentFork),
+	/** Registry type name the agent was dispatched as (D21); null for the root agent and forks. */
+	agentType: Schema.NullOr(Schema.String),
 })
 	.check(AgentRunContextFilter)
 	.check(AgentStartedContextFilter)
@@ -242,6 +244,8 @@ export const AgentStartedLogEntry = Schema.TaggedStruct('agent_started', {
 	tools: Schema.Array(Schema.String),
 	skill: Schema.NullOr(Schema.String),
 	fork: Schema.NullOr(AgentFork),
+	/** Registry type name the agent was dispatched as (D21); null for the root agent and forks. */
+	agentType: Schema.NullOr(Schema.String),
 })
 	.check(AgentRunContextFilter)
 	.check(AgentStartedContextFilter)

@@ -11,13 +11,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { anthropicModel, defineAgent, startSession } from '@humanlayer/tart-core'
+import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/tart-core'
 import { Console, Effect } from 'effect'
 
 import { skillsFromDisk } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
-const apiKey = Bun.env.ANTHROPIC_API_KEY
+const apiKey = process.env.ANTHROPIC_API_KEY
 
 const skillFile = (name: string, description: string, body: string): string =>
 	`---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`
@@ -64,7 +64,7 @@ const makeProgram = (apiKey: string) =>
 				model: anthropicModel({ model: modelId, apiKey, reasoning: 'medium' }),
 				systemPrompt: 'You are a tiny Tart demo agent.',
 				// Omit home/cwd to scan the real chain (~/.tart/skills, repo root, process cwd).
-				skills: skillsFromDisk({ home, cwd }),
+				tools: [skillTool(skillsFromDisk({ home, cwd }))],
 			}),
 		})
 

@@ -8,16 +8,31 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 
-import { StopController, ToolEvents, ToolState, type ToolHandlerServices } from '@humanlayer/tart-core'
+import {
+	AgentId,
+	CurrentAgent,
+	CurrentToolCall,
+	InterruptNote,
+	StopController,
+	Subagents,
+	ToolCallId,
+	ToolEvents,
+	ToolState,
+	type TartTool,
+	type ToolHandlerServices,
+} from '@humanlayer/tart-core'
 import { Effect, FileSystem, Layer, PlatformError, Ref, Schema } from 'effect'
 
-/** Run a tool handler effect with stubbed ambient services and a recorded ToolEvents feed. */
+/** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
 export const makeAmbientServices = (): Effect.Effect<{
-	readonly layer: Layer.Layer<ToolState | ToolEvents | StopController>
+	readonly layer: Layer.Layer<ToolHandlerServices>
 	readonly emitted: Effect.Effect<ReadonlyArray<typeof Schema.Json.Type>>
+	/** The most recent InterruptNote the handler recorded, or null. */
+	readonly interruptNote: Effect.Effect<string | null>
 }> =>
 	Effect.gen(function* () {
 		const events = yield* Ref.make<ReadonlyArray<typeof Schema.Json.Type>>([])
+		const note = yield* Ref.make<string | null>(null)
 
 		return {
 			layer: Layer.mergeAll(
@@ -29,10 +44,31 @@ export const makeAmbientServices = (): Effect.Effect<{
 					requestStop: () => Effect.void,
 					isStopRequested: Effect.succeed(false),
 				}),
+				Layer.succeed(CurrentAgent, {
+					agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
+					parentAgentId: null,
+				}),
+				Layer.succeed(CurrentToolCall, {
+					toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa'),
+				}),
+				Layer.succeed(InterruptNote, { set: (text) => Ref.set(note, text) }),
+				Layer.succeed(Subagents, {
+					dispatch: () => Effect.die(new Error('Subagents not available in this test')),
+					fork: () => Effect.die(new Error('Subagents not available in this test')),
+					resume: () => Effect.die(new Error('Subagents not available in this test')),
+					continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
+				}),
 			),
 			emitted: Ref.get(events),
+			interruptNote: Ref.get(note),
 		}
 	})
+
+/** Invoke one tool's handler through its init: the realized handler, still needing the ambient R. */
+export const handlerOf =
+	(tool: TartTool) =>
+	(params: unknown): Effect.Effect<unknown, unknown, ToolHandlerServices> =>
+		tool.init.pipe(Effect.flatMap((contribution) => contribution.handler(params)))
 
 /** Run one handler with throwaway ambient services. */
 export const runHandler = <A, E>(effect: Effect.Effect<A, E, ToolHandlerServices>): Effect.Effect<A, E> =>

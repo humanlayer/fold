@@ -5,10 +5,11 @@
  * grace period, since effect's `forceKillAfter` only bounds the signal send). stdout/stderr stream
  * live as schema-typed ToolEvents deltas ({@link BashOutputDelta}) while both accumulate interleaved
  * (arrival order) into one serialized buffer that is TAIL-truncated at 2000 lines / 50KB (errors live
- * at the end - pi), with the full output spilled to a log file whose path the truncation notice
- * embeds. Stream errors (EPIPE and friends) degrade to inline notes, never crash the run. Non-zero
- * exit and timeout are typed model-visible failures carrying the accumulated output; signal-killed
- * commands are successes (pi semantics).
+ * at the end - pi), and stream INTO the spill log file from the first byte (ruling 2026-07-07) - so an
+ * interrupted command's partial output is already on disk, and the InterruptNote this handler sets
+ * makes the synthetic interrupted tool result name that path. Stream errors (EPIPE and friends)
+ * degrade to inline notes, never crash the run. Non-zero exit and timeout are typed model-visible
+ * failures carrying the accumulated output; signal-killed commands are successes (pi semantics).
  */
 import { randomBytes } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
@@ -21,6 +22,7 @@ import {
 	defaultMaxBytes,
 	defineTool,
 	formatSize,
+	InterruptNote,
 	ToolEvents,
 	truncateTail,
 	utf8ByteLength,
@@ -111,7 +113,6 @@ type AccumulatorState = {
 	totalNewlines: number
 	lastLineBytes: number
 	endsWithNewline: boolean
-	spilled: boolean
 }
 
 type AccumulatorSnapshot = {
@@ -120,12 +121,11 @@ type AccumulatorSnapshot = {
 	readonly lastLineBytes: number
 }
 
-/** Interleaved output accumulator with incremental spill once past the truncation threshold. */
+/** Interleaved output accumulator streaming every chunk to the spill file as it is written. */
 type Accumulator = {
 	readonly append: (text: string) => Effect.Effect<void>
 	readonly snapshot: Effect.Effect<AccumulatorSnapshot>
 	readonly spillPath: string
-	readonly spilled: Effect.Effect<boolean>
 }
 
 const makeAccumulator = (input: {
@@ -133,6 +133,10 @@ const makeAccumulator = (input: {
 	readonly spillPath: string
 }): Effect.Effect<Accumulator> =>
 	Effect.gen(function* () {
+		// The spill file exists from the start (ruling 2026-07-07): output streams into it as it is
+		// written, so an interrupted command's partial output is already on disk at the noted path.
+		yield* input.writeSpill(input.spillPath, '')
+
 		const state = yield* Ref.make<AccumulatorState>({
 			chunks: [],
 			inMemoryBytes: 0,
@@ -140,10 +144,9 @@ const makeAccumulator = (input: {
 			totalNewlines: 0,
 			lastLineBytes: 0,
 			endsWithNewline: false,
-			spilled: false,
 		})
-		// The stdout and stderr fibers append concurrently, and a spilling append suspends on file IO
-		// between reading and writing the state; serialize the whole append to keep it atomic.
+		// The stdout and stderr fibers append concurrently, and an append suspends on file IO between
+		// reading and writing the state; serialize the whole append to keep it atomic.
 		const lock = yield* Semaphore.make(1)
 
 		const append = (text: string): Effect.Effect<void> =>
@@ -154,21 +157,13 @@ const makeAccumulator = (input: {
 					const newlines = text.split('\n').length - 1
 					const afterLastNewline = text.slice(text.lastIndexOf('\n') + 1)
 
+					yield* input.writeSpill(input.spillPath, text)
+
 					const current = yield* Ref.get(state)
-					const spillNow = !current.spilled && current.totalBytes + bytes > defaultMaxBytes
-
-					// First spill writes everything accumulated so far; later appends stream incrementally.
-					if (spillNow) yield* input.writeSpill(input.spillPath, current.chunks.join(''))
-					if (spillNow || current.spilled) yield* input.writeSpill(input.spillPath, text)
-
 					let chunks = [...current.chunks, text]
 					let inMemoryBytes = current.inMemoryBytes + bytes
-					// Once spilled, the in-memory buffer only needs the tail-truncation window.
-					while (
-						(spillNow || current.spilled) &&
-						inMemoryBytes > inMemoryRetentionBytes &&
-						chunks.length > 1
-					) {
+					// The in-memory buffer only needs the tail-truncation window; the file holds it all.
+					while (inMemoryBytes > inMemoryRetentionBytes && chunks.length > 1) {
 						const dropped = chunks[0] ?? ''
 						chunks = chunks.slice(1)
 						inMemoryBytes -= utf8ByteLength(dropped)
@@ -181,7 +176,6 @@ const makeAccumulator = (input: {
 						totalNewlines: current.totalNewlines + newlines,
 						lastLineBytes: newlines > 0 ? utf8ByteLength(afterLastNewline) : current.lastLineBytes + bytes,
 						endsWithNewline: text.endsWith('\n'),
-						spilled: spillNow || current.spilled,
 					})
 				}),
 			)
@@ -198,7 +192,6 @@ const makeAccumulator = (input: {
 				})),
 			),
 			spillPath: input.spillPath,
-			spilled: Ref.get(state).pipe(Effect.map((current) => current.spilled)),
 		}
 	})
 
@@ -279,12 +272,20 @@ export const bashTool = (options?: BashToolOptions): TartTool =>
 				}
 
 				const events = yield* ToolEvents
+				const interruptNote = yield* InterruptNote
 				const spillPath = join(options?.spillDir ?? tmpdir(), `tart-bash-${randomBytes(8).toString('hex')}.log`)
 				const accumulator = yield* makeAccumulator({
 					spillPath,
 					writeSpill: (path, chunk) =>
 						fs.writeFileString(path, chunk, { flag: 'a' }).pipe(Effect.catch(() => Effect.void)),
 				})
+
+				// If this call is interrupted, the synthetic tool result points the model at the partial
+				// output, which streams into the spill file as the command writes it.
+				yield* interruptNote.set(
+					`The command's partial output (stdout and stderr, up to the interruption) is saved at ` +
+						`${spillPath}; read or search that file to see what it produced.`,
+				)
 
 				/**
 				 * Consume one output stream: decode UTF-8 (per-stream decoder with a final flush),
@@ -367,13 +368,6 @@ export const bashTool = (options?: BashToolOptions): TartTool =>
 				let outputText = truncation.content
 
 				if (truncation.truncated) {
-					// Line-count truncation can trip without crossing the byte-spill threshold; the full
-					// text is still in memory then, so materialize the spill file for the notice.
-					if (!(yield* accumulator.spilled)) {
-						yield* fs
-							.writeFileString(accumulator.spillPath, text, { flag: 'a' })
-							.pipe(Effect.catch(() => Effect.void))
-					}
 					const notice = truncationNotice({
 						outputLines: truncation.outputLines,
 						totalLines,

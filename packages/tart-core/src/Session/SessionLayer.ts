@@ -35,7 +35,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 
 		const start: SessionService['start'] = Effect.fn('tart.session.start')((input: StartSessionInput) =>
 			Effect.gen(function* () {
-				const sessionId = yield* ids.makeSessionId
+				const sessionId = input.sessionId ?? (yield* ids.makeSessionId)
 				const rootAgentId = yield* ids.makeAgentId
 				const candidate: StartedSession = { sessionId, rootAgentId }
 
@@ -74,11 +74,36 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 					agentId: rootAgentId,
 					parentAgentId: null,
 					toolCallId: null,
+					mode: 'fresh',
+					fork: null,
+					skill: null,
+					agentType: null,
 					model: input.model,
 					systemPrompt: input.systemPrompt,
 				})
 
 				return candidate
+			}),
+		)
+
+		// Adoption is the resume path (slice 2): the identity comes from a replayed `session_started`, so
+		// claiming the slot writes NOTHING - the log already carries its first rows.
+		const adopt: SessionService['adopt'] = Effect.fn('tart.session.adopt')((input: StartedSession) =>
+			Effect.gen(function* () {
+				const previous = yield* Ref.modify(
+					startedRef,
+					(current): readonly [StartedSession | null, StartedSession | null] =>
+						current === null ? [null, input] : [current, current],
+				)
+
+				if (previous !== null) {
+					return yield* new SessionAlreadyStartedError({
+						message: 'session already started',
+						sessionId: previous.sessionId,
+					})
+				}
+
+				return input
 			}),
 		)
 
@@ -94,7 +119,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 					agentId: started.rootAgentId,
 					parentAgentId: null,
 					toolCallId: null,
-					text: input.text,
+					messages: [input.text],
 				})
 			}),
 		)
@@ -128,6 +153,6 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 				Stream.merge(agentEvents.subscribe),
 			)
 
-		return { start, send, switchModel, events, interrupt: Effect.void }
+		return { start, adopt, send, switchModel, events }
 	}),
 )

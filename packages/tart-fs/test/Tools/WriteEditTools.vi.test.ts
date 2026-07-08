@@ -5,14 +5,14 @@ import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
 import { editTool, writeTool } from '../../src/index'
-import { messageOf, runHandler, tempDir } from '../TestHelpers'
+import { handlerOf, messageOf, runHandler, tempDir } from '../TestHelpers'
 
 it.effect('write creates parent directories and the file', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
 
 		const result = yield* runHandler(
-			writeTool({ cwd: dir }).handler({ path: 'nested/deeper/new.txt', content: 'hello tart\n' }),
+			handlerOf(writeTool({ cwd: dir }))({ path: 'nested/deeper/new.txt', content: 'hello tart\n' }),
 		)
 
 		expect(result).toEqual({ message: 'Successfully wrote 11 bytes to nested/deeper/new.txt' })
@@ -26,7 +26,7 @@ it.effect('write overwrites existing files and reports true UTF-8 bytes (not UTF
 		writeFileSync(join(dir, 'file.txt'), 'old')
 
 		// One emoji: 2 UTF-16 code units (pi would say 2), 4 UTF-8 bytes (tart reports 4 - D18).
-		const result = yield* runHandler(writeTool({ cwd: dir }).handler({ path: 'file.txt', content: '🎉' }))
+		const result = yield* runHandler(handlerOf(writeTool({ cwd: dir }))({ path: 'file.txt', content: '🎉' }))
 
 		expect(result).toEqual({ message: 'Successfully wrote 4 bytes to file.txt' })
 		expect(readFileSync(join(dir, 'file.txt'), 'utf-8')).toBe('🎉')
@@ -39,7 +39,7 @@ it.effect('edit applies a batch and reports the pi success message', () =>
 		writeFileSync(join(dir, 'code.ts'), 'const a = 1\nconst b = 2\nconst c = 3\n')
 
 		const result = yield* runHandler(
-			editTool({ cwd: dir }).handler({
+			handlerOf(editTool({ cwd: dir }))({
 				path: 'code.ts',
 				edits: [
 					{ oldText: 'const a = 1', newText: 'const a = 10' },
@@ -59,7 +59,7 @@ it.effect('edit accepts the legacy single-pair form through the shim', () =>
 		writeFileSync(join(dir, 'legacy.txt'), 'alpha beta\n')
 
 		const result = yield* runHandler(
-			editTool({ cwd: dir }).handler({ path: 'legacy.txt', oldText: 'beta', newText: 'gamma' }),
+			handlerOf(editTool({ cwd: dir }))({ path: 'legacy.txt', oldText: 'beta', newText: 'gamma' }),
 		)
 
 		expect(result).toEqual({ message: 'Successfully replaced 1 block(s) in legacy.txt.' })
@@ -73,7 +73,7 @@ it.effect('edit surfaces engine failures as model-visible messages and leaves th
 		writeFileSync(join(dir, 'f.txt'), 'content\n')
 
 		const failure = yield* runHandler(
-			editTool({ cwd: dir }).handler({ path: 'f.txt', edits: [{ oldText: 'missing', newText: 'x' }] }),
+			handlerOf(editTool({ cwd: dir }))({ path: 'f.txt', edits: [{ oldText: 'missing', newText: 'x' }] }),
 		).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toBe(
@@ -89,7 +89,7 @@ it.effect('edit preserves CRLF endings on disk', () =>
 		writeFileSync(join(dir, 'crlf.txt'), 'one\r\ntwo\r\n')
 
 		yield* runHandler(
-			editTool({ cwd: dir }).handler({ path: 'crlf.txt', edits: [{ oldText: 'two', newText: 'TWO' }] }),
+			handlerOf(editTool({ cwd: dir }))({ path: 'crlf.txt', edits: [{ oldText: 'two', newText: 'TWO' }] }),
 		)
 
 		expect(readFileSync(join(dir, 'crlf.txt'), 'utf-8')).toBe('one\r\nTWO\r\n')
@@ -101,7 +101,7 @@ it.effect('edit fails for missing files with pi access-gate message, without cre
 		const dir = yield* tempDir
 
 		const failure = yield* runHandler(
-			editTool({ cwd: dir }).handler({ path: 'ghost.txt', edits: [{ oldText: 'a', newText: 'b' }] }),
+			handlerOf(editTool({ cwd: dir }))({ path: 'ghost.txt', edits: [{ oldText: 'a', newText: 'b' }] }),
 		).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toBe('Could not edit file: ghost.txt. Error code: ENOENT.')
@@ -119,8 +119,8 @@ it.effect('parallel same-file mutations serialize through the mutation queue (bo
 		// write and still matches (its target line is untouched by the first edit).
 		yield* Effect.all(
 			[
-				runHandler(edit.handler({ path: 'shared.txt', edits: [{ oldText: 'line-a', newText: 'LINE-A' }] })),
-				runHandler(edit.handler({ path: 'shared.txt', edits: [{ oldText: 'line-b', newText: 'LINE-B' }] })),
+				runHandler(handlerOf(edit)({ path: 'shared.txt', edits: [{ oldText: 'line-a', newText: 'LINE-A' }] })),
+				runHandler(handlerOf(edit)({ path: 'shared.txt', edits: [{ oldText: 'line-b', newText: 'LINE-B' }] })),
 			],
 			{ concurrency: 2 },
 		)
