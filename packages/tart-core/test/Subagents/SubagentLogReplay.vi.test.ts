@@ -3,7 +3,7 @@
  * shared EventLog and CLOSES; session B - a fresh session instance with no in-memory state from A -
  * opens over the same log and resumes the subagent by agent_id through the real tool wire. The resumed
  * prompt, turn totals, and envelope all come purely from replaying A's rows, which is exactly the
- * process-restart story at the storage seam (tart-fs's JSONL backend persists the same seam to disk).
+ * process-restart story at the storage seam (tart-agent's JSONL backend persists the same seam to disk).
  */
 import { expect, it } from '@effect/vitest'
 import { Context, Effect, Layer } from 'effect'

@@ -4,7 +4,7 @@
  * write/edit (apply_patch stays hidden by the family policy); switching to a gpt/codex-family model
  * mid-session would flip the advertised editing tools automatically.
  *
- * Run: ANTHROPIC_API_KEY=... bun packages/tart-fs/examples/CodingAgent.ts
+ * Run: ANTHROPIC_API_KEY=... bun packages/tart-agent/examples/CodingAgent.ts
  */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'

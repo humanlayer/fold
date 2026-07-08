@@ -1,7 +1,7 @@
 /**
  * This file defines event log backend descriptors for the public API: where a session's durable log
  * lives, described as data. `memoryEventLog` covers tests, browsers, and transient sessions;
- * `eventLogSource` is the extension seam through which platform packages (tart-fs JSONL, future
+ * `eventLogSource` is the extension seam through which platform packages (tart-agent JSONL, future
  * SQLite/Durable Object backends) contribute an EventLog service implementation without any layer
  * appearing in a public signature.
  */

@@ -11,8 +11,8 @@ import { mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { codingTools, jsonlEventLog } from '@humanlayer/tart-agent'
 import { defineAgent, startSession } from '@humanlayer/tart-core'
-import { codingTools, jsonlEventLog } from '@humanlayer/tart-fs'
 import { Console, Effect } from 'effect'
 
 import { codexModel } from '../src/index'

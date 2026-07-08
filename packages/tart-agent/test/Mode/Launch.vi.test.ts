@@ -1,0 +1,153 @@
+/**
+ * Launch composition tests (D27): `launchSession` wires a resolved model + agentfiles + the mode's tool
+ * roster into a real `startSession` over a JSONL log (D5 layout), and `resumeLatestSession` adopts the
+ * newest log for the cwd. Uses a scripted `customModel` (no network) and real temp directories for the
+ * workspace and tart home, so the JSONL persistence + agentfile discovery run end to end.
+ */
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { expect, it } from '@effect/vitest'
+import { customModel, type ActiveModel, type TartModel } from '@humanlayer/tart-core'
+import { Effect, Stream } from 'effect'
+import { LanguageModel, type Response } from 'effect/unstable/ai'
+
+import { DEFAULT_CODING_PROMPT, launchSession, resumeLatestSession } from '../../src/index'
+import { tempDir } from '../TestHelpers'
+
+const openAiActiveModel = (modelId: string): ActiveModel => ({
+	providerId: 'test',
+	providerKind: 'openai-compatible',
+	modelId,
+	role: null,
+	requestedReasoningLevel: 'off',
+	reasoning: { _tag: 'disabled' },
+})
+
+const textParts = (text: string): ReadonlyArray<Response.StreamPartEncoded> => [
+	{ type: 'text-start', id: 'text-1' },
+	{ type: 'text-delta', id: 'text-1', delta: text },
+	{ type: 'text-end', id: 'text-1' },
+	{
+		type: 'finish',
+		reason: 'stop',
+		response: undefined,
+		// Concrete numbers (not undefined): the JSONL layer round-trips through JSON.stringify, which
+		// drops undefined-valued keys - and Usage's fields are required keys - so undefined would fail
+		// replay decoding. Real providers report numbers, so this matches production.
+		usage: {
+			inputTokens: { uncached: 10, total: 10, cacheRead: 0, cacheWrite: 0 },
+			outputTokens: { total: 5, text: 5, reasoning: 0 },
+		},
+	},
+]
+
+/** A model that always streams `text` and finishes (fresh stream per request, so every send completes). */
+const alwaysTextModel = (text: string): TartModel =>
+	customModel({
+		activeModel: openAiActiveModel('test-model'),
+		make: LanguageModel.make({
+			generateText: () => Effect.die(new Error('scripted model supports streamText only')),
+			streamText: () => Stream.fromIterable(textParts(text)),
+		}),
+	})
+
+const workspaceAndHome = (root: string): { readonly workspace: string; readonly tartHome: string } => {
+	const workspace = join(root, 'work')
+	const tartHome = join(root, 'tart')
+	mkdirSync(workspace, { recursive: true })
+	return { workspace, tartHome }
+}
+
+it.effect('launchSession composes the model, agentfiles, and mode tools over startSession', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		writeFileSync(join(workspace, 'AGENTS.md'), 'MEMORY-MARKER: follow the house rules.')
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({
+					model: alwaysTextModel('Done.'),
+					cwd: workspace,
+					tartHome,
+					name: 'test-agent',
+				})
+
+				const finished = yield* session.send('hello')
+				expect(finished.outcome).toBe('completed')
+				expect(finished.resultText).toContain('Done.')
+
+				const entries = yield* session.entries
+
+				const started = entries.find((entry) => entry._tag === 'session_started')
+				expect(started?._tag).toBe('session_started')
+				if (started?._tag === 'session_started') expect(started.cwd).toBe(workspace)
+
+				// The leading system message carries the mode prompt AND the agentfile project_context.
+				const leading = entries.find(
+					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
+				)
+				const leadingJson = JSON.stringify(leading)
+				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
+				expect(leadingJson).toContain('MEMORY-MARKER')
+				expect(leadingJson).toContain('project_context')
+
+				// The mode's tool roster reached the agent (family-neutral + skill are always present).
+				const agentStarted = entries.find((entry) => entry._tag === 'agent_started')
+				const tools = agentStarted?._tag === 'agent_started' ? agentStarted.tools : []
+				expect(tools).toContain('read')
+				expect(tools).toContain('bash')
+				expect(tools).toContain('skill')
+			}),
+		)
+	}),
+)
+
+it.effect('resumeLatestSession adopts the newest log for the working directory', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+
+		const first = yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({ model: alwaysTextModel('Done.'), cwd: workspace, tartHome })
+				yield* session.send('first message')
+				const entries = yield* session.entries
+				return { sessionId: session.sessionId, rootAgentId: session.rootAgentId, count: entries.length }
+			}),
+		)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const resumed = yield* resumeLatestSession({
+					model: alwaysTextModel('Again.'),
+					cwd: workspace,
+					tartHome,
+				})
+
+				// Adopts the same identity - no new session_started/agent_started.
+				expect(resumed.sessionId).toBe(first.sessionId)
+				expect(resumed.rootAgentId).toBe(first.rootAgentId)
+
+				const entries = yield* resumed.entries
+				expect(entries.length).toBeGreaterThanOrEqual(first.count)
+				// The prior user message was replayed from disk.
+				expect(JSON.stringify(entries)).toContain('first message')
+			}),
+		)
+	}),
+)
+
+it.effect('resumeLatestSession fails with NoSessionToResumeError when none exist for the cwd', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+
+		const error = yield* resumeLatestSession({ model: alwaysTextModel('x'), cwd: workspace, tartHome }).pipe(
+			Effect.scoped,
+			Effect.flip,
+		)
+		expect(error._tag).toBe('NoSessionToResumeError')
+	}),
+)

@@ -5,7 +5,7 @@
  * its own earlier tool result - the researcher answers the follow-up with its full prior context
  * intact, and the log shows one agent_started with rows grouped under two different tool calls.
  *
- * Run: ANTHROPIC_API_KEY=... bun packages/tart-fs/examples/SubagentsAgent.ts
+ * Run: ANTHROPIC_API_KEY=... bun packages/tart-agent/examples/SubagentsAgent.ts
  */
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

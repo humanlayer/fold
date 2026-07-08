@@ -4,7 +4,7 @@
  * emitting V4A patches (raw git/unified diffs are accepted too). Nothing tool-side changes between
  * families; only the advertised subset flips.
  *
- * Run: OPENAI_API_KEY=... bun packages/tart-fs/examples/ApplyPatchAgent.ts
+ * Run: OPENAI_API_KEY=... bun packages/tart-agent/examples/ApplyPatchAgent.ts
  */
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

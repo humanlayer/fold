@@ -1,5 +1,5 @@
 /**
- * This file implements the bash tool (D18, tart-fs only), combining pi and agentlayer: bash -c in a
+ * This file implements the bash tool (D18, tart-agent only), combining pi and agentlayer: bash -c in a
  * detached process group; agentlayer's kill choreography on timeout and interruption (SIGTERM to the
  * group, 200ms grace, then SIGKILL - implemented here by racing the spawner's kill-await against the
  * grace period, since effect's `forceKillAfter` only bounds the signal send). stdout/stderr stream

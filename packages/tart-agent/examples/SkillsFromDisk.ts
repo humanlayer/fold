@@ -5,7 +5,7 @@
  * self-contained (and off your real home directory), it materializes a fake home and a fake repo in a
  * temp folder and points the loader at them - the exact override seam tests use.
  *
- * Run: ANTHROPIC_API_KEY=... bun packages/tart-fs/examples/SkillsFromDisk.ts
+ * Run: ANTHROPIC_API_KEY=... bun packages/tart-agent/examples/SkillsFromDisk.ts
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

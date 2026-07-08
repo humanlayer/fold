@@ -2,7 +2,7 @@
  * Isomorphic skills example: skills passed in as data (no filesystem anywhere), so the same setup runs
  * in a browser, worker, or server. The roster is read once at session start - it renders into the
  * leading system prompt and the skill tool's description - and the model loads full skill content on
- * demand through the skill tool (progressive disclosure). See tart-fs's SkillsFromDisk example for the
+ * demand through the skill tool (progressive disclosure). See tart-agent's SkillsFromDisk example for the
  * disk-backed variant.
  *
  * Run: ANTHROPIC_API_KEY=... bun packages/tart-core/examples/SkillsAgent.ts

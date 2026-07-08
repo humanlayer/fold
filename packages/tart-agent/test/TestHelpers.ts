@@ -1,5 +1,5 @@
 /**
- * Shared fixtures for tart-fs tool tests: ambient tool services (recorded ToolEvents, no-op
+ * Shared fixtures for tart-agent tool tests: ambient tool services (recorded ToolEvents, no-op
  * ToolState/StopController), scoped temp directories on the real filesystem, and an in-memory
  * FileSystem built on `FileSystem.makeNoop` for tests that must not touch the user's disk (skill scan
  * paths reach the home directory).
@@ -79,7 +79,7 @@ export const runHandler = <A, E>(effect: Effect.Effect<A, E, ToolHandlerServices
 
 /** A scoped temp directory on the real filesystem, removed when the scope closes. */
 export const tempDir = Effect.acquireRelease(
-	Effect.sync(() => mkdtempSync(join(tmpdir(), 'tart-fs-test-'))),
+	Effect.sync(() => mkdtempSync(join(tmpdir(), 'tart-agent-test-'))),
 	(directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
 )
 

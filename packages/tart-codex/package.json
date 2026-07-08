@@ -21,7 +21,7 @@
 	},
 	"devDependencies": {
 		"@effect/vitest": "catalog:",
-		"@humanlayer/tart-fs": "workspace:*",
+		"@humanlayer/tart-agent": "workspace:*",
 		"@humanlayer/tart-vitest-config": "workspace:*",
 		"typescript": "catalog:",
 		"vitest": "catalog:"

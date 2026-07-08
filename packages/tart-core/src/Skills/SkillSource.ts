@@ -1,7 +1,7 @@
 /**
  * This file defines the SkillSource service (D20) - the isomorphic seam skills load through: `list`
  * returns the metadata roster, `load` returns full content (progressive disclosure). Core ships the
- * from-data implementation for hosts that pass skills in (browser/workers/presets); tart-fs ships the
+ * from-data implementation for hosts that pass skills in (browser/workers/presets); tart-agent ships the
  * disk loader. Public configuration goes through descriptors ({@link skillsFromData} /
  * {@link skillSource}) so no service or layer appears in caller signatures.
  */
@@ -88,7 +88,7 @@ export const skillsFromData = (skills: ReadonlyArray<SkillData>): TartSkills => 
 
 /**
  * Configure an agent's skills from a custom source implementation (the extension seam, mirroring
- * `eventLogSource`): tart-fs exposes its disk loader through this.
+ * `eventLogSource`): tart-agent exposes its disk loader through this.
  */
 export const skillSource = (make: Effect.Effect<SkillSourceService, unknown>): TartSkills => ({
 	_tag: 'source',

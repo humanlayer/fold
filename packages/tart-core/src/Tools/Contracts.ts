@@ -1,6 +1,6 @@
 /**
  * This file defines the isomorphic built-in tool contracts (D18): name, description, and schemas for
- * read / write / edit / apply_patch / skill, with NO handlers. Platform packages (tart-fs today;
+ * read / write / edit / apply_patch / skill, with NO handlers. Platform packages (tart-agent today;
  * browser/worker hosts later) pair these contracts with their own handlers via `defineTool`; the
  * ToolsetResolver's family policy keys off these exact names (claude-family edits through write/edit,
  * gpt/codex-family through apply_patch).

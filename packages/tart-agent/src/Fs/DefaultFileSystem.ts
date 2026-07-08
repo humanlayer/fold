@@ -1,5 +1,5 @@
 /**
- * This file provides the default-or-override FileSystem seam every tart-fs tool uses: handlers close
+ * This file provides the default-or-override FileSystem seam every tart-agent tool uses: handlers close
  * over a FileSystem service implementation resolved at tool construction - the caller's override when
  * given (custom/in-memory filesystems for tests and sandboxes), otherwise the Node platform filesystem
  * built once per process. Effect v4 models defaultable services as `Context.Reference`, but platform
@@ -9,7 +9,7 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Context, Effect, FileSystem, Layer } from 'effect'
 
-/** Options shared by every filesystem-backed tool factory in tart-fs. */
+/** Options shared by every filesystem-backed tool factory in tart-agent. */
 export type FsToolOptions = {
 	/** Working directory for resolving relative paths. Defaults to `process.cwd()` at call time. */
 	readonly cwd?: string

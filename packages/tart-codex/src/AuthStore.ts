@@ -4,7 +4,7 @@
  * `accountId`), so existing entries copy across verbatim. Reads degrade to "no credentials" on missing
  * or malformed data - the document may hold other providers' entries, so a bad codex entry is skipped,
  * never clobbered; writes merge over the existing document and force `0600` permissions. The FileSystem
- * is a default-or-override seam like tart-fs tools: tests pass an implementation, everyone else gets
+ * is a default-or-override seam like tart-agent tools: tests pass an implementation, everyone else gets
  * the Node platform filesystem.
  */
 import { homedir } from 'node:os'

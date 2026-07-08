@@ -30,6 +30,24 @@
         "vitest": "catalog:",
       },
     },
+    "packages/tart-agent": {
+      "name": "@humanlayer/tart-agent",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-node": "catalog:",
+        "@humanlayer/tart-codex": "workspace:*",
+        "@humanlayer/tart-core": "workspace:*",
+        "@silvia-odwyer/photon-node": "catalog:",
+        "effect": "catalog:",
+        "yaml": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/tart-vitest-config": "workspace:*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/tart-codex": {
       "name": "@humanlayer/tart-codex",
       "version": "0.0.0",
@@ -41,7 +59,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
-        "@humanlayer/tart-fs": "workspace:*",
+        "@humanlayer/tart-agent": "workspace:*",
         "@humanlayer/tart-vitest-config": "workspace:*",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -55,23 +73,6 @@
         "@effect/ai-openai": "catalog:",
         "@humanlayer/effect-branded-id": "workspace:*",
         "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "@humanlayer/tart-vitest-config": "workspace:*",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
-    "packages/tart-fs": {
-      "name": "@humanlayer/tart-fs",
-      "version": "0.0.0",
-      "dependencies": {
-        "@effect/platform-node": "catalog:",
-        "@humanlayer/tart-core": "workspace:*",
-        "@silvia-odwyer/photon-node": "catalog:",
-        "effect": "catalog:",
-        "yaml": "catalog:",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
@@ -133,11 +134,11 @@
 
     "@humanlayer/effect-branded-id": ["@humanlayer/effect-branded-id@workspace:packages/effect-branded-id"],
 
+    "@humanlayer/tart-agent": ["@humanlayer/tart-agent@workspace:packages/tart-agent"],
+
     "@humanlayer/tart-codex": ["@humanlayer/tart-codex@workspace:packages/tart-codex"],
 
     "@humanlayer/tart-core": ["@humanlayer/tart-core@workspace:packages/tart-core"],
-
-    "@humanlayer/tart-fs": ["@humanlayer/tart-fs@workspace:packages/tart-fs"],
 
     "@humanlayer/tart-vitest-config": ["@humanlayer/tart-vitest-config@workspace:packages/vitest-config"],
 
