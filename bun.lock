@@ -30,6 +30,23 @@
         "vitest": "catalog:",
       },
     },
+    "packages/tart-codex": {
+      "name": "@humanlayer/tart-codex",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/ai-openai": "catalog:",
+        "@effect/platform-node": "catalog:",
+        "@humanlayer/tart-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/tart-fs": "workspace:*",
+        "@humanlayer/tart-vitest-config": "workspace:*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/tart-core": {
       "name": "@humanlayer/tart-core",
       "version": "0.0.0",
@@ -115,6 +132,8 @@
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
 
     "@humanlayer/effect-branded-id": ["@humanlayer/effect-branded-id@workspace:packages/effect-branded-id"],
+
+    "@humanlayer/tart-codex": ["@humanlayer/tart-codex@workspace:packages/tart-codex"],
 
     "@humanlayer/tart-core": ["@humanlayer/tart-core@workspace:packages/tart-core"],
 

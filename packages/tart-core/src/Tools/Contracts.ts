@@ -33,8 +33,8 @@ export type ToolFailure = typeof ToolFailure.Type
 
 const ReadParameters = Schema.Struct({
 	path: Schema.String.annotate({ description: 'Path to the file to read (relative or absolute)' }),
-	offset: Schema.optional(Schema.Number).annotate({ description: 'Line number to start reading from (1-indexed)' }),
-	limit: Schema.optional(Schema.Number).annotate({ description: 'Maximum number of lines to read' }),
+	offset: Schema.optionalKey(Schema.Number).annotate({ description: 'Line number to start reading from (1-indexed)' }),
+	limit: Schema.optionalKey(Schema.Number).annotate({ description: 'Maximum number of lines to read' }),
 })
 
 /** Contract for the read tool (pi port): text head-truncated, images returned as content blocks. */
@@ -84,16 +84,16 @@ const EditPair = Schema.Struct({
 
 const EditParameters = Schema.Struct({
 	path: Schema.String.annotate({ description: 'Path to the file to edit (relative or absolute)' }),
-	edits: Schema.optional(Schema.Union([Schema.Array(EditPair), Schema.String])).annotate({
+	edits: Schema.optionalKey(Schema.Union([Schema.Array(EditPair), Schema.String])).annotate({
 		description:
 			'One or more targeted replacements. Every oldText matches against the original file content, so ' +
 			'edits must target disjoint regions.',
 	}),
 	// Legacy single-pair form (pi compat shim): tolerated at the schema so the handler can normalize it.
-	oldText: Schema.optional(Schema.String).annotate({
+	oldText: Schema.optionalKey(Schema.String).annotate({
 		description: 'Deprecated single-edit form: exact text to replace. Prefer edits[].',
 	}),
-	newText: Schema.optional(Schema.String).annotate({
+	newText: Schema.optionalKey(Schema.String).annotate({
 		description: 'Deprecated single-edit form: replacement text. Prefer edits[].',
 	}),
 })
@@ -166,7 +166,7 @@ export const applyPatchToolContract = {
 
 const SkillParameters = Schema.Struct({
 	name: Schema.String.annotate({ description: 'The name of the skill to load, from the available skills list.' }),
-	refresh: Schema.optional(Schema.Boolean).annotate({
+	refresh: Schema.optionalKey(Schema.Boolean).annotate({
 		description: 'Also re-scan the skill source and report skills added since the session started.',
 	}),
 })

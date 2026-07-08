@@ -52,13 +52,13 @@ export const decodeBashOutputDelta = (payload: unknown): BashOutputDelta | null 
 
 const BashParameters = Schema.Struct({
 	command: Schema.String.annotate({ description: 'Bash command to execute' }),
-	timeout: Schema.optional(Schema.Number).annotate({
+	timeout: Schema.optionalKey(Schema.Number).annotate({
 		description: 'Timeout in seconds (default 120)',
 	}),
-	workdir: Schema.optional(Schema.String).annotate({
+	workdir: Schema.optionalKey(Schema.String).annotate({
 		description: 'Working directory for the command. Use this instead of cd.',
 	}),
-	description: Schema.optional(Schema.String).annotate({
+	description: Schema.optionalKey(Schema.String).annotate({
 		description: 'Short (5-10 word) description of what this command does',
 	}),
 })
