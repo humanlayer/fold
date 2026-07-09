@@ -122,7 +122,7 @@ export const defineTool = <
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all of them around each execution.
 		dependencies: [ToolState, ToolEvents, StopController, CurrentAgent, CurrentToolCall, InterruptNote, Subagents],
-	})
+	}).annotate(Tool.Strict, false)
 
 	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.
 	const handler =

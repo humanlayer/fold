@@ -18,11 +18,11 @@
  */
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
-import { Context, Effect, Layer } from 'effect'
+import { Context, Effect, Layer, Stream } from 'effect'
 import type { Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient, HttpClient, type HttpClientResponse } from 'effect/unstable/http'
 
 import type { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
@@ -41,6 +41,47 @@ import { toolsetLayerFromToolkit } from '../ToolRuntime/ToolsetFactory'
 import { makeToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
 import type { TartModel } from './ModelDescriptor'
 import type { RealizedTartTool, TartTool } from './ToolDefinition'
+
+const anthropicDecoderModelFor = (modelId: string): string | null => {
+	const id = modelId.toLowerCase()
+	if (id.includes('opus')) return id === 'claude-opus-4-6' ? null : 'claude-opus-4-6'
+	if (id.includes('sonnet')) return id === 'claude-sonnet-4-6' ? null : 'claude-sonnet-4-6'
+	if (id.includes('haiku')) return id === 'claude-haiku-4-5' ? null : 'claude-haiku-4-5'
+	if (id.includes('fable') || id.includes('mythos')) return 'claude-opus-4-6'
+	return null
+}
+
+/**
+ * The beta Anthropic SDK decodes streamed `message.model` against a generated literal union that can
+ * lag behind real model ids accepted by the API. Rewrite only that metadata field in the raw SSE bytes
+ * to a decoder-known sibling; the actual request still uses the configured model id.
+ */
+const relaxAnthropicResponseModel = (modelId: string): ((client: HttpClient.HttpClient) => HttpClient.HttpClient) => {
+	const decoderModel = anthropicDecoderModelFor(modelId)
+	if (decoderModel === null) return (client) => client
+
+	const needle = `"model":"${modelId}"`
+	const replacement = `"model":"${decoderModel}"`
+
+	return (client) =>
+		HttpClient.transformResponse(client, (responseEffect) =>
+			Effect.map(responseEffect, (response) => {
+				const stream = response.stream.pipe(
+					Stream.decodeText,
+					Stream.map((chunk) => chunk.replaceAll(needle, replacement)),
+					Stream.encodeText,
+				)
+
+				// SAFETY: this preserves the HttpClientResponse instance and only overrides the streaming body
+				// getter. The Anthropic generated client only needs `stream` for createMessageStream.
+				// oxlint-disable-next-line typescript/consistent-type-assertions
+				return new Proxy(response, {
+					get: (target, property, receiver) =>
+						property === 'stream' ? stream : Reflect.get(target, property, receiver),
+				}) as HttpClientResponse.HttpClientResponse
+			}),
+		)
+}
 
 /** The session-fixed services every provisioned runtime closes over (one instance each per session). */
 export type SessionProvisioningServices =
@@ -70,6 +111,7 @@ export const languageModelLayerFor = (model: TartModel): Layer.Layer<LanguageMod
 		case 'anthropic': {
 			const clientLayer = AnthropicClient.layer({
 				apiKey: provider.apiKey,
+				transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
 				...(provider.baseUrl === null ? {} : { apiUrl: provider.baseUrl }),
 			}).pipe(Layer.provide(FetchHttpClient.layer))
 

@@ -65,10 +65,20 @@ it.effect('persists a multi-block system prompt as one leading entry with one me
 
 		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
 		expect(systemEntries).toHaveLength(1)
-		expect(systemEntries[0]?.placement).toBe('leading')
-		expect(systemEntries[0]?.messages.map((message) => message.content)).toEqual([
-			'You are a test agent.',
-			'Stay terse.',
-		])
+		const systemEntry = systemEntries[0]
+		expect(systemEntry).toBeDefined()
+		if (systemEntry === undefined) return
+
+		expect(systemEntry.placement).toBe('leading')
+		expect(systemEntry.messages.map((message) => message.content)).toEqual(['You are a test agent.', 'Stay terse.'])
+		const firstMessage = systemEntry.messages[0]
+		const secondMessage = systemEntry.messages[1]
+		expect(secondMessage).toBeDefined()
+		if (secondMessage === undefined) return
+
+		expect(firstMessage.options?.anthropic).toBeUndefined()
+		expect(secondMessage.options?.anthropic).toEqual({
+			cacheControl: { type: 'ephemeral' },
+		})
 	}),
 )

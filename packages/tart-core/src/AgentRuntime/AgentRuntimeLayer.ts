@@ -45,6 +45,20 @@ import {
 } from './AgentRuntimeService'
 
 const encodeSystemMessage = Schema.encodeUnknownSync(Prompt.SystemMessage)
+
+const anthropicEphemeralCacheControl = { type: 'ephemeral' } as const
+
+const leadingSystemMessageFor = (content: string, cacheBreakpoint: boolean): Prompt.SystemMessage =>
+	Prompt.systemMessage({
+		content,
+		...(cacheBreakpoint
+			? {
+					options: {
+						anthropic: { cacheControl: anthropicEphemeralCacheControl },
+					},
+				}
+			: {}),
+	})
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 const encodeUsage = Schema.encodeUnknownSync(Response.Usage)
@@ -499,7 +513,9 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						parentAgentId: input.parentAgentId,
 						toolCallId: input.toolCallId,
 						messageId: yield* ids.makeMessageId,
-						messages: Arr.map(blocks, (content) => encodeSystemMessage(Prompt.systemMessage({ content }))),
+						messages: Arr.map(blocks, (content, index) =>
+							encodeSystemMessage(leadingSystemMessageFor(content, index === blocks.length - 1)),
+						),
 						placement: 'leading',
 					})
 				}

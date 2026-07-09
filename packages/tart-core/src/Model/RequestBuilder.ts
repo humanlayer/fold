@@ -8,11 +8,13 @@
  * metadata into history. The assistant tool-call params stay exactly as decoded from the persisted
  * assistant message, keeping already-sent prompt bytes stable across turns.
  */
-import { Effect, Schema } from 'effect'
+import { Effect, Option, Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { ProjectedMessage } from '../Projection/Projection'
 import { ToolResultImageBlock } from '../Tools/ToolResultContent'
+
+const anthropicEphemeralCacheControl = { type: 'ephemeral' } as const
 
 /** Vendor key in a part's provider-options bag where tart stashes its own metadata. */
 export const tartPartOptionsKey = 'tart'
@@ -32,6 +34,9 @@ const decodeSystemMessage = Schema.decodeUnknownEffect(Prompt.SystemMessage)
 const decodeUserMessage = Schema.decodeUnknownEffect(Prompt.UserMessage)
 const decodeAssistantMessage = Schema.decodeUnknownEffect(Prompt.AssistantMessage)
 const decodeToolMessage = Schema.decodeUnknownEffect(Prompt.ToolMessage)
+const decodeJsonObject = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))
+const decodeTartPartOptions = Schema.decodeUnknownOption(Schema.Struct({ [providerToolCallIdKey]: Schema.String }))
+const decodeToolResultContent = Schema.decodeUnknownOption(Schema.Struct({ content: Schema.Array(Schema.Unknown) }))
 
 const decodeErrorFor = (projected: ProjectedMessage) => (cause: unknown) =>
 	new PromptDecodeError({
@@ -41,17 +46,10 @@ const decodeErrorFor = (projected: ProjectedMessage) => (cause: unknown) =>
 		cause,
 	})
 
-/** Narrow an unknown JSON value to a plain object record. */
-const isJsonRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
-
 /** Read the provider-assigned tool call id tart stashed on a persisted part, when present. */
 const stashedProviderToolCallId = (options: Prompt.ToolCallPart['options']): string | null => {
-	const bag: unknown = options[tartPartOptionsKey]
-	if (!isJsonRecord(bag)) return null
-
-	const providerId = bag[providerToolCallIdKey]
-	return typeof providerId === 'string' ? providerId : null
+	const decoded = decodeTartPartOptions(options[tartPartOptionsKey])
+	return Option.isSome(decoded) ? decoded.value[providerToolCallIdKey] : null
 }
 
 /** Restore provider tool-call ids on an assistant message, recording the mapping for tool results. */
@@ -95,6 +93,50 @@ const compactionSummaryMessage = (summary: string): Prompt.UserMessage =>
 		content: [Prompt.textPart({ text: `<conversation-summary>\n${summary}\n</conversation-summary>` })],
 	})
 
+const cacheMarkedUserMessage = (message: Prompt.UserMessage): Prompt.UserMessage =>
+	Prompt.userMessage({
+		content: message.content,
+		options: {
+			...message.options,
+			anthropic: { ...message.options.anthropic, cacheControl: anthropicEphemeralCacheControl },
+		},
+	})
+
+const cacheMarkedToolMessage = (message: Prompt.ToolMessage): Prompt.ToolMessage =>
+	Prompt.toolMessage({
+		content: message.content,
+		options: {
+			...message.options,
+			anthropic: { ...message.options.anthropic, cacheControl: anthropicEphemeralCacheControl },
+		},
+	})
+
+/**
+ * Mark the latest user-side boundary as a cache breakpoint. Anthropic sees tool-result messages as user
+ * content, so this follows pi/opencode's growing-conversation strategy: system breakpoint covers the
+ * stable prefix, and the latest user/tool boundary lets subsequent turns read the previous prefix and
+ * write the extended one.
+ */
+const markLatestUserSideCacheBreakpoint = (messages: ReadonlyArray<Prompt.Message>): ReadonlyArray<Prompt.Message> => {
+	const out = [...messages]
+	for (let index = out.length - 1; index >= 0; index -= 1) {
+		const message = out[index]
+		if (message === undefined) continue
+
+		if (message.role === 'user') {
+			out[index] = cacheMarkedUserMessage(message)
+			break
+		}
+
+		if (message.role === 'tool') {
+			out[index] = cacheMarkedToolMessage(message)
+			break
+		}
+	}
+
+	return out
+}
+
 /** Placeholder left inside a tool result where an image block was lifted out (D3 delivery path). */
 export const imageOmittedPlaceholder =
 	'[Image omitted here. It is attached as a file part in the user message immediately following this tool result.]'
@@ -108,15 +150,17 @@ const isImageBlock = Schema.is(ToolResultImageBlock)
 const splitImageBlocks = (
 	result: unknown,
 ): { readonly sanitized: unknown; readonly images: ReadonlyArray<ToolResultImageBlock> } | null => {
-	if (!isJsonRecord(result) || !Array.isArray(result.content)) return null
+	const envelope = decodeToolResultContent(result)
+	const object = decodeJsonObject(result)
+	if (Option.isNone(envelope) || Option.isNone(object)) return null
 
-	const images = result.content.filter(isImageBlock)
+	const images = envelope.value.content.filter(isImageBlock)
 	if (images.length === 0) return null
 
 	return {
 		sanitized: {
-			...result,
-			content: result.content.map((block: unknown) =>
+			...object.value,
+			content: envelope.value.content.map((block: unknown) =>
 				isImageBlock(block) ? { type: 'text', text: imageOmittedPlaceholder } : block,
 			),
 		},
@@ -214,5 +258,5 @@ export const buildPrompt = (
 			}
 		}
 
-		return Prompt.fromMessages(promptMessages)
+		return Prompt.fromMessages(markLatestUserSideCacheBreakpoint(promptMessages))
 	})

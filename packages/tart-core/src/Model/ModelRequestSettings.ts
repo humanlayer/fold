@@ -170,7 +170,9 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 
 				// Unlike the OpenAI config, the anthropic generated schema types `model` as a strict literal
 				// union, so the projected model id cannot bind per-request; anthropic model selection stays at
-				// layer construction until the AgentModels layer seam lands (D15).
+				// layer construction until the AgentModels layer seam lands (D15). Tools opt out of strict
+				// structured-output mode at definition time; do not pass the provider's `strictJsonSchema`
+				// config helper here, because this beta provider accidentally forwards it into the API payload.
 				switch (setting._tag) {
 					case 'disabled':
 						return identity

@@ -12,7 +12,13 @@ import { customModel, type ActiveModel, type TartModel } from '@humanlayer/tart-
 import { Effect, Stream } from 'effect'
 import { LanguageModel, type Response } from 'effect/unstable/ai'
 
-import { DEFAULT_CODING_PROMPT, launchSession, resumeLatestSession } from '../../src/index'
+import {
+	DEFAULT_CODING_PROMPT,
+	launchSession,
+	parseTartConfig,
+	resumeLatestSession,
+	resumeSessionById,
+} from '../../src/index'
 import { tempDir } from '../TestHelpers'
 
 const openAiActiveModel = (modelId: string): ActiveModel => ({
@@ -134,6 +140,97 @@ it.effect('resumeLatestSession adopts the newest log for the working directory',
 				expect(entries.length).toBeGreaterThanOrEqual(first.count)
 				// The prior user message was replayed from disk.
 				expect(JSON.stringify(entries)).toContain('first message')
+			}),
+		)
+	}),
+)
+
+it.effect('resumeSessionById adopts an exact session id from the current project directory', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+
+		const first = yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({ model: alwaysTextModel('Done.'), cwd: workspace, tartHome })
+				yield* session.send('remember this by id')
+				return { sessionId: session.sessionId, rootAgentId: session.rootAgentId }
+			}),
+		)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const resumed = yield* resumeSessionById(first.sessionId, {
+					model: alwaysTextModel('Again.'),
+					cwd: workspace,
+					tartHome,
+				})
+
+				expect(resumed.sessionId).toBe(first.sessionId)
+				expect(resumed.rootAgentId).toBe(first.rootAgentId)
+				expect(JSON.stringify(yield* resumed.entries)).toContain('remember this by id')
+			}),
+		)
+	}),
+)
+
+it.effect('resumeSessionById is scoped to the selected cwd project slug', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		const otherWorkspace = join(root, 'other-work')
+		mkdirSync(otherWorkspace, { recursive: true })
+
+		const sessionId = yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({ model: alwaysTextModel('Done.'), cwd: workspace, tartHome })
+				return session.sessionId
+			}),
+		)
+
+		const error = yield* resumeSessionById(sessionId, {
+			model: alwaysTextModel('x'),
+			cwd: otherWorkspace,
+			tartHome,
+		}).pipe(Effect.scoped, Effect.flip)
+
+		expect(error._tag).toBe('SessionToResumeNotFoundError')
+	}),
+)
+
+it.effect('launchSession resolves CLI-style model selection overrides through tart-agent config', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		const config = yield* parseTartConfig(`{
+			"providers": {
+				"openai": { "kind": "openai-compat", "apiKey": "sk-inline" },
+				"codex": { "kind": "codex" }
+			},
+			"roles": {
+				"smart": { "provider": "openai", "model": "gpt-default" },
+				"fast": { "provider": "codex", "model": "gpt-fast" }
+			}
+		}`)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({
+					config,
+					cwd: workspace,
+					tartHome,
+					modelSelection: { role: 'fast', model: 'gpt-override', reasoning: 'medium' },
+				})
+				const entries = yield* session.entries
+				const agentStarted = entries.find((entry) => entry._tag === 'agent_started')
+
+				expect(agentStarted?._tag).toBe('agent_started')
+				if (agentStarted?._tag === 'agent_started') {
+					expect(agentStarted.model.providerKind).toBe('codex')
+					expect(agentStarted.model.modelId).toBe('gpt-override')
+					expect(agentStarted.model.role).toBe('fast')
+					expect(agentStarted.model.requestedReasoningLevel).toBe('medium')
+				}
 			}),
 		)
 	}),

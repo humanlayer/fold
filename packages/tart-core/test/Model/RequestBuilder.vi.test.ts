@@ -91,6 +91,40 @@ it.effect('decodes projected messages and restores provider tool-call ids on bot
 		const toolResult = toolMessage?.content.find((part) => part.type === 'tool-result')
 		if (toolResult?.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(toolResult.id).toBe('provider-call-1')
+		expect(toolMessage?.options.anthropic).toEqual({ cacheControl: { type: 'ephemeral' } })
+	}),
+)
+
+it.effect('marks the latest user-side message as an Anthropic cache breakpoint', () =>
+	Effect.gen(function* () {
+		const prompt = yield* buildPrompt([
+			{
+				_tag: 'user-message',
+				sourceSeq: 1,
+				messageId,
+				message: { role: 'user', content: [{ type: 'text', text: 'first' }] },
+			},
+			{
+				_tag: 'assistant-message',
+				sourceSeq: 2,
+				messageId,
+				finish: null,
+				message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+			},
+			{
+				_tag: 'user-message',
+				sourceSeq: 3,
+				messageId,
+				message: { role: 'user', content: [{ type: 'text', text: 'second' }] },
+			},
+		])
+
+		const first = prompt.content[0]
+		const second = prompt.content[2]
+		if (first?.role !== 'user' || second?.role !== 'user') throw new Error('expected user messages')
+
+		expect(first.options.anthropic).toBeUndefined()
+		expect(second.options.anthropic).toEqual({ cacheControl: { type: 'ephemeral' } })
 	}),
 )
 

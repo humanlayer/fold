@@ -1,0 +1,188 @@
+import {
+	launchSession,
+	resumeSessionById,
+	sessionLogPathFor,
+	type LaunchModelError,
+	type ModelSelection,
+	type SessionToResumeNotFoundError,
+} from '@humanlayer/tart-agent'
+import { makeCodexAuthStore } from '@humanlayer/tart-codex'
+import type { ActiveModel, AgentFinishedLogEntry, LogEntry, SessionId, TartSession } from '@humanlayer/tart-core'
+import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
+
+import { runInteractive } from './Readline'
+import type { CredentialSummary, OutputRenderer, SessionHeader } from './Renderer'
+
+/** Shared options for opening a CLI-backed tart session. */
+export type CliSessionOptions = {
+	readonly cwd: string
+	readonly tartHome?: string
+	readonly modelSelection?: ModelSelection
+	readonly resumeSessionId?: SessionId
+}
+
+/** Options for one non-interactive `--prompt` run. */
+export type PromptRunOptions = CliSessionOptions & {
+	readonly prompt: string
+}
+
+/** Options for an interactive readline session. */
+export type InteractiveRunOptions = CliSessionOptions
+
+type OpenedSession = {
+	readonly session: TartSession
+	readonly mode: 'new' | 'resumed'
+	readonly logPath: string
+}
+
+type OpenSessionError = LaunchModelError | SessionToResumeNotFoundError
+
+const launchOptions = (options: CliSessionOptions) => ({
+	cwd: options.cwd,
+	...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
+	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
+})
+
+const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope> =>
+	Effect.gen(function* () {
+		const session =
+			options.resumeSessionId === undefined
+				? yield* launchSession(launchOptions(options))
+				: yield* resumeSessionById(options.resumeSessionId, launchOptions(options))
+		const logPath = sessionLogPathFor(session.sessionId, {
+			cwd: options.cwd,
+			...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
+		})
+
+		return {
+			session,
+			logPath,
+			mode: options.resumeSessionId === undefined ? 'new' : 'resumed',
+		}
+	})
+
+const activeModelFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: string): ActiveModel | null => {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index]
+		if (entry === undefined || entry.agentId !== rootAgentId) continue
+		if (entry._tag === 'model-change' || entry._tag === 'agent_started') return entry.model
+	}
+
+	return null
+}
+
+const credentialSummary = (model: ActiveModel | null): Effect.Effect<CredentialSummary> =>
+	Effect.gen(function* () {
+		if (model === null) return { _tag: 'unknown', detail: 'no active model row found in the session log' }
+
+		if (model.providerKind === 'codex') {
+			const store = makeCodexAuthStore({ providerId: model.providerId })
+			const token = yield* store.load
+			if (Option.isNone(token)) return { _tag: 'missing', detail: `entry "${model.providerId}" in ${store.path}` }
+
+			const now = yield* Clock.currentTimeMillis
+			const expiry = token.value.isExpired(now) ? 'expired; will refresh on first request' : 'valid'
+			return { _tag: 'found', detail: `${expiry} entry "${model.providerId}" in ${store.path}` }
+		}
+
+		return { _tag: 'found', detail: `API key resolved for provider "${model.providerId}"` }
+	})
+
+const sessionHeader = (opened: OpenedSession, cwd: string): Effect.Effect<SessionHeader> =>
+	Effect.gen(function* () {
+		const entries = yield* opened.session.entries
+		const model = activeModelFromEntries(entries, opened.session.rootAgentId)
+		const credential = yield* credentialSummary(model)
+
+		return {
+			sessionId: opened.session.sessionId,
+			cwd,
+			logPath: opened.logPath,
+			mode: opened.mode,
+			model,
+			credential,
+		}
+	})
+
+const renderLiveEvents = (
+	session: TartSession,
+	renderer: OutputRenderer,
+): Effect.Effect<Fiber.Fiber<void>, never, Scope.Scope> =>
+	Effect.gen(function* () {
+		const entries = yield* session.entries
+		const fromSeq = entries.length === 0 ? 0 : (entries.at(-1)?.seq ?? -1) + 1
+		const render = session.events(fromSeq).pipe(
+			Stream.runForEach(renderer.renderEvent),
+			Effect.catchCause(() => Effect.void),
+		)
+		const fiber = yield* Effect.forkScoped(render, { startImmediately: true })
+		yield* Effect.yieldNow
+		return fiber
+	})
+
+const withProcessSignals = <A, E, R>(
+	session: TartSession,
+	renderer: OutputRenderer,
+	effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+	Effect.acquireUseRelease(
+		Effect.sync(() => {
+			let fired = false
+			const handler = (): void => {
+				if (fired) return
+				fired = true
+				Effect.runFork(
+					renderer
+						.renderNote('interrupt requested; saving session state')
+						.pipe(Effect.andThen(session.interrupt())),
+				)
+			}
+			process.on('SIGINT', handler)
+			process.on('SIGTERM', handler)
+			return handler
+		}),
+		() => effect,
+		(handler) =>
+			Effect.sync(() => {
+				process.off('SIGINT', handler)
+				process.off('SIGTERM', handler)
+			}),
+	)
+
+/** Open a session, print its header, and run one CI-friendly prompt. */
+export const runPrompt = (
+	options: PromptRunOptions,
+	renderer: OutputRenderer,
+): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope> =>
+	Effect.gen(function* () {
+		const opened = yield* openSession(options)
+		yield* renderer.renderHeader(yield* sessionHeader(opened, options.cwd))
+		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
+		const finished = yield* withProcessSignals(
+			opened.session,
+			renderer,
+			opened.session.send(options.prompt).pipe(
+				Effect.orDie,
+				Effect.onExit((exit) =>
+					Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) ? opened.session.interrupt() : Effect.void,
+				),
+			),
+		)
+		yield* Effect.yieldNow
+		yield* renderer.renderFinish(finished)
+		yield* Fiber.interrupt(renderFiber)
+		return finished
+	})
+
+/** Open a session and run the temporary readline interface (not the future OpenTUI). */
+export const runReadline = (
+	options: InteractiveRunOptions,
+	renderer: OutputRenderer,
+): Effect.Effect<void, OpenSessionError, Scope.Scope> =>
+	Effect.gen(function* () {
+		const opened = yield* openSession(options)
+		yield* renderer.renderHeader(yield* sessionHeader(opened, options.cwd))
+		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
+		yield* runInteractive(opened.session, renderer)
+		yield* Fiber.interrupt(renderFiber)
+	})

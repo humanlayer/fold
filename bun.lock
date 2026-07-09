@@ -48,6 +48,26 @@
         "vitest": "catalog:",
       },
     },
+    "packages/tart-cli": {
+      "name": "@humanlayer/tart-cli",
+      "version": "0.0.0",
+      "bin": {
+        "tart": "./src/cli.ts",
+      },
+      "dependencies": {
+        "@effect/platform-node": "catalog:",
+        "@humanlayer/tart-agent": "workspace:*",
+        "@humanlayer/tart-codex": "workspace:*",
+        "@humanlayer/tart-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/tart-vitest-config": "workspace:*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/tart-codex": {
       "name": "@humanlayer/tart-codex",
       "version": "0.0.0",
@@ -135,6 +155,8 @@
     "@humanlayer/effect-branded-id": ["@humanlayer/effect-branded-id@workspace:packages/effect-branded-id"],
 
     "@humanlayer/tart-agent": ["@humanlayer/tart-agent@workspace:packages/tart-agent"],
+
+    "@humanlayer/tart-cli": ["@humanlayer/tart-cli@workspace:packages/tart-cli"],
 
     "@humanlayer/tart-codex": ["@humanlayer/tart-codex@workspace:packages/tart-codex"],
 

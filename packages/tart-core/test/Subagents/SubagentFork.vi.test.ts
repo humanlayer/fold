@@ -11,6 +11,29 @@ import type { AgentStartedLogEntry, AssistantMessageLogEntry } from '../../src/i
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { makeDriveSession, renderedDriveResult, subagentStartedEntries } from './DriveHarness'
 
+const withoutCacheControl = (value: unknown): unknown => {
+	if (Array.isArray(value)) return value.map(withoutCacheControl)
+	if (typeof value !== 'object' || value === null) return value
+
+	const out: Record<string, unknown> = {}
+	for (const [key, nested] of Object.entries(value)) {
+		if (key === 'cacheControl') continue
+		const normalized = withoutCacheControl(nested)
+		if (key === 'anthropic' && typeof normalized === 'object' && normalized !== null) {
+			if (Object.keys(normalized).length === 0) continue
+		}
+		out[key] = normalized
+	}
+	return out
+}
+
+const stablePromptJson = (value: unknown): string =>
+	JSON.stringify(withoutCacheControl(value), (key, nested) => {
+		if (key.length === 0 || Array.isArray(nested) || typeof nested !== 'object' || nested === null) return nested
+
+		return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)))
+	})
+
 it.effect('a fork clones the caller: shared history prefix, no new leading prompt, own rows after', () =>
 	Effect.gen(function* () {
 		// The fork clones the ROOT, so it runs on the root's scripted model: turn 1 is the root's drive
@@ -53,14 +76,15 @@ it.effect('a fork clones the caller: shared history prefix, no new leading promp
 		)
 		expect(forkSystemMessages).toHaveLength(0)
 
-		// The cache claim, for real: the fork's first request begins with the caller's first request,
-		// byte for byte, then continues with the caller's tool-call turn and the fork prompt.
+		// The cache claim, for real: excluding request-local cache breakpoint metadata, the fork's first
+		// request begins with the caller's first request, then continues with the caller's tool-call turn
+		// and the fork prompt.
 		const prompts = yield* rootScripted.scripted.prompts
 		const callerRequest = prompts[0]
 		const forkRequest = prompts[1]
 		if (callerRequest === undefined || forkRequest === undefined) throw new Error('expected two requests')
 		const prefix = forkRequest.content.slice(0, callerRequest.content.length)
-		expect(JSON.stringify(prefix)).toBe(JSON.stringify(callerRequest.content))
+		expect(stablePromptJson(prefix)).toBe(stablePromptJson(callerRequest.content))
 		expect(JSON.stringify(forkRequest.content.slice(callerRequest.content.length))).toContain(
 			'continue with everything you know',
 		)

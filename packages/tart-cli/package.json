@@ -1,0 +1,32 @@
+{
+	"name": "@humanlayer/tart-cli",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"module": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"bin": {
+		"tart": "./src/cli.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun vitest run",
+		"test:watch": "bun vitest"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"@humanlayer/tart-agent": "workspace:*",
+		"@humanlayer/tart-codex": "workspace:*",
+		"@humanlayer/tart-core": "workspace:*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:",
+		"@humanlayer/tart-vitest-config": "workspace:*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

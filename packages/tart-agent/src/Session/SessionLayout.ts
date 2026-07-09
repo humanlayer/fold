@@ -4,7 +4,8 @@
  * (pi-style), so "resume the latest session in this project" is a directory listing. `prepareSessionLog`
  * mints the session id UP FRONT (the file is named by it - `startSession({ sessionId })` records the
  * same id durably) and returns the ready log descriptor; `listSessionLogs`/`latestSessionLog` discover
- * existing logs newest-first for the resume path (`resumeSession({ log: jsonlEventLog(path) })`).
+ * existing logs newest-first for the resume-latest path, while `sessionLogById` resolves an exact
+ * `sess_*` id inside the current project's slug directory.
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -105,3 +106,22 @@ export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<R
 /** The newest session log for this project, or null when none exist ("resume latest" - D5). */
 export const latestSessionLog = (options?: SessionLayoutOptions): Effect.Effect<SessionLogRef | null> =>
 	listSessionLogs(options).pipe(Effect.map((refs) => refs[0] ?? null))
+
+/** Resolve an exact session id under this project's session directory, or null when it is absent. */
+export const sessionLogById = (
+	sessionId: SessionId,
+	options?: SessionLayoutOptions,
+): Effect.Effect<SessionLogRef | null> =>
+	Effect.gen(function* () {
+		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const path = sessionLogPathFor(sessionId, options)
+		const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+
+		if (info === null || info.type !== 'File') return null
+
+		return {
+			sessionId,
+			path,
+			mtimeMs: Option.match(info.mtime, { onNone: () => 0, onSome: (mtime) => mtime.getTime() }),
+		}
+	})

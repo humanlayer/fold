@@ -6,6 +6,29 @@ import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLangu
 import { layerEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
 import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestHelpers'
 
+const withoutCacheControl = (value: unknown): unknown => {
+	if (Array.isArray(value)) return value.map(withoutCacheControl)
+	if (typeof value !== 'object' || value === null) return value
+
+	const out: Record<string, unknown> = {}
+	for (const [key, nested] of Object.entries(value)) {
+		if (key === 'cacheControl') continue
+		const normalized = withoutCacheControl(nested)
+		if (key === 'anthropic' && typeof normalized === 'object' && normalized !== null) {
+			if (Object.keys(normalized).length === 0) continue
+		}
+		out[key] = normalized
+	}
+	return out
+}
+
+const stablePromptJson = (value: unknown): string =>
+	JSON.stringify(withoutCacheControl(value), (key, nested) => {
+		if (key.length === 0 || Array.isArray(nested) || typeof nested !== 'object' || nested === null) return nested
+
+		return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)))
+	})
+
 it.effect('keeps the second request prompt a byte-stable extension of the first', () =>
 	Effect.gen(function* () {
 		const recorder = yield* makeEchoRecorder()
@@ -27,8 +50,9 @@ it.effect('keeps the second request prompt a byte-stable extension of the first'
 		const second = prompts[1]
 		if (first === undefined || second === undefined) throw new Error('expected two captured prompts')
 
-		// The prompt-cache law: the second request begins with exactly the first request's messages.
+		// The prompt-cache law: excluding request-local cache breakpoint metadata, the second request
+		// begins with exactly the first request's messages.
 		expect(second.content.length).toBeGreaterThan(first.content.length)
-		expect(JSON.stringify(second.content.slice(0, first.content.length))).toBe(JSON.stringify(first.content))
+		expect(stablePromptJson(second.content.slice(0, first.content.length))).toBe(stablePromptJson(first.content))
 	}),
 )
