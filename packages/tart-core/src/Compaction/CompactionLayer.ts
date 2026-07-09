@@ -73,6 +73,8 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 
 	const contextWindowFor = (input: CompactionCheckInput): number =>
 		config.contextWindow ?? defaultContextWindowFor(input.model?.modelId ?? null)
+	const thresholdFor = (input: CompactionCheckInput): number =>
+		config.thresholdTokens ?? compactionUsableTokens({ contextWindow: contextWindowFor(input), reserveTokens })
 
 	const shouldCompact = Effect.fn('tart.compaction.should_compact')((input: CompactionCheckInput) =>
 		Effect.sync(() => {
@@ -80,8 +82,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			const tokens = latestReportedContextTokens(visible)
 			if (tokens === null) return false
 
-			const usable = compactionUsableTokens({ contextWindow: contextWindowFor(input), reserveTokens })
-			return tokens >= usable
+			return tokens >= thresholdFor(input)
 		}),
 	)
 
@@ -93,7 +94,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 
 			// Clamp the kept tail to a fraction of the usable budget so a compaction always frees
 			// meaningful space, even under tiny configured windows.
-			const usable = compactionUsableTokens({ contextWindow: contextWindowFor(input), reserveTokens })
+			const usable = thresholdFor(input)
 			const keepRecentTokens = Math.min(
 				config.keepRecentTokens ?? defaultKeepRecentTokens,
 				Math.max(1, Math.floor(usable / 4)),

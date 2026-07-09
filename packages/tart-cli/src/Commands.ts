@@ -86,10 +86,16 @@ const commonFlags = {
 	disableAutoCompact: Flag.boolean('disable-auto-compact').pipe(
 		Flag.withDescription('Disable auto-compaction even when config enables it'),
 	),
-	compactContextWindow: optionalInteger('compact-context-window', 'Override compaction context window in tokens'),
-	compactReserveTokens: optionalInteger('compact-reserve-tokens', 'Reserve this many tokens before compaction fires'),
-	compactKeepRecentTokens: optionalInteger('compact-keep-recent-tokens', 'Keep this many recent tokens verbatim'),
-	compactPrompt: optionalString('compact-prompt', 'Override the compaction summarization prompt'),
+	compactionThreshold: optionalInteger('compaction-threshold', 'Context usage in tokens that triggers compaction'),
+	compactionReserveTokens: optionalInteger(
+		'compaction-reserve-tokens',
+		'Reserve this many tokens below the model window when no explicit threshold is set',
+	),
+	compactionKeepRecentTokens: optionalInteger(
+		'compaction-keep-recent-tokens',
+		'Keep this many recent tokens verbatim',
+	),
+	compactionPrompt: optionalString('compaction-prompt', 'Override the compaction summarization prompt'),
 }
 
 type CommonFlagValues = {
@@ -105,10 +111,10 @@ type CommonFlagValues = {
 	readonly verbose: boolean
 	readonly autoCompact: boolean
 	readonly disableAutoCompact: boolean
-	readonly compactContextWindow: Option.Option<number>
-	readonly compactReserveTokens: Option.Option<number>
-	readonly compactKeepRecentTokens: Option.Option<number>
-	readonly compactPrompt: Option.Option<string>
+	readonly compactionThreshold: Option.Option<number>
+	readonly compactionReserveTokens: Option.Option<number>
+	readonly compactionKeepRecentTokens: Option.Option<number>
+	readonly compactionPrompt: Option.Option<string>
 }
 
 const optionValue = <A>(option: Option.Option<A>): A | undefined => Option.getOrUndefined(option)
@@ -150,14 +156,14 @@ const modelSelectionFromFlags = (input: {
 const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | undefined => {
 	if (input.disableAutoCompact) return { enabled: false }
 
-	const compactionPrompt = optionValue(input.compactPrompt)
-	const contextWindow = optionValue(input.compactContextWindow)
-	const reserveTokens = optionValue(input.compactReserveTokens)
-	const keepRecentTokens = optionValue(input.compactKeepRecentTokens)
+	const compactionPrompt = optionValue(input.compactionPrompt)
+	const thresholdTokens = optionValue(input.compactionThreshold)
+	const reserveTokens = optionValue(input.compactionReserveTokens)
+	const keepRecentTokens = optionValue(input.compactionKeepRecentTokens)
 	const hasCompactionOptions =
 		input.autoCompact ||
 		compactionPrompt !== undefined ||
-		contextWindow !== undefined ||
+		thresholdTokens !== undefined ||
 		reserveTokens !== undefined ||
 		keepRecentTokens !== undefined
 
@@ -165,7 +171,7 @@ const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | unde
 		? {
 				enabled: true,
 				...(compactionPrompt === undefined ? {} : { compactionPrompt }),
-				...(contextWindow === undefined ? {} : { contextWindow }),
+				...(thresholdTokens === undefined ? {} : { thresholdTokens }),
 				...(reserveTokens === undefined ? {} : { reserveTokens }),
 				...(keepRecentTokens === undefined ? {} : { keepRecentTokens }),
 			}

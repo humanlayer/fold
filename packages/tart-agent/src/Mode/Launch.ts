@@ -113,6 +113,11 @@ export const defaultStopConditions: StopConditionConfig = {
 	doomLoop: { enabled: true, repeatedToolCalls: 3 },
 }
 
+/** Auto-compaction defaults match pi: enabled, 16k reserve, and 20k recent-token tail. */
+export const defaultAutoCompact: AutoCompactConfig = {
+	enabled: true,
+}
+
 const roleBindingFor = (config: TartConfig, role: ConfigRole): RoleBinding =>
 	role === 'fast'
 		? config.roles.fast
@@ -194,14 +199,14 @@ const buildAgentDefinition = (
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
 			...(memoryBlock === null ? [] : [memoryBlock]),
 		]
-		const autoCompact = options.autoCompact ?? config?.compaction
+		const autoCompact = options.autoCompact ?? config?.compaction ?? defaultAutoCompact
 
 		return defineAgent({
 			name: options.name ?? mode.name,
 			model: models.primary,
 			tools,
 			...(blocks.length === 0 ? {} : { systemPrompt: blocks }),
-			...(autoCompact === undefined ? {} : { autoCompact }),
+			autoCompact,
 			stopConditions: options.stopConditions ?? config?.stopConditions ?? defaultStopConditions,
 		})
 	})

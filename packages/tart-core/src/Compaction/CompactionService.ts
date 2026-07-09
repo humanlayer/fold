@@ -34,6 +34,8 @@ export type AutoCompactConfig =
 			 * incremental `<previous-summary>` block are always provided above the instruction.
 			 */
 			readonly compactionPrompt?: string
+			/** Override the context-usage threshold that triggers compaction. */
+			readonly thresholdTokens?: number
 			/** Override the model's context window in tokens; defaults to the interim per-model table (D15). */
 			readonly contextWindow?: number
 			/** Tokens reserved below the usable budget so compaction fires early (default 16384, pi). */

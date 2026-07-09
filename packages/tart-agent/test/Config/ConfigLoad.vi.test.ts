@@ -20,7 +20,7 @@ const validConfig = `{
 		"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "medium" },
 		"fast": { "provider": "codex", "model": "gpt-5.5" },
 	},
-	"compaction": { "enabled": true, "contextWindow": 272000, "reserveTokens": 16000 },
+	"compaction": { "enabled": true, "thresholdTokens": 240000, "reserveTokens": 16000 },
 	"stopConditions": { "doomLoop": { "enabled": true, "repeatedToolCalls": 3 } },
 }
 `

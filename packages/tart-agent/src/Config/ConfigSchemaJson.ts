@@ -64,9 +64,9 @@ export const starterConfigJsonc = (): string =>
 		"fast": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" }
 	},
 
-	// Auto-compaction is disabled by default. Set enabled=true to summarize old history near the
-	// context limit; optional knobs are contextWindow, reserveTokens, keepRecentTokens, compactionPrompt.
-	"compaction": { "enabled": false },
+	// Auto-compaction is enabled by default. Optional knobs are thresholdTokens, contextWindow,
+	// reserveTokens, keepRecentTokens, and compactionPrompt.
+	"compaction": { "enabled": true },
 
 	// Runtime stop conditions. The default product launch uses this doom-loop guard even when omitted.
 	"stopConditions": {

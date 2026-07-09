@@ -76,6 +76,7 @@ export const AutoCompactConfig = Schema.Union([
 	Schema.Struct({
 		enabled: Schema.Literal(true),
 		compactionPrompt: Schema.optionalKey(Schema.String),
+		thresholdTokens: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
 		contextWindow: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
 		reserveTokens: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
 		keepRecentTokens: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
@@ -107,7 +108,7 @@ const TartConfigFields = {
 	providers: Schema.Record(Schema.String, ProviderConnection),
 	/** Cross-provider model roles. */
 	roles: RolesConfig,
-	/** Auto-compaction policy. Omit to use tart-agent defaults (disabled today). */
+	/** Auto-compaction policy. Omit to use tart-agent defaults (enabled today). */
 	compaction: Schema.optionalKey(AutoCompactConfig),
 	/** Runtime stop conditions. Omit to use tart-agent defaults. */
 	stopConditions: Schema.optionalKey(StopConditionsConfig),

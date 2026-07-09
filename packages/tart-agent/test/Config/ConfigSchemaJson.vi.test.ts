@@ -43,7 +43,7 @@ it.effect('the starter config is valid against the schema (round-trips through t
 
 		expect(config.roles.smart.provider).toBe('anthropic')
 		expect(config.providers.codex?.kind).toBe('codex')
-		expect(config.compaction?.enabled).toBe(false)
+		expect(config.compaction?.enabled).toBe(true)
 		expect(config.stopConditions?.doomLoop?.enabled).toBe(true)
 		expect(config.$schema).toBe('./config.schema.json')
 	}),
