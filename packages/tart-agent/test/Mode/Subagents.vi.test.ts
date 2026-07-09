@@ -1,7 +1,7 @@
 /**
  * Default subagent roster tests (D21/D27): the shape of `defaultSubagents` is load-bearing configuration
- * - who may delegate to whom, and on which model - so it is asserted directly rather than through a
- * live session. The cycle test is the important one: `general-purpose` dispatches itself, so the
+ * - who may delegate to whom, and on which profile role - so it is asserted directly rather than through
+ * a live session. The cycle test is the important one: `general-purpose` dispatches itself, so the
  * registry walk must terminate.
  */
 import { expect, it } from '@effect/vitest'
@@ -38,7 +38,7 @@ const namedModel = (modelId: string): TartModel => {
 	})
 }
 
-/** Distinct model ids per role, so a definition's binding is observable. */
+/** Mode tool context models (unused by the role-bound default roster, required by ModeToolContext). */
 const models: ModeModels = {
 	primary: namedModel('primary-model'),
 	smart: namedModel('smart-model'),
@@ -46,7 +46,7 @@ const models: ModeModels = {
 	orchestrator: namedModel('orchestrator-model'),
 }
 
-const roster = (): ReadonlyArray<SubagentDefinition> => defaultSubagents({ cwd: '/tmp/project', models })
+const roster = (): ReadonlyArray<SubagentDefinition> => defaultSubagents({ cwd: '/tmp/project' })
 
 const byName = (name: string): SubagentDefinition => {
 	const found = roster().find((definition) => definition.name === name)
@@ -64,10 +64,10 @@ it('registers general-purpose, bash, and researcher', () => {
 	expect(roster().map((definition) => definition.name)).toEqual(['general-purpose', 'bash', 'researcher'])
 })
 
-it('binds each type to its configured role model', () => {
-	expect(byName('general-purpose').model.activeModel.modelId).toBe('smart-model')
-	expect(byName('bash').model.activeModel.modelId).toBe('fast-model')
-	expect(byName('researcher').model.activeModel.modelId).toBe('fast-model')
+it('binds each type to its profile role (resolved through the session profiles map, not here)', () => {
+	expect(byName('general-purpose').model).toBe('smart')
+	expect(byName('bash').model).toBe('fast')
+	expect(byName('researcher').model).toBe('fast')
 })
 
 it('gives bash only the bash tool and no way to delegate', () => {

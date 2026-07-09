@@ -16,7 +16,7 @@ import type { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { isContextOverflowError } from '../Compaction/CompactionEngine'
-import { Compaction, type CompactionTrigger } from '../Compaction/CompactionService'
+import { Compaction, type CompactionService, type CompactionTrigger } from '../Compaction/CompactionService'
 import { EventLog } from '../EventLog/EventLogService'
 import type {
 	ActiveModel,
@@ -27,6 +27,7 @@ import type {
 } from '../EventLog/Schemas'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
+import { ModelCatalog } from '../Model/ModelCatalog'
 import { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import { buildPrompt, providerToolCallIdKey, tartPartOptionsKey } from '../Model/RequestBuilder'
 import { messagesForAgent, runtimeForAgent } from '../Projection/Projection'
@@ -120,7 +121,18 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const agentEvents = yield* AgentEvents
 		const sessionControls = yield* SessionControls
 		// Defaulted reference (D11): resolves the session-installed live policy, or the disabled no-op.
-		const compaction = yield* Compaction
+		const installedCompaction = yield* Compaction
+		// Defaulted reference (D15): the session catalog is captured HERE, at layer construction under
+		// the session services, and re-provided around every compaction call - run effects execute on
+		// caller fibers whose context lacks session services, so the compaction checks would otherwise
+		// resolve the Reference's empty default instead of the installed catalog.
+		const modelCatalog = yield* ModelCatalog
+		const compaction: CompactionService = {
+			enabled: installedCompaction.enabled,
+			shouldCompact: (input) =>
+				installedCompaction.shouldCompact(input).pipe(Effect.provideService(ModelCatalog, modelCatalog)),
+			plan: (input) => installedCompaction.plan(input).pipe(Effect.provideService(ModelCatalog, modelCatalog)),
+		}
 		const stopConditions = yield* StopConditions
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>

@@ -3,9 +3,13 @@
  * for each provider kind (anthropic / openai-compat / codex), `orchestrator` falls back to `smart` when
  * unbound, the requested role is stamped on the model snapshot, reasoning flows through, and a missing
  * credential env var is a typed RoleResolutionError. Descriptors are plain data (codex's provider layer
- * is lazy), so nothing here touches the network.
+ * is lazy), so nothing here touches the network. With a catalog, resolution also validates the bound
+ * reasoning level against per-model support (D23): reasoning-incapable models reject any level but
+ * 'off', effort-listed models reject unlisted levels naming the supported ones, and unknown models
+ * pass through permissively.
  */
 import { expect, it } from '@effect/vitest'
+import type { ModelCatalogEntry } from '@humanlayer/tart-core'
 import { Effect } from 'effect'
 
 import { agentModelsFromConfig, parseTartConfig } from '../../src/index'
@@ -97,5 +101,117 @@ it.effect('fails with RoleResolutionError when the credential env var is unset',
 		expect(error._tag).toBe('RoleResolutionError')
 		expect(error.role).toBe('smart')
 		expect(error.message).toContain('ANTHROPIC_API_KEY')
+	}),
+)
+
+const catalogEntry = (
+	overrides: Partial<ModelCatalogEntry> & Pick<ModelCatalogEntry, 'providerId' | 'modelId'>,
+): ModelCatalogEntry => ({
+	name: null,
+	contextWindow: 200_000,
+	maxInputTokens: null,
+	maxOutputTokens: 32_000,
+	reasoning: true,
+	reasoningEfforts: null,
+	vision: true,
+	toolCall: true,
+	pricing: null,
+	...overrides,
+})
+
+/** Opus supports the listed efforts; the codex-served gpt model supports no reasoning at all. */
+const validationCatalog: ReadonlyArray<ModelCatalogEntry> = [
+	catalogEntry({
+		providerId: 'anthropic',
+		modelId: 'claude-opus-4-8',
+		reasoning: true,
+		reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+	}),
+	catalogEntry({ providerId: 'openai', modelId: 'gpt-5.5', reasoning: false }),
+]
+
+const configWithReasoning = (smartReasoning: string, fastReasoning: string): string => `{
+	"providers": {
+		"anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+		"codex": { "kind": "codex" }
+	},
+	"roles": {
+		"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "${smartReasoning}" },
+		"fast": { "provider": "codex", "model": "gpt-5.5", "reasoning": "${fastReasoning}" }
+	}
+}`
+
+it.effect('a reasoning level outside the catalog effort list fails, naming the supported levels', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(configWithReasoning('minimal', 'off'))
+		const models = agentModelsFromConfig(config, {
+			env: env({ ANTHROPIC_API_KEY: 'sk-live' }),
+			catalog: validationCatalog,
+		})
+
+		const error = yield* models.resolve('smart').pipe(Effect.flip)
+		expect(error._tag).toBe('RoleResolutionError')
+		expect(error.role).toBe('smart')
+		expect(error.message).toContain('claude-opus-4-8')
+		expect(error.message).toContain('"minimal"')
+		expect(error.message).toContain('low, medium, high, xhigh, max')
+	}),
+)
+
+it.effect('a reasoning level on a model whose entry says reasoning: false fails', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(configWithReasoning('off', 'high'))
+		const models = agentModelsFromConfig(config, { env: env({}), catalog: validationCatalog })
+
+		const error = yield* models.resolve('fast').pipe(Effect.flip)
+		expect(error._tag).toBe('RoleResolutionError')
+		expect(error.role).toBe('fast')
+		expect(error.message).toContain('does not support reasoning')
+		expect(error.message).toContain("use level 'off'")
+	}),
+)
+
+it.effect('a model the catalog does not know passes through permissively', () =>
+	Effect.gen(function* () {
+		const text = `{
+			"providers": { "anthropic": { "kind": "anthropic", "apiKeyEnv": "K" } },
+			"roles": {
+				"smart": { "provider": "anthropic", "model": "claude-unreleased-6", "reasoning": "xhigh" },
+				"fast": { "provider": "anthropic", "model": "claude-haiku-4-5" }
+			}
+		}`
+		const config = yield* parseTartConfig(text)
+		const models = agentModelsFromConfig(config, { env: env({ K: 'sk' }), catalog: validationCatalog })
+
+		const model = yield* models.resolve('smart')
+		expect(model.activeModel.requestedReasoningLevel).toBe('xhigh')
+	}),
+)
+
+it.effect("level 'off' always resolves, even on a reasoning-incapable catalog model", () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(configWithReasoning('off', 'off'))
+		const models = agentModelsFromConfig(config, {
+			env: env({ ANTHROPIC_API_KEY: 'sk-live' }),
+			catalog: validationCatalog,
+		})
+
+		const smart = yield* models.resolve('smart')
+		expect(smart.activeModel.requestedReasoningLevel).toBe('off')
+		const fast = yield* models.resolve('fast')
+		expect(fast.activeModel.requestedReasoningLevel).toBe('off')
+	}),
+)
+
+it.effect('a catalog-listed effort level resolves cleanly', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(configWithReasoning('max', 'off'))
+		const models = agentModelsFromConfig(config, {
+			env: env({ ANTHROPIC_API_KEY: 'sk-live' }),
+			catalog: validationCatalog,
+		})
+
+		const model = yield* models.resolve('smart')
+		expect(model.activeModel.requestedReasoningLevel).toBe('max')
 	}),
 )

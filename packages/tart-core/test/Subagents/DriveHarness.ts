@@ -21,6 +21,7 @@ import {
 	type AgentId,
 	type AgentStartedLogEntry,
 	type LogEntry,
+	type SessionProfiles,
 	type SubagentDefinition,
 	type TartModel,
 } from '../../src/index'
@@ -87,6 +88,8 @@ export const makeDriveSession = (input: {
 	/** Paired [drive tool call, text] turns; or pass `rootScript` for full control. */
 	readonly rootTurns: number
 	readonly rootScript?: ReadonlyArray<ScriptedTurn>
+	/** Initial role->model bindings, for rosters with role-bound definitions (profiles slice). */
+	readonly profiles?: SessionProfiles
 }) =>
 	Effect.gen(function* () {
 		const instructions = yield* Ref.make<ReadonlyArray<DriveInstruction>>([])
@@ -107,6 +110,7 @@ export const makeDriveSession = (input: {
 				systemPrompt: 'root',
 				tools: [makeDriveTool(instructions, roster), subagentTool(input.definitions)],
 			}),
+			...(input.profiles === undefined ? {} : { profiles: input.profiles }),
 		})
 
 		/** Queue one instruction; the caller decides how to run the send (await, fork, ...). */

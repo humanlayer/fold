@@ -1,5 +1,6 @@
 export * from './Ansi'
 export * from './Commands'
+export * from './InteractiveCommand'
 export * from './Readline'
 export * from './Renderer'
 export * from './Run'

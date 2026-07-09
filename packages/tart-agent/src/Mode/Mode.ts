@@ -7,7 +7,8 @@
  * `defaultCodingMode` is the batteries-included local coding agent: the full filesystem toolset (read,
  * write, edit, apply_patch, bash - the family policy advertises the right editing subset per model),
  * the disk skill tool, and the default subagent roster (general-purpose, bash, researcher - see
- * Mode/Subagents). RLM/RPI modes are a later slice; they are just other `TartMode` values.
+ * Mode/Subagents). Other modes are just other `TartMode` values (Mode/Rlm); Mode/ModeName maps the
+ * selectable names to them. RPI is a later slice.
  */
 import { skillTool, subagentTool, type TartTool } from '@humanlayer/tart-core'
 
@@ -20,7 +21,11 @@ import { defaultSubagents, type ModeModels } from './Subagents'
 export type ModeToolContext = {
 	/** The session working directory (tools resolve relative paths and scan skills against it). */
 	readonly cwd: string
-	/** Models resolved from config roles, for binding the mode's subagents (D21: explicit, never inherited). */
+	/**
+	 * Models resolved from config roles, for modes that pin explicit models on their subagents (D21:
+	 * explicit, never inherited). The default modes bind by profile role instead - launch passes these
+	 * same resolved models as the session's profiles map.
+	 */
 	readonly models: ModeModels
 }
 
@@ -51,9 +56,9 @@ export const defaultCodingMode: TartMode = {
 	name: 'coding',
 	role: 'smart',
 	systemPrompt: DEFAULT_CODING_PROMPT,
-	buildTools: ({ cwd, models }) => [
+	buildTools: ({ cwd }) => [
 		...codingTools({ cwd }),
 		skillTool(skillsFromDisk({ cwd })),
-		subagentTool(defaultSubagents({ cwd, models })),
+		subagentTool(defaultSubagents({ cwd })),
 	],
 }

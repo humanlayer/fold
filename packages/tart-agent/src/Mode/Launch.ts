@@ -23,7 +23,9 @@ import {
 	startSession,
 	type AgentDefinition,
 	type AutoCompactConfig,
+	type ModelCatalogEntry,
 	type ReasoningLevel,
+	type SessionProfiles,
 	type SteeringMode,
 	type StopConditionConfig,
 	type TartModel,
@@ -32,9 +34,11 @@ import {
 } from '@humanlayer/tart-core'
 import { Effect, Schema, type Scope } from 'effect'
 
+import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
 import type { ConfigRole, RoleBinding, TartConfig } from '../Config/ConfigSchema'
 import {
+	defaultTartHome,
 	loadTartConfig,
 	type ConfigDecodeError,
 	type ConfigFileNotFoundError,
@@ -96,6 +100,12 @@ export type LaunchSessionOptions = {
 	readonly home?: string
 	/** Environment lookup for provider `apiKeyEnv`. Defaults to reading `process.env`. */
 	readonly env?: EnvLookup
+	/**
+	 * Model catalog entries (D15) used for reasoning validation and installed session-wide (compaction
+	 * context windows). When omitted, loaded via {@link loadModelCatalog} - cache, models.dev, or the
+	 * baked snapshot. Pass an already-loaded catalog to avoid a second load (the CLI loads once).
+	 */
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	/** Auto-compaction policy (D11). Omitted means disabled. */
 	readonly autoCompact?: AutoCompactConfig
 	/** Runtime stop-condition policy. Defaults to tart-agent's doom-loop guard. */
@@ -155,6 +165,7 @@ const withSelectedRoleBinding = (config: TartConfig, role: ConfigRole, binding: 
 const resolveModeModels = (
 	options: LaunchSessionOptions,
 	mode: TartMode,
+	catalog: ReadonlyArray<ModelCatalogEntry>,
 ): Effect.Effect<ModeModels, LaunchModelError> =>
 	Effect.gen(function* () {
 		if (options.model !== undefined) {
@@ -171,7 +182,10 @@ const resolveModeModels = (
 			selection.provider === undefined && selection.model === undefined && selection.reasoning === undefined
 				? config
 				: withSelectedRoleBinding(config, role, selectedBinding(roleBindingFor(config, role), selection))
-		const models = agentModelsFromConfig(selectedConfig, options.env === undefined ? {} : { env: options.env })
+		const models = agentModelsFromConfig(selectedConfig, {
+			...(options.env === undefined ? {} : { env: options.env }),
+			catalog,
+		})
 
 		return {
 			primary: yield* models.resolve(role),
@@ -211,12 +225,33 @@ const buildAgentDefinition = (
 		})
 	})
 
+/**
+ * The session's initial profiles map: the mode's already-resolved role models, so the role-bound
+ * default roster resolves at every dispatch and `TartSession.setProfile` swaps take over from there.
+ * `agentModelsFromConfig` stamped each model's `activeModel.role`, so role provenance flows into the
+ * durable `agent_started.model` of every role-bound child for free.
+ */
+const sessionProfilesFor = (models: ModeModels): SessionProfiles => ({
+	smart: models.smart,
+	fast: models.fast,
+	orchestrator: models.orchestrator,
+})
+
 const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<TartConfig | null, LaunchModelError> => {
 	if (options.config !== undefined) return Effect.succeed(options.config)
 	if (options.model !== undefined) return Effect.succeed(null)
 
 	return loadTartConfig(options.tartHome === undefined ? {} : { tartHome: options.tartHome })
 }
+
+/** The catalog for a launch: the caller's (the CLI loads once), else a fresh load (never fails). */
+const catalogFor = (options: LaunchSessionOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>> =>
+	options.catalog !== undefined
+		? Effect.succeed(options.catalog)
+		: loadModelCatalog({
+				tartHome: options.tartHome ?? defaultTartHome(),
+				...(options.env === undefined ? {} : { env: options.env }),
+			})
 
 /**
  * Start a fresh coding session: resolve the model, load agentfiles, build the mode's tools, and
@@ -230,7 +265,9 @@ export const launchSession = (
 		const mode = opts.mode ?? defaultCodingMode
 		const cwd = opts.cwd ?? process.cwd()
 
-		const models = yield* resolveModeModels(opts, mode)
+		// The catalog loads before model resolution: role bindings validate reasoning against it (D23).
+		const catalog = yield* catalogFor(opts)
+		const models = yield* resolveModeModels(opts, mode, catalog)
 		const config = yield* runtimeConfigFor(opts)
 		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
 
@@ -244,6 +281,8 @@ export const launchSession = (
 			log: prepared.log,
 			cwd,
 			sessionId: prepared.sessionId,
+			profiles: sessionProfilesFor(models),
+			catalog,
 			...(opts.steering === undefined ? {} : { steering: opts.steering }),
 		})
 	})
@@ -255,13 +294,17 @@ const resumeFromLog = (
 	cwd: string,
 ): Effect.Effect<TartSession, LaunchModelError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const models = yield* resolveModeModels(options, mode)
+		// Same order as launchSession: the catalog loads before model resolution (D23 validation).
+		const catalog = yield* catalogFor(options)
+		const models = yield* resolveModeModels(options, mode, catalog)
 		const config = yield* runtimeConfigFor(options)
 		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
 
 		return yield* resumeSession({
 			agent,
 			log: jsonlEventLog(log.path),
+			profiles: sessionProfilesFor(models),
+			catalog,
 			...(options.steering === undefined ? {} : { steering: options.steering }),
 		})
 	})

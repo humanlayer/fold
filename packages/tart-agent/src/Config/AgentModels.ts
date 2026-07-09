@@ -6,13 +6,14 @@
  * which carries no key (it uses `~/.tart/auth.json`).
  *
  * `orchestrator` falls back to `smart` when unbound (D25). Provider cross-references were validated at
- * decode (ConfigSchema), so the only resolution failure is a genuinely runtime one - a missing
- * credential env var - surfaced as a typed `RoleResolutionError`. The resolved model records the
- * requested role on its `ActiveModel` snapshot for log/cost provenance.
+ * decode (ConfigSchema), so resolution failures are a missing credential env var, or - when a model
+ * catalog is provided - a reasoning level the bound model does not support (D23: per-model reasoning
+ * support is data, not code). Both surface as a typed `RoleResolutionError`. The resolved model
+ * records the requested role on its `ActiveModel` snapshot for log/cost provenance.
  */
 import { codexModel } from '@humanlayer/tart-codex'
-import { anthropicModel, openaiModel } from '@humanlayer/tart-core'
-import type { ActiveModel, ReasoningLevel, TartModel } from '@humanlayer/tart-core'
+import { anthropicModel, lookupCatalogEntry, openaiModel } from '@humanlayer/tart-core'
+import type { ActiveModel, ModelCatalogEntry, ReasoningLevel, TartModel } from '@humanlayer/tart-core'
 import { Effect, Redacted, Schema } from 'effect'
 
 import { ConfigRole, type ProviderConnection, type RoleBinding, type TartConfig } from './ConfigSchema'
@@ -30,6 +31,12 @@ export type EnvLookup = (name: string) => string | undefined
 export type AgentModelsOptions = {
 	/** Environment lookup for `apiKeyEnv`. Defaults to reading `process.env`. */
 	readonly env?: EnvLookup
+	/**
+	 * Model catalog entries for reasoning-support validation (D23). When the bound model has a catalog
+	 * entry, a configured reasoning level it does not support fails resolution; models the catalog does
+	 * not know pass through permissively. Omitted means no validation.
+	 */
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
 /** Resolves config roles to runnable model descriptors (D25). */
@@ -48,6 +55,7 @@ const withRole = (model: TartModel, role: ConfigRole): TartModel => {
 /** Build the resolver over a decoded config. */
 export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsOptions): AgentModels => {
 	const env = options?.env ?? defaultEnv
+	const catalog = options?.catalog
 
 	/** The binding for a role; `orchestrator` falls back to `smart`. */
 	const bindingFor = (role: ConfigRole): RoleBinding =>
@@ -84,9 +92,9 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 		)
 	}
 
-	const resolve = (role: ConfigRole): Effect.Effect<TartModel, RoleResolutionError> =>
+	/** Resolve one role's binding to its provider-specific model descriptor. */
+	const resolveBinding = (role: ConfigRole, binding: RoleBinding): Effect.Effect<TartModel, RoleResolutionError> =>
 		Effect.gen(function* () {
-			const binding = bindingFor(role)
 			const providerName = binding.provider
 			const provider = config.providers[providerName]
 			// Cross-referenced at decode, but guard so a hand-built config can't produce an unclear crash.
@@ -122,6 +130,55 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 				provider.kind === 'anthropic' ? anthropicModel(modelOptions) : openaiModel(modelOptions),
 				role,
 			)
+		})
+
+	/**
+	 * Validate the binding's reasoning level against the catalog (D23): a model whose entry says
+	 * `reasoning: false` accepts no level but 'off', and a model with an effort list accepts only the
+	 * listed levels. Models the catalog does not know pass through permissively - validation is a
+	 * data-driven upgrade, never a gate on unknown models.
+	 */
+	const validateReasoningSupport = (
+		role: ConfigRole,
+		binding: RoleBinding,
+		model: TartModel,
+	): Effect.Effect<void, RoleResolutionError> => {
+		const requested = binding.reasoning
+		if (catalog === undefined || requested === undefined || requested === 'off') return Effect.void
+
+		const entry = lookupCatalogEntry(catalog, model.activeModel)
+		if (entry === null) return Effect.void
+
+		if (!entry.reasoning) {
+			return Effect.fail(
+				new RoleResolutionError({
+					role,
+					message: `model "${binding.model}" does not support reasoning; remove reasoning or use level 'off'`,
+				}),
+			)
+		}
+
+		if (entry.reasoningEfforts !== null && !entry.reasoningEfforts.includes(requested)) {
+			return Effect.fail(
+				new RoleResolutionError({
+					role,
+					message:
+						`model "${binding.model}" does not support reasoning level "${requested}"; ` +
+						`supported levels: ${entry.reasoningEfforts.join(', ')} (or 'off')`,
+				}),
+			)
+		}
+
+		return Effect.void
+	}
+
+	const resolve = (role: ConfigRole): Effect.Effect<TartModel, RoleResolutionError> =>
+		Effect.gen(function* () {
+			const binding = bindingFor(role)
+			const model = yield* resolveBinding(role, binding)
+			yield* validateReasoningSupport(role, binding, model)
+
+			return model
 		})
 
 	return { resolve }

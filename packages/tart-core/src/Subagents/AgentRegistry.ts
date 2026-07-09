@@ -9,10 +9,9 @@
  */
 import { Effect } from 'effect'
 
-import type { TartModel } from '../Api/ModelDescriptor'
 import type { TartTool } from '../Api/ToolDefinition'
 import type { HookConfig } from '../HookRunner/Types'
-import type { SubagentDefinition } from './SubagentDefinition'
+import type { SubagentDefinition, SubagentModelBinding } from './SubagentDefinition'
 import { subagentRosterOf } from './SubagentTool'
 
 /** One registered subagent type, resolved for runtime use. */
@@ -26,7 +25,8 @@ export type RegisteredAgentType = {
 	 * when it provisions this type's runtime; the roster and skill source are derivable from here.
 	 */
 	readonly tools: ReadonlyArray<TartTool>
-	readonly model: TartModel
+	/** Concrete model or profile role name; the Subagents engine resolves roles per dispatch/resume. */
+	readonly model: SubagentModelBinding
 	readonly hooks: HookConfig
 }
 

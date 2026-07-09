@@ -12,6 +12,10 @@
  * Depth is a roster choice, never an engine setting (D21): `bash` and `researcher` hold no
  * `subagentTool` value, so they cannot delegate at all; `general-purpose` holds one that includes
  * ITSELF, so general-purpose work can recurse.
+ *
+ * Models bind by profile ROLE name (profiles slice): `general-purpose` on `smart`, `researcher` and
+ * `bash` on `fast`. Launch passes the config-resolved role models as the session's profiles map, so
+ * the whole roster follows one `TartSession.setProfile` swap with no roster rebuild.
  */
 import {
 	defineSubagent,
@@ -36,10 +40,9 @@ export type ModeModels = {
 	readonly orchestrator: TartModel
 }
 
-/** Inputs for building a subagent roster against one working directory and model binding. */
+/** Inputs for building a subagent roster against one working directory. */
 export type SubagentRosterOptions = {
 	readonly cwd: string
-	readonly models: ModeModels
 }
 
 /** Leading prompt for the `bash` subagent. */
@@ -104,9 +107,10 @@ export const GENERAL_PURPOSE_SUBAGENT_PROMPT: string =
 
 /**
  * Build the default roster for a working directory. The skill source is one shared value across the
- * types that get skills, so the session scans the skills directory exactly once (D20).
+ * types that get skills, so the session scans the skills directory exactly once (D20). Every type
+ * binds its model by profile role, resolved through the session's profiles map at each dispatch.
  */
-export const defaultSubagents = ({ cwd, models }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
+export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
 	const coding = codingTools({ cwd })
 	const skills = skillTool(skillsFromDisk({ cwd }))
 
@@ -117,7 +121,7 @@ export const defaultSubagents = ({ cwd, models }: SubagentRosterOptions): Readon
 			'the output that matters. Use it to execute something without spending your own context on raw output.',
 		systemPrompt: BASH_SUBAGENT_PROMPT,
 		tools: [bashTool({ cwd })],
-		model: models.fast,
+		model: 'fast',
 	})
 
 	const researcher = defineSubagent({
@@ -127,7 +131,7 @@ export const defaultSubagents = ({ cwd, models }: SubagentRosterOptions): Readon
 			'Use it for "where is X" and "how does Y work" questions that would otherwise require reading many files.',
 		systemPrompt: RESEARCHER_SUBAGENT_PROMPT,
 		tools: [...coding, skills],
-		model: models.fast,
+		model: 'fast',
 	})
 
 	// general-purpose dispatches ITSELF, so its roster cannot exist before the definition does. The tools
@@ -143,7 +147,7 @@ export const defaultSubagents = ({ cwd, models }: SubagentRosterOptions): Readon
 			'done without spending your own context on the intermediate steps.',
 		systemPrompt: GENERAL_PURPOSE_SUBAGENT_PROMPT,
 		tools: generalPurposeTools,
-		model: models.smart,
+		model: 'smart',
 	})
 	generalPurposeTools.push(subagentTool([generalPurpose, bash, researcher]))
 

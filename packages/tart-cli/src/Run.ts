@@ -1,5 +1,6 @@
 import {
 	launchSession,
+	modeForName,
 	resumeLatestSession,
 	resumeSessionById,
 	sessionLogPathFor,
@@ -8,9 +9,17 @@ import {
 	type ModelSelection,
 	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
+	type TartModeName,
 } from '@humanlayer/tart-agent'
 import { makeCodexAuthStore } from '@humanlayer/tart-codex'
-import type { ActiveModel, AgentFinishedLogEntry, LogEntry, SessionId, TartSession } from '@humanlayer/tart-core'
+import type {
+	ActiveModel,
+	AgentFinishedLogEntry,
+	LogEntry,
+	ModelCatalogEntry,
+	SessionId,
+	TartSession,
+} from '@humanlayer/tart-core'
 import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
 
 import { runInteractive } from './Readline'
@@ -26,9 +35,16 @@ export type ResumeTarget = { readonly _tag: 'latest' } | { readonly _tag: 'id'; 
 export type CliSessionOptions = {
 	readonly cwd: string
 	readonly tartHome?: string
+	/** Selected agent mode. Absent keeps tart-agent's default (the full coding mode). */
+	readonly mode?: TartModeName
 	readonly modelSelection?: ModelSelection
 	readonly resume?: ResumeTarget
 	readonly autoCompact?: AutoCompactConfig
+	/**
+	 * Model catalog entries loaded once per CLI invocation (Commands.ts) and threaded here so the
+	 * launch does not load a second time; the same entries back the renderer's usage table.
+	 */
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
 /** Options for one non-interactive `--prompt` run. */
@@ -50,8 +66,10 @@ type OpenSessionError = LaunchModelError | SessionToResumeNotFoundError | NoSess
 const launchOptions = (options: CliSessionOptions) => ({
 	cwd: options.cwd,
 	...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
+	...(options.mode === undefined ? {} : { mode: modeForName(options.mode) }),
 	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
 	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
+	...(options.catalog === undefined ? {} : { catalog: options.catalog }),
 })
 
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
@@ -105,7 +123,7 @@ const credentialSummary = (model: ActiveModel | null): Effect.Effect<CredentialS
 		return { _tag: 'found', detail: `API key resolved for provider "${model.providerId}"` }
 	})
 
-const sessionHeader = (opened: OpenedSession, cwd: string): Effect.Effect<SessionHeader> =>
+const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effect.Effect<SessionHeader> =>
 	Effect.gen(function* () {
 		const entries = yield* opened.session.entries
 		const model = activeModelFromEntries(entries, opened.session.rootAgentId)
@@ -113,9 +131,10 @@ const sessionHeader = (opened: OpenedSession, cwd: string): Effect.Effect<Sessio
 
 		return {
 			sessionId: opened.session.sessionId,
-			cwd,
+			cwd: options.cwd,
 			logPath: opened.logPath,
 			mode: opened.mode,
+			...(options.mode === undefined || options.mode === 'default' ? {} : { agentMode: options.mode }),
 			model,
 			credential,
 		}
@@ -173,7 +192,7 @@ export const runPrompt = (
 ): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope> =>
 	Effect.gen(function* () {
 		const opened = yield* openSession(options)
-		yield* renderer.renderHeader(yield* sessionHeader(opened, options.cwd))
+		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
 		const finished = yield* withProcessSignals(
 			opened.session,
@@ -198,7 +217,7 @@ export const runReadline = (
 ): Effect.Effect<void, OpenSessionError, Scope.Scope> =>
 	Effect.gen(function* () {
 		const opened = yield* openSession(options)
-		yield* renderer.renderHeader(yield* sessionHeader(opened, options.cwd))
+		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
 		yield* runInteractive(opened.session, renderer)
 		yield* Fiber.interrupt(renderFiber)

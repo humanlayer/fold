@@ -237,6 +237,35 @@ it.effect('launchSession resolves CLI-style model selection overrides through ta
 	}),
 )
 
+it.effect('launchSession wires session profiles end to end: role-bound roster starts and setProfile works', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		const config = yield* parseTartConfig(`{
+			"providers": {
+				"openai": { "kind": "openai-compat", "apiKey": "sk-inline" }
+			},
+			"roles": {
+				"smart": { "provider": "openai", "model": "gpt-smart" },
+				"fast": { "provider": "openai", "model": "gpt-fast" }
+			}
+		}`)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				// The default roster is role-bound ('smart'/'fast'), so the session starting AT ALL proves
+				// launchSession passed a covering profiles map through startSession's validation.
+				const session = yield* launchSession({ config, cwd: workspace, tartHome })
+				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+				expect(started?._tag).toBe('agent_started')
+
+				// The facade's profile rebinding is reachable and typed on the launched session.
+				yield* session.setProfile('fast', alwaysTextModel('rebound'))
+			}),
+		)
+	}),
+)
+
 it.effect('resumeLatestSession fails with NoSessionToResumeError when none exist for the cwd', () =>
 	Effect.gen(function* () {
 		const root = yield* tempDir

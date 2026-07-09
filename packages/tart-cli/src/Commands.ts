@@ -4,13 +4,17 @@ import { join } from 'node:path'
 import {
 	configInit,
 	configPathFor,
+	defaultTartHome,
 	listSessionLogs,
+	loadModelCatalog,
 	loadTartConfig,
+	TART_MODE_NAMES,
 	type AutoCompactConfig,
 	type LaunchModelError,
 	type ModelSelection,
 	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
+	type TartModeName,
 } from '@humanlayer/tart-agent'
 import {
 	makeCodexAuth,
@@ -109,6 +113,11 @@ const commonFlags = {
 	provider: optionalString('provider', 'Provider profile key from config.providers'),
 	model: optionalString('model', 'Provider model id override for the selected role'),
 	role: optionalChoice('role', ['smart', 'fast', 'orchestrator'] as const, 'Config role to resolve'),
+	mode: optionalChoice(
+		'mode',
+		TART_MODE_NAMES,
+		'Agent mode: default (full coding toolset) or rlm (orchestrator that delegates to subagents)',
+	),
 	reasoning: optionalChoice(
 		'reasoning',
 		['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const,
@@ -137,12 +146,14 @@ const commonFlags = {
 	compactionPrompt: optionalString('compaction-prompt', 'Override the compaction summarization prompt'),
 }
 
-type CommonFlagValues = {
+/** Decoded values of {@link commonFlags}, the root `tart` command's flag set. */
+export type CommonFlagValues = {
 	readonly prompt: Option.Option<string>
 	readonly resume: Option.Option<string>
 	readonly provider: Option.Option<string>
 	readonly model: Option.Option<string>
 	readonly role: Option.Option<'smart' | 'fast' | 'orchestrator'>
+	readonly mode: Option.Option<TartModeName>
 	readonly reasoning: Option.Option<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>
 	readonly cwd: Option.Option<string>
 	readonly tartHome: Option.Option<string>
@@ -242,17 +253,22 @@ const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | unde
 		: undefined
 }
 
-const sessionOptionsFromFlags = (input: CommonFlagValues): Effect.Effect<CliSessionOptions, InvalidSessionIdError> =>
+/** Lower the root command's flags into the session options `runPrompt`/`runReadline` consume. */
+export const sessionOptionsFromFlags = (
+	input: CommonFlagValues,
+): Effect.Effect<CliSessionOptions, InvalidSessionIdError> =>
 	Effect.gen(function* () {
 		const rawResume = optionValue(input.resume)
 		const resume = rawResume === undefined ? undefined : yield* parseResumeFlag(rawResume)
 		const tartHome = optionValue(input.tartHome)
+		const mode = optionValue(input.mode)
 		const modelSelection = modelSelectionFromFlags(input)
 		const autoCompact = autoCompactFromFlags(input)
 
 		return {
 			cwd: optionValue(input.cwd) ?? process.cwd(),
 			...(tartHome === undefined ? {} : { tartHome }),
+			...(mode === undefined ? {} : { mode }),
 			...(resume === undefined ? {} : { resume }),
 			...(modelSelection === undefined ? {} : { modelSelection }),
 			...(autoCompact === undefined ? {} : { autoCompact }),
@@ -262,8 +278,15 @@ const sessionOptionsFromFlags = (input: CommonFlagValues): Effect.Effect<CliSess
 const run = Command.make('tart', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const sessionOptions = yield* sessionOptionsFromFlags(input)
-			const renderer = makeOutputRenderer({ colors: !input.noColor, verbose: input.verbose })
+			const flagOptions = yield* sessionOptionsFromFlags(input)
+			// One catalog load per invocation (never fails - degrades to cache/baked data): the launch
+			// consumes it for validation + compaction windows, the renderer for Cost/Context columns.
+			const catalog = yield* loadModelCatalog({
+				tartHome: flagOptions.tartHome ?? defaultTartHome(),
+				env: (name) => process.env[name],
+			})
+			const sessionOptions = { ...flagOptions, catalog }
+			const renderer = makeOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
 			const prompt = optionValue(input.prompt)
 
 			if (prompt === undefined) {

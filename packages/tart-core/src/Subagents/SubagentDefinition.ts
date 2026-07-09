@@ -9,6 +9,16 @@
 import type { TartModel } from '../Api/ModelDescriptor'
 import type { TartTool } from '../Api/ToolDefinition'
 import type { HookConfig } from '../HookRunner/Types'
+import type { ProfileRole } from '../Session/Profiles'
+
+/**
+ * How a subagent type's model is configured: a concrete model descriptor, or a profile role name
+ * resolved through the session's profiles map at every dispatch/resume (profiles slice). Role-bound
+ * types follow `TartSession.setProfile` swaps on their very next run; `startSession`/`resumeSession`
+ * must receive a `profiles` map covering every role the roster names (`orchestrator` falls back to
+ * `smart`, D25).
+ */
+export type SubagentModelBinding = TartModel | ProfileRole
 
 /** Configuration for one subagent type, as plain data. Built with {@link defineSubagent}. */
 export type SubagentDefinition = {
@@ -31,9 +41,11 @@ export type SubagentDefinition = {
 	readonly hooks?: HookConfig
 	/**
 	 * The model this type runs on - explicit configuration, never chosen by the dispatching model and
-	 * never inherited (ruled 2026-07-07). Profile names arrive with the profiles slice.
+	 * never inherited (ruled 2026-07-07). Either a concrete model descriptor, or a profile role name
+	 * (`'smart' | 'fast' | 'orchestrator'`) resolved through the session's profiles map at each
+	 * dispatch/resume, so one `setProfile` swap moves every role-bound type together.
 	 */
-	readonly model: TartModel
+	readonly model: SubagentModelBinding
 }
 
 /** Define one subagent type. Identity today; the single place type-config validation lands later. */

@@ -1,9 +1,12 @@
 import { decodeBashOutputDelta } from '@humanlayer/tart-agent'
 import {
 	defaultContextWindowFor,
+	lookupCatalogEntry,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
 	type LogEntry,
+	type ModelCatalogEntry,
+	type ModelPricing,
 	type SessionId,
 	type UsageEncoded,
 } from '@humanlayer/tart-core'
@@ -30,6 +33,8 @@ export type RendererOptions = {
 	readonly colors?: boolean
 	/** Stream full tool output/progress instead of compact notices. */
 	readonly verbose?: boolean
+	/** Model catalog entries (D15) backing the usage table's Cost and Context columns. */
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
 /** Header values printed when a CLI session is opened. */
@@ -38,6 +43,8 @@ export type SessionHeader = {
 	readonly cwd: string
 	readonly logPath: string
 	readonly mode: 'new' | 'resumed'
+	/** Selected agent mode name; set only when the session runs a non-default mode. */
+	readonly agentMode?: string
 	readonly model: ActiveModel | null
 	readonly credential: CredentialSummary
 }
@@ -127,16 +134,56 @@ const outputTotal = (usage: UsageEncoded): number => usage.outputTokens.total ??
 
 const formatMaybeInt = (value: number | undefined): string => (value === undefined ? '--' : formatInt(value))
 
-const contextText = (usage: UsageEncoded, model: ActiveModel | null): string => {
+/**
+ * Cost in USD of one response's reported usage at the given per-million-token rates, or null when
+ * pricing is unknown (the table renders `--`). Providers fold cache reads/writes into
+ * `inputTokens.total` (D11), so the freshly-billed input component is total minus both cache parts,
+ * clamped at zero; unreported cache fields count as zero. Cache tokens reported without a matching
+ * cache rate bill at the plain input rate - closer to the truth than billing them as free.
+ */
+export const responseCostUsd = (usage: UsageEncoded, pricing: ModelPricing | null): number | null => {
+	if (pricing === null) return null
+
+	const cacheReadTokens = usage.inputTokens.cacheRead ?? 0
+	const cacheWriteTokens = usage.inputTokens.cacheWrite ?? 0
+	const totalInputTokens =
+		usage.inputTokens.total ?? (usage.inputTokens.uncached ?? 0) + cacheReadTokens + cacheWriteTokens
+	const uncachedTokens = Math.max(0, totalInputTokens - cacheReadTokens - cacheWriteTokens)
+	const outputTokens = outputTotal(usage)
+
+	const cacheReadRate = pricing.cacheReadPerMTokens ?? pricing.inputPerMTokens
+	const cacheWriteRate = pricing.cacheWritePerMTokens ?? pricing.inputPerMTokens
+
+	return (
+		(uncachedTokens * pricing.inputPerMTokens +
+			cacheReadTokens * cacheReadRate +
+			cacheWriteTokens * cacheWriteRate +
+			outputTokens * pricing.outputPerMTokens) /
+		1_000_000
+	)
+}
+
+const costText = (usage: UsageEncoded, entry: ModelCatalogEntry | null): string => {
+	const cost = responseCostUsd(usage, entry?.pricing ?? null)
+	return cost === null ? '--' : `$${cost.toFixed(4)}`
+}
+
+const contextText = (usage: UsageEncoded, model: ActiveModel | null, entry: ModelCatalogEntry | null): string => {
 	const used = inputTotal(usage) + outputTotal(usage)
 	if (model === null) return formatInt(used)
 
-	const limit = defaultContextWindowFor(model.modelId)
+	const limit = entry?.contextWindow ?? defaultContextWindowFor(model.modelId)
 	const percent = Math.round((used / limit) * 100)
 	return `${formatInt(used)}/${formatInt(limit)} (${percent}%)`
 }
 
-const usageTable = (ansi: AnsiPalette, usage: UsageEncoded, model: ActiveModel | null): string => {
+const usageTable = (
+	ansi: AnsiPalette,
+	usage: UsageEncoded,
+	model: ActiveModel | null,
+	catalog: ReadonlyArray<ModelCatalogEntry>,
+): string => {
+	const entry = model === null ? null : lookupCatalogEntry(catalog, model)
 	const displayModel = shortModelId(model?.modelId ?? 'unknown')
 	const modelWidth = Math.max(5, displayModel.length) + 2
 	const header =
@@ -145,7 +192,8 @@ const usageTable = (ansi: AnsiPalette, usage: UsageEncoded, model: ActiveModel |
 	const row =
 		`  ${displayModel.padEnd(modelWidth)} ${formatInt(inputUncached(usage)).padStart(8)} ` +
 		`${formatMaybeInt(cacheRead(usage)).padStart(8)} ${formatMaybeInt(cacheWrite(usage)).padStart(8)} ` +
-		`${formatInt(outputTotal(usage)).padStart(8)} ${'--'.padStart(8)} ${contextText(usage, model).padStart(20)}`
+		`${formatInt(outputTotal(usage)).padStart(8)} ${costText(usage, entry).padStart(8)} ` +
+		`${contextText(usage, model, entry).padStart(20)}`
 
 	return `${ansi.dim(header)}\n${row}`
 }
@@ -156,7 +204,8 @@ const resumeCommand = (sessionId: SessionId, model: ActiveModel | null): string 
 		flags.push(`--provider ${shellQuote(model.providerId)}`)
 		flags.push(`--model ${shellQuote(model.modelId)}`)
 		if (model.role !== null && model.role !== 'inherit') flags.push(`--role ${shellQuote(model.role)}`)
-		if (model.requestedReasoningLevel !== 'off') flags.push(`--reasoning ${shellQuote(model.requestedReasoningLevel)}`)
+		if (model.requestedReasoningLevel !== 'off')
+			flags.push(`--reasoning ${shellQuote(model.requestedReasoningLevel)}`)
 	}
 
 	return `tart ${flags.join(' ')}`
@@ -181,6 +230,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const stderr = options?.stderr ?? defaultStderr
 	const ansi = makeAnsiPalette(options?.colors ?? true)
 	const verbose = options?.verbose ?? false
+	const catalog = options?.catalog ?? []
 	const agentsWithText = new Set<string>()
 	const assistantLabelOpen = new Set<string>()
 	const streamedAssistantText = new Set<string>()
@@ -241,8 +291,9 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			case 'agent_started':
 				agentModels.set(entry.agentId, entry.model)
 				if (entry.parentAgentId === null) rootAgentId = entry.agentId
+				// The id is the /steer//send target, so it is printed on every start line.
 				return renderLine(
-					`${label(ansi, entry.parentAgentId === null ? 'agent' : 'subagent')} ${modelName(entry)}`,
+					`${label(ansi, entry.parentAgentId === null ? 'agent' : 'subagent')} ${entry.agentId} ${modelName(entry)}`,
 				)
 
 			case 'user-message': {
@@ -357,7 +408,11 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 					? Effect.void
 					: writeStdout(`${ansi.dim('resume')} ${resumeCommand(currentSessionId, resumeModel)}\n\n`),
 			),
-			Effect.andThen(usage === undefined ? Effect.void : writeStdout(`${usageTable(ansi, usage.usage, usage.model)}\n\n`)),
+			Effect.andThen(
+				usage === undefined
+					? Effect.void
+					: writeStdout(`${usageTable(ansi, usage.usage, usage.model, catalog)}\n\n`),
+			),
 		)
 	}
 
@@ -370,6 +425,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 				Effect.andThen(
 					writeStdout(
 						`${ansi.bold('tart')} ${header.mode === 'new' ? ansi.green('new session') : ansi.cyan('resumed session')} ${header.sessionId}\n` +
+							(header.agentMode === undefined ? '' : `${ansi.dim('mode')} ${header.agentMode}\n`) +
 							`${ansi.dim('model')} ${header.model === null ? ansi.yellow('unknown') : activeModelName(header.model)}\n` +
 							`${ansi.dim('credential')} ${credentialText(ansi, header.credential)}\n` +
 							`${ansi.dim('cwd')} ${header.cwd}\n` +
@@ -384,7 +440,9 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 				? Effect.void
 				: newlineIfOpen().pipe(
 						Effect.andThen(
-							writeStdout(`\n${ansi.dim('resume')} ${resumeCommand(currentSessionId, currentResumeModel())}\n\n`),
+							writeStdout(
+								`\n${ansi.dim('resume')} ${resumeCommand(currentSessionId, currentResumeModel())}\n\n`,
+							),
 						),
 					),
 		),

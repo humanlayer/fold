@@ -28,6 +28,7 @@ import {
 	type ErrorLogEntry,
 	type EventLogService,
 	type LogEntry,
+	type ModelCatalogEntry,
 	type UserMessageLogEntry,
 } from '../../src/index'
 import { failureTurn, textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -380,6 +381,85 @@ it.effect('overflow recovery runs once per run: a second overflow becomes the du
 		expect(errors[0]?.errorType).toBe('model')
 		expect(errors[0]?.message).toContain('context_length_exceeded again')
 
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped),
+)
+
+/** A catalog row for the scripted model; only the context window matters to compaction. */
+const scriptedCatalogEntry = (contextWindow: number): ModelCatalogEntry => ({
+	providerId: 'scripted-openai',
+	modelId: 'gpt-scripted',
+	name: null,
+	contextWindow,
+	maxInputTokens: null,
+	maxOutputTokens: 32_000,
+	reasoning: false,
+	reasoningEfforts: null,
+	vision: false,
+	toolCall: true,
+	pricing: null,
+})
+
+it.effect('a session-provided catalog supplies the compaction context window (no explicit override)', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			// Send 1 reports usage over the CATALOG window's usable budget - send 2 opens by compacting.
+			textTurn(`noted. ${'c'.repeat(120)}`, hugeUsage),
+			textTurn('## Goal\n- catalog-window summary'),
+			textTurn('post-catalog-compaction answer'),
+		])
+
+		const session = yield* startSession({
+			agent: defineAgent({
+				model,
+				// No autoCompact.contextWindow: the window must come from the session catalog (10k ->
+				// usable 6250, and hugeUsage reports 7005).
+				autoCompact: { enabled: true, keepRecentTokens: 10 },
+			}),
+			catalog: [scriptedCatalogEntry(10_000)],
+		})
+
+		yield* session.send('catalog topic one anchor')
+		const finished = yield* session.send('catalog topic two')
+		const entries = yield* session.entries
+
+		expect(finished.outcome).toBe('completed')
+		expect(finished.resultText).toBe('post-catalog-compaction answer')
+		expect(compactionEntries(entries)).toHaveLength(1)
+
+		// The compacted request proves the catalog window drove a real cut.
+		const secondSend = JSON.stringify((yield* scripted.requests)[2]?.prompt)
+		expect(secondSend).toContain('catalog-window summary')
+		expect(secondSend).not.toContain('catalog topic one anchor')
+
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped),
+)
+
+it.effect('an explicit autoCompact.contextWindow beats the catalog entry', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			textTurn(`noted. ${'e'.repeat(120)}`, hugeUsage),
+			textTurn('## Goal\n- override summary'),
+			textTurn('override answer'),
+		])
+
+		const session = yield* startSession({
+			agent: defineAgent({
+				model,
+				// The explicit 10k window compacts on 7005 reported tokens; the catalog's 1M window
+				// would not (usable ~951k) - so a compaction proves the override won.
+				autoCompact: { enabled: true, contextWindow: 10_000, keepRecentTokens: 10 },
+			}),
+			catalog: [scriptedCatalogEntry(1_000_000)],
+		})
+
+		yield* session.send('override topic one')
+		const finished = yield* session.send('override topic two')
+		const entries = yield* session.entries
+
+		expect(finished.outcome).toBe('completed')
+		expect(compactionEntries(entries)).toHaveLength(1)
 		expect(yield* scripted.remainingTurns).toBe(0)
 	}).pipe(Effect.scoped),
 )

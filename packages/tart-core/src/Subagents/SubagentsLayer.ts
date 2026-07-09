@@ -8,7 +8,11 @@
  * uninterruptible exit finalizers that keep the log honest (interrupt/error markers + the
  * InterruptNote naming the subagent id and turn count), skill preload through the dispatcher's own
  * skillTool source, and resume - including the D17 model transition when the configured binding
- * changed since the subagent last ran.
+ * changed since the subagent last ran. Registry entries may bind their model by profile role name
+ * (profiles slice): the engine resolves role bindings through the session's Profiles map at every
+ * consumption point - dispatch, and the origin snapshot feeding fork/resume/continue - so a
+ * `setProfile` swap binds on the very next run and the existing transition diff sees only concrete
+ * models.
  */
 import { Cause, Effect, Exit, Fiber, Ref, Schema, Stream } from 'effect'
 import type { Array as Arr } from 'effect'
@@ -31,6 +35,7 @@ import type {
 import type { HookConfig } from '../HookRunner/Types'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
 import { runtimeForAgent } from '../Projection/Projection'
+import { Profiles } from '../Session/Profiles'
 import { SessionControls } from '../Session/SessionControls'
 import { SkillNotFoundError, type SkillSourceService } from '../Skills/SkillSource'
 import { renderSkillContent } from '../Skills/SkillTool'
@@ -44,6 +49,7 @@ import {
 import type { AgentRegistry, RegisteredAgentType } from './AgentRegistry'
 import { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { SubagentResult, TurnCount } from './Schemas'
+import type { SubagentModelBinding } from './SubagentDefinition'
 import type {
 	ContinueSubagentInput,
 	DispatchSubagentInput,
@@ -187,7 +193,7 @@ const activeModelsDiffer = (left: unknown, right: unknown): boolean => JSON.stri
  */
 export const makeSubagents = (
 	config: SubagentsConfig,
-): Effect.Effect<SubagentsService, never, EventLog | Ids | AgentProvisioner | SessionControls> =>
+): Effect.Effect<SubagentsService, never, EventLog | Ids | AgentProvisioner | SessionControls | Profiles> =>
 	Effect.gen(function* () {
 		const eventLog = yield* EventLog
 		const ids = yield* Ids
@@ -195,6 +201,13 @@ export const makeSubagents = (
 		// The session-wide running registry (slice 2): claiming here is what makes a dispatched subagent
 		// visible to external steer/targeted-interrupt, and what the Busy guard reads.
 		const controls = yield* SessionControls
+		// The session-wide role->model bindings (profiles slice): role-bound registry entries resolve
+		// here at each dispatch/resume, so a setProfile swap binds on the very next run.
+		const profiles = yield* Profiles
+
+		/** Resolve one registry entry's model binding: a role name reads the current profiles map. */
+		const resolveModelBinding = (binding: SubagentModelBinding): Effect.Effect<TartModel> =>
+			typeof binding === 'string' ? profiles.resolve(binding) : Effect.succeed(binding)
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)
@@ -239,7 +252,11 @@ export const makeSubagents = (
 			return null
 		}
 
-		/** The (model, tools, hooks, prompt) snapshot behind one originating configuration. */
+		/**
+		 * The (model, tools, hooks, prompt) snapshot behind one originating configuration. Entry origins
+		 * resolve their model binding against the CURRENT profiles map, so fork/resume/continue of a
+		 * role-bound type all see the live binding (a fork clones the caller's binding by definition).
+		 */
 		const agentSnapshotForOrigin = (
 			origin: OriginatingConfig,
 		): Effect.Effect<{
@@ -250,12 +267,14 @@ export const makeSubagents = (
 		}> =>
 			origin._tag === 'root'
 				? config.currentRootAgent
-				: Effect.succeed({
-						model: origin.entry.model,
-						tools: origin.entry.tools,
-						hooks: origin.entry.hooks,
-						systemPrompt: origin.entry.systemPrompt,
-					})
+				: resolveModelBinding(origin.entry.model).pipe(
+						Effect.map((model) => ({
+							model,
+							tools: origin.entry.tools,
+							hooks: origin.entry.hooks,
+							systemPrompt: origin.entry.systemPrompt,
+						})),
+					)
 
 		/** Every ancestor of an agent (parent chain from agent_started rows), for the resume self-guard. */
 		const ancestorAgentIds = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): ReadonlySet<AgentId> => {
@@ -668,7 +687,8 @@ export const makeSubagents = (
 						toolCallId: currentCall.toolCallId,
 						mode: 'fresh',
 						fork: null,
-						model: entry.model,
+						// Role bindings resolve at dispatch time: a setProfile swap binds the NEXT dispatch.
+						model: yield* resolveModelBinding(entry.model),
 						tools: realized.tools,
 						hooks: entry.hooks,
 						systemPrompt: leadingBlocksFor(entry.systemPrompt, realized),

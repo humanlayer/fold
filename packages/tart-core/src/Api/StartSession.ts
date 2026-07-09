@@ -38,9 +38,18 @@ import { layerInMemoryEventLog } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import type { AgentFinishedLogEntry, LogEntry, LogSeq } from '../EventLog/Schemas'
 import { layerLiveIdFactory, type AgentId, type SessionId } from '../Ids'
+import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
 import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { runtimeForAgent } from '../Projection/Projection'
 import type { AgentNotRunningError } from '../Session/Errors'
+import {
+	makeProfiles,
+	profileModelFor,
+	Profiles,
+	type ProfileRole,
+	type ProfilesService,
+	type SessionProfiles,
+} from '../Session/Profiles'
 import {
 	makeSessionControls,
 	SessionControls,
@@ -78,6 +87,18 @@ export type StartSessionOptions = {
 	readonly sessionId?: SessionId
 	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
+	/**
+	 * Initial role->model bindings for role-bound subagent types (profiles slice). Must cover every
+	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
+	 * binds a concrete model. Rebind mid-session with {@link TartSession.setProfile}.
+	 */
+	readonly profiles?: SessionProfiles
+	/**
+	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
+	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
+	 * empty catalog - every consumer falls back to its interim defaults.
+	 */
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
 /** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
@@ -87,6 +108,18 @@ export type ResumeSessionOptions = {
 	readonly log: TartEventLog
 	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
+	/**
+	 * Initial role->model bindings for role-bound subagent types (profiles slice). Must cover every
+	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
+	 * binds a concrete model. Rebind mid-session with {@link TartSession.setProfile}.
+	 */
+	readonly profiles?: SessionProfiles
+	/**
+	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
+	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
+	 * empty catalog - every consumer falls back to its interim defaults.
+	 */
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
 /** Options for {@link TartSession.switchModel}. Omitted fields keep the session's current configuration. */
@@ -151,6 +184,16 @@ export type TartSession = {
 	 * subsequent send. The same log continues across the switch.
 	 */
 	readonly switchModel: (model: TartModel, options?: SwitchModelOptions) => Effect.Effect<void>
+	/**
+	 * Rebind one profile role to a different model (profiles slice). Role-bound subagent types resolve
+	 * their binding at each dispatch/resume, so the swap applies from the very next run. No gating or
+	 * serialization is involved: a dispatch racing a setProfile coherently gets either the old or the
+	 * new binding, and running subagents finish on the model they started with - switches happen
+	 * between runs. A later resume of a subagent that last ran pre-swap records the durable
+	 * `model-change` transition. The ROOT agent's model is never profile-bound; switch it with
+	 * {@link switchModel}.
+	 */
+	readonly setProfile: (role: ProfileRole, model: TartModel) => Effect.Effect<void>
 	/** Merged stream of durable log rows and ephemeral streaming deltas. */
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<TartEvent>
 	/** Snapshot of all durable log entries appended so far. */
@@ -180,6 +223,7 @@ type SessionGraph = {
 	readonly controls: SessionControlsService
 	readonly systemPromptService: SystemPromptService
 	readonly subagentsEngine: SubagentsService
+	readonly profiles: ProfilesService
 	readonly configRef: Ref.Ref<SessionAgentConfig>
 	readonly registryHasType: (name: string) => boolean
 	readonly ensureToolContributions: (tools: ReadonlyArray<TartTool>) => Effect.Effect<void>
@@ -206,6 +250,8 @@ const assembleSessionGraph = (options: {
 	readonly agent: AgentDefinition
 	readonly log?: TartEventLog
 	readonly steering?: SteeringMode
+	readonly profiles?: SessionProfiles
+	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }): Effect.Effect<SessionGraph, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const agent = options.agent
@@ -216,6 +262,24 @@ const assembleSessionGraph = (options: {
 		// (recursively, through THEIR tools), flattening into the session's one flat registry (§1a).
 		const subagentDefinitions = yield* collectSubagentDefinitions(rootTools)
 		const registry = agentRegistryFromDefinitions(subagentDefinitions)
+
+		// Profiles slice: every role-bound registry entry must resolve against the INITIAL bindings
+		// (`orchestrator` -> `smart` fallback counts, D25), so an uncovered role is a configuration
+		// defect at session start, never a dispatch-time surprise. Rosters binding only concrete
+		// models need no profiles at all.
+		const initialProfiles = options.profiles ?? {}
+		for (const entry of registry.entries) {
+			if (typeof entry.model !== 'string') continue
+			if (profileModelFor(initialProfiles, entry.model) !== undefined) continue
+			const needed =
+				entry.model === 'orchestrator' ? 'profiles.orchestrator (or profiles.smart)' : `profiles.${entry.model}`
+			return yield* Effect.die(
+				new Error(
+					`subagent type "${entry.name}" binds model role "${entry.model}", but the session has no ` +
+						`covering binding: pass ${needed} to startSession/resumeSession`,
+				),
+			)
+		}
 
 		// Per-agent tool-name validation - deliberately no session-global name map, so distinct
 		// skillTool/subagentTool values never collide on their shared names across agents.
@@ -316,11 +380,17 @@ const assembleSessionGraph = (options: {
 			// no-op default otherwise. Every provisioned runtime - root and subagent - shares this one
 			// policy while checking against its own projection and summarizing with its own model.
 			Layer.succeed(Compaction, compactionServiceFor(agent.autoCompact)),
+			// Session-wide model catalog (D15): compaction resolves context windows through it. Omitted
+			// entries build the empty catalog, which behaves exactly like the Reference default.
+			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
 			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
 			Layer.effect(
 				SessionControls,
 				makeSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
 			),
+			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
+			// setProfile and the Subagents engine's per-dispatch/resume resolution.
+			Layer.effect(Profiles, makeProfiles(initialProfiles)),
 		)
 		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
 		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
@@ -385,6 +455,7 @@ const assembleSessionGraph = (options: {
 			controls: Context.get(sessionServices, SessionControls),
 			systemPromptService: Context.get(sessionServices, SystemPrompt),
 			subagentsEngine,
+			profiles: Context.get(sessionServices, Profiles),
 			configRef,
 			registryHasType: (name: string) => registry.resolveAgentType(name) !== null,
 			ensureToolContributions,
@@ -397,7 +468,7 @@ const assembleSessionGraph = (options: {
 
 /** Build the public handle over one assembled, started-or-adopted session. */
 const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartSession => {
-	const { session, eventLog, controls, subagentsEngine, configRef } = graph
+	const { session, eventLog, controls, subagentsEngine, configRef, profiles } = graph
 	const rootAgentId = identity.rootAgentId
 
 	const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
@@ -583,6 +654,10 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 			}),
 		)
 
+	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
+	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.
+	const setProfile = (role: ProfileRole, model: TartModel): Effect.Effect<void> => profiles.set(role, model)
+
 	return {
 		sessionId: identity.sessionId,
 		rootAgentId,
@@ -591,6 +666,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		stop,
 		interrupt,
 		switchModel,
+		setProfile,
 		events: (fromSeq?: LogSeq) => session.events(fromSeq),
 		entries: collectEntries,
 	}

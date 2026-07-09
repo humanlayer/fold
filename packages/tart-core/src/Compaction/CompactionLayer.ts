@@ -10,6 +10,7 @@
 import { Effect, Stream } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 
+import { ModelCatalog } from '../Model/ModelCatalog'
 import { entriesForAgent, messagesForAgent, type ProjectedMessage } from '../Projection/Projection'
 import {
 	compactionUsableTokens,
@@ -71,18 +72,34 @@ const conversationOf = (
 export const makeCompactionService = (config: EnabledAutoCompactConfig): CompactionService => {
 	const reserveTokens = config.reserveTokens ?? defaultReserveTokens
 
-	const contextWindowFor = (input: CompactionCheckInput): number =>
-		config.contextWindow ?? defaultContextWindowFor(input.model?.modelId ?? null)
-	const thresholdFor = (input: CompactionCheckInput): number =>
-		config.thresholdTokens ?? compactionUsableTokens({ contextWindow: contextWindowFor(input), reserveTokens })
+	/**
+	 * Resolve the agent's context window: an explicit `autoCompact.contextWindow` always wins, then
+	 * the session's ModelCatalog entry for the active model, then the interim pattern table (D15).
+	 * The Reference default is the empty catalog, so this adds nothing to the effect requirements.
+	 */
+	const contextWindowFor = (input: CompactionCheckInput): Effect.Effect<number> =>
+		Effect.gen(function* () {
+			if (config.contextWindow !== undefined) return config.contextWindow
+
+			const entry = input.model === null ? null : yield* (yield* ModelCatalog).lookup(input.model)
+
+			return entry?.contextWindow ?? defaultContextWindowFor(input.model?.modelId ?? null)
+		})
+
+	const thresholdFor = (input: CompactionCheckInput): Effect.Effect<number> =>
+		config.thresholdTokens !== undefined
+			? Effect.succeed(config.thresholdTokens)
+			: contextWindowFor(input).pipe(
+					Effect.map((contextWindow) => compactionUsableTokens({ contextWindow, reserveTokens })),
+				)
 
 	const shouldCompact = Effect.fn('tart.compaction.should_compact')((input: CompactionCheckInput) =>
-		Effect.sync(() => {
+		Effect.gen(function* () {
 			const visible = entriesForAgent(input.entries, input.agentId)
 			const tokens = latestReportedContextTokens(visible)
 			if (tokens === null) return false
 
-			return tokens >= thresholdFor(input)
+			return tokens >= (yield* thresholdFor(input))
 		}),
 	)
 
@@ -94,7 +111,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 
 			// Clamp the kept tail to a fraction of the usable budget so a compaction always frees
 			// meaningful space, even under tiny configured windows.
-			const usable = thresholdFor(input)
+			const usable = yield* thresholdFor(input)
 			const keepRecentTokens = Math.min(
 				config.keepRecentTokens ?? defaultKeepRecentTokens,
 				Math.max(1, Math.floor(usable / 4)),
