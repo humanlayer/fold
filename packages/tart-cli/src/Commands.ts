@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 
 import {
@@ -37,6 +38,38 @@ export class InvalidSessionIdError extends Schema.TaggedErrorClass<InvalidSessio
 	value: Schema.String,
 }) {}
 
+/** Codex login flow selected by the user; `auto` chooses from terminal/CI context. */
+export type CodexLoginFlowChoice = 'auto' | 'browser' | 'device'
+
+/** Concrete Codex login flow to execute. */
+export type ResolvedCodexLoginFlow = 'browser' | 'device'
+
+/** Inputs for resolving Codex auth flow flags without touching process globals. */
+export type CodexLoginFlowInput = {
+	readonly flow: CodexLoginFlowChoice | undefined
+	readonly device: boolean
+	readonly browser: boolean
+	readonly stdinIsTTY: boolean
+	readonly stdoutIsTTY: boolean
+	readonly isCi: boolean
+}
+
+/** Resolve `--flow` plus legacy `--browser`/`--device` flags into the flow the CLI should run. */
+export const resolveCodexLoginFlow = (input: CodexLoginFlowInput): ResolvedCodexLoginFlow => {
+	if (input.flow === 'browser' || input.flow === 'device') return input.flow
+	if (input.flow === undefined && input.browser) return 'browser'
+	if (input.flow === undefined && input.device) return 'device'
+
+	return input.stdinIsTTY && input.stdoutIsTTY && !input.isCi ? 'browser' : 'device'
+}
+
+/** Whether browser auth should attempt to open the authorization URL automatically. */
+export const shouldOpenBrowserForCodexLogin = (input: {
+	readonly flow: ResolvedCodexLoginFlow
+	readonly noOpen: boolean
+	readonly stdoutIsTTY: boolean
+}): boolean => input.flow === 'browser' && !input.noOpen && input.stdoutIsTTY
+
 /**
  * Parse a `--resume` value: the `latest` sentinel, or an exact `sess_*` id from the current project.
  * Anything else is a typo, and failing beats silently starting a fresh session (opencode's silent
@@ -63,6 +96,12 @@ const optionalChoice = <const Choices extends ReadonlyArray<string>>(
 
 const optionalInteger = (name: string, description: string) =>
 	Flag.integer(name).pipe(Flag.withDescription(description), Flag.optional)
+
+const codexLoginFlow = optionalChoice(
+	'flow',
+	['auto', 'browser', 'device'] as const,
+	'Codex login flow (auto selects browser for interactive terminals, device for CI/headless)',
+)
 
 const commonFlags = {
 	prompt: optionalString('prompt', 'Run one non-interactive prompt, then exit'),
@@ -131,6 +170,31 @@ const codexAuthStoreOptions = (
 	const path = authStorePath(tartHome)
 	return { providerId: codexProviderId(provider), ...(path === undefined ? {} : { path }) }
 }
+
+const browserOpenCommand = (url: string): { readonly command: string; readonly args: ReadonlyArray<string> } => {
+	switch (process.platform) {
+		case 'darwin':
+			return { command: 'open', args: [url] }
+		case 'win32':
+			return { command: 'cmd', args: ['/c', 'start', '', url] }
+		default:
+			return { command: 'xdg-open', args: [url] }
+	}
+}
+
+const openUrlInBrowser = (url: string): Effect.Effect<boolean> =>
+	Effect.try({
+		try: () => {
+			const { command, args } = browserOpenCommand(url)
+			const child = spawn(command, args, { stdio: 'ignore', detached: true })
+			child.on('error', () => undefined)
+			child.unref()
+			return true
+		},
+		catch: () => false,
+	}).pipe(Effect.catch((opened) => Effect.succeed(opened)))
+
+const expiryText = (expires: number): string => new Date(expires).toISOString()
 
 const modelSelectionFromFlags = (input: {
 	readonly role: Option.Option<'smart' | 'fast' | 'orchestrator'>
@@ -276,48 +340,116 @@ const auth = Command.make('auth').pipe(
 					{
 						provider: commonFlags.provider,
 						tartHome: commonFlags.tartHome,
-						device: Flag.boolean('device').pipe(Flag.withDescription('Use the headless device-code flow')),
+						flow: codexLoginFlow,
+						device: Flag.boolean('device').pipe(
+							Flag.withDescription('Use the headless device-code flow (legacy alias for --flow device)'),
+						),
 						browser: Flag.boolean('browser').pipe(
-							Flag.withDescription('Use the loopback browser PKCE flow'),
+							Flag.withDescription(
+								'Use the loopback browser PKCE flow (legacy alias for --flow browser)',
+							),
+						),
+						noOpen: Flag.boolean('no-open').pipe(
+							Flag.withDescription('Print the browser authorization URL without opening it'),
+						),
+					},
+					(input) =>
+						Effect.gen(function* () {
+							const tartHome = optionValue(input.tartHome)
+							const selectedFlow = resolveCodexLoginFlow({
+								flow: optionValue(input.flow),
+								device: input.device,
+								browser: input.browser,
+								stdinIsTTY: process.stdin.isTTY === true,
+								stdoutIsTTY: process.stdout.isTTY === true,
+								isCi: process.env.CI !== undefined,
+							})
+							const shouldOpen = shouldOpenBrowserForCodexLogin({
+								flow: selectedFlow,
+								noOpen: input.noOpen,
+								stdoutIsTTY: process.stdout.isTTY === true,
+							})
+							const store = makeCodexAuthStore(codexAuthStoreOptions(input.provider, tartHome))
+							const codexAuth = yield* makeCodexAuth({
+								store,
+								onDeviceCode: (prompt) =>
+									Console.log(
+										`Codex device login\n\nOpen: ${prompt.verifyUrl}\nCode: ${prompt.userCode}\n\nWaiting for approval...`,
+									),
+								onBrowserUrl: (url) =>
+									Effect.gen(function* () {
+										yield* Console.log('Codex browser login')
+										if (shouldOpen) {
+											const opened = yield* openUrlInBrowser(url)
+											yield* Console.log(
+												opened
+													? 'Opened your browser. If it did not appear, copy the URL below.'
+													: 'Could not open your browser automatically; copy the URL below.',
+											)
+										} else {
+											yield* Console.log(
+												'Browser auto-open disabled or unavailable; copy the URL below.',
+											)
+										}
+										yield* Console.log(`\n${url}\n\nWaiting for browser callback on localhost...`)
+									}),
+							}).pipe(Effect.provide(FetchHttpClient.layer))
+							yield* Console.log(
+								`Using Codex ${selectedFlow} authentication for provider "${codexProviderId(input.provider)}"`,
+							)
+							const token = yield* selectedFlow === 'device'
+								? codexAuth.authenticateDevice
+								: codexAuth.authenticateBrowser
+
+							yield* Console.log(
+								`Saved Codex credential${token.accountId === undefined ? '' : ` for account ${token.accountId}`} to ${store.path} (expires ${expiryText(token.expires)})`,
+							)
+						}),
+				).pipe(Command.withDescription('Authenticate Codex and persist the OAuth credential')),
+				Command.make(
+					'status',
+					{
+						provider: commonFlags.provider,
+						tartHome: commonFlags.tartHome,
+						refresh: Flag.boolean('refresh').pipe(
+							Flag.withDescription('Refresh an expired credential and persist the repaired token'),
 						),
 					},
 					(input) =>
 						Effect.gen(function* () {
 							const tartHome = optionValue(input.tartHome)
 							const store = makeCodexAuthStore(codexAuthStoreOptions(input.provider, tartHome))
-							const codexAuth = yield* makeCodexAuth({
-								store,
-								onDeviceCode: (prompt) =>
-									Console.log(`Open ${prompt.verifyUrl} and enter code: ${prompt.userCode}`),
-								onBrowserUrl: (url) => Console.log(`Open this URL to authenticate Codex:\n${url}`),
-							}).pipe(Effect.provide(FetchHttpClient.layer))
-							const token = yield* input.device && !input.browser
-								? codexAuth.authenticateDevice
-								: codexAuth.authenticateBrowser
+							if (input.refresh) {
+								const codexAuth = yield* makeCodexAuth({ store }).pipe(
+									Effect.provide(FetchHttpClient.layer),
+								)
+								const token = yield* codexAuth.get
+								yield* Console.log(
+									`Codex credential valid${token.accountId === undefined ? '' : ` for account ${token.accountId}`} in ${store.path} (expires ${expiryText(token.expires)})`,
+								)
+								return
+							}
 
+							const token = yield* store.load
+							if (Option.isNone(token)) {
+								yield* Console.log(
+									`No Codex credential found in ${store.path}. Run tart auth codex login.`,
+								)
+								return
+							}
+
+							const now = yield* Clock.currentTimeMillis
+							const expiry = token.value.isExpired(now) ? 'expired' : 'valid'
 							yield* Console.log(
-								`Saved Codex credential${token.accountId === undefined ? '' : ` for account ${token.accountId}`} to ${store.path}`,
+								`Codex credential ${expiry}${
+									token.value.accountId === undefined ? '' : ` for account ${token.value.accountId}`
+								} in ${store.path} (expires ${expiryText(token.value.expires)})${
+									token.value.isExpired(now)
+										? '; run tart auth codex status --refresh to refresh now, or tart auth codex login to reauthenticate'
+										: ''
+								}`,
 							)
 						}),
-				).pipe(Command.withDescription('Authenticate Codex and persist the OAuth credential')),
-				Command.make('status', { provider: commonFlags.provider, tartHome: commonFlags.tartHome }, (input) =>
-					Effect.gen(function* () {
-						const tartHome = optionValue(input.tartHome)
-						const store = makeCodexAuthStore(codexAuthStoreOptions(input.provider, tartHome))
-						const token = yield* store.load
-						if (Option.isNone(token)) {
-							yield* Console.log(`No Codex credential found in ${store.path}`)
-							return
-						}
-
-						const now = yield* Clock.currentTimeMillis
-						const expiry = token.value.isExpired(now) ? 'expired' : 'valid'
-						yield* Console.log(
-							`Codex credential ${expiry}${
-								token.value.accountId === undefined ? '' : ` for account ${token.value.accountId}`
-							} in ${store.path}`,
-						)
-					}),
 				).pipe(Command.withDescription('Show the stored Codex credential status')),
 				Command.make('logout', { provider: commonFlags.provider, tartHome: commonFlags.tartHome }, (input) =>
 					Effect.gen(function* () {
