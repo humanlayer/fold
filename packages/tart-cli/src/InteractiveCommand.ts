@@ -1,20 +1,21 @@
 /**
  * This file is the pure parser for the interactive readline loop's input: one line in, one tagged
  * command out. Plain text is a chat message (the loop decides send-vs-steer from run state); slash
- * commands cover help, graceful stop, targeted steer/send by agent id, and exit. Agent ids are
- * validated with the branded `AgentId` guard, so a `steer`/`send` command always carries a
- * well-formed target and typos come back as instructive `invalid` values instead of runtime failures.
+ * commands cover help, graceful stop, targeted steer/send by agent id, and exit. Agent targets are
+ * validated with the reference guard (`isAgentIdRef`): a full id or the short `agent_ab12cd34` form the
+ * renderer displays, so what users see is what they can type - typos come back as instructive
+ * `invalid` values instead of runtime failures, and the session resolves the reference to a full id.
  */
-import { AgentId } from '@humanlayer/tart-core'
+import { isAgentIdRef } from '@humanlayer/tart-core'
 
-/** One parsed line of interactive input. */
+/** One parsed line of interactive input. Steer/send targets are full ids or unique short references. */
 export type InteractiveCommand =
 	| { readonly _tag: 'message'; readonly text: string }
 	| { readonly _tag: 'exit' }
 	| { readonly _tag: 'help' }
 	| { readonly _tag: 'stop'; readonly reason: string | undefined }
-	| { readonly _tag: 'steer'; readonly agentId: AgentId; readonly text: string }
-	| { readonly _tag: 'send'; readonly agentId: AgentId; readonly text: string }
+	| { readonly _tag: 'steer'; readonly agentId: string; readonly text: string }
+	| { readonly _tag: 'send'; readonly agentId: string; readonly text: string }
 	| { readonly _tag: 'invalid'; readonly message: string }
 
 const exitCommands = new Set(['exit', '/exit', 'quit', '/quit'])
@@ -33,7 +34,7 @@ const splitFirstWord = (input: string): { readonly word: string; readonly rest: 
 const parseTargeted = (tag: 'steer' | 'send', input: string, usage: string): InteractiveCommand => {
 	const { word: rawId, rest: text } = splitFirstWord(input)
 	if (rawId.length === 0) return { _tag: 'invalid', message: usage }
-	if (!AgentId.is(rawId)) return { _tag: 'invalid', message: `"${rawId}" is not an agent id (agent_...); ${usage}` }
+	if (!isAgentIdRef(rawId)) return { _tag: 'invalid', message: `"${rawId}" is not an agent id (agent_...); ${usage}` }
 	if (text.length === 0) return { _tag: 'invalid', message: usage }
 
 	return tag === 'steer' ? { _tag: 'steer', agentId: rawId, text } : { _tag: 'send', agentId: rawId, text }

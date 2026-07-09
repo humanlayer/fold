@@ -5,7 +5,13 @@ import { Context, Effect, Layer, Ref, Stream } from 'effect'
 import { AiError } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
-import { decorateCodexClient, defaultCodexHardening, liftLeadingSystemIntoInstructions } from '../src/index'
+import {
+	codexModel,
+	DEFAULT_CODEX_MODEL_ID,
+	decorateCodexClient,
+	defaultCodexHardening,
+	liftLeadingSystemIntoInstructions,
+} from '../src/index'
 import type { CodexRetryOptions } from '../src/index'
 
 type ResponsesPayload = Omit<typeof OpenAiSchema.CreateResponse.Encoded, 'stream'>
@@ -213,4 +219,18 @@ describe('decorateCodexClient', () => {
 			expect(attempts).toHaveLength(2)
 		}).pipe(Effect.scoped),
 	)
+})
+
+describe('codexModel defaults', () => {
+	it('omitting the model binds the default codex model id', () => {
+		const model = codexModel({})
+
+		expect(DEFAULT_CODEX_MODEL_ID).toBe('gpt-5.6-sol')
+		expect(model.activeModel.modelId).toBe(DEFAULT_CODEX_MODEL_ID)
+		expect(model.activeModel.providerKind).toBe('codex')
+	})
+
+	it('an explicit model wins over the default', () => {
+		expect(codexModel({ model: 'gpt-5.5' }).activeModel.modelId).toBe('gpt-5.5')
+	})
 })

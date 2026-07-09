@@ -5,14 +5,16 @@
  * or inline `apiKey` at this provider edge, never earlier); `codex` builds the tart-codex descriptor,
  * which carries no key (it uses `~/.tart/auth.json`).
  *
- * `orchestrator` falls back to `smart` when unbound (D25). Provider cross-references were validated at
- * decode (ConfigSchema), so resolution failures are a missing credential env var, or - when a model
- * catalog is provided - a reasoning level the bound model does not support (D23: per-model reasoning
- * support is data, not code). Both surface as a typed `RoleResolutionError`. The resolved model
- * records the requested role on its `ActiveModel` snapshot for log/cost provenance.
+ * `orchestrator` falls back to `smart` when unbound (D25). A binding without a model fills the provider
+ * kind's default (codex → gpt-5.6-sol, anthropic → claude-opus-4-8); openai-compat has no default and
+ * requires an explicit model. Provider cross-references were validated at decode (ConfigSchema), so
+ * remaining resolution failures are a missing credential env var, a model-less openai-compat binding,
+ * or - when a model catalog is provided - a reasoning level the bound model does not support (D23:
+ * per-model reasoning support is data, not code). All surface as a typed `RoleResolutionError`. The
+ * resolved model records the requested role on its `ActiveModel` snapshot for log/cost provenance.
  */
-import { codexModel } from '@humanlayer/tart-codex'
-import { anthropicModel, lookupCatalogEntry, openaiModel } from '@humanlayer/tart-core'
+import { codexModel, DEFAULT_CODEX_MODEL_ID } from '@humanlayer/tart-codex'
+import { anthropicModel, DEFAULT_ANTHROPIC_MODEL_ID, lookupCatalogEntry, openaiModel } from '@humanlayer/tart-core'
 import type { ActiveModel, ModelCatalogEntry, ReasoningLevel, TartModel } from '@humanlayer/tart-core'
 import { Effect, Redacted, Schema } from 'effect'
 
@@ -92,6 +94,35 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 		)
 	}
 
+	/**
+	 * The model id one binding runs on: explicit configuration, else the provider kind's default.
+	 * openai-compat has no default - the binding must name a model.
+	 */
+	const modelIdFor = (
+		role: ConfigRole,
+		binding: RoleBinding,
+		provider: ProviderConnection,
+	): Effect.Effect<string, RoleResolutionError> => {
+		if (binding.model !== undefined) return Effect.succeed(binding.model)
+
+		switch (provider.kind) {
+			case 'codex':
+				return Effect.succeed(DEFAULT_CODEX_MODEL_ID)
+			case 'anthropic':
+				return Effect.succeed(DEFAULT_ANTHROPIC_MODEL_ID)
+			case 'openai-compat':
+				return Effect.fail(
+					new RoleResolutionError({
+						role,
+						message:
+							`role "${role}" binds openai-compat provider "${binding.provider}" without a model; ` +
+							`models default per provider kind (codex → ${DEFAULT_CODEX_MODEL_ID}, anthropic → ` +
+							`${DEFAULT_ANTHROPIC_MODEL_ID}) but a model is required for openai-compat`,
+					}),
+				)
+		}
+	}
+
 	/** Resolve one role's binding to its provider-specific model descriptor. */
 	const resolveBinding = (role: ConfigRole, binding: RoleBinding): Effect.Effect<TartModel, RoleResolutionError> =>
 		Effect.gen(function* () {
@@ -105,6 +136,7 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 				})
 			}
 
+			const model = yield* modelIdFor(role, binding, provider)
 			const reasoning: ReasoningLevel | undefined = binding.reasoning
 			const reasoningOption = reasoning === undefined ? {} : { reasoning }
 			const baseUrlOption = provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }
@@ -112,14 +144,14 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 			if (provider.kind === 'codex') {
 				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
 				return withRole(
-					codexModel({ model: binding.model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
+					codexModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
 					role,
 				)
 			}
 
 			const apiKey = yield* resolveApiKey(role, providerName, provider)
 			const modelOptions = {
-				model: binding.model,
+				model,
 				apiKey: Redacted.make(apiKey),
 				providerId: providerName,
 				...reasoningOption,
@@ -136,7 +168,8 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 	 * Validate the binding's reasoning level against the catalog (D23): a model whose entry says
 	 * `reasoning: false` accepts no level but 'off', and a model with an effort list accepts only the
 	 * listed levels. Models the catalog does not know pass through permissively - validation is a
-	 * data-driven upgrade, never a gate on unknown models.
+	 * data-driven upgrade, never a gate on unknown models. Runs against the RESOLVED model id, so
+	 * bindings that filled a provider default are validated (and reported) as that default.
 	 */
 	const validateReasoningSupport = (
 		role: ConfigRole,
@@ -146,6 +179,7 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 		const requested = binding.reasoning
 		if (catalog === undefined || requested === undefined || requested === 'off') return Effect.void
 
+		const modelId = model.activeModel.modelId
 		const entry = lookupCatalogEntry(catalog, model.activeModel)
 		if (entry === null) return Effect.void
 
@@ -153,7 +187,7 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 			return Effect.fail(
 				new RoleResolutionError({
 					role,
-					message: `model "${binding.model}" does not support reasoning; remove reasoning or use level 'off'`,
+					message: `model "${modelId}" does not support reasoning; remove reasoning or use level 'off'`,
 				}),
 			)
 		}
@@ -163,7 +197,7 @@ export const agentModelsFromConfig = (config: TartConfig, options?: AgentModelsO
 				new RoleResolutionError({
 					role,
 					message:
-						`model "${binding.model}" does not support reasoning level "${requested}"; ` +
+						`model "${modelId}" does not support reasoning level "${requested}"; ` +
 						`supported levels: ${entry.reasoningEfforts.join(', ')} (or 'off')`,
 				}),
 			)

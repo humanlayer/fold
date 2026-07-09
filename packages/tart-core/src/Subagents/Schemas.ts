@@ -10,6 +10,7 @@ import { Effect, Schema } from 'effect'
 
 import { AgentFinishedOutcome } from '../EventLog/Schemas'
 import { AgentId } from '../Ids'
+import { AgentIdRef } from './AgentIdRef'
 import { InvalidSubagentCommandError } from './Errors'
 
 /** Count of assistant turns (one LLM call each, D7 vocabulary) - a pure fold over assistant-message rows. */
@@ -47,9 +48,9 @@ export const DispatchSubagentCommand = Schema.TaggedStruct('dispatch', {
 }).annotate({ identifier: 'DispatchSubagentCommand' })
 export type DispatchSubagentCommand = typeof DispatchSubagentCommand.Type
 
-/** Resume a previously dispatched subagent by its branded id. */
+/** Resume a previously dispatched subagent by reference: its full id or a unique short prefix. */
 export const ResumeSubagentCommand = Schema.TaggedStruct('resume', {
-	agentId: AgentId,
+	agentId: AgentIdRef,
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'ResumeSubagentCommand' })
@@ -70,7 +71,7 @@ export const SubagentCommand = Schema.Union([
 ]).annotate({ identifier: 'SubagentCommand' })
 export type SubagentCommand = typeof SubagentCommand.Type
 
-const decodeAgentId = Schema.decodeUnknownEffect(AgentId)
+const decodeAgentIdRef = Schema.decodeUnknownEffect(AgentIdRef)
 
 /** The subagent tool's flat wire parameters, as decoded by Effect AI against the tool contract. */
 export type SubagentToolWireParameters = {
@@ -111,7 +112,7 @@ export const parseSubagentCommand = (
 			return { _tag: 'fork', prompt: params.prompt, skill } as const
 		}
 
-		const agentId = yield* decodeAgentId(params.agent_id).pipe(
+		const agentId = yield* decodeAgentIdRef(params.agent_id).pipe(
 			Effect.mapError(
 				() =>
 					new InvalidSubagentCommandError({

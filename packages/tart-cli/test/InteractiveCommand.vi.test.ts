@@ -1,8 +1,8 @@
 /**
  * `parseInteractiveInput` is the readline loop's whole grammar, so every tag and every malformed shape
  * is asserted here: plain messages (trimmed), exit words, /help, /stop with and without a reason,
- * /steer and /send with the branded agent-id guard, and instructive `invalid` results for everything
- * else starting with a slash.
+ * /steer and /send with the agent-reference guard (full ids or the short `agent_ab12cd34` form the
+ * renderer displays), and instructive `invalid` results for everything else starting with a slash.
  */
 import { expect, it } from '@effect/vitest'
 import { AgentId } from '@humanlayer/tart-core'
@@ -60,6 +60,19 @@ it('parses /send with a valid agent id and text', () => {
 	})
 })
 
+it('accepts the short agent-id form the renderer displays for /steer and /send', () => {
+	expect(parseInteractiveInput('/steer agent_ab12cd34 focus on the failing test')).toEqual({
+		_tag: 'steer',
+		agentId: 'agent_ab12cd34',
+		text: 'focus on the failing test',
+	})
+	expect(parseInteractiveInput('/send agent_ab12cd34 continue')).toEqual({
+		_tag: 'send',
+		agentId: 'agent_ab12cd34',
+		text: 'continue',
+	})
+})
+
 it('rejects /steer and /send with missing or malformed arguments', () => {
 	for (const line of ['/steer', '/send', `/steer ${agentId}`, `/send ${agentId}  `]) {
 		const command = parseInteractiveInput(line)
@@ -67,7 +80,8 @@ it('rejects /steer and /send with missing or malformed arguments', () => {
 		if (command._tag === 'invalid') expect(command.message, line).toContain('usage:')
 	}
 
-	for (const line of ['/steer not-an-id do things', '/send agent_short do things']) {
+	// `agent_ab` is below the 4-char reference floor; 4+ chars (the CLI tag form) are valid targets.
+	for (const line of ['/steer not-an-id do things', '/send agent_ab do things']) {
 		const command = parseInteractiveInput(line)
 		expect(command._tag, line).toBe('invalid')
 		if (command._tag === 'invalid') expect(command.message, line).toContain('is not an agent id')

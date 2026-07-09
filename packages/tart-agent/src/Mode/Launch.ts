@@ -135,11 +135,24 @@ const roleBindingFor = (config: TartConfig, role: ConfigRole): RoleBinding =>
 			? (config.roles.orchestrator ?? config.roles.smart)
 			: config.roles.smart
 
-const selectedBinding = (base: RoleBinding, selection: ModelSelection): RoleBinding => {
+/**
+ * Merge a CLI/OpenTUI model selection over a role's configured binding. Field-wise the selection wins,
+ * with one cross-provider rule: naming a provider (without a model) whose KIND differs from the base
+ * binding's provider kind drops the stale model, so the new kind's default (or openai-compat's
+ * required-model error) applies instead of carrying, say, an anthropic model id onto codex. Same-kind
+ * provider swaps keep the configured model. Exported for direct unit testing.
+ */
+export const mergeModelSelection = (config: TartConfig, base: RoleBinding, selection: ModelSelection): RoleBinding => {
+	const provider = selection.provider ?? base.provider
+	const providerKindChanged =
+		selection.provider !== undefined &&
+		config.providers[selection.provider]?.kind !== config.providers[base.provider]?.kind
+	const model = selection.model ?? (providerKindChanged ? undefined : base.model)
 	const reasoning = selection.reasoning ?? base.reasoning
+
 	return {
-		provider: selection.provider ?? base.provider,
-		model: selection.model ?? base.model,
+		provider,
+		...(model === undefined ? {} : { model }),
 		...(reasoning === undefined ? {} : { reasoning }),
 	}
 }
@@ -181,7 +194,11 @@ const resolveModeModels = (
 		const selectedConfig =
 			selection.provider === undefined && selection.model === undefined && selection.reasoning === undefined
 				? config
-				: withSelectedRoleBinding(config, role, selectedBinding(roleBindingFor(config, role), selection))
+				: withSelectedRoleBinding(
+						config,
+						role,
+						mergeModelSelection(config, roleBindingFor(config, role), selection),
+					)
 		const models = agentModelsFromConfig(selectedConfig, {
 			...(options.env === undefined ? {} : { env: options.env }),
 			catalog,

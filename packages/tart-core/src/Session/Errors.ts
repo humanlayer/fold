@@ -6,7 +6,7 @@
  */
 import { Schema } from 'effect'
 
-import { AgentId, SessionId } from '../Ids'
+import { SessionId } from '../Ids'
 
 /** Raised when `Session.send` is called before `Session.start`. */
 export class SessionNotStartedError extends Schema.TaggedErrorClass<SessionNotStartedError>()(
@@ -30,6 +30,7 @@ export class SessionAlreadyStartedError extends Schema.TaggedErrorClass<SessionA
  * run; to continue a finished agent, use `send(message, { agentId })` instead.
  */
 export class AgentNotRunningError extends Schema.TaggedErrorClass<AgentNotRunningError>()('AgentNotRunningError', {
-	agentId: AgentId,
+	/** The requested target: a full agent id, or the unresolved reference the caller passed. */
+	agentId: Schema.String,
 	message: Schema.String,
 }) {}

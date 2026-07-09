@@ -41,12 +41,17 @@ export const ProviderConnection = Schema.Struct({
 }).annotate({ identifier: 'ProviderConnection', description: 'A provider connection profile' })
 export type ProviderConnection = typeof ProviderConnection.Type
 
-/** One role binding: which provider profile, which model on it, and an optional reasoning level. */
+/** One role binding: which provider profile, optionally which model on it, and a reasoning level. */
 export const RoleBinding = Schema.Struct({
 	/** The `providers` key this role runs on. */
 	provider: Schema.String.annotate({ description: 'A key from the `providers` map' }),
-	/** The provider model id, for example `claude-opus-4-8` or `gpt-5.5`. */
-	model: Schema.String.annotate({ description: 'Provider model id, e.g. claude-opus-4-8 or gpt-5.5' }),
+	/** The provider model id; omitted means the provider kind's default (openai-compat has none). */
+	model: Schema.optionalKey(
+		Schema.String.annotate({
+			description:
+				'Provider model id; defaults per provider kind: codex → gpt-5.6-sol, anthropic → claude-opus-4-8; required for openai-compat',
+		}),
+	),
 	/** Reasoning level for this role's requests. Defaults to `off` when omitted. */
 	reasoning: Schema.optionalKey(ReasoningLevel),
 }).annotate({ identifier: 'RoleBinding', description: 'A model binding for one role' })

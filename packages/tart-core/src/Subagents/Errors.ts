@@ -21,10 +21,16 @@ export class SubagentTypeNotInRosterError extends Schema.TaggedErrorClass<Subage
 	},
 ) {}
 
-/** No agent with this id has ever been started on the session log. */
+/**
+ * No agent uniquely matches this reference on the session log: either no agent was ever started under
+ * it, or - when `candidates` is present - a short reference prefix-matched two or more agents and the
+ * caller must provide more characters.
+ */
 export class SubagentNotFoundError extends Schema.TaggedErrorClass<SubagentNotFoundError>()('SubagentNotFoundError', {
-	/** The raw id the caller passed (may not even be a well-formed agent id). */
+	/** The raw reference the caller passed (may not even be a well-formed agent id). */
 	requested: Schema.String,
+	/** Set when the reference was ambiguous: the SHORT ids of every agent it matched. */
+	candidates: Schema.optionalKey(Schema.Array(Schema.String)),
 }) {}
 
 /** The agent is currently running (or is a running ancestor) and cannot be resumed concurrently. */

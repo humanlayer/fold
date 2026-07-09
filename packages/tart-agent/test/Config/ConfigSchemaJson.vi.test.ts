@@ -46,6 +46,13 @@ it.effect('the starter config is valid against the schema (round-trips through t
 		expect(config.compaction?.enabled).toBe(true)
 		expect(config.stopConditions?.doomLoop?.enabled).toBe(true)
 		expect(config.$schema).toBe('./config.schema.json')
+
+		// The starter showcases the per-provider-kind model defaults: anthropic and codex bindings omit
+		// the model (claude-opus-4-8 / gpt-5.6-sol apply), while fast keeps an explicit model example.
+		expect(config.roles.smart.model).toBeUndefined()
+		expect(config.roles.orchestrator?.provider).toBe('codex')
+		expect(config.roles.orchestrator?.model).toBeUndefined()
+		expect(config.roles.fast.model).toBe('claude-haiku-4-5-20251001')
 	}),
 )
 

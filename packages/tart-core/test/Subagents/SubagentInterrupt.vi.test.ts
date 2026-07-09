@@ -9,7 +9,7 @@
 import { expect, it } from '@effect/vitest'
 import { Deferred, Effect, Fiber } from 'effect'
 
-import { defineSubagent, type LogEntry, type UserMessageLogEntry } from '../../src/index'
+import { defineSubagent, shortAgentId, type LogEntry, type UserMessageLogEntry } from '../../src/index'
 import { claudeActiveModel } from '../Api/ApiTestHelpers'
 import { textTurn } from '../TestLayers/ScriptedLanguageModel'
 import { toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -75,7 +75,7 @@ it.effect('an interrupted subagent leaves honest durable markers and is resumabl
 		// The dispatcher's synthetic tool result carries the enriched InterruptNote: id + turn count.
 		const rendered = renderedDriveResult(entries, 0)
 		expect(rendered).toContain('The user interrupted the execution of this tool call.')
-		expect(rendered).toContain(`agent_id: ${started.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(started.agentId)}`)
 		expect(rendered).toContain('interrupted after 0 turns')
 
 		// Slice 2 (D10): the interrupted root run has its own durable terminal marker, written by the

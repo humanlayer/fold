@@ -41,7 +41,7 @@ import { layerLiveIdFactory, type AgentId, type SessionId } from '../Ids'
 import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
 import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { runtimeForAgent } from '../Projection/Projection'
-import type { AgentNotRunningError } from '../Session/Errors'
+import { AgentNotRunningError } from '../Session/Errors'
 import {
 	makeProfiles,
 	profileModelFor,
@@ -60,8 +60,9 @@ import { liveSessionLayer } from '../Session/SessionLayer'
 import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { StopConditions } from '../StopConditions/StopConditions'
+import { agentIdsFromEntries, resolveAgentIdRef } from '../Subagents/AgentIdRef'
 import { agentRegistryFromDefinitions, collectSubagentDefinitions } from '../Subagents/AgentRegistry'
-import type { SubagentNotFoundError } from '../Subagents/Errors'
+import { SubagentNotFoundError } from '../Subagents/Errors'
 import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
 import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
@@ -131,9 +132,14 @@ export type SwitchModelOptions = {
 	readonly tools?: ReadonlyArray<TartTool>
 }
 
-/** Target selector shared by `send`, `steer`, and `interrupt`; omitted means the root agent. */
+/**
+ * Target selector shared by `send`, `steer`, and `interrupt`; omitted means the root agent. The target
+ * may be a full agent id or a unique short reference like `agent_ab12cd34` (the form rendered in
+ * subagent results and CLI lines); references resolve against the log's `agent_started` rows before
+ * touching the run controls, which stay keyed by full ids.
+ */
 export type AgentTargetOptions = {
-	readonly agentId?: AgentId
+	readonly agentId?: AgentId | string
 }
 
 /**
@@ -476,6 +482,28 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		Effect.map((entries): ReadonlyArray<LogEntry> => entries),
 	)
 
+	/**
+	 * Resolve a caller-supplied target reference (full id or unique short prefix, D8 targeting) to the
+	 * full agent id the controls and engine are keyed by. Ambiguous references fail as not-found
+	 * carrying the candidate short ids.
+	 */
+	const resolveTarget = (ref: AgentId | string): Effect.Effect<AgentId, SubagentNotFoundError> =>
+		collectEntries.pipe(
+			Effect.flatMap((entries) => {
+				const resolution = resolveAgentIdRef(agentIdsFromEntries(entries), ref)
+				switch (resolution._tag) {
+					case 'resolved':
+						return Effect.succeed(resolution.agentId)
+					case 'not-found':
+						return Effect.fail(new SubagentNotFoundError({ requested: ref }))
+					case 'ambiguous':
+						return Effect.fail(
+							new SubagentNotFoundError({ requested: ref, candidates: resolution.candidates }),
+						)
+				}
+			}),
+		)
+
 	/** The last durable terminal marker for one agent; interrupt paths read the finalizer-written row. */
 	const lastFinishedFor = (agentId: AgentId): Effect.Effect<AgentFinishedLogEntry> =>
 		collectEntries.pipe(
@@ -570,7 +598,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		options?: AgentTargetOptions,
 	): Effect.Effect<AgentFinishedLogEntry, SubagentNotFoundError> =>
 		Effect.gen(function* () {
-			const target = options?.agentId ?? rootAgentId
+			const target = options?.agentId === undefined ? rootAgentId : yield* resolveTarget(options.agentId)
 
 			// D8: a running target gets the message as a follow-up that joins its current run at the
 			// natural completion boundary. If that run ends without consuming it (stopped, errored, or
@@ -602,7 +630,23 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		})
 
 	const steer = (text: string, options?: AgentTargetOptions): Effect.Effect<void, AgentNotRunningError> =>
-		controls.steer(options?.agentId ?? rootAgentId, text)
+		options?.agentId === undefined
+			? controls.steer(rootAgentId, text)
+			: resolveTarget(options.agentId).pipe(
+					Effect.catchTag('SubagentNotFoundError', (error) =>
+						Effect.fail(
+							new AgentNotRunningError({
+								agentId: error.requested,
+								message:
+									error.candidates === undefined
+										? `No agent matches "${error.requested}" in this session, so there is nothing to steer.`
+										: `"${error.requested}" is ambiguous: it matches ${error.candidates.length} agents ` +
+											`(${[...new Set(error.candidates)].join(', ')}). Provide more characters of the agent id.`,
+							}),
+						),
+					),
+					Effect.flatMap((target) => controls.steer(target, text)),
+				)
 
 	const stop = (reason?: string): Effect.Effect<void> =>
 		controls.requestSessionStop(reason ?? 'the user requested a stop')
@@ -610,7 +654,12 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 	const interrupt = (options?: AgentTargetOptions): Effect.Effect<void> =>
 		options?.agentId === undefined
 			? controls.interruptAllRunning
-			: controls.interruptRunning(options.agentId).pipe(Effect.asVoid)
+			: resolveTarget(options.agentId).pipe(
+					Effect.flatMap((target) => controls.interruptRunning(target)),
+					// An unresolvable target is not running by definition - same no-op as an idle full id.
+					Effect.catchTag('SubagentNotFoundError', () => Effect.succeed(false)),
+					Effect.asVoid,
+				)
 
 	const switchModel = (model: TartModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
 		gate.withPermit(

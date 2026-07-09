@@ -15,6 +15,7 @@ import { LanguageModel, type Response } from 'effect/unstable/ai'
 import {
 	DEFAULT_CODING_PROMPT,
 	launchSession,
+	mergeModelSelection,
 	parseTartConfig,
 	resumeLatestSession,
 	resumeSessionById,
@@ -276,5 +277,63 @@ it.effect('resumeLatestSession fails with NoSessionToResumeError when none exist
 			Effect.flip,
 		)
 		expect(error._tag).toBe('NoSessionToResumeError')
+	}),
+)
+
+// --- mergeModelSelection: the CLI --provider/--model/--reasoning merge over a config binding ----------
+
+const mergeConfigText = `{
+	"providers": {
+		"anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+		"codex": { "kind": "codex" },
+		"openai": { "kind": "openai-compat", "apiKey": "sk-inline" },
+		"openai-proxy": { "kind": "openai-compat", "apiKey": "sk-proxy", "baseUrl": "https://proxy.example/v1" }
+	},
+	"roles": {
+		"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "medium" },
+		"fast": { "provider": "openai", "model": "gpt-5.6-luna" }
+	}
+}`
+
+it.effect('mergeModelSelection drops the stale model when the newly named provider changes KIND', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(mergeConfigText)
+
+		// `tart --provider codex` alone: the anthropic model id must NOT ride onto codex - the binding
+		// comes back model-less so the codex default (gpt-5.6-sol) applies at resolution.
+		const merged = mergeModelSelection(config, config.roles.smart, { provider: 'codex' })
+		expect(merged).toEqual({ provider: 'codex', reasoning: 'medium' })
+		expect(merged.model).toBeUndefined()
+	}),
+)
+
+it.effect('mergeModelSelection keeps the configured model across a same-kind provider swap', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(mergeConfigText)
+
+		const merged = mergeModelSelection(config, config.roles.fast, { provider: 'openai-proxy' })
+		expect(merged).toEqual({ provider: 'openai-proxy', model: 'gpt-5.6-luna' })
+	}),
+)
+
+it.effect('mergeModelSelection lets an explicit model selection win regardless of kind changes', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(mergeConfigText)
+
+		const merged = mergeModelSelection(config, config.roles.smart, { provider: 'codex', model: 'gpt-5.6-sol' })
+		expect(merged).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', reasoning: 'medium' })
+	}),
+)
+
+it.effect('mergeModelSelection with no provider keeps the binding and overlays model/reasoning fields', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(mergeConfigText)
+
+		expect(mergeModelSelection(config, config.roles.smart, {})).toEqual(config.roles.smart)
+		expect(mergeModelSelection(config, config.roles.smart, { reasoning: 'high' })).toEqual({
+			provider: 'anthropic',
+			model: 'claude-opus-4-8',
+			reasoning: 'high',
+		})
 	}),
 )

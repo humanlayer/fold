@@ -46,6 +46,7 @@ import {
 	InterruptNote,
 	type InterruptNoteService,
 } from '../ToolRuntime/ToolContextServices'
+import { agentIdsFromEntries, resolveAgentIdRef, shortAgentId } from './AgentIdRef'
 import type { AgentRegistry, RegisteredAgentType } from './AgentRegistry'
 import { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { SubagentResult, TurnCount } from './Schemas'
@@ -139,9 +140,9 @@ const leadingBlocksFor = (
  * completed turn (no dependence on teardown ordering).
  */
 const interruptedSubagentNote = (agentLabel: string, subagentId: AgentId, turnsThisRun: number): string =>
-	`Subagent ${agentLabel} (agent_id: ${subagentId}) was interrupted after ${turnsThisRun} ` +
+	`Subagent ${agentLabel} (agent_id: ${shortAgentId(subagentId)}) was interrupted after ${turnsThisRun} ` +
 	`turn${turnsThisRun === 1 ? '' : 's'}, before completing. Its progress up to the interruption is saved. ` +
-	`Pass agent_id: ${subagentId} to the subagent tool to resume it.`
+	`Pass agent_id: ${shortAgentId(subagentId)} to the subagent tool to resume it.`
 
 const findAgentStarted = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): AgentStartedLogEntry | null =>
 	entries.find(
@@ -728,7 +729,7 @@ export const makeSubagents = (
 				}
 
 				const subagentId = yield* ids.makeAgentId
-				const agentLabel = `fork of ${dispatcher.agentId}`
+				const agentLabel = `fork of ${shortAgentId(dispatcher.agentId)}`
 				yield* interruptNote.set(interruptedSubagentNote(agentLabel, subagentId, 0))
 
 				return yield* runSubagentToResult({
@@ -759,17 +760,28 @@ export const makeSubagents = (
 				const interruptNote = yield* InterruptNote
 
 				const entries = yield* collectEntries
-				const started = findAgentStarted(entries, input.agentId)
+				// The wire carries a reference (full id or unique short prefix); resolve it against every
+				// started agent before anything else. Ambiguity is a not-found carrying the candidates.
+				const resolution = resolveAgentIdRef(agentIdsFromEntries(entries), input.agentId)
+				if (resolution._tag === 'not-found') {
+					return yield* new SubagentNotFoundError({ requested: input.agentId })
+				}
+				if (resolution._tag === 'ambiguous') {
+					return yield* new SubagentNotFoundError({
+						requested: input.agentId,
+						candidates: resolution.candidates,
+					})
+				}
+				const agentId = resolution.agentId
+
+				const started = findAgentStarted(entries, agentId)
 				if (started === null) {
 					return yield* new SubagentNotFoundError({ requested: input.agentId })
 				}
 
 				// Resuming yourself or a running ancestor would run one agent's loop inside itself.
-				if (
-					input.agentId === dispatcher.agentId ||
-					ancestorAgentIds(entries, dispatcher.agentId).has(input.agentId)
-				) {
-					return yield* new SubagentBusyError({ agentId: input.agentId })
+				if (agentId === dispatcher.agentId || ancestorAgentIds(entries, dispatcher.agentId).has(agentId)) {
+					return yield* new SubagentBusyError({ agentId })
 				}
 
 				const dispatcherOrigin = originatingConfigForAgent(entries, dispatcher.agentId)
@@ -782,26 +794,24 @@ export const makeSubagents = (
 
 				// The resumed agent's binding: its registry entry when its type is (still) registered,
 				// otherwise its fork-source chain, otherwise the dispatcher's own configuration.
-				const targetOrigin = originatingConfigForAgent(entries, input.agentId) ?? dispatcherOrigin
+				const targetOrigin = originatingConfigForAgent(entries, agentId) ?? dispatcherOrigin
 				if (targetOrigin === null) {
-					return yield* Effect.die(
-						new Error(`resume target ${input.agentId} has no resolvable configuration`),
-					)
+					return yield* Effect.die(new Error(`resume target ${agentId} has no resolvable configuration`))
 				}
 
 				const snapshot = yield* agentSnapshotForOrigin(targetOrigin)
 				const realized = config.realizeAgentTools(snapshot.tools)
 
-				const projected = runtimeForAgent(entries, input.agentId)
+				const projected = runtimeForAgent(entries, agentId)
 				const modelTransition = activeModelsDiffer(snapshot.model.activeModel, projected.activeModel)
 					? { systemPrompt: leadingBlocksFor(snapshot.systemPrompt, realized) }
 					: null
 
-				const agentLabel = started.agentType ?? `subagent ${input.agentId}`
-				yield* interruptNote.set(interruptedSubagentNote(agentLabel, input.agentId, 0))
+				const agentLabel = started.agentType ?? `subagent ${shortAgentId(agentId)}`
+				yield* interruptNote.set(interruptedSubagentNote(agentLabel, agentId, 0))
 
 				return yield* runSubagentToResult({
-					subagentId: input.agentId,
+					subagentId: agentId,
 					agentTypeName: started.agentType,
 					agentLabel,
 					parentAgentId: dispatcher.agentId,

@@ -13,6 +13,7 @@ import { Effect } from 'effect'
 import { defineTool, type TartTool } from '../Api/ToolDefinition'
 import type { SkillNotFoundError } from '../Skills/SkillSource'
 import { subagentToolContract } from '../Tools/Contracts'
+import { shortAgentId } from './AgentIdRef'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import { parseSubagentCommand, type SubagentResult } from './Schemas'
 import type { SubagentDefinition } from './SubagentDefinition'
@@ -34,7 +35,7 @@ type SubagentToolFailure = {
 /** Render one subagent result per the D21 template: id + turns header, result body, outcome note. */
 export const renderSubagentResult = (result: SubagentResult): string => {
 	const header =
-		`agent_id: ${result.agentId} (pass as agent_id to the subagent tool to resume this agent)\n` +
+		`agent_id: ${shortAgentId(result.agentId)} (pass as agent_id to the subagent tool to resume this agent)\n` +
 		`turns: ${result.turnsThisRun} this run (${result.turnsTotal} total)`
 	const body = `<subagent_result>\n${result.resultText ?? ''}\n</subagent_result>`
 	const note = outcomeNoteFor(result)
@@ -84,17 +85,21 @@ const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<st
 	availableAgents: allowedAgents,
 })
 
-/** Payload for a resume id no agent has ever been started under. */
+/** Payload for a resume reference no agent uniquely matches: unknown, or an ambiguous short prefix. */
 const notFoundFailure = (error: SubagentNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure => ({
 	message:
-		`No subagent with agent_id "${error.requested}" exists in this session. Use the agent_id from a ` +
-		`previous subagent result, or dispatch a fresh agent with the agent parameter.`,
+		error.candidates === undefined || error.candidates.length === 0
+			? `No subagent with agent_id "${error.requested}" exists in this session. Use the agent_id from a ` +
+				`previous subagent result, or dispatch a fresh agent with the agent parameter.`
+			: `agent_id "${error.requested}" is ambiguous: it matches ${error.candidates.length} agents ` +
+				`(${[...new Set(error.candidates)].join(', ')}). Provide more characters of the agent_id to ` +
+				`identify exactly one.`,
 	availableAgents: allowedAgents,
 })
 
 /** Payload for resuming an agent that is currently running. */
 const busyFailure = (error: SubagentBusyError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure => ({
-	message: `Subagent ${error.agentId} is currently running and cannot be resumed until it finishes.`,
+	message: `Subagent ${shortAgentId(error.agentId)} is currently running and cannot be resumed until it finishes.`,
 	availableAgents: allowedAgents,
 })
 

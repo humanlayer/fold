@@ -57,11 +57,16 @@ export const starterConfigJsonc = (): string =>
 		}
 	},
 
-	// Model roles bound to a provider + model. "smart" and "fast" are required; "orchestrator" is
-	// optional and falls back to "smart".
+	// Model roles bound to a provider (+ optional model). "smart" and "fast" are required;
+	// "orchestrator" is optional and falls back to "smart". Omitting "model" uses the provider
+	// kind's default: codex → gpt-5.6-sol, anthropic → claude-opus-4-8 (openai-compat requires one).
 	"roles": {
-		"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "medium" },
-		"fast": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" }
+		// No model: uses the anthropic default, claude-opus-4-8.
+		"smart": { "provider": "anthropic", "reasoning": "medium" },
+		// An explicit model always wins over the provider default.
+		"fast": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
+		// No model: uses the codex default, gpt-5.6-sol.
+		"orchestrator": { "provider": "codex", "reasoning": "high" }
 	},
 
 	// Auto-compaction is enabled by default. Optional knobs are thresholdTokens, contextWindow,

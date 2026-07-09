@@ -9,7 +9,7 @@ import { stdin as defaultInput, stdout as defaultOutput } from 'node:process'
 import { createInterface } from 'node:readline/promises'
 import type { Readable, Writable } from 'node:stream'
 
-import type { AgentFinishedLogEntry, AgentId, TartSession } from '@humanlayer/tart-core'
+import type { AgentFinishedLogEntry, TartSession } from '@humanlayer/tart-core'
 import { Cause, Effect, Exit, Fiber, type Scope } from 'effect'
 
 import { parseInteractiveInput } from './InteractiveCommand'
@@ -29,7 +29,7 @@ const helpText = [
 	'  /stop [reason]            graceful stop: agents finish the current tool batch, then stop',
 	'  /help                     show this help',
 	'  /exit                     interrupt any active run and quit (Ctrl-C interrupts; exits when idle)',
-	'agent ids (agent_...) are printed on agent start and finish lines',
+	'agent ids (agent_...) are printed on agent start and finish lines; the short form shown there works everywhere',
 ].join('\n')
 
 const ask = (rl: ReturnType<typeof createInterface>, prompt: string): Effect.Effect<string | null> =>
@@ -118,8 +118,9 @@ export const runInteractive = (
 						: session.steer(text).pipe(Effect.catchTag('AgentNotRunningError', () => startRootRun(text)))
 
 				// A /send target completes through the live event stream; the one-line note keeps it
-				// distinct from the root run (no exit-code bookkeeping, no [done] block of its own).
-				const subagentSendEffect = (agentId: AgentId, text: string): Effect.Effect<void> =>
+				// distinct from the root run (no exit-code bookkeeping, no [done] block of its own). The
+				// target is a full id or a short reference; the session resolves it.
+				const subagentSendEffect = (agentId: string, text: string): Effect.Effect<void> =>
 					session.send(text, { agentId }).pipe(
 						Effect.onExit((exit) =>
 							Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)

@@ -10,6 +10,7 @@ import { Effect } from 'effect'
 import {
 	defineAgent,
 	defineSubagent,
+	shortAgentId,
 	startSession,
 	subagentTool,
 	type AgentStartedLogEntry,
@@ -115,7 +116,7 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 		const toolResult = entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
 		if (toolResult === undefined) throw new Error('expected a tool-result entry')
 		const rendered = toolResultText(toolResult)
-		expect(rendered).toContain(`agent_id: ${subagentStarted.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(subagentStarted.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (1 total)')
 		expect(rendered).toContain('<subagent_result>')
 		expect(rendered).toContain('findings: all good')

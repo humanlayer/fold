@@ -14,6 +14,7 @@ import {
 	EventLog,
 	eventLogSource,
 	layerInMemoryEventLog,
+	shortAgentId,
 	startSession,
 	subagentTool,
 	type AgentId,
@@ -134,7 +135,7 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 
 		// Turn totals fold across both sessions' rows: 1 this run, 2 lifetime.
 		const rendered = renderedDriveResult(entries, 1)
-		expect(rendered).toContain(`agent_id: ${dispatched.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(dispatched.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (2 total)')
 		expect(rendered).toContain('resumed findings')
 	}).pipe(Effect.scoped),

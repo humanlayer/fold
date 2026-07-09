@@ -37,9 +37,13 @@ export type ForkSubagentInput = {
 	readonly skill: string | null
 }
 
-/** Input for resuming a previously dispatched subagent by id. */
+/**
+ * Input for resuming a previously dispatched subagent by reference: the full branded id, or a unique
+ * short prefix like `agent_ab12cd34` (the form rendered in subagent results). The engine resolves the
+ * reference against the log's `agent_started` rows - exact match first, then unique prefix.
+ */
 export type ResumeSubagentInput = {
-	readonly agentId: AgentId
+	readonly agentId: AgentId | string
 	readonly prompt: string
 	readonly skill: string | null
 }

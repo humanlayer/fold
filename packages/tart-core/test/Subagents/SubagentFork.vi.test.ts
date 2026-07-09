@@ -7,7 +7,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import type { AgentStartedLogEntry, AssistantMessageLogEntry } from '../../src/index'
+import { shortAgentId, type AgentStartedLogEntry, type AssistantMessageLogEntry } from '../../src/index'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { makeDriveSession, renderedDriveResult, subagentStartedEntries } from './DriveHarness'
 
@@ -91,7 +91,7 @@ it.effect('a fork clones the caller: shared history prefix, no new leading promp
 
 		// The result renders like any dispatch: resumable id + turns header + body.
 		const rendered = renderedDriveResult(entries, 0)
-		expect(rendered).toContain(`agent_id: ${forkStarted.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(forkStarted.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (1 total)')
 		expect(rendered).toContain('fork findings')
 	}).pipe(Effect.scoped),

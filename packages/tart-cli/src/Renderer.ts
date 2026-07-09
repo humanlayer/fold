@@ -2,8 +2,10 @@ import { decodeBashOutputDelta } from '@humanlayer/tart-agent'
 import {
 	defaultContextWindowFor,
 	lookupCatalogEntry,
+	shortAgentId,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
+	type AgentId,
 	type LogEntry,
 	type ModelCatalogEntry,
 	type ModelPricing,
@@ -237,10 +239,48 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const hiddenToolOutputNotices = new Set<string>()
 	const agentModels = new Map<string, ActiveModel>()
 	const latestUsage = new Map<string, { readonly usage: UsageEncoded; readonly model: ActiveModel | null }>()
+	// Subagent attribution: every non-root agent gets a `<type>·<4-char id>` label from its agent_started
+	// row and a stable palette color by registration order; root output stays untagged.
+	const agentLabels = new Map<string, string>()
+	const agentTagColors = new Map<string, (text: string) => string>()
 	let currentSessionId: SessionId | null = null
 	let headerModel: ActiveModel | null = null
 	let rootAgentId: string | null = null
 	let lineOpen = false
+	// The agent whose streamed deltas last wrote to stdout, for interleaving transition markers.
+	let lastStreamAgentId: string | null = null
+
+	// Distinct, stable subagent tag colors; green/red stay reserved for assistant/error accents.
+	const tagPalette: ReadonlyArray<(text: string) => string> = [ansi.magenta, ansi.cyan, ansi.yellow]
+
+	// 4 id characters are plenty to tell one session's agents apart; refs down to 4 chars resolve (AgentIdRef).
+	const shortIdSuffix = (agentId: AgentId): string =>
+		shortAgentId(agentId).slice('agent_'.length, 'agent_'.length + 4)
+
+	/** The compact `agent_xxxx` display form used on subagent start/done lines (a valid /steer//send target). */
+	const displayAgentId = (agentId: AgentId): string => `agent_${shortIdSuffix(agentId)}`
+
+	const registerAgentLabel = (entry: Extract<LogEntry, { readonly _tag: 'agent_started' }>): void => {
+		if (entry.parentAgentId === null || agentLabels.has(entry.agentId)) return
+		const kind = entry.agentType ?? (entry.mode === 'fork' ? 'fork' : 'agent')
+		const color = tagPalette[agentLabels.size % tagPalette.length] ?? ansi.magenta
+		agentLabels.set(entry.agentId, `${kind}·${shortIdSuffix(entry.agentId)}`)
+		agentTagColors.set(entry.agentId, color)
+	}
+
+	/** The plain `[label]` text of a non-root agent, or null for the root/unknown agents. */
+	const plainTagFor = (agentId: string): string | null => {
+		const label = agentLabels.get(agentId)
+		return label === undefined ? null : `[${label}]`
+	}
+
+	/** The colored bracket tag prefixed to every rendered line of a non-root agent. */
+	const tagFor = (agentId: string): string | null => {
+		const plain = plainTagFor(agentId)
+		if (plain === null) return null
+		const color = agentTagColors.get(agentId) ?? ansi.magenta
+		return color(plain)
+	}
 
 	const writeStdout = (text: string): Effect.Effect<void> =>
 		stdout(text).pipe(
@@ -260,11 +300,36 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const renderLine = (text: string): Effect.Effect<void> =>
 		newlineIfOpen().pipe(Effect.andThen(writeStdout(`${text}\n`)))
 
+	/** Render one line attributed to an agent: non-root agents get their bracket tag prefix. */
+	const renderAgentLine = (agentId: string, text: string): Effect.Effect<void> =>
+		Effect.suspend(() => {
+			const tag = tagFor(agentId)
+			return renderLine(tag === null ? text : `${tag} ${text}`)
+		})
+
+	/**
+	 * Write one streamed delta chunk for a tagged (non-root) agent: the tag opens every flushed line -
+	 * at a line start and after each newline inside the chunk - so interleaved streams stay attributed.
+	 * Each line segment runs through `decorate` (identity for text, dim for reasoning, ...).
+	 */
+	const writeTaggedDelta = (tag: string, delta: string, decorate: (text: string) => string): Effect.Effect<void> =>
+		Effect.suspend(() => {
+			if (delta.length === 0) return Effect.void
+			const leading = lineOpen ? '' : `${tag} `
+			const endsWithNewline = delta.endsWith('\n')
+			const body = (endsWithNewline ? delta.slice(0, -1) : delta)
+				.split('\n')
+				.map((segment) => (segment.length === 0 ? segment : decorate(segment)))
+				.join(`\n${tag} `)
+			return writeStdout(`${leading}${body}${endsWithNewline ? '\n' : ''}`)
+		})
+
 	const renderToolCalls = (entry: Extract<LogEntry, { readonly _tag: 'assistant-message' }>) =>
 		Effect.forEach(
 			contentParts(entry.message.content).filter((part) => part.type === 'tool-call'),
 			(part) =>
-				renderLine(
+				renderAgentLine(
+					entry.agentId,
 					`${label(ansi, 'tool')} ${ansi.cyan(part.name ?? 'tool')} ${truncate(safeStringify(part.params), verbose ? 2000 : 300)}`,
 				),
 			{ discard: true },
@@ -275,11 +340,11 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			(part) => part.type === 'tool-result' && part.isFailure === true,
 		)
 		const color = failed ? ansi.red : ansi.green
-		return renderLine(`${label(ansi, 'tool')} ${color('result')} ${ansi.dim(entry.toolCallId)}`)
+		return renderAgentLine(entry.agentId, `${label(ansi, 'tool')} ${color('result')} ${ansi.dim(entry.toolCallId)}`)
 	}
 
 	const renderAssistantText = (agentId: string, text: string): Effect.Effect<void> =>
-		text.length === 0 ? Effect.void : renderLine(`${ansi.green('[assistant]')} ${text}`)
+		text.length === 0 ? Effect.void : renderAgentLine(agentId, `${ansi.green('[assistant]')} ${text}`)
 
 	const renderLog = (entry: LogEntry): Effect.Effect<void> => {
 		switch (entry._tag) {
@@ -291,14 +356,19 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			case 'agent_started':
 				agentModels.set(entry.agentId, entry.model)
 				if (entry.parentAgentId === null) rootAgentId = entry.agentId
-				// The id is the /steer//send target, so it is printed on every start line.
-				return renderLine(
-					`${label(ansi, entry.parentAgentId === null ? 'agent' : 'subagent')} ${entry.agentId} ${modelName(entry)}`,
-				)
+				registerAgentLabel(entry)
+				// The id is the /steer//send target, so it is printed on every start line; subagents show
+				// the short form because that is exactly what those commands accept.
+				return entry.parentAgentId === null
+					? renderLine(`${label(ansi, 'agent')} ${entry.agentId} ${modelName(entry)}`)
+					: renderAgentLine(
+							entry.agentId,
+							`${label(ansi, 'subagent')} ${displayAgentId(entry.agentId)} ${modelName(entry)}`,
+						)
 
 			case 'user-message': {
 				const text = textContent(entry.message.content)
-				return text.length === 0 ? Effect.void : renderLine(`${ansi.cyan('>')} ${text}`)
+				return text.length === 0 ? Effect.void : renderAgentLine(entry.agentId, `${ansi.cyan('>')} ${text}`)
 			}
 
 			case 'assistant-message': {
@@ -324,26 +394,49 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 				return renderToolResult(entry)
 
 			case 'compaction':
-				return renderLine(
+				return renderAgentLine(
+					entry.agentId,
 					`${label(ansi, 'compact')} summarized through seq ${entry.replacesThroughSeq} (${entry.tokensBefore} tokens)`,
 				)
 
 			case 'model-change':
 				agentModels.set(entry.agentId, entry.model)
-				return renderLine(`${label(ansi, 'model')} ${modelName(entry)}`)
+				return renderAgentLine(entry.agentId, `${label(ansi, 'model')} ${modelName(entry)}`)
 
 			case 'thinking-change':
-				return renderLine(`${label(ansi, 'thinking')} ${entry.reasoningLevel}`)
+				return renderAgentLine(entry.agentId, `${label(ansi, 'thinking')} ${entry.reasoningLevel}`)
 
 			case 'tools-change':
-				return renderLine(`${label(ansi, 'tools')} ${entry.tools.join(', ')}`)
+				return renderAgentLine(entry.agentId, `${label(ansi, 'tools')} ${entry.tools.join(', ')}`)
 
 			case 'agent-finished':
 				return entry.parentAgentId === null ? Effect.void : renderFinish(entry)
 
 			case 'error':
-				return renderLine(`${label(ansi, 'error')} ${ansi.red(entry.errorType)} ${entry.message}`)
+				return renderAgentLine(
+					entry.agentId ?? '',
+					`${label(ansi, 'error')} ${ansi.red(entry.errorType)} ${entry.message}`,
+				)
 		}
+	}
+
+	/**
+	 * Handle a stream-source change before writing a delta: close any open line and, when the incoming
+	 * agent is a tagged subagent, print a one-line dim transition marker so interleaved streams stay
+	 * legible; a switch back to the root re-opens its `[assistant]` label instead. Returns the effect to
+	 * run before the delta itself. Root-only sessions never change source, so their output is untouched.
+	 */
+	const streamTransition = (agentId: string, tag: string | null): Effect.Effect<void> => {
+		if (lastStreamAgentId === agentId) return Effect.void
+		const previous = lastStreamAgentId
+		lastStreamAgentId = agentId
+		if (previous === null) return Effect.void
+
+		if (tag === null) {
+			assistantLabelOpen.delete(agentId)
+			return newlineIfOpen()
+		}
+		return renderLine(ansi.dim(`--- ${plainTagFor(agentId) ?? `[${agentId}]`} ---`))
 	}
 
 	const renderEvent = (event: TartEvent): Effect.Effect<void> => {
@@ -351,34 +444,65 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 
 		switch (event.part.type) {
 			case 'text-delta': {
-				agentsWithText.add(event.agentId)
-				streamedAssistantText.add(event.agentId)
-				const prefix = assistantLabelOpen.has(event.agentId)
-					? Effect.void
-					: newlineIfOpen().pipe(Effect.andThen(writeStdout(`${ansi.green('[assistant]')} `)))
-				assistantLabelOpen.add(event.agentId)
-				return prefix.pipe(Effect.andThen(writeStdout(event.part.delta)))
+				const agentId = event.agentId
+				const delta = event.part.delta
+				return Effect.suspend(() => {
+					const tag = tagFor(agentId)
+					const transition = streamTransition(agentId, tag)
+					agentsWithText.add(agentId)
+					streamedAssistantText.add(agentId)
+					const prefix = assistantLabelOpen.has(agentId)
+						? Effect.void
+						: Effect.suspend(() =>
+								newlineIfOpen().pipe(
+									Effect.andThen(
+										writeStdout(`${tag === null ? '' : `${tag} `}${ansi.green('[assistant]')} `),
+									),
+								),
+							)
+					assistantLabelOpen.add(agentId)
+					const body = tag === null ? writeStdout(delta) : writeTaggedDelta(tag, delta, (segment) => segment)
+					return transition.pipe(Effect.andThen(prefix), Effect.andThen(body))
+				})
 			}
 
-			case 'reasoning-delta':
-				return writeStdout(ansi.dim(event.part.delta))
+			case 'reasoning-delta': {
+				const agentId = event.agentId
+				const delta = event.part.delta
+				return Effect.suspend(() => {
+					const tag = tagFor(agentId)
+					if (tag === null)
+						return streamTransition(agentId, null).pipe(Effect.andThen(writeStdout(ansi.dim(delta))))
+					return streamTransition(agentId, tag).pipe(Effect.andThen(writeTaggedDelta(tag, delta, ansi.dim)))
+				})
+			}
 
 			case 'tool-progress': {
-				const bash = decodeBashOutputDelta(event.part.payload)
+				const toolName = event.part.toolName
+				const payload = event.part.payload
+				const bash = decodeBashOutputDelta(payload)
 				if (bash !== null) {
 					if (verbose)
-						return writeStdout(bash.stream === 'stderr' ? ansi.yellow(bash.text) : ansi.dim(bash.text))
+						return Effect.suspend(() => {
+							const tag = tagFor(event.agentId)
+							const decorate = bash.stream === 'stderr' ? ansi.yellow : ansi.dim
+							return tag === null
+								? writeStdout(decorate(bash.text))
+								: writeTaggedDelta(tag, bash.text, decorate)
+						})
 
-					const noticeKey = `${event.toolCallId ?? 'unknown'}:${event.part.toolName}`
+					const noticeKey = `${event.toolCallId ?? 'unknown'}:${toolName}`
 					if (hiddenToolOutputNotices.has(noticeKey)) return Effect.void
 					hiddenToolOutputNotices.add(noticeKey)
-					return renderLine(
-						`${label(ansi, 'tool')} ${ansi.cyan(event.part.toolName)} output hidden; pass --verbose to stream it`,
+					return renderAgentLine(
+						event.agentId,
+						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} output hidden; pass --verbose to stream it`,
 					)
 				}
 
-				return renderLine(
-					`${label(ansi, 'tool')} ${ansi.cyan(event.part.toolName)} ${truncate(safeStringify(event.part.payload), verbose ? 2000 : 300)}`,
+				return renderAgentLine(
+					event.agentId,
+					`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(safeStringify(payload), verbose ? 2000 : 300)}`,
 				)
 			}
 		}
@@ -387,7 +511,13 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const renderFinish = (entry: AgentFinishedLogEntry): Effect.Effect<void> => {
 		const printedText = agentsWithText.has(entry.agentId)
 		const color = outcomeColor(ansi, entry.outcome)
-		const result = entry.resultText === null || printedText ? Effect.void : renderLine(entry.resultText)
+		const tag = tagFor(entry.agentId)
+		const result =
+			entry.resultText === null || printedText
+				? Effect.void
+				: tag === null
+					? renderLine(entry.resultText)
+					: renderAgentLine(entry.agentId, entry.resultText)
 		const usage = latestUsage.get(entry.agentId)
 		const resumeModel = usage?.model ?? agentModels.get(entry.agentId) ?? headerModel
 		agentsWithText.delete(entry.agentId)
@@ -398,9 +528,9 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			Effect.andThen(newlineIfOpen()),
 			Effect.andThen(
 				writeStdout(
-					`${label(ansi, 'done')} ${color(entry.outcome)} session=${currentSessionId ?? 'unknown'} agent=${entry.agentId} outcome=${entry.outcome}${
-						entry.reason === null ? '' : ` reason=${entry.reason}`
-					}\n\n`,
+					`${tag === null ? '' : `${tag} `}${label(ansi, 'done')} ${color(entry.outcome)} session=${currentSessionId ?? 'unknown'} agent=${
+						tag === null ? entry.agentId : displayAgentId(entry.agentId)
+					} outcome=${entry.outcome}${entry.reason === null ? '' : ` reason=${entry.reason}`}\n\n`,
 				),
 			),
 			Effect.andThen(

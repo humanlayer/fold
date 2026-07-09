@@ -14,6 +14,7 @@ import {
 	defineSubagent,
 	defineTool,
 	renderSubagentResult,
+	shortAgentId,
 	startSession,
 	Subagents,
 	subagentTool,
@@ -159,7 +160,7 @@ it.effect('resumes a completed subagent: no new agent_started, rows under the re
 
 		// The resumed result reports per-run and lifetime turns.
 		const rendered = renderedDriveResult(entries, 1)
-		expect(rendered).toContain(`agent_id: ${started.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(started.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (2 total)')
 		expect(rendered).toContain('resumed findings')
 	}).pipe(Effect.scoped),
@@ -195,7 +196,7 @@ it.effect('a subagent that errored is a result and remains resumable (model fail
 
 		// The dispatcher's rendered result names the id, the error, and the resume guidance.
 		const rendered = renderedDriveResult(afterDispatch, 0)
-		expect(rendered).toContain(`agent_id: ${started.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(started.agentId)}`)
 		expect(rendered).toContain('finished with an error')
 		expect(rendered).toContain('you may resume it')
 
@@ -258,7 +259,7 @@ it.effect('a subagent that died from a defect is flattened into an error result 
 
 		// Flattened at the Subagents seam: a normal rendered result, not a generic tool failure.
 		const rendered = renderedDriveResult(afterDispatch, 0)
-		expect(rendered).toContain(`agent_id: ${started.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(started.agentId)}`)
 		expect(rendered).toContain('finished with an error')
 		expect(rendered).toContain('explode-once')
 

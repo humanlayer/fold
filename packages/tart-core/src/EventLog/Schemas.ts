@@ -45,8 +45,20 @@ export const ReasoningLevel = Schema.Literals(['off', 'minimal', 'low', 'medium'
 })
 export type ReasoningLevel = typeof ReasoningLevel.Type
 
-/** OpenAI Responses API reasoning effort after catalog validation/mapping. */
-export const OpenAiReasoningEffort = Schema.Literals(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).annotate({
+/**
+ * OpenAI Responses API reasoning effort after catalog validation/mapping. The full wire scale,
+ * including `max` (gpt-5.6 family); which levels a given model actually supports is catalog data
+ * validated at the AgentModels seam (D23/D25), not narrowed here.
+ */
+export const OpenAiReasoningEffort = Schema.Literals([
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+]).annotate({
 	identifier: 'OpenAiReasoningEffort',
 })
 export type OpenAiReasoningEffort = typeof OpenAiReasoningEffort.Type

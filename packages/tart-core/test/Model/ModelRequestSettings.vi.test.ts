@@ -42,6 +42,15 @@ const codexModel: ActiveModel = {
 	reasoning: { _tag: 'effort', effort: 'high', summary: 'auto' },
 }
 
+const codexMaxModel: ActiveModel = {
+	providerId: 'codex',
+	providerKind: 'codex',
+	modelId: 'gpt-5.6-sol',
+	role: null,
+	requestedReasoningLevel: 'max',
+	reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
+}
+
 const claudeAdaptiveModel: ActiveModel = {
 	providerId: 'anthropic',
 	providerKind: 'anthropic',
@@ -69,11 +78,12 @@ const haikuBudgetModel: ActiveModel = {
 	thinking: { _tag: 'budget', budgetTokens: 8192 },
 }
 
-it('resolves reasoning levels onto the OpenAI effort scale with off disabled and max clamped', () => {
+it('resolves reasoning levels onto the OpenAI effort scale with off disabled and max passed through', () => {
 	expect(resolveOpenAiReasoning('off')).toEqual({ _tag: 'disabled' })
 	expect(resolveOpenAiReasoning('low')).toEqual({ _tag: 'effort', effort: 'low' })
-	expect(resolveOpenAiReasoning('max')).toEqual({ _tag: 'effort', effort: 'xhigh' })
+	expect(resolveOpenAiReasoning('max')).toEqual({ _tag: 'effort', effort: 'max' })
 	expect(resolveCodexReasoning('medium')).toEqual({ _tag: 'effort', effort: 'medium', summary: 'auto' })
+	expect(resolveCodexReasoning('max')).toEqual({ _tag: 'effort', effort: 'max', summary: 'auto' })
 	expect(resolveCodexReasoning('off')).toEqual({ _tag: 'disabled' })
 })
 
@@ -123,11 +133,11 @@ it.effect('re-derives the setting from the projected level after a thinking-chan
 	}),
 )
 
-it.effect('clamps max to xhigh when re-deriving', () =>
+it.effect('passes max through to the provider config when re-deriving', () =>
 	Effect.gen(function* () {
 		const configs = yield* observedConfigs({ model: openAiMediumModel, reasoningLevel: 'max' })
 
-		expect(configs.openai?.reasoning).toEqual({ effort: 'xhigh' })
+		expect(configs.openai).toEqual({ model: 'gpt-5.5', reasoning: { effort: 'max' } })
 	}),
 )
 
@@ -146,6 +156,17 @@ it.effect('provides codex reasoning with auto summaries', () =>
 		expect(configs.openai).toEqual({
 			model: 'gpt-5.5',
 			reasoning: { effort: 'high', summary: 'auto' },
+		})
+	}),
+)
+
+it.effect('carries max effort with auto summaries into the codex provider config', () =>
+	Effect.gen(function* () {
+		const configs = yield* observedConfigs({ model: codexMaxModel, reasoningLevel: 'max' })
+
+		expect(configs.openai).toEqual({
+			model: 'gpt-5.6-sol',
+			reasoning: { effort: 'max', summary: 'auto' },
 		})
 	}),
 )

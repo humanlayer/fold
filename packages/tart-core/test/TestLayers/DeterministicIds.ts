@@ -6,7 +6,10 @@ export type DeterministicIdsOptions = {
 	readonly start?: number
 }
 
-const deterministicCuid = (index: number) => `a${String(index).padStart(23, '0')}`
+// Counter-LEADING layout: short-id truncation keeps the first 8 characters of the cuid segment, so the
+// uniquifying counter must live at the head (`a0000001...`), never in the tail of a zero-padded string
+// where every deterministic id would collapse onto one short id.
+const deterministicCuid = (index: number) => `a${String(index).padStart(7, '0')}`.padEnd(24, '0')
 
 const nextId = <A>(counter: Ref.Ref<number>, prefix: string, make: (id: string) => A): Effect.Effect<A> =>
 	Ref.modify(counter, (index) => [make(`${prefix}_${deterministicCuid(index)}`), index + 1])

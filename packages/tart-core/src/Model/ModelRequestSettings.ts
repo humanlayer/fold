@@ -21,17 +21,20 @@ import type {
 
 /**
  * Map one reasoning level onto the OpenAI effort scale. `off` disables reasoning config entirely
- * (provider default applies); `max` clamps to `xhigh` (D23 clamp precedent - pi clamps unsupported
- * levels down). Per-model level validation arrives with the ModelCatalog (D23).
+ * (provider default applies); every other level passes straight through - the wire scale includes
+ * `max` (gpt-5.6 family), and levels a model does not support are rejected per-model by catalog
+ * validation at config time (D23/D25). Direct-SDK callers bypass that validation and own the 400 risk.
  */
 export const resolveOpenAiReasoning = (level: ReasoningLevel): OpenAiReasoningSetting =>
-	level === 'off' ? { _tag: 'disabled' } : { _tag: 'effort', effort: level === 'max' ? 'xhigh' : level }
+	level === 'off' ? { _tag: 'disabled' } : { _tag: 'effort', effort: level }
 
-/** Map one reasoning level onto codex reasoning; codex always requests auto summaries (D23). */
+/**
+ * Map one reasoning level onto codex reasoning; codex always requests auto summaries (D23). Same
+ * straight pass-through as {@link resolveOpenAiReasoning}: per-model support is catalog data
+ * validated at config time, so no level is clamped here.
+ */
 export const resolveCodexReasoning = (level: ReasoningLevel): CodexReasoningSetting =>
-	level === 'off'
-		? { _tag: 'disabled' }
-		: { _tag: 'effort', effort: level === 'max' ? 'xhigh' : level, summary: 'auto' }
+	level === 'off' ? { _tag: 'disabled' } : { _tag: 'effort', effort: level, summary: 'auto' }
 
 /**
  * Claude models that support adaptive thinking (`thinking: { type: "adaptive" }`): Opus 4.6+,

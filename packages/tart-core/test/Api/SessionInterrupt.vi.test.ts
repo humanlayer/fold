@@ -8,7 +8,14 @@
 import { expect, it } from '@effect/vitest'
 import { Deferred, Effect, Fiber } from 'effect'
 
-import { defineAgent, defineSubagent, startSession, subagentTool, type AssistantMessageLogEntry } from '../../src/index'
+import {
+	defineAgent,
+	defineSubagent,
+	shortAgentId,
+	startSession,
+	subagentTool,
+	type AssistantMessageLogEntry,
+} from '../../src/index'
 import { makeHangOnceModel } from '../Subagents/DriveHarness'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from './ApiTestHelpers'
@@ -112,7 +119,7 @@ it.effect('a targeted subagent interrupt folds into the dispatcher, which keeps 
 
 		const toolResult = entries.find((entry) => entry._tag === 'tool-result')
 		const rendered = JSON.stringify(toolResult)
-		expect(rendered).toContain(`agent_id: ${childStarted.agentId}`)
+		expect(rendered).toContain(`agent_id: ${shortAgentId(childStarted.agentId)}`)
 		expect(rendered).toContain('This subagent was interrupted')
 		expect(rendered).not.toContain('The user interrupted the execution of this tool call.')
 	}).pipe(Effect.scoped),

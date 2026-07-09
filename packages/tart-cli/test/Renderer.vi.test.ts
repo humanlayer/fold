@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
-import { AgentId, MessageId, SessionId } from '@humanlayer/tart-core'
-import type { ModelCatalogEntry, UsageEncoded } from '@humanlayer/tart-core'
+import { AgentId, MessageId, SessionId, ToolCallId } from '@humanlayer/tart-core'
+import type { ActiveModel, ModelCatalogEntry, UsageEncoded } from '@humanlayer/tart-core'
 import { Effect } from 'effect'
 
 import { makeOutputRenderer, responseCostUsd } from '../src/index'
@@ -169,6 +169,160 @@ it.effect('with a catalog entry the usage table shows a real cost and the catalo
 		expect(output).toContain('$0.0008')
 		// Context: the catalog's 32k window replaces the pattern-table fallback as the denominator.
 		expect(output).toContain('110/32,000 (0%)')
+	}),
+)
+
+it.effect('tags every subagent line with its bracket label and keeps interleaved streams attributed', () =>
+	Effect.gen(function* () {
+		const chunks: Array<string> = []
+		const renderer = makeOutputRenderer({
+			colors: false,
+			stdout: (text) =>
+				Effect.sync(() => {
+					chunks.push(text)
+				}),
+		})
+		const sessionId = SessionId.make('sess_cccccccccccccccccccccccc')
+		const rootId = AgentId.make('agent_cccccccccccccccccccccccc')
+		const subId = AgentId.make(`agent_ab12cd34${'0'.repeat(16)}`)
+		const toolCallId = ToolCallId.make('tool_call_cccccccccccccccccccccccc')
+		const messageId = MessageId.make('msg_cccccccccccccccccccccccc')
+		const rootModel: ActiveModel = {
+			providerId: 'openai',
+			providerKind: 'openai-compatible',
+			modelId: 'gpt-test',
+			role: null,
+			requestedReasoningLevel: 'off',
+			reasoning: { _tag: 'disabled' },
+		}
+		const tag = '[researcher·ab12]'
+
+		yield* renderer.renderHeader({
+			sessionId,
+			cwd: '/tmp/project',
+			logPath: '/tmp/tart/sessions/p/sess.jsonl',
+			mode: 'new',
+			model: rootModel,
+			credential: { _tag: 'found', detail: 'API key resolved for provider "openai"' },
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'agent_started',
+				seq: 1,
+				ts: 1,
+				agentId: rootId,
+				parentAgentId: null,
+				toolCallId: null,
+				mode: 'fresh',
+				model: rootModel,
+				tools: ['subagent'],
+				skill: null,
+				fork: null,
+				agentType: null,
+			},
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'agent_started',
+				seq: 2,
+				ts: 1,
+				agentId: subId,
+				parentAgentId: rootId,
+				toolCallId,
+				mode: 'fresh',
+				model: rootModel,
+				tools: [],
+				skill: null,
+				fork: null,
+				agentType: 'researcher',
+			},
+		})
+
+		// Interleaved streaming: the root opens its stream, then the subagent takes over mid-line.
+		yield* renderer.renderEvent({
+			kind: 'delta',
+			agentId: rootId,
+			parentAgentId: null,
+			toolCallId: null,
+			part: { type: 'text-delta', id: 'd1', delta: 'root streaming' },
+		})
+		yield* renderer.renderEvent({
+			kind: 'delta',
+			agentId: subId,
+			parentAgentId: rootId,
+			toolCallId,
+			part: { type: 'text-delta', id: 'd2', delta: 'sub line one\nsub line two' },
+		})
+
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'tool-result',
+				seq: 3,
+				ts: 1,
+				agentId: subId,
+				parentAgentId: rootId,
+				toolCallId,
+				messageId,
+				message: {
+					role: 'tool',
+					content: [
+						{
+							type: 'tool-result',
+							id: toolCallId,
+							name: 'echo',
+							result: { echoed: 'hi' },
+							isFailure: false,
+						},
+					],
+				},
+			},
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'assistant-message',
+				seq: 4,
+				ts: 1,
+				agentId: subId,
+				parentAgentId: rootId,
+				toolCallId,
+				messageId,
+				message: { options: {}, role: 'assistant', content: 'sub line one\nsub line two' },
+				finish: null,
+			},
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'agent-finished',
+				seq: 5,
+				ts: 1,
+				agentId: subId,
+				parentAgentId: rootId,
+				toolCallId,
+				outcome: 'completed',
+				resultText: 'sub line one\nsub line two',
+				reason: null,
+			},
+		})
+
+		const output = chunks.join('')
+		// The start line shows the short id (the /steer//send target) under the subagent's tag.
+		expect(output).toContain(`${tag} [subagent] agent_ab12 `)
+		// Interleaving: a dim one-line transition marker announces the stream source change.
+		expect(output).toContain(`--- ${tag} ---`)
+		// The subagent's streamed label line and every flushed line carry the tag.
+		expect(output).toContain(`${tag} [assistant] sub line one`)
+		expect(output).toContain(`\n${tag} sub line two`)
+		// Tool results and the finish line are tagged; the finish line uses the short id.
+		expect(output).toContain(`${tag} [tool] result ${toolCallId}`)
+		expect(output).toContain(`${tag} [done] completed session=${sessionId} agent=agent_ab12 `)
+		// Root output stays untagged.
+		expect(output).toContain('[assistant] root streaming')
+		expect(output).not.toContain(`${tag} [assistant] root streaming`)
 	}),
 )
 

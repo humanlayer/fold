@@ -12,7 +12,7 @@ import { expect, it } from '@effect/vitest'
 import type { ModelCatalogEntry } from '@humanlayer/tart-core'
 import { Effect } from 'effect'
 
-import { agentModelsFromConfig, parseTartConfig } from '../../src/index'
+import { agentModelsFromConfig, bakedModelCatalog, parseTartConfig } from '../../src/index'
 
 const configText = `{
 	"providers": {
@@ -213,5 +213,117 @@ it.effect('a catalog-listed effort level resolves cleanly', () =>
 
 		const model = yield* models.resolve('smart')
 		expect(model.activeModel.requestedReasoningLevel).toBe('max')
+	}),
+)
+
+// --- gpt-5.6 family `max` support against the shipped baked catalog (D23) -----------------------------
+
+const gpt56ConfigText = (smartModel: string): string => `{
+	"providers": {
+		"codex": { "kind": "codex" },
+		"openai": { "kind": "openai-compat", "apiKey": "sk-inline" }
+	},
+	"roles": {
+		"smart": { "provider": "codex", "model": "${smartModel}", "reasoning": "max" },
+		"fast": { "provider": "openai", "model": "gpt-5.6-luna", "reasoning": "max" }
+	}
+}`
+
+it.effect("a codex binding for gpt-5.6-sol with reasoning 'max' resolves against the baked catalog", () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(gpt56ConfigText('gpt-5.6-sol'))
+		const models = agentModelsFromConfig(config, { env: env({}), catalog: bakedModelCatalog })
+
+		const model = yield* models.resolve('smart')
+		expect(model.activeModel.modelId).toBe('gpt-5.6-sol')
+		expect(model.activeModel.requestedReasoningLevel).toBe('max')
+	}),
+)
+
+it.effect("an openai-compat binding for gpt-5.6-luna with reasoning 'max' resolves against the baked catalog", () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(gpt56ConfigText('gpt-5.6-sol'))
+		const models = agentModelsFromConfig(config, { env: env({}), catalog: bakedModelCatalog })
+
+		const model = yield* models.resolve('fast')
+		expect(model.activeModel.providerKind).toBe('openai-compatible')
+		expect(model.activeModel.modelId).toBe('gpt-5.6-luna')
+		expect(model.activeModel.requestedReasoningLevel).toBe('max')
+	}),
+)
+
+it.effect("gpt-5.5 with reasoning 'max' fails RoleResolutionError naming its supported levels", () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(gpt56ConfigText('gpt-5.5'))
+		const models = agentModelsFromConfig(config, { env: env({}), catalog: bakedModelCatalog })
+
+		const error = yield* models.resolve('smart').pipe(Effect.flip)
+		expect(error._tag).toBe('RoleResolutionError')
+		expect(error.message).toContain('gpt-5.5')
+		expect(error.message).toContain('"max"')
+		expect(error.message).toContain('none, low, medium, high, xhigh')
+	}),
+)
+
+// --- per-provider-kind model defaults ------------------------------------------------------------------
+
+const defaultsConfigText = `{
+	"providers": {
+		"codex": { "kind": "codex" },
+		"anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+		"openai": { "kind": "openai-compat", "apiKey": "sk-inline" }
+	},
+	"roles": {
+		"smart": { "provider": "codex", "reasoning": "max" },
+		"fast": { "provider": "anthropic" },
+		"orchestrator": { "provider": "openai" }
+	}
+}`
+
+it.effect('a codex binding without a model resolves to the gpt-5.6-sol default', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(defaultsConfigText)
+		const models = agentModelsFromConfig(config, {
+			env: env({ ANTHROPIC_API_KEY: 'sk-live' }),
+			catalog: bakedModelCatalog,
+		})
+
+		const model = yield* models.resolve('smart')
+		expect(model.activeModel.providerKind).toBe('codex')
+		expect(model.activeModel.modelId).toBe('gpt-5.6-sol')
+		// Catalog validation ran against the defaulted id: sol supports 'max'.
+		expect(model.activeModel.requestedReasoningLevel).toBe('max')
+	}),
+)
+
+it.effect('an anthropic binding without a model resolves to the claude-opus-4-8 default', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(defaultsConfigText)
+		const models = agentModelsFromConfig(config, {
+			env: env({ ANTHROPIC_API_KEY: 'sk-live' }),
+			catalog: bakedModelCatalog,
+		})
+
+		const model = yield* models.resolve('fast')
+		expect(model.activeModel.providerKind).toBe('anthropic')
+		expect(model.activeModel.modelId).toBe('claude-opus-4-8')
+	}),
+)
+
+it.effect('an openai-compat binding without a model fails with the required-model message', () =>
+	Effect.gen(function* () {
+		const config = yield* parseTartConfig(defaultsConfigText)
+		const models = agentModelsFromConfig(config, {
+			env: env({ ANTHROPIC_API_KEY: 'sk-live' }),
+			catalog: bakedModelCatalog,
+		})
+
+		const error = yield* models.resolve('orchestrator').pipe(Effect.flip)
+		expect(error._tag).toBe('RoleResolutionError')
+		expect(error.role).toBe('orchestrator')
+		expect(error.message).toContain('without a model')
+		expect(error.message).toContain('codex → gpt-5.6-sol')
+		expect(error.message).toContain('anthropic → claude-opus-4-8')
+		expect(error.message).toContain('required for openai-compat')
 	}),
 )
