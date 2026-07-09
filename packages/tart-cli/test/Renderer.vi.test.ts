@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { AgentId, SessionId } from '@humanlayer/tart-core'
+import { AgentId, MessageId, SessionId } from '@humanlayer/tart-core'
 import { Effect } from 'effect'
 
 import { makeOutputRenderer } from '../src/index'
@@ -16,6 +16,7 @@ it.effect('renders the session id in the header and finish line', () =>
 		})
 		const sessionId = SessionId.make('sess_aaaaaaaaaaaaaaaaaaaaaaaa')
 		const agentId = AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+		const messageId = MessageId.make('msg_aaaaaaaaaaaaaaaaaaaaaaaa')
 
 		yield* renderer.renderHeader({
 			sessionId,
@@ -31,6 +32,26 @@ it.effect('renders the session id in the header and finish line', () =>
 				reasoning: { _tag: 'disabled' },
 			},
 			credential: { _tag: 'found', detail: 'API key resolved for provider "openai"' },
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'assistant-message',
+				seq: 2,
+				ts: 1,
+				agentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId,
+				message: { options: {}, role: 'assistant', content: 'done text' },
+				finish: {
+					reason: 'stop',
+					usage: {
+						inputTokens: { uncached: 100, total: 100, cacheRead: 0, cacheWrite: undefined },
+						outputTokens: { total: 10, text: 10, reasoning: 0 },
+					},
+				},
+			},
 		})
 		yield* renderer.renderFinish({
 			_tag: 'agent-finished',
@@ -48,8 +69,10 @@ it.effect('renders the session id in the header and finish line', () =>
 		expect(output).toContain(sessionId)
 		expect(output).toContain(`session=${sessionId}`)
 		expect(output).toContain(`agent=${agentId}`)
+		expect(output).toContain(`resume tart --resume ${sessionId} --provider openai --model gpt-test --role smart`)
 		expect(output).toContain('model openai/gpt-test')
 		expect(output).toContain('credential found')
 		expect(output).toContain('done text')
+		expect(output).toContain('       0       --')
 	}),
 )

@@ -53,6 +53,7 @@ export type OutputRenderer = {
 	readonly renderHeader: (header: SessionHeader) => Effect.Effect<void>
 	readonly renderEvent: (event: TartEvent) => Effect.Effect<void>
 	readonly renderFinish: (entry: AgentFinishedLogEntry) => Effect.Effect<void>
+	readonly renderResumeCommand: Effect.Effect<void>
 	readonly renderNote: (message: string) => Effect.Effect<void>
 	readonly renderError: (message: string) => Effect.Effect<void>
 	readonly prompt: Effect.Effect<string>
@@ -113,11 +114,18 @@ const shortModelId = (modelId: string): string => modelId.split('/').at(-1) ?? m
 
 const formatInt = (value: number): string => value.toLocaleString('en-US')
 
+const shellQuote = (value: string): string => {
+	if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value
+	return `'${value.replaceAll("'", "'\\''")}'`
+}
+
 const inputUncached = (usage: UsageEncoded): number => usage.inputTokens.uncached ?? usage.inputTokens.total ?? 0
 const inputTotal = (usage: UsageEncoded): number => usage.inputTokens.total ?? inputUncached(usage)
-const cacheRead = (usage: UsageEncoded): number => usage.inputTokens.cacheRead ?? 0
-const cacheWrite = (usage: UsageEncoded): number => usage.inputTokens.cacheWrite ?? 0
+const cacheRead = (usage: UsageEncoded): number | undefined => usage.inputTokens.cacheRead
+const cacheWrite = (usage: UsageEncoded): number | undefined => usage.inputTokens.cacheWrite
 const outputTotal = (usage: UsageEncoded): number => usage.outputTokens.total ?? 0
+
+const formatMaybeInt = (value: number | undefined): string => (value === undefined ? '--' : formatInt(value))
 
 const contextText = (usage: UsageEncoded, model: ActiveModel | null): string => {
 	const used = inputTotal(usage) + outputTotal(usage)
@@ -136,10 +144,22 @@ const usageTable = (ansi: AnsiPalette, usage: UsageEncoded, model: ActiveModel |
 		`${'CacheW'.padStart(8)} ${'Output'.padStart(8)} ${'Cost'.padStart(8)} ${'Context'.padStart(20)}`
 	const row =
 		`  ${displayModel.padEnd(modelWidth)} ${formatInt(inputUncached(usage)).padStart(8)} ` +
-		`${formatInt(cacheRead(usage)).padStart(8)} ${formatInt(cacheWrite(usage)).padStart(8)} ` +
+		`${formatMaybeInt(cacheRead(usage)).padStart(8)} ${formatMaybeInt(cacheWrite(usage)).padStart(8)} ` +
 		`${formatInt(outputTotal(usage)).padStart(8)} ${'--'.padStart(8)} ${contextText(usage, model).padStart(20)}`
 
-	return `\n${ansi.dim(header)}\n${row}\n\n`
+	return `${ansi.dim(header)}\n${row}`
+}
+
+const resumeCommand = (sessionId: SessionId, model: ActiveModel | null): string => {
+	const flags = [`--resume ${shellQuote(sessionId)}`]
+	if (model !== null) {
+		flags.push(`--provider ${shellQuote(model.providerId)}`)
+		flags.push(`--model ${shellQuote(model.modelId)}`)
+		if (model.role !== null && model.role !== 'inherit') flags.push(`--role ${shellQuote(model.role)}`)
+		if (model.requestedReasoningLevel !== 'off') flags.push(`--reasoning ${shellQuote(model.requestedReasoningLevel)}`)
+	}
+
+	return `tart ${flags.join(' ')}`
 }
 
 const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome']): ((text: string) => string) => {
@@ -169,6 +189,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const latestUsage = new Map<string, { readonly usage: UsageEncoded; readonly model: ActiveModel | null }>()
 	let currentSessionId: SessionId | null = null
 	let headerModel: ActiveModel | null = null
+	let rootAgentId: string | null = null
 	let lineOpen = false
 
 	const writeStdout = (text: string): Effect.Effect<void> =>
@@ -183,6 +204,8 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const writeStderr = (text: string): Effect.Effect<void> => stderr(text)
 
 	const newlineIfOpen = (): Effect.Effect<void> => (lineOpen ? writeStdout('\n') : Effect.void)
+	const currentResumeModel = (): ActiveModel | null =>
+		rootAgentId === null ? headerModel : (agentModels.get(rootAgentId) ?? headerModel)
 
 	const renderLine = (text: string): Effect.Effect<void> =>
 		newlineIfOpen().pipe(Effect.andThen(writeStdout(`${text}\n`)))
@@ -217,6 +240,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 
 			case 'agent_started':
 				agentModels.set(entry.agentId, entry.model)
+				if (entry.parentAgentId === null) rootAgentId = entry.agentId
 				return renderLine(
 					`${label(ansi, entry.parentAgentId === null ? 'agent' : 'subagent')} ${modelName(entry)}`,
 				)
@@ -314,6 +338,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 		const color = outcomeColor(ansi, entry.outcome)
 		const result = entry.resultText === null || printedText ? Effect.void : renderLine(entry.resultText)
 		const usage = latestUsage.get(entry.agentId)
+		const resumeModel = usage?.model ?? agentModels.get(entry.agentId) ?? headerModel
 		agentsWithText.delete(entry.agentId)
 		streamedAssistantText.delete(entry.agentId)
 		assistantLabelOpen.delete(entry.agentId)
@@ -324,10 +349,15 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 				writeStdout(
 					`${label(ansi, 'done')} ${color(entry.outcome)} session=${currentSessionId ?? 'unknown'} agent=${entry.agentId} outcome=${entry.outcome}${
 						entry.reason === null ? '' : ` reason=${entry.reason}`
-					}\n`,
+					}\n\n`,
 				),
 			),
-			Effect.andThen(usage === undefined ? Effect.void : writeStdout(usageTable(ansi, usage.usage, usage.model))),
+			Effect.andThen(
+				currentSessionId === null
+					? Effect.void
+					: writeStdout(`${ansi.dim('resume')} ${resumeCommand(currentSessionId, resumeModel)}\n\n`),
+			),
+			Effect.andThen(usage === undefined ? Effect.void : writeStdout(`${usageTable(ansi, usage.usage, usage.model)}\n\n`)),
 		)
 	}
 
@@ -349,6 +379,15 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			),
 		renderEvent,
 		renderFinish,
+		renderResumeCommand: Effect.suspend(() =>
+			currentSessionId === null
+				? Effect.void
+				: newlineIfOpen().pipe(
+						Effect.andThen(
+							writeStdout(`\n${ansi.dim('resume')} ${resumeCommand(currentSessionId, currentResumeModel())}\n\n`),
+						),
+					),
+		),
 		renderNote: (message) => writeStdout(`${ansi.dim(message)}\n`),
 		renderError: (message) => writeStderr(`${ansi.red('error:')} ${message}\n`),
 		prompt: Effect.succeed(`${ansi.green('tart')} ${ansi.dim('>')} `),

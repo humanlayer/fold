@@ -44,6 +44,12 @@ export const runInteractive = (
 				const context = yield* Effect.context<never>()
 				let closed = false
 				let running = false
+				let printedResumeCommand = false
+				const renderResumeCommandOnce = (): Effect.Effect<void> => {
+					if (printedResumeCommand) return Effect.void
+					printedResumeCommand = true
+					return renderer.renderResumeCommand
+				}
 
 				rl.on('close', () => {
 					closed = true
@@ -67,11 +73,17 @@ export const runInteractive = (
 				while (!closed) {
 					const prompt = yield* renderer.prompt
 					const line = yield* ask(rl, prompt)
-					if (line === null) return
+					if (line === null) {
+						yield* renderResumeCommandOnce()
+						return
+					}
 
 					const trimmed = line.trim()
 					if (trimmed.length === 0) continue
-					if (exitCommands.has(trimmed)) return
+					if (exitCommands.has(trimmed)) {
+						yield* renderResumeCommandOnce()
+						return
+					}
 
 					running = true
 					const finished = yield* session.send(trimmed).pipe(
