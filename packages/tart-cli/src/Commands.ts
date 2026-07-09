@@ -22,16 +22,34 @@ import { CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
 import { makeOutputRenderer } from './Renderer'
-import { runPrompt, runReadline, type CliSessionOptions } from './Run'
+import { runPrompt, runReadline, type CliSessionOptions, type ResumeTarget } from './Run'
 
 const version = '0.0.0'
 
 const decodeSessionId = Schema.decodeUnknownOption(SessionId)
 
+/** The sentinel `--resume` value selecting the newest session log for the working directory. */
+export const RESUME_LATEST = 'latest'
+
 /** The user supplied a malformed `sess_*` value to `--resume`. */
 export class InvalidSessionIdError extends Schema.TaggedErrorClass<InvalidSessionIdError>()('InvalidSessionIdError', {
 	value: Schema.String,
 }) {}
+
+/**
+ * Parse a `--resume` value: the `latest` sentinel, or an exact `sess_*` id from the current project.
+ * Anything else is a typo, and failing beats silently starting a fresh session (opencode's silent
+ * fallback on an unknown id is the anti-pattern here).
+ */
+export const parseResumeFlag = (raw: string): Effect.Effect<ResumeTarget, InvalidSessionIdError> => {
+	const value = raw.trim()
+	if (value === RESUME_LATEST) return Effect.succeed({ _tag: 'latest' })
+
+	const decoded = decodeSessionId(value)
+	return Option.isSome(decoded)
+		? Effect.succeed({ _tag: 'id', sessionId: decoded.value })
+		: Effect.fail(new InvalidSessionIdError({ value: raw }))
+}
 
 const optionalString = (name: string, description: string) =>
 	Flag.string(name).pipe(Flag.withDescription(description), Flag.optional)
@@ -44,7 +62,7 @@ const optionalChoice = <const Choices extends ReadonlyArray<string>>(
 
 const commonFlags = {
 	prompt: optionalString('prompt', 'Run one non-interactive prompt, then exit'),
-	resume: optionalString('resume', 'Resume a session id from the current project, e.g. sess_...'),
+	resume: optionalString('resume', 'Resume "latest" or an exact session id from the current project, e.g. sess_...'),
 	provider: optionalString('provider', 'Provider profile key from config.providers'),
 	model: optionalString('model', 'Provider model id override for the selected role'),
 	role: optionalChoice('role', ['smart', 'fast', 'orchestrator'] as const, 'Config role to resolve'),
@@ -111,24 +129,17 @@ const modelSelectionFromFlags = (input: {
 			}
 }
 
-const sessionIdFromFlag = (raw: string): Effect.Effect<SessionId, InvalidSessionIdError> => {
-	const decoded = decodeSessionId(raw)
-	return Option.isSome(decoded)
-		? Effect.succeed(decoded.value)
-		: Effect.fail(new InvalidSessionIdError({ value: raw }))
-}
-
 const sessionOptionsFromFlags = (input: CommonFlagValues): Effect.Effect<CliSessionOptions, InvalidSessionIdError> =>
 	Effect.gen(function* () {
-		const resume = optionValue(input.resume)
-		const resumeSessionId = resume === undefined ? undefined : yield* sessionIdFromFlag(resume)
+		const rawResume = optionValue(input.resume)
+		const resume = rawResume === undefined ? undefined : yield* parseResumeFlag(rawResume)
 		const tartHome = optionValue(input.tartHome)
 		const modelSelection = modelSelectionFromFlags(input)
 
 		return {
 			cwd: optionValue(input.cwd) ?? process.cwd(),
 			...(tartHome === undefined ? {} : { tartHome }),
-			...(resumeSessionId === undefined ? {} : { resumeSessionId }),
+			...(resume === undefined ? {} : { resume }),
 			...(modelSelection === undefined ? {} : { modelSelection }),
 		}
 	})
@@ -155,6 +166,7 @@ const run = Command.make('tart', commonFlags, (input) =>
 	Command.withDescription('Run the tart headless coding agent'),
 	Command.withExamples([
 		{ command: 'tart --prompt "fix the lint failure"', description: 'Run one CI-friendly prompt' },
+		{ command: 'tart --resume latest', description: 'Resume the newest session in this project' },
 		{ command: 'tart --resume sess_abc123 --model claude-sonnet-4-5', description: 'Resume by id in this project' },
 	]),
 )
@@ -301,7 +313,8 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 				Effect.sync(() => {
 					process.exitCode = error.errors.length === 0 ? 0 : 1
 				}),
-			InvalidSessionIdError: (error: InvalidSessionIdError) => printFailure(`invalid session id: ${error.value}`),
+			InvalidSessionIdError: (error: InvalidSessionIdError) =>
+				printFailure(`invalid --resume value "${error.value}"; pass "latest" or an exact sess_... id`),
 			ConfigFileNotFoundError: (error) =>
 				printFailure(
 					`config not found at ${error.path}; run tart config init or configure ~/.tart/config.jsonc`,

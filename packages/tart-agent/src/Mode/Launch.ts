@@ -43,6 +43,7 @@ import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
 import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
 import { defaultCodingMode, type TartMode } from './Mode'
+import type { ModeModels } from './Subagents'
 
 /** Failures resolving the primary model for a launch (config load + role resolution). */
 export type LaunchModelError = ConfigFileNotFoundError | ConfigParseError | ConfigDecodeError | RoleResolutionError
@@ -132,13 +133,21 @@ const withSelectedRoleBinding = (config: TartConfig, role: ConfigRole, binding: 
 	},
 })
 
-/** Resolve the primary model: explicit override, else the config role for the mode. */
-const resolvePrimaryModel = (
+/**
+ * Resolve every model the mode binds: the primary (the mode's role, or the caller's selection) plus the
+ * role models its subagents run on (D21 - a subagent's model is explicit configuration, never inherited).
+ * An explicit `model` override bypasses config entirely, so every role collapses onto that one model and
+ * a config-less launch stays possible.
+ */
+const resolveModeModels = (
 	options: LaunchSessionOptions,
 	mode: TartMode,
-): Effect.Effect<TartModel, LaunchModelError> =>
+): Effect.Effect<ModeModels, LaunchModelError> =>
 	Effect.gen(function* () {
-		if (options.model !== undefined) return options.model
+		if (options.model !== undefined) {
+			const model = options.model
+			return { primary: model, smart: model, fast: model, orchestrator: model }
+		}
 
 		const selection = options.modelSelection ?? {}
 		const role = selection.role ?? mode.role
@@ -150,14 +159,20 @@ const resolvePrimaryModel = (
 				? config
 				: withSelectedRoleBinding(config, role, selectedBinding(roleBindingFor(config, role), selection))
 		const models = agentModelsFromConfig(selectedConfig, options.env === undefined ? {} : { env: options.env })
-		return yield* models.resolve(role)
+
+		return {
+			primary: yield* models.resolve(role),
+			smart: yield* models.resolve('smart'),
+			fast: yield* models.resolve('fast'),
+			orchestrator: yield* models.resolve('orchestrator'),
+		}
 	})
 
 /** Assemble the agent definition: mode prompt + agentfiles as leading blocks, mode + extra tools. */
 const buildAgentDefinition = (
 	options: LaunchSessionOptions,
 	mode: TartMode,
-	model: TartModel,
+	models: ModeModels,
 	cwd: string,
 ): Effect.Effect<AgentDefinition> =>
 	Effect.gen(function* () {
@@ -165,7 +180,7 @@ const buildAgentDefinition = (
 			cwd,
 			...(options.home === undefined ? {} : { home: options.home }),
 		})
-		const tools = [...mode.buildTools({ cwd }), ...(options.extraTools ?? [])]
+		const tools = [...mode.buildTools({ cwd, models }), ...(options.extraTools ?? [])]
 		const blocks = [
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
 			...(memoryBlock === null ? [] : [memoryBlock]),
@@ -173,7 +188,7 @@ const buildAgentDefinition = (
 
 		return defineAgent({
 			name: options.name ?? mode.name,
-			model,
+			model: models.primary,
 			tools,
 			...(blocks.length === 0 ? {} : { systemPrompt: blocks }),
 			...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
@@ -192,8 +207,8 @@ export const launchSession = (
 		const mode = opts.mode ?? defaultCodingMode
 		const cwd = opts.cwd ?? process.cwd()
 
-		const model = yield* resolvePrimaryModel(opts, mode)
-		const agent = yield* buildAgentDefinition(opts, mode, model, cwd)
+		const models = yield* resolveModeModels(opts, mode)
+		const agent = yield* buildAgentDefinition(opts, mode, models, cwd)
 
 		const prepared = yield* prepareSessionLog({
 			cwd,
@@ -216,8 +231,8 @@ const resumeFromLog = (
 	cwd: string,
 ): Effect.Effect<TartSession, LaunchModelError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const model = yield* resolvePrimaryModel(options, mode)
-		const agent = yield* buildAgentDefinition(options, mode, model, cwd)
+		const models = yield* resolveModeModels(options, mode)
+		const agent = yield* buildAgentDefinition(options, mode, models, cwd)
 
 		return yield* resumeSession({
 			agent,

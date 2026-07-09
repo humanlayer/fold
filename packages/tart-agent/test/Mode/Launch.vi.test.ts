@@ -105,6 +105,7 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 				expect(tools).toContain('read')
 				expect(tools).toContain('bash')
 				expect(tools).toContain('skill')
+				expect(tools).toContain('subagent')
 			}),
 		)
 	}),

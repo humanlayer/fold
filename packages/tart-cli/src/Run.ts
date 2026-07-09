@@ -1,9 +1,11 @@
 import {
 	launchSession,
+	resumeLatestSession,
 	resumeSessionById,
 	sessionLogPathFor,
 	type LaunchModelError,
 	type ModelSelection,
+	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
 } from '@humanlayer/tart-agent'
 import { makeCodexAuthStore } from '@humanlayer/tart-codex'
@@ -13,12 +15,18 @@ import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'e
 import { runInteractive } from './Readline'
 import type { CredentialSummary, OutputRenderer, SessionHeader } from './Renderer'
 
+/**
+ * What `--resume` selected: the newest session log for this project, or one exact id. Absent means a
+ * fresh session.
+ */
+export type ResumeTarget = { readonly _tag: 'latest' } | { readonly _tag: 'id'; readonly sessionId: SessionId }
+
 /** Shared options for opening a CLI-backed tart session. */
 export type CliSessionOptions = {
 	readonly cwd: string
 	readonly tartHome?: string
 	readonly modelSelection?: ModelSelection
-	readonly resumeSessionId?: SessionId
+	readonly resume?: ResumeTarget
 }
 
 /** Options for one non-interactive `--prompt` run. */
@@ -35,7 +43,7 @@ type OpenedSession = {
 	readonly logPath: string
 }
 
-type OpenSessionError = LaunchModelError | SessionToResumeNotFoundError
+type OpenSessionError = LaunchModelError | SessionToResumeNotFoundError | NoSessionToResumeError
 
 const launchOptions = (options: CliSessionOptions) => ({
 	cwd: options.cwd,
@@ -43,12 +51,18 @@ const launchOptions = (options: CliSessionOptions) => ({
 	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
 })
 
+/** Start fresh, resume the project's newest log, or adopt one exact session id. */
+const openSessionFor = (options: CliSessionOptions): Effect.Effect<TartSession, OpenSessionError, Scope.Scope> => {
+	if (options.resume === undefined) return launchSession(launchOptions(options))
+
+	return options.resume._tag === 'latest'
+		? resumeLatestSession(launchOptions(options))
+		: resumeSessionById(options.resume.sessionId, launchOptions(options))
+}
+
 const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const session =
-			options.resumeSessionId === undefined
-				? yield* launchSession(launchOptions(options))
-				: yield* resumeSessionById(options.resumeSessionId, launchOptions(options))
+		const session = yield* openSessionFor(options)
 		const logPath = sessionLogPathFor(session.sessionId, {
 			cwd: options.cwd,
 			...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
@@ -57,7 +71,7 @@ const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, O
 		return {
 			session,
 			logPath,
-			mode: options.resumeSessionId === undefined ? 'new' : 'resumed',
+			mode: options.resume === undefined ? 'new' : 'resumed',
 		}
 	})
 

@@ -5,19 +5,23 @@
  * running `TartSession` over tart-core's `startSession`/`resumeSession`.
  *
  * `defaultCodingMode` is the batteries-included local coding agent: the full filesystem toolset (read,
- * write, edit, apply_patch, bash - the family policy advertises the right editing subset per model) plus
- * the disk skill tool. RLM/RPI modes are a later slice; they are just other `TartMode` values.
+ * write, edit, apply_patch, bash - the family policy advertises the right editing subset per model),
+ * the disk skill tool, and the default subagent roster (general-purpose, bash, researcher - see
+ * Mode/Subagents). RLM/RPI modes are a later slice; they are just other `TartMode` values.
  */
-import { skillTool, type TartTool } from '@humanlayer/tart-core'
+import { skillTool, subagentTool, type TartTool } from '@humanlayer/tart-core'
 
 import type { ConfigRole } from '../Config/ConfigSchema'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { codingTools } from '../Tools/CodingTools'
+import { defaultSubagents, type ModeModels } from './Subagents'
 
 /** Context handed to a mode when it builds its tool roster. */
 export type ModeToolContext = {
 	/** The session working directory (tools resolve relative paths and scan skills against it). */
 	readonly cwd: string
+	/** Models resolved from config roles, for binding the mode's subagents (D21: explicit, never inherited). */
+	readonly models: ModeModels
 }
 
 /** A pre-baked agent composition: primary model role, mode prompt, and tool roster. */
@@ -37,12 +41,19 @@ export const DEFAULT_CODING_PROMPT: string =
 	"You are tart, a headless coding agent working in the user's project directory. " +
 	'Use your tools to inspect and change files, run commands, and accomplish the task. ' +
 	'Prefer reading before editing, make focused changes, and verify your work when you can. ' +
+	'Delegate to a subagent when a step would burn context you need for the main task: researcher for ' +
+	'locating and explaining code, bash for running a command and summarizing its output, and ' +
+	'general-purpose for a self-contained multi-step task. Do simple work yourself. ' +
 	'Keep responses concise; let the tools do the work.'
 
-/** The batteries-included local coding agent: full filesystem toolset plus disk skills. */
+/** The batteries-included local coding agent: full filesystem toolset, disk skills, default subagents. */
 export const defaultCodingMode: TartMode = {
 	name: 'coding',
 	role: 'smart',
 	systemPrompt: DEFAULT_CODING_PROMPT,
-	buildTools: ({ cwd }) => [...codingTools({ cwd }), skillTool(skillsFromDisk({ cwd }))],
+	buildTools: ({ cwd, models }) => [
+		...codingTools({ cwd }),
+		skillTool(skillsFromDisk({ cwd })),
+		subagentTool(defaultSubagents({ cwd, models })),
+	],
 }
