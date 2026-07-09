@@ -1,27 +1,40 @@
+import { useTerminalDimensions } from '@opentui/react'
+
 import type { FxToggles } from '../hud/postfx'
 import { useTheme } from '../theme/index'
 import { KeyHint } from './atoms'
 
+/** Below this the FX block drops its names and shows just `B:ON S:ON …`. */
+const VERBOSE_WIDTH = 120
+
 /**
- * `B:ON` when the theme declares the pass and the toggle permits it, `B:OFF` when
- * the toggle is off, and `B:--` when this theme has no such effect at all
- * (AUGMENTED has no vignette and no rolling bar). Printing `ON` for a pass that
- * cannot run would make the readout lie.
+ * `B GLOW:ON` — key, what it does, and whether it is running. The name is what
+ * makes the key discoverable; without it the row is a line of initials and the
+ * only way to learn that `r` drives the CRT bar is to read the source.
+ *
+ * A pass the active theme never declares renders wholly faint as `--`. Printing
+ * `ON` for an effect that cannot run would make the readout lie.
  */
-function Toggle({ label, on, available }: { label: string; on: boolean; available: boolean }) {
+function Toggle({ label, name, on, available }: { label: string; name: string; on: boolean; available: boolean }) {
 	const { color } = useTheme()
+	const { width } = useTerminalDimensions()
+	const verbose = width >= VERBOSE_WIDTH
+
+	const key = verbose ? `${label} ${name}` : label
 
 	if (!available) {
 		return (
 			<text wrapMode="none" fg={color.textFaint}>
-				{`${label}:--`}
+				{`${key}:--`}
 			</text>
 		)
 	}
 
 	return (
 		<text wrapMode="none">
-			<span fg={color.textFaint}>{`${label}:`}</span>
+			<span fg={color.coreBright}>{label}</span>
+			{verbose ? <span fg={color.textFaint}>{` ${name}`}</span> : null}
+			<span fg={color.textFaint}>{':'}</span>
 			<span fg={on ? color.grid : color.textFaint}>{on ? 'ON' : 'OFF'}</span>
 		</text>
 	)
@@ -52,11 +65,11 @@ export function Footer({ toggles }: { toggles: FxToggles }) {
 			<text fg={color.textFaint} wrapMode="none">
 				{'FX//'}
 			</text>
-			<Toggle label="B" on={toggles.glow} available={fx.glow !== undefined} />
-			<Toggle label="S" on={toggles.scanlines} available={fx.scanlines !== undefined} />
-			<Toggle label="G" on={toggles.glitch} available={fx.glitch !== undefined} />
-			<Toggle label="V" on={toggles.vignette} available={fx.vignette !== undefined} />
-			<Toggle label="R" on={toggles.rollingBar} available={fx.crtBar !== undefined} />
+			<Toggle label="B" name="GLOW" on={toggles.glow} available={fx.glow !== undefined} />
+			<Toggle label="S" name="SCAN" on={toggles.scanlines} available={fx.scanlines !== undefined} />
+			<Toggle label="G" name="GLITCH" on={toggles.glitch} available={fx.glitch !== undefined} />
+			<Toggle label="V" name="VIGNETTE" on={toggles.vignette} available={fx.vignette !== undefined} />
+			<Toggle label="R" name="CRT-BAR" on={toggles.rollingBar} available={fx.crtBar !== undefined} />
 		</box>
 	)
 }

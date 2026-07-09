@@ -402,15 +402,24 @@ toggleable anyway.
 
 ### 7.3 Vignette and CRT rolling bar
 
-Both are optional, and in this design they belong to TACTICAL only — they say "you are looking
-_through_ something."
-
-- **Vignette**: darken toward the corners as a function of radial distance from center.
-  Strength `0.7`.
+- **Vignette**: darken toward the corners as a function of radial distance from center. Static,
+  cheap. TACTICAL only (`0.7`) — an optic tunnel belongs to the theme that is looking _through_
+  something.
 - **CRT rolling bar**: a horizontal band that brightens the rows it passes over (cosine falloff
-  from a bright center), scrolling down the screen and wrapping — a mistimed refresh.
-  `height 0.1` (a fraction of screen height), `intensity 0.5` (peak row multiplier `1.5×`),
-  `fadeDistance 0.25` for the soft edges, and **`speed 6`**.
+  from a bright center), scrolling down the screen and wrapping — a mistimed refresh. Both themes
+  carry one, tuned to opposite characters.
+
+|                                   | AUGMENTED              | TACTICAL             |
+| --------------------------------- | ---------------------- | -------------------- |
+| `speed` (rows/sec)                | 9 — a ~6 s sweep       | 6 — a ~9 s sweep     |
+| `height` (of screen)              | 0.06, a thin scan line | 0.1, a fat tube roll |
+| `intensity` (peak row multiplier) | 0.35 → `1.35×`         | 0.5 → `1.5×`         |
+| reads as                          | a system **scanning**  | a tube **failing**   |
+
+The effect multiplies foreground _and_ background. On AUGMENTED's absolute-black canvas there is
+no background to lift, so only the glyphs flare as the sweep passes — which is exactly the "gas
+tubes in dark space" the palette is after. On TACTICAL's murky canvas both lift, and the band
+reads as a physical artifact of the tube.
 
 > **Watch the unit on `speed`.** It is **rows per second**, not a fraction of the screen. The
 > effect advances `position += (deltaMs / 1000) * speed` and wraps at
@@ -420,28 +429,26 @@ _through_ something."
 > moves. This exact mistake made TACTICAL look entirely static, and it survives code review
 > because the number looks perfectly reasonable.
 
-AUGMENTED has neither. Its instability comes from the glitch instead. That single split — _lens
-artifacts_ vs _splice artifacts_ — is the sharpest difference between the two themes. It also
-means the rolling bar is TACTICAL's only _continuous_ motion — the glitch is punctuation, not a
-pulse — so if the bar stops, the theme looks frozen between bursts.
+The bar is each theme's only _continuous_ motion — the glitch is punctuation, not a pulse — so
+if the bar stops, the screen looks frozen between bursts.
 
-> **The rolling bar must be optional, and it should be the first thing you let a user switch
-> off.** It is the only pass that never settles: it animates every frame forever, it is what
-> forces a continuous render loop (§7.5), and in a long-lived application it is the effect that
-> goes from "atmospheric" to "why is my terminal breathing" fastest. It is also an accessibility
-> concern — a brightness band sweeping the screen is exactly the kind of motion a
-> reduced-motion preference exists to suppress.
+> **Ship the bar and the glitch on, but always switchable, and make the key discoverable.** They
+> are what makes the thing feel alive; defaulting them off ships a still image. But the bar is
+> the one pass that never settles — it animates every frame forever, it is what forces a
+> continuous render loop (§7.5), and over a long session it is the first effect to go from
+> "atmospheric" to "why is my terminal breathing." It is also a reduced-motion concern: a
+> brightness band sweeping the screen is exactly the motion such a preference exists to suppress.
 >
-> Give it its own switch, not one shared with the vignette (which is static and cheap). In this
-> package that is the `r` key, independent of `v`; in a product, it should be a per-effect
-> setting that defaults **off**, with the static passes (glow, scanlines, vignette) defaulting on.
-> The same argument applies with less force to the glitch: it is intermittent rather than
-> continuous, but it deliberately mangles text, so it too belongs behind a switch.
+> So: its own switch, never one shared with the static vignette. And **the switch must announce
+> itself** — a footer that reads `B S G V R` teaches nobody that `r` drives the CRT bar. Spell it
+> out (`R CRT-BAR:ON`) and collapse to initials only when the terminal is too narrow. An
+> undiscoverable toggle is the same as no toggle; users conclude the key is broken.
 
 Every pass in the chain is gated twice: the **theme** declares whether an effect exists, and a
 **toggle** decides whether it may run. Both must agree. That is why AUGMENTED's footer reads
-`V:-- R:--` rather than `V:ON R:ON` — it defines no vignette and no bar, and a readout that
-claimed otherwise would be lying.
+`V VIGNETTE:--` — it defines no vignette, and a readout claiming `ON` for a pass that cannot run
+would be lying. It is also the trap: a key bound to a pass the current theme never declares looks
+exactly like a broken key.
 
 ### 7.4 The glitch — including the thing where colors suddenly shift
 

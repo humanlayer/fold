@@ -52,7 +52,7 @@ by a function in `src/github/stats.ts` or a field on `Feed`, it doesn't belong o
 │               │                                      ├──────────────────────────┤
 │               │                                      │ SOURCE     LIVE/FIXTURES │
 ├───────────────┴──────────────────────────────────────┴──────────────────────────┤
-│ ↑↓/jk SELECT   TAB PULLS/ISSUES   T THEME   Q QUIT           FX//  B S G V R     │
+│ ↑↓/jk SELECT  TAB PULLS/ISSUES  T THEME  Q QUIT   FX// B GLOW:ON … R CRT-BAR:ON │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,24 +81,25 @@ cells). RECORD always survives.
 chain — so the comparison is instantaneous. The two are deliberately pulled apart along these
 axes:
 
-| Axis            | AUGMENTED                             | TACTICAL                                           |
-| --------------- | ------------------------------------- | -------------------------------------------------- |
-| Canvas          | absolute black                        | murky brown-black, like a dirty optic              |
-| Neon            | teal **and** laser purple **and** red | amber only; a rare cyan flash; red                 |
-| "Injected" slot | laser purple                          | bright yellow (same system, running hot)           |
-| Frame           | thin `single` border, cool teal       | `heavy` border, burnt orange                       |
-| Heading prefix  | `// `                                 | `[ `                                               |
-| Signature FX    | glow + chromatic-aberration bursts    | vignette + CRT rolling bar + chroma-dropout bursts |
-| Motion          | fast, occasionally unstable           | slow, constant                                     |
+| Axis            | AUGMENTED                              | TACTICAL                                             |
+| --------------- | -------------------------------------- | ---------------------------------------------------- |
+| Canvas          | absolute black                         | murky brown-black, like a dirty optic                |
+| Neon            | teal **and** laser purple **and** red  | amber only; a rare cyan flash; red                   |
+| "Injected" slot | laser purple                           | bright yellow (same system, running hot)             |
+| Frame           | thin `single` border, cool teal        | `heavy` border, burnt orange                         |
+| Heading prefix  | `// `                                  | `[ `                                                 |
+| Signature FX    | glow + chromatic-aberration bursts     | vignette + heavier scanlines + chroma-dropout bursts |
+| Motion          | fast scan sweep, occasionally unstable | slow tube roll, constant                             |
 
 With the reticle gone, the fastest reads are the **border color** (cool teal vs burnt
 orange), the **`semantic` state colors** in STATE and INDEX (MERGED is laser purple in A, a
 rare cyan in B), the **"injected" slot** (purple vs yellow), and the **FX signature**: glow
 plus a glitch burst that momentarily separates the color layers and snaps back in A, versus a
-vignette + CRT rolling bar + denser scanlines in B, whose bursts instead **drop chroma** — the
-whole frame washes toward monochrome and snaps back (`glitch.chromaticAberration` is pinned at
-`0` in tactical and `chromaDropout` carries the corruption: an unstable analog signal, not a
-splice).
+vignette + denser scanlines in B, whose bursts instead **drop chroma** — the whole frame washes
+toward monochrome and snaps back (`glitch.chromaticAberration` is pinned at `0` in tactical and
+`chromaDropout` carries the corruption: an unstable analog signal, not a splice). Both themes
+roll a CRT bar, but A's is a fast thin **scan sweep** over a black void (only glyphs flare) and
+B's a slow fat **tube roll** that lifts the murky canvas with it.
 
 The names carry the intent. **AUGMENTED — "amber substrate // neon graft"** is an old amber
 system hacked with experimental cybernetics: amber carries the structure, electric teal is
@@ -133,10 +134,11 @@ src` matches only the two theme files.)
   present in the theme and enabled by the runtime toggle. It returns a disposer; `App.tsx`
   tears the chain down and rebuilds it whenever the theme or a toggle changes. **Every pass is
   independently switchable**, and a pass runs only when the theme declares it _and_ the toggle
-  permits it — so AUGMENTED, which defines no vignette and no rolling bar, shows `V:-- R:--` in
-  the footer rather than pretending they are on. The scrolling CRT bar has its own switch (`r`)
-  because it is the only pass that animates continuously; treat it as opt-in in any product
-  that embeds this style.
+  permits it — so AUGMENTED, which defines no vignette, shows `V VIGNETTE:--` rather than
+  pretending it is on. Everything ships **on by default**; the footer spells out each key and
+  what it drives, because a toggle nobody can find is a toggle that looks broken. The scrolling
+  CRT bar gets its own switch (`r`), never shared with the static vignette, since it is the only
+  pass that animates continuously.
 - **`semantic` maps GitHub states onto palette slots.** `open`/`closed`/`merged`/`draft` each
   name a color slot; `displayState()` in `src/github/types.ts` collapses `state`/`draft`/
   `merged` into one token, and `useStateStyle()` in `src/components/atoms.tsx` turns that into
@@ -224,7 +226,9 @@ Every row is sourced from `App.tsx`'s `useKeyboard`:
 | `r`                    | Toggle the scrolling CRT bar      |
 | `q` / `Esc` / `Ctrl-C` | Quit                              |
 
-A toggle shows `--` when the active theme declares no such effect.
+All effects are on by default. A toggle reads `--` when the active theme declares no such
+effect — AUGMENTED has no vignette, so `v` is inert there. Above 120 columns the footer names
+each key (`R CRT-BAR:ON`); below it, initials (`R:ON`).
 
 ## What this is not
 

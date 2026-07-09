@@ -122,8 +122,15 @@ export const augmented: Theme = {
 		// Scanlines only darken the background buffer, which is a transparent void
 		// here, so they read as a faint texture over the glow halo — deliberately
 		// lighter/sparser than tactical's CRT (this theme's signature is the glow,
-		// not the tube). No vignette, no rolling CRT bar: those belong to tactical.
+		// not the tube).
 		scanlines: { strength: 0.92, step: 3 },
+		// A scan sweep, not a tube roll. `CRTRollingBarEffect` multiplies foreground
+		// *and* background, but this canvas is absolute black, so only the glyphs
+		// brighten: a band of text flares as the sweep passes. Faster, thinner and
+		// gentler than tactical's (speed 9 rows/s ≈ a 6s sweep at 44 rows; 1.35x peak
+		// vs 1.5x) — this system is scanning, not failing. No vignette: an optic
+		// tunnel belongs to the theme that is looking *through* something.
+		crtBar: { speed: 9, height: 0.06, intensity: 0.35, fadeDistance: 0.35 },
 		glitch: {
 			// "The animation should feel fast, mechanical, and occasionally unstable."
 			// ~1 burst every couple of seconds — occasional, not constant static.
