@@ -149,11 +149,26 @@ export const augmented: Theme = {
 			// (chromatic aberration) before snapping back." Gated to fire *only* during
 			// a burst (see GlitchDirector), strongest at the edges, zero at the center.
 			//
-			// This is where essentially all of the glitch's punch lives: the row tearing
+			// This is the whole-frame lead (injection below is the accent): the row tearing
 			// alone disturbs ~2% of the screen's glyphs, the aberration ~26%. A spliced
 			// system loses register between its color layers.
 			chromaticAberration: 3,
 			chromaDropout: 0,
+
+			// Aberration moves colour; these PAINT it. The same injection vocabulary as
+			// TACTICAL — solid blocks over the bg, tinted foreground runs — but drawn from
+			// the spliced neon palette: amber and gold from the substrate, electric teal
+			// and laser purple from the graft, piercing red for the shock. Cool hues are
+			// on-brand here (unlike TACTICAL), so the corruption gets to flash them. Blocks
+			// and tints paint AFTER the aberration, so an injected block stays a crisp
+			// rectangle instead of being split into fringes.
+			corruptColors: [palette.amber, palette.gold, palette.teal, palette.purple, palette.red],
+			// A touch finer and rarer than TACTICAL: aberration already carries most of the
+			// whole-frame punch, so injection is the accent, not the lead.
+			blockChance: 0.6,
+			maxBlocks: 2,
+			tintChance: 0.6,
+			maxTints: 3,
 		},
 	},
 

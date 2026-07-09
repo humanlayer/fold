@@ -45,6 +45,13 @@ const palette = {
 	sand: '#E0A040',
 	umber: '#7A4A10',
 	soot: '#3A2408',
+
+	// B1's "dark grays", used by nothing but the glitch: when a burst injects one
+	// of these the cell reads as burnt-out phosphor — a chunk of the tube gone
+	// dead. Warm-tinted so even the "gray" corruption stays inside the amber world;
+	// a neutral gray would read as generic UI chrome, not a fault.
+	gray: '#6B645A',
+	grayDim: '#403A32',
 } as const
 
 export const tactical: Theme = {
@@ -150,11 +157,32 @@ export const tactical: Theme = {
 			// An RGB channel split would fringe this all-warm palette with cool colors
 			// and make it read as a splice. Do not raise above 0.
 			chromaticAberration: 0,
-			// Instead, the analog failure: the tube loses chroma sync and the whole frame
-			// washes toward raw luma for two to four frames, then snaps back. It disturbs
-			// the same share of the screen as AUGMENTED's aberration (~26%), so the two
-			// glitches carry equal weight — but this one invents no hues, it removes them.
-			chromaDropout: 0.6,
+			// The analog failure: the tube loses chroma sync and the whole frame washes
+			// toward raw luma for a few frames, then snaps back. It invents no hues — it can
+			// only pull toward gray, which is exactly why, carrying a burst alone, it read
+			// as "the screen darkened". It is now the ground the injected blocks/tints hit.
+			chromaDropout: 0.4,
+
+			// The colour a burst PAINTS. Warm tones + neon red + the two dark grays: the
+			// amber world running hot and glitching, never a cool hue — this is what turns
+			// things red / burnt orange / bright yellow / amber / gray during a burst,
+			// where dropout alone could only ever gray them out.
+			corruptColors: [
+				palette.amber,
+				palette.yellow,
+				palette.burnt,
+				palette.gold,
+				palette.red,
+				palette.gray,
+				palette.grayDim,
+			],
+			// Chunky and frequent, matching the heavy frame: most bursts stamp a few solid
+			// blocks (over the TART logo, over borders) and inject a few tinted runs. Both
+			// are painted after dropout, so they keep full saturation.
+			blockChance: 0.8,
+			maxBlocks: 4,
+			tintChance: 0.75,
+			maxTints: 3,
 		},
 	},
 

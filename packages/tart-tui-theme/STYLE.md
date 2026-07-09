@@ -453,8 +453,9 @@ exactly like a broken key.
 ### 7.4 The glitch — including the thing where colors suddenly shift
 
 This is the effect that fires every couple of seconds: a few rows tear sideways, some of them
-smear into the wrong color, and (in AUGMENTED) the whole frame's color channels separate for a
-few frames and then snap back.
+smear into the wrong color, the whole frame briefly recolors — channels separating (AUGMENTED) or
+chroma draining (TACTICAL) — and solid corrupt-colored blocks and tinted runs stamp across the
+screen, over the logo and the panel borders, for a few frames before it all snaps back.
 
 **It is a burst, not static.** The director holds two pieces of state: a list of currently
 active glitches, and a countdown.
@@ -468,11 +469,14 @@ apply(buffer, deltaMs):
         if burstRemaining <= 0: active = []          # burst over → frame snaps back
     else if random() < chancePerSecond * dt:         # per-frame roll ⇒ ~chancePerSecond bursts/sec
         burstRemaining = minDuration + random()*(maxDuration - minDuration)
-        active = pickRows()
+        beginBurst()                                 # pick rows + blocks + tints, once
 
-    if active is empty: return
-    for g in active: corruptRow(buffer, g)
-    if chromaticAberration > 0: applyChromaticAberration(buffer, chromaticAberration)
+    if nothing active: return
+    for g in rows:   corruptRow(buffer, g)           # 1. rearrange existing content
+    if chromaticAberration: applyChromaticAberration(buffer, ...)   # 2. move / desaturate
+    if chromaDropout:       applyChromaDropout(buffer, ...)         #    (a theme picks one)
+    for b in blocks: paintBlock(buffer, b)           # 3. INJECT colour — must be last
+    for t in tints:  paintTint(buffer, t)
 ```
 
 Two properties matter. The **same** rows are corrupted every frame for the burst's duration
@@ -510,7 +514,7 @@ kind = random() < colorGlitchChance  ? 'color'
         fg[row][x].rgb = srcFg.rgb     # chars, bg and attributes untouched
     ```
 
-#### The whole-frame pass is the glitch
+#### Row tearing is nil; the whole frame is the glitch — and colour must be _painted_, not only removed
 
 Here is the single most important thing to know about building one of these, and it is not
 obvious: **row tearing on its own is nearly invisible.**
@@ -521,8 +525,11 @@ they notice is a pass that recolors the **entire frame** for the two to four fra
 lasts, and then releases. Without one, you have a glitch that a stopwatch can find and an eye
 cannot.
 
-So each theme picks a whole-frame corruption, gated on the burst. The choice of _which_ is a
-statement about what kind of machine is failing.
+All the perceived punch comes from what happens to the **whole frame** for those two to four
+frames — and that is **two distinct jobs**, not one.
+
+**Job one — a whole-frame pass that MOVES or REMOVES colour**, gated on the burst. Each theme
+picks the idiom that matches what kind of machine is failing.
 
 **Chromatic aberration** (AUGMENTED). For each cell, take the red channel from a cell offset to
 the left, green from itself, and blue from a cell offset to the right, with the offset growing
@@ -542,41 +549,110 @@ R' = R + (luma - R) * amount     # and likewise G, B. No clamping needed:
                                  # luma always lies between min and max channel.
 ```
 
-The critical property is that dropout **removes** color rather than inventing it. Running an RGB
-channel split over an all-warm palette would fringe it with cyan and magenta, and TACTICAL would
-stop looking like a warm phosphor tube. Desaturation cannot introduce a hue that was not there.
+The critical property — and the reason this section was rewritten — is that **dropout can only
+pull colour toward gray.** By construction it cannot produce a hue, an orange, or a block. A burst
+carried by dropout alone therefore reads as _"the screen just darkened in some rows"_: technically
+~87% of glyphs changed, perceptually a desaturation. (An RGB channel split _would_ invent hues,
+but the wrong ones — it fringes an all-warm palette with cyan and magenta, and TACTICAL stops
+looking like a warm tube.) Neither whole-frame pass can add a warm hue that was not already on
+screen. A desaturating theme needs a second job.
 
-Gating on the burst is the whole trick, for either pass. Applied every frame, aberration is not a
-glitch but a permanent smear, and dropout is not a glitch but a washed-out theme.
+**Job two — an injection pass that PAINTS colour the whole-frame pass cannot.** Also gated on the
+burst, chosen once when it begins and held for its duration. Two kinds, both drawing from a
+per-theme `corruptColors` list (theme tokens only — no literal escapes `theme/*`):
+
+- **Blocks.** Stamp a few solid rectangles (3–9 cells wide, 1–3 rows tall) of one corrupt colour
+  by setting the cell **background** and forcing the glyph to a space, so the cell reads as a
+  filled tile. They land anywhere — over body text, over the `TART` ascii-font logo, over panel
+  borders — turning a chunk of the frame a solid amber / red / gray.
+- **Tints.** Replace the **foreground** of a run of cells with one chosen corrupt colour. Unlike
+  the `color` row-kind (which _smears a neighbour's_ colour), a tint _injects_ a colour you chose:
+  a run of text, or a stretch of border, abruptly goes burnt-orange or neon red.
+
+**Ordering is load-bearing.** The stages run rows → whole-frame → injection, and injection **must
+be last**. Paint a block _before_ dropout and the dropout pass desaturates it back toward gray —
+you paint amber and wash it out in the same frame, straight back to the original bug. Painting
+after the desaturation is what lets the injected colour survive the burst at full saturation.
+Proof: after a TACTICAL burst the injected cells read back as the _exact_ `corruptColors` hexes,
+impossible if any desaturating pass ran after them.
+
+**Borders get mangled by injection** — and there are _two_ traps in finding them, stacked.
+
+First: the box-drawing codepoints are U+2500–U+257F, but the cell buffer does **not** store raw
+Unicode. OpenTUI pools every non-ASCII glyph behind flag bits — `0x80000000 | graphemeId` for a
+pooled glyph, `0xC0000000` for a wide-glyph continuation — so a border cell reads as `0x800100xx`,
+never `0x25xx`. A codepoint-range test finds nothing at all. Detect a pooled glyph by its flag.
+
+Second, and this one is silent: in JavaScript `&` yields a **signed** 32-bit integer, so
+
+```js
+;((char[i] & 0xc0000000) ===
+	0x80000000(
+		// ALWAYS FALSE. -2147483648 !== 2147483648
+		(char[i] & 0xc0000000) >>> 0,
+	)) ===
+	0x80000000 // correct
+```
+
+The first form compiles, type-checks, runs, and quietly never matches — your border bias becomes
+a no-op and the corruption simply lands somewhere else, which looks plausible. Coerce with
+`>>> 0` before comparing any mask whose top bit is set. (I wrote the buggy form in a measurement
+probe and it reported _zero_ border cells on a screen made of borders.)
+
+Anchor a share of blocks and tints onto pooled cells. Borders dominate that set, so that is what
+hits them: **~37 border cells corrupted per TACTICAL burst** against ~6 from row tearing alone.
+
+**Keep the burst discipline.** Rows, the whole-frame pass, blocks, tints — all chosen when the
+burst begins, held for its 2–4 frames, cleared when it ends, so the next frame is pristine.
+Nothing persists; the UI tree is never touched. Applied every frame instead, aberration is a
+permanent smear, dropout a washed-out theme, and the blocks a broken-looking overlay.
 
 **Parameters.**
 
-|                                   | AUGMENTED   | TACTICAL    |
-| --------------------------------- | ----------- | ----------- |
-| `chancePerSecond`                 | 0.5         | 0.45        |
-| `maxLines`                        | 3           | 3           |
-| `maxShift`                        | 8           | 10          |
-| `shiftFlipRatio`                  | 0.7         | 0.75        |
-| `colorGlitchChance`               | 0.3         | 0.4         |
-| `minDuration` / `maxDuration` (s) | 0.05 / 0.14 | 0.05 / 0.16 |
-| `chromaticAberration`             | **3**       | 0           |
-| `chromaDropout`                   | 0           | **0.6**     |
+|                                   | AUGMENTED                          | TACTICAL                                      |
+| --------------------------------- | ---------------------------------- | --------------------------------------------- |
+| `chancePerSecond`                 | 0.5                                | 0.45                                          |
+| `maxLines`                        | 3                                  | 3                                             |
+| `maxShift`                        | 8                                  | 10                                            |
+| `shiftFlipRatio`                  | 0.7                                | 0.75                                          |
+| `colorGlitchChance`               | 0.3                                | 0.4                                           |
+| `minDuration` / `maxDuration` (s) | 0.05 / 0.14                        | 0.05 / 0.16                                   |
+| `chromaticAberration`             | **3**                              | 0                                             |
+| `chromaDropout`                   | 0                                  | **0.4**                                       |
+| `corruptColors`                   | amber · gold · teal · purple · red | amber · yellow · burnt · gold · red · 2× gray |
+| `blockChance` / `maxBlocks`       | 0.6 / 2                            | 0.8 / 4                                       |
+| `tintChance` / `maxTints`         | 0.6 / 3                            | 0.75 / 3                                      |
 
-**Balancing the two.** Compare them by the mean per-glyph RGB displacement over a whole burst
-frame, not by counting changed cells — aberration makes a large change to a quarter of the
-screen, dropout a moderate change to all of it, and a cell count would call them incomparable.
+`corruptColors` obeys the same rule as the base palette: AUGMENTED keeps its cool signatures
+(teal, purple); TACTICAL is warm tones + red + two dark grays and **nothing cool**. Verified over
+300 forced bursts — TACTICAL introduces no foreground whose blue channel exceeds its red and green
+(its one cool token, `merged` cyan, is never a corrupt colour), while AUGMENTED's aberration
+deliberately fringes cyan/magenta.
 
-|                             | mean ‖ΔRGB‖ over all glyphs | glyphs visibly recolored (‖Δ‖ > 30) |
-| --------------------------- | --------------------------- | ----------------------------------- |
-| AUGMENTED, row tearing only | 3.3 / 441                   | 1.3%                                |
-| AUGMENTED + aberration      | **44.4**                    | 23.6%                               |
-| TACTICAL, row tearing only  | 3.2 / 441                   | 1.3%                                |
-| TACTICAL + dropout `0.6`    | **61.1**                    | 88.2%                               |
+**Balancing.** Compare the whole-frame passes by mean per-glyph RGB displacement, not changed-cell
+counts — aberration makes a large change to a quarter of the screen, dropout a moderate change to
+all of it. Injection is measured separately, by cells painted. (Numbers: one forced burst,
+averaged over 300, on a clean 140×44 frame; `‖ΔRGB‖` is Euclidean fg distance over non-space
+glyphs, 0–441.)
 
-Both themes tear the same number of rows. They diverge entirely in how the color fails. At
-`0.6`, dropout roughly halves saturation — amber `#FF9500` → `#C89E62`, red `#FF2A1F` →
-`#A54F4B` — which is loud enough to register in three frames and mild enough that the frame is
-still recognizably the same theme when it snaps back.
+|                                           | mean ‖ΔRGB‖ | recolored (>30) | block bg / burst | tint fg / burst | border injected / burst |
+| ----------------------------------------- | ----------- | --------------- | ---------------- | --------------- | ----------------------- |
+| row tearing only (either theme)           | ~3          | ~1.3%           | 0                | 0               | 0                       |
+| AUGMENTED (aberration + injection)        | 45          | 24%             | 10               | —¹              | 25                      |
+| TACTICAL, old (dropout `0.6`, no inject)  | 70          | 87%             | 0                | 0               | 6²                      |
+| TACTICAL, now (dropout `0.4` + injection) | 48          | 87%             | 24               | 57              | 28                      |
+
+¹ AUGMENTED's tint-cell count can't be isolated: aberration coincidentally reconstructs exact
+palette hexes, so the fg-match metric is swamped by aberration noise. Blocks set `bg` (untouched by
+aberration) and are the clean proof: 0 → 10 per burst. ² TACTICAL's baseline 6 is a few cells where
+a `shift` moves a space onto a border, not colour injection.
+
+The lesson is in the two right-hand columns. TACTICAL's mean displacement _dropped_ (70 → 48) when
+dropout went 0.6 → 0.4, but that number was always the wrong thing to maximise: the old wash scored
+high on displacement and still read as "darkening", because displacement _toward gray_ is not
+colour. Now ~24 solid colour-block cells and ~57 injected tint cells land per burst, in
+warm/red/gray hues, where before there were none — the difference between a frame that darkens and
+a frame that corrupts.
 
 ### 7.5 Three traps that will cost you an afternoon
 

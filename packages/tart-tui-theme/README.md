@@ -81,25 +81,29 @@ cells). RECORD always survives.
 chain — so the comparison is instantaneous. The two are deliberately pulled apart along these
 axes:
 
-| Axis            | AUGMENTED                              | TACTICAL                                             |
-| --------------- | -------------------------------------- | ---------------------------------------------------- |
-| Canvas          | absolute black                         | murky brown-black, like a dirty optic                |
-| Neon            | teal **and** laser purple **and** red  | amber only; a rare cyan flash; red                   |
-| "Injected" slot | laser purple                           | bright yellow (same system, running hot)             |
-| Frame           | thin `single` border, cool teal        | `heavy` border, burnt orange                         |
-| Heading prefix  | `// `                                  | `[ `                                                 |
-| Signature FX    | glow + chromatic-aberration bursts     | vignette + heavier scanlines + chroma-dropout bursts |
-| Motion          | fast scan sweep, occasionally unstable | slow tube roll, constant                             |
+| Axis            | AUGMENTED                                  | TACTICAL                                                               |
+| --------------- | ------------------------------------------ | ---------------------------------------------------------------------- |
+| Canvas          | absolute black                             | murky brown-black, like a dirty optic                                  |
+| Neon            | teal **and** laser purple **and** red      | amber only; a rare cyan flash; red                                     |
+| "Injected" slot | laser purple                               | bright yellow (same system, running hot)                               |
+| Frame           | thin `single` border, cool teal            | `heavy` border, burnt orange                                           |
+| Heading prefix  | `// `                                      | `[ `                                                                   |
+| Signature FX    | glow + aberration + injected-colour bursts | vignette + heavier scanlines + chroma-dropout + injected-colour bursts |
+| Motion          | fast scan sweep, occasionally unstable     | slow tube roll, constant                                               |
 
 With the reticle gone, the fastest reads are the **border color** (cool teal vs burnt
 orange), the **`semantic` state colors** in STATE and INDEX (MERGED is laser purple in A, a
 rare cyan in B), the **"injected" slot** (purple vs yellow), and the **FX signature**: glow
-plus a glitch burst that momentarily separates the color layers and snaps back in A, versus a
-vignette + denser scanlines in B, whose bursts instead **drop chroma** — the whole frame washes
-toward monochrome and snaps back (`glitch.chromaticAberration` is pinned at `0` in tactical and
-`chromaDropout` carries the corruption: an unstable analog signal, not a splice). Both themes
-roll a CRT bar, but A's is a fast thin **scan sweep** over a black void (only glyphs flare) and
-B's a slow fat **tube roll** that lifts the murky canvas with it.
+plus a glitch burst in A that separates the color layers (chromatic aberration) and snaps back,
+versus a vignette + denser scanlines in B whose bursts **drop chroma** — the whole frame washes
+toward monochrome. In both, the burst also **injects** corrupt color it cannot get by moving or
+draining the frame: solid color blocks stamped over the logo and borders, and tinted runs of
+foreground — warm/red/gray in tactical (never cool), the spliced neon palette in augmented. Dropout
+alone could only ever _darken_ B; the injection is what turns things red, burnt-orange and amber.
+(`glitch.chromaticAberration` is pinned at `0` in tactical; `chromaDropout` at `0.4` plus injection
+carries its corruption — an unstable analog signal, not a splice.) Both themes roll a CRT bar, but
+A's is a fast thin **scan sweep** over a black void (only glyphs flare) and B's a slow fat **tube
+roll** that lifts the murky canvas with it.
 
 The names carry the intent. **AUGMENTED — "amber substrate // neon graft"** is an old amber
 system hacked with experimental cybernetics: amber carries the structure, electric teal is

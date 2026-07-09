@@ -13,13 +13,17 @@ export interface GlitchSpec {
 	readonly maxDuration: number
 
 	/*
-	 * Whole-frame color corruption, applied *only while a burst is active*.
-	 *
-	 * Row tearing alone disturbs ~2% of the screen's glyphs — measurably present,
-	 * perceptually almost nothing. Practically all of a glitch's punch comes from
-	 * one of these two passes, which recolor the whole frame for two to four
-	 * frames and then snap back. A theme should pick exactly one: they are the
-	 * signature of *what kind of machine is failing*.
+	 * A burst's colour work is two distinct jobs. First, a whole-frame pass that
+	 * *removes or moves* colour (aberration, dropout). Second, an injection pass
+	 * that *paints* colour (blocks, tints). Row tearing alone disturbs ~2% of the
+	 * screen's glyphs — perceptually almost nothing; practically all of a glitch's
+	 * punch comes from these.
+	 */
+
+	/*
+	 * -- Whole-frame passes: recolour by MOVING or DESATURATING existing colour. --
+	 * Neither can add a hue that was not already on screen. A theme picks the one
+	 * that fits *what kind of machine is failing*; the other stays 0.
 	 */
 
 	/**
@@ -33,8 +37,32 @@ export interface GlitchSpec {
 	 * The frame briefly goes monochrome and snaps back. Reads as an *analog*
 	 * system, and — unlike aberration — it invents no new hues, so it never
 	 * smuggles cool fringes into an all-warm palette. Set to `0` to disable.
+	 *
+	 * Because it can only pull colour toward gray, a burst carried by dropout alone
+	 * reads as "the screen darkened". The injection fields below restore the hue.
 	 */
 	readonly chromaDropout: number
+
+	/*
+	 * -- Injection: PAINT corrupt colour the whole-frame pass cannot produce. --
+	 * A burst sometimes stamps solid colour blocks (over the bg, forcing a filled
+	 * rectangle — including over the logo and borders) and sometimes replaces a run
+	 * of foregrounds with one chosen corrupt hue. Unlike the `color` row-kind, which
+	 * smears a *neighbour's* colour, these inject a *chosen* colour.
+	 *
+	 * Every hue is a theme token (no literal may live outside theme/*). TACTICAL
+	 * supplies warm tones + red + grays only — nothing cool; AUGMENTED may add its
+	 * teal/purple. `postfx` parses these to RGB once per install, never per frame.
+	 */
+
+	/** The palette a burst injects. Empty disables both blocks and tints. */
+	readonly corruptColors: readonly string[]
+	/** Probability a burst paints solid colour blocks, and the most it paints. */
+	readonly blockChance: number
+	readonly maxBlocks: number
+	/** Probability a burst injects tinted foreground runs, and the most it injects. */
+	readonly tintChance: number
+	readonly maxTints: number
 }
 
 export interface PostFx {
