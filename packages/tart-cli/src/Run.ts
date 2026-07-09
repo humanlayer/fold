@@ -3,6 +3,7 @@ import {
 	resumeLatestSession,
 	resumeSessionById,
 	sessionLogPathFor,
+	type AutoCompactConfig,
 	type LaunchModelError,
 	type ModelSelection,
 	type NoSessionToResumeError,
@@ -27,6 +28,7 @@ export type CliSessionOptions = {
 	readonly tartHome?: string
 	readonly modelSelection?: ModelSelection
 	readonly resume?: ResumeTarget
+	readonly autoCompact?: AutoCompactConfig
 }
 
 /** Options for one non-interactive `--prompt` run. */
@@ -49,6 +51,7 @@ const launchOptions = (options: CliSessionOptions) => ({
 	cwd: options.cwd,
 	...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
 	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
+	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
 })
 
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */

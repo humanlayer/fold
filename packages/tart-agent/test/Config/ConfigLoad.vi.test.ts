@@ -20,6 +20,8 @@ const validConfig = `{
 		"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "medium" },
 		"fast": { "provider": "codex", "model": "gpt-5.5" },
 	},
+	"compaction": { "enabled": true, "contextWindow": 272000, "reserveTokens": 16000 },
+	"stopConditions": { "doomLoop": { "enabled": true, "repeatedToolCalls": 3 } },
 }
 `
 
@@ -40,6 +42,8 @@ it.effect('decodes a valid JSONC config (comments + trailing commas)', () =>
 		expect(config.roles.smart.model).toBe('claude-opus-4-8')
 		expect(config.roles.smart.reasoning).toBe('medium')
 		expect(config.roles.fast.provider).toBe('codex')
+		expect(config.compaction?.enabled).toBe(true)
+		expect(config.stopConditions?.doomLoop?.enabled).toBe(true)
 	}),
 )
 

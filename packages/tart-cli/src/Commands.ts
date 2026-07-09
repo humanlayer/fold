@@ -5,6 +5,7 @@ import {
 	configPathFor,
 	listSessionLogs,
 	loadTartConfig,
+	type AutoCompactConfig,
 	type LaunchModelError,
 	type ModelSelection,
 	type NoSessionToResumeError,
@@ -60,6 +61,9 @@ const optionalChoice = <const Choices extends ReadonlyArray<string>>(
 	description: string,
 ) => Flag.choice(name, choices).pipe(Flag.withDescription(description), Flag.optional)
 
+const optionalInteger = (name: string, description: string) =>
+	Flag.integer(name).pipe(Flag.withDescription(description), Flag.optional)
+
 const commonFlags = {
 	prompt: optionalString('prompt', 'Run one non-interactive prompt, then exit'),
 	resume: optionalString('resume', 'Resume "latest" or an exact session id from the current project, e.g. sess_...'),
@@ -78,6 +82,14 @@ const commonFlags = {
 	),
 	noColor: Flag.boolean('no-color').pipe(Flag.withDescription('Disable ANSI colors')),
 	verbose: Flag.boolean('verbose').pipe(Flag.withDescription('Stream full tool output/progress')),
+	autoCompact: Flag.boolean('auto-compact').pipe(Flag.withDescription('Enable auto-compaction for this session')),
+	disableAutoCompact: Flag.boolean('disable-auto-compact').pipe(
+		Flag.withDescription('Disable auto-compaction even when config enables it'),
+	),
+	compactContextWindow: optionalInteger('compact-context-window', 'Override compaction context window in tokens'),
+	compactReserveTokens: optionalInteger('compact-reserve-tokens', 'Reserve this many tokens before compaction fires'),
+	compactKeepRecentTokens: optionalInteger('compact-keep-recent-tokens', 'Keep this many recent tokens verbatim'),
+	compactPrompt: optionalString('compact-prompt', 'Override the compaction summarization prompt'),
 }
 
 type CommonFlagValues = {
@@ -91,6 +103,12 @@ type CommonFlagValues = {
 	readonly tartHome: Option.Option<string>
 	readonly noColor: boolean
 	readonly verbose: boolean
+	readonly autoCompact: boolean
+	readonly disableAutoCompact: boolean
+	readonly compactContextWindow: Option.Option<number>
+	readonly compactReserveTokens: Option.Option<number>
+	readonly compactKeepRecentTokens: Option.Option<number>
+	readonly compactPrompt: Option.Option<string>
 }
 
 const optionValue = <A>(option: Option.Option<A>): A | undefined => Option.getOrUndefined(option)
@@ -129,18 +147,45 @@ const modelSelectionFromFlags = (input: {
 			}
 }
 
+const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | undefined => {
+	if (input.disableAutoCompact) return { enabled: false }
+
+	const compactionPrompt = optionValue(input.compactPrompt)
+	const contextWindow = optionValue(input.compactContextWindow)
+	const reserveTokens = optionValue(input.compactReserveTokens)
+	const keepRecentTokens = optionValue(input.compactKeepRecentTokens)
+	const hasCompactionOptions =
+		input.autoCompact ||
+		compactionPrompt !== undefined ||
+		contextWindow !== undefined ||
+		reserveTokens !== undefined ||
+		keepRecentTokens !== undefined
+
+	return hasCompactionOptions
+		? {
+				enabled: true,
+				...(compactionPrompt === undefined ? {} : { compactionPrompt }),
+				...(contextWindow === undefined ? {} : { contextWindow }),
+				...(reserveTokens === undefined ? {} : { reserveTokens }),
+				...(keepRecentTokens === undefined ? {} : { keepRecentTokens }),
+			}
+		: undefined
+}
+
 const sessionOptionsFromFlags = (input: CommonFlagValues): Effect.Effect<CliSessionOptions, InvalidSessionIdError> =>
 	Effect.gen(function* () {
 		const rawResume = optionValue(input.resume)
 		const resume = rawResume === undefined ? undefined : yield* parseResumeFlag(rawResume)
 		const tartHome = optionValue(input.tartHome)
 		const modelSelection = modelSelectionFromFlags(input)
+		const autoCompact = autoCompactFromFlags(input)
 
 		return {
 			cwd: optionValue(input.cwd) ?? process.cwd(),
 			...(tartHome === undefined ? {} : { tartHome }),
 			...(resume === undefined ? {} : { resume }),
 			...(modelSelection === undefined ? {} : { modelSelection }),
+			...(autoCompact === undefined ? {} : { autoCompact }),
 		}
 	})
 

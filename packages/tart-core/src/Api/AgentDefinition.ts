@@ -7,6 +7,7 @@
 import type { AutoCompactConfig } from '../Compaction/CompactionService'
 import type { HookConfig } from '../HookRunner/Types'
 import type { ModelFamily } from '../Model/ModelFamily'
+import type { StopConditionConfig } from '../StopConditions/StopConditions'
 import type { TartModel } from './ModelDescriptor'
 import type { TartTool } from './ToolDefinition'
 
@@ -39,6 +40,8 @@ export type AgentDefinition = {
 	 * `compaction` entry, and subsequent requests see the summary plus only the messages after the cut.
 	 */
 	readonly autoCompact?: AutoCompactConfig
+	/** Runtime stop-condition policy. Omitted means no host-level stop conditions are installed. */
+	readonly stopConditions?: StopConditionConfig
 }
 
 /** Define one agent. Identity today; the single place agent-config validation lands later. */

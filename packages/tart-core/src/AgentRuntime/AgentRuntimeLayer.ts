@@ -31,6 +31,12 @@ import { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import { buildPrompt, providerToolCallIdKey, tartPartOptionsKey } from '../Model/RequestBuilder'
 import { messagesForAgent, runtimeForAgent } from '../Projection/Projection'
 import { SessionControls } from '../Session/SessionControls'
+import {
+	initialDoomLoopState,
+	observeDoomLoop,
+	StopConditions,
+	type DoomLoopState,
+} from '../StopConditions/StopConditions'
 import { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import { StopController, type StopControllerService } from '../ToolRuntime/ToolContextServices'
 import { ToolRuntime } from '../ToolRuntime/ToolRuntimeService'
@@ -115,6 +121,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const sessionControls = yield* SessionControls
 		// Defaulted reference (D11): resolves the session-installed live policy, or the disabled no-op.
 		const compaction = yield* Compaction
+		const stopConditions = yield* StopConditions
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)
@@ -262,6 +269,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			stopController: StopControllerService,
 			stopRef: Ref.Ref<string | null>,
 			overflowRecoveryRef: Ref.Ref<boolean>,
+			doomLoopRef: Ref.Ref<DoomLoopState>,
 		): Effect.Effect<TurnResult> =>
 			Effect.gen(function* () {
 				// Drain queued steering before this turn's model call (D8): each steered message becomes an
@@ -429,9 +437,15 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 							: { reason: finishPart.reason, usage: encodeUsage(finishPart.usage) },
 				})
 
-				const hasToolCalls = persistedAssistant.content.some((part) => part.type === 'tool-call')
+				const toolCalls = persistedAssistant.content.flatMap((part) =>
+					part.type === 'tool-call' ? [{ name: part.name, params: part.params }] : [],
+				)
+				const hasToolCalls = toolCalls.length > 0
 
 				if (hasToolCalls) {
+					const doomLoop = observeDoomLoop(stopConditions, yield* Ref.get(doomLoopRef), toolCalls)
+					yield* Ref.set(doomLoopRef, doomLoop.state)
+
 					const settlement = yield* toolRuntime.settle({
 						agentId: input.agentId,
 						parentAgentId: input.parentAgentId,
@@ -451,8 +465,15 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						return { _tag: 'finished', entry } as const
 					}
 
+					if (doomLoop.reason !== null) {
+						const entry = yield* appendFinished(input, 'stopped', null, doomLoop.reason)
+						return { _tag: 'finished', entry } as const
+					}
+
 					return { _tag: 'continue' } as const
 				}
+
+				yield* Ref.set(doomLoopRef, initialDoomLoopState)
 
 				const resultText = assistantResultText(persistedAssistant)
 
@@ -609,13 +630,14 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				}
 				// One reactive compact-and-retry per run (D11's guard, pi's single-attempt precedent).
 				const overflowRecoveryRef = yield* Ref.make(false)
+				const doomLoopRef = yield* Ref.make(initialDoomLoopState)
 
 				for (const text of input.messages) {
 					yield* appendUserMessage(input, text)
 				}
 
 				while (true) {
-					const turn = yield* runTurn(input, stopController, stopRef, overflowRecoveryRef)
+					const turn = yield* runTurn(input, stopController, stopRef, overflowRecoveryRef, doomLoopRef)
 					if (turn._tag === 'finished') return turn.entry
 				}
 			}),

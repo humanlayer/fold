@@ -50,6 +50,7 @@ import {
 import { liveSessionLayer } from '../Session/SessionLayer'
 import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
 import type { SkillSourceService } from '../Skills/SkillSource'
+import { StopConditions } from '../StopConditions/StopConditions'
 import { agentRegistryFromDefinitions, collectSubagentDefinitions } from '../Subagents/AgentRegistry'
 import type { SubagentNotFoundError } from '../Subagents/Errors'
 import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
@@ -315,6 +316,7 @@ const assembleSessionGraph = (options: {
 			// no-op default otherwise. Every provisioned runtime - root and subagent - shares this one
 			// policy while checking against its own projection and summarizing with its own model.
 			Layer.succeed(Compaction, compactionServiceFor(agent.autoCompact)),
+			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
 			Layer.effect(
 				SessionControls,
 				makeSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),

@@ -31,6 +31,8 @@ it('generates a self-contained draft-07 schema with the config properties', () =
 	expect(text).toContain('RoleBinding')
 	expect(text).toContain('providers')
 	expect(text).toContain('roles')
+	expect(text).toContain('compaction')
+	expect(text).toContain('stopConditions')
 	// Serializes as valid JSON.
 	expect(() => JSON.parse(text)).not.toThrow()
 })
@@ -41,6 +43,8 @@ it.effect('the starter config is valid against the schema (round-trips through t
 
 		expect(config.roles.smart.provider).toBe('anthropic')
 		expect(config.providers.codex?.kind).toBe('codex')
+		expect(config.compaction?.enabled).toBe(false)
+		expect(config.stopConditions?.doomLoop?.enabled).toBe(true)
 		expect(config.$schema).toBe('./config.schema.json')
 	}),
 )

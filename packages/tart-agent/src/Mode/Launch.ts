@@ -25,6 +25,7 @@ import {
 	type AutoCompactConfig,
 	type ReasoningLevel,
 	type SteeringMode,
+	type StopConditionConfig,
 	type TartModel,
 	type TartSession,
 	type TartTool,
@@ -97,12 +98,19 @@ export type LaunchSessionOptions = {
 	readonly env?: EnvLookup
 	/** Auto-compaction policy (D11). Omitted means disabled. */
 	readonly autoCompact?: AutoCompactConfig
+	/** Runtime stop-condition policy. Defaults to tart-agent's doom-loop guard. */
+	readonly stopConditions?: StopConditionConfig
 	/** Steering drain mode (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
 	/** Extra tools appended after the mode's roster (e.g. subagents). */
 	readonly extraTools?: ReadonlyArray<TartTool>
 	/** Agent display name recorded in `session_started`. Defaults to the mode name. */
 	readonly name?: string
+}
+
+/** Default runtime guard for product launches: stop repeated identical tool batches without imposing max steps. */
+export const defaultStopConditions: StopConditionConfig = {
+	doomLoop: { enabled: true, repeatedToolCalls: 3 },
 }
 
 const roleBindingFor = (config: TartConfig, role: ConfigRole): RoleBinding =>
@@ -174,6 +182,7 @@ const buildAgentDefinition = (
 	mode: TartMode,
 	models: ModeModels,
 	cwd: string,
+	config: TartConfig | null,
 ): Effect.Effect<AgentDefinition> =>
 	Effect.gen(function* () {
 		const memoryBlock = yield* memoryPromptBlock({
@@ -185,15 +194,24 @@ const buildAgentDefinition = (
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
 			...(memoryBlock === null ? [] : [memoryBlock]),
 		]
+		const autoCompact = options.autoCompact ?? config?.compaction
 
 		return defineAgent({
 			name: options.name ?? mode.name,
 			model: models.primary,
 			tools,
 			...(blocks.length === 0 ? {} : { systemPrompt: blocks }),
-			...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
+			...(autoCompact === undefined ? {} : { autoCompact }),
+			stopConditions: options.stopConditions ?? config?.stopConditions ?? defaultStopConditions,
 		})
 	})
+
+const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<TartConfig | null, LaunchModelError> => {
+	if (options.config !== undefined) return Effect.succeed(options.config)
+	if (options.model !== undefined) return Effect.succeed(null)
+
+	return loadTartConfig(options.tartHome === undefined ? {} : { tartHome: options.tartHome })
+}
 
 /**
  * Start a fresh coding session: resolve the model, load agentfiles, build the mode's tools, and
@@ -208,7 +226,8 @@ export const launchSession = (
 		const cwd = opts.cwd ?? process.cwd()
 
 		const models = yield* resolveModeModels(opts, mode)
-		const agent = yield* buildAgentDefinition(opts, mode, models, cwd)
+		const config = yield* runtimeConfigFor(opts)
+		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
 
 		const prepared = yield* prepareSessionLog({
 			cwd,
@@ -232,7 +251,8 @@ const resumeFromLog = (
 ): Effect.Effect<TartSession, LaunchModelError, Scope.Scope> =>
 	Effect.gen(function* () {
 		const models = yield* resolveModeModels(options, mode)
-		const agent = yield* buildAgentDefinition(options, mode, models, cwd)
+		const config = yield* runtimeConfigFor(options)
+		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
 
 		return yield* resumeSession({
 			agent,

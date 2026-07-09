@@ -13,6 +13,7 @@
  * in `Redacted` at the provider edge in AgentModels, never before. `apiKeyEnv` is the preferred form.
  */
 import { ReasoningLevel } from '@humanlayer/tart-core'
+import type { AutoCompactConfig as CoreAutoCompactConfig, StopConditionConfig } from '@humanlayer/tart-core'
 import { Schema } from 'effect'
 
 /** How a configured provider profile is reached. */
@@ -69,6 +70,36 @@ export type RolesConfig = typeof RolesConfig.Type
 export const ConfigRole = Schema.Literals(['orchestrator', 'smart', 'fast']).annotate({ identifier: 'ConfigRole' })
 export type ConfigRole = typeof ConfigRole.Type
 
+/** Auto-compaction policy for sessions launched through tart-agent. */
+export const AutoCompactConfig = Schema.Union([
+	Schema.Struct({ enabled: Schema.Literal(false) }),
+	Schema.Struct({
+		enabled: Schema.Literal(true),
+		compactionPrompt: Schema.optionalKey(Schema.String),
+		contextWindow: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+		reserveTokens: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+		keepRecentTokens: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+	}),
+]).annotate({ identifier: 'AutoCompactConfig', description: 'Auto-compaction policy' })
+export type AutoCompactConfig = typeof AutoCompactConfig.Type & CoreAutoCompactConfig
+
+/** Doom-loop stop condition configuration. */
+export const DoomLoopStopCondition = Schema.Union([
+	Schema.Struct({ enabled: Schema.Literal(false) }),
+	Schema.Struct({
+		enabled: Schema.Literal(true),
+		repeatedToolCalls: Schema.Int.check(Schema.isGreaterThanOrEqualTo(2)).annotate({
+			description: 'Consecutive identical tool-call batches before the run stops gracefully',
+		}),
+	}),
+]).annotate({ identifier: 'DoomLoopStopCondition', description: 'Repeated-tool-call doom-loop detector' })
+
+/** Runtime stop conditions for sessions launched through tart-agent. */
+export const StopConditionsConfig = Schema.Struct({
+	doomLoop: Schema.optionalKey(DoomLoopStopCondition),
+}).annotate({ identifier: 'StopConditionsConfig', description: 'Runtime stop conditions' })
+export type StopConditionsConfig = typeof StopConditionsConfig.Type & StopConditionConfig
+
 const TartConfigFields = {
 	/** Path to the generated JSON Schema, for editor validation/completion. */
 	$schema: Schema.optionalKey(Schema.String),
@@ -76,6 +107,10 @@ const TartConfigFields = {
 	providers: Schema.Record(Schema.String, ProviderConnection),
 	/** Cross-provider model roles. */
 	roles: RolesConfig,
+	/** Auto-compaction policy. Omit to use tart-agent defaults (disabled today). */
+	compaction: Schema.optionalKey(AutoCompactConfig),
+	/** Runtime stop conditions. Omit to use tart-agent defaults. */
+	stopConditions: Schema.optionalKey(StopConditionsConfig),
 }
 
 /** The value shape the cross-reference check reads (a structural supertype of the decoded config). */

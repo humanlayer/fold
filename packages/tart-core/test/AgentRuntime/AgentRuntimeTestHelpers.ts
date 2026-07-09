@@ -14,6 +14,7 @@ import {
 	makeToolsetResolver,
 	noopToolEventSink,
 	SessionControls,
+	StopConditions,
 	Subagents,
 	ToolEventSink,
 	toolsetLayerFromToolkit,
@@ -21,6 +22,7 @@ import {
 	type HookConfig,
 	type RunAgentInput,
 	type StartAgentInput,
+	type StopConditionConfig,
 	type SubagentsService,
 } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
@@ -76,6 +78,7 @@ export const agentRuntimeBaseLayer = (
 	modelLayer: Layer.Layer<LanguageModel.LanguageModel>,
 	toolHandlerLayer: Layer.Layer<TestToolHandlers>,
 	hooks: HookConfig = {},
+	stopConditions: StopConditionConfig = {},
 ) => {
 	const memoryLayer = layerInMemoryEventLog
 	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
@@ -94,6 +97,7 @@ export const agentRuntimeBaseLayer = (
 		makeHookRunner(hooks).pipe(Layer.provide(hookDeps)),
 		Layer.succeed(ToolEventSink, noopToolEventSink),
 		Layer.succeed(Subagents, noSubagentsStub),
+		Layer.succeed(StopConditions, stopConditions),
 		Layer.effect(SessionControls, makeSessionControls()),
 	)
 
