@@ -1,18 +1,15 @@
 import { createContext, useContext } from 'react'
 
-import { augmented } from './augmented.ts'
-import { tactical } from './tactical.ts'
-import type { Theme, ThemeId } from './types.ts'
+import { augmented } from './augmented'
+import { tactical } from './tactical'
+import type { Theme, ThemeId } from './types'
 
-export * from './types.ts'
-export { augmented, tactical }
+export * from './types'
 
 export const THEMES: Readonly<Record<ThemeId, Theme>> = {
 	augmented,
 	tactical,
 }
-
-export const THEME_IDS: readonly ThemeId[] = ['augmented', 'tactical']
 
 export function isThemeId(value: string): value is ThemeId {
 	return value === 'augmented' || value === 'tactical'

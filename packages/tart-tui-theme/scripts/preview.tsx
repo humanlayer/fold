@@ -10,25 +10,19 @@
  * `--keys` delivers a comma-separated key sequence, driving the app the same way
  * a user would. Two non-obvious things make this work:
  *
- *  1. We do NOT use `flush()` / `waitForVisualIdle()`. The reticle and data-stream
- *     renderables are `live: true`, which pins the renderer's live-count above
- *     zero (`requestLive()` -> `_isRunning = true`) and animates cells every
- *     frame, so "wait until idle" never satisfies either exit condition. It throws
- *     after 20 frames and the still-running live loop then keeps the process alive
- *     forever. `renderOnce()` runs one bounded pass and always returns.
- *
- *  2. `mockInput.pressKey` dispatches the key synchronously, but React (the
+ *  1. `mockInput.pressKey` dispatches the key synchronously, but React (the
  *     OpenTUI reconciler) commits the resulting `setState` on a *macrotask* — its
  *     scheduler uses a timer. Microtasks and `process.nextTick` fire too early, so
- *     after each key we yield a real `setTimeout(0)` before drawing the frame.
+ *     after each key we yield real `setTimeout(0)`s before drawing the frame.
+ *
+ *  2. `renderOnce()` rather than `flush()`: one bounded pass that always returns.
  */
 import { testRender } from '@opentui/react/test-utils'
 
-import { App } from '../src/App.tsx'
-import { DEMO_FEED } from '../src/github/fixtures.ts'
-import '../src/hud/register.ts'
-import { isThemeId } from '../src/theme/index.ts'
-import type { ThemeId } from '../src/theme/index.ts'
+import { App } from '../src/App'
+import { DEMO_FEED } from '../src/github/fixtures'
+import { isThemeId } from '../src/theme/index'
+import type { ThemeId } from '../src/theme/index'
 
 const argv = process.argv.slice(2)
 
@@ -84,17 +78,30 @@ function resolveKey(name: string): string {
 	return KEY_ALIASES[name.toLowerCase()] ?? name
 }
 
+const macrotask = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
 /**
- * Yield one real macrotask so React's scheduler flushes the commit queued by the
- * keyboard handler, then draw exactly one frame reflecting the new state.
+ * Settle the app after a state change, then draw exactly one frame.
+ *
+ * Two yields, not one. The first lets React's scheduler flush the *commit* queued
+ * by the keyboard handler — that alone updates the renderable tree, so the char
+ * frame looks right. But React 19 flushes **passive effects** (`useEffect`) on a
+ * later task, and `App`'s post-process chain is installed from one. With a single
+ * yield, a one-key run draws the new tree through the *old* FX chain, so
+ * `--keys b --spans` reported the glow still on. Runs of two or more keys hid the bug
+ * because the next key's yield flushed the previous key's effect.
  */
 async function settleFrame(): Promise<void> {
-	await new Promise<void>((resolve) => setTimeout(resolve, 0))
+	await macrotask()
+	await macrotask()
 	await setup.renderOnce()
 }
 
 function toHex(color: { r: number; g: number; b: number }): string {
-	const channel = (value: number): string => Math.round(value * 255).toString(16).padStart(2, '0')
+	const channel = (value: number): string =>
+		Math.round(value * 255)
+			.toString(16)
+			.padStart(2, '0')
 	return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`
 }
 
@@ -149,8 +156,8 @@ function formatSpanHistogram(frame: ReturnType<typeof setup.captureSpans>): stri
 
 const setup = await testRender(<App feed={DEMO_FEED} initialTheme={theme} />, { width, height })
 
-// The spinner/telemetry intervals fire outside `act()`. That is correct app
-// behavior; only the test harness cares, so stop it from warning.
+// Anything the app does outside `act()` is correct app behavior; only the test
+// harness cares, so stop it from warning.
 // @ts-expect-error test-only global installed by testRender
 globalThis.IS_REACT_ACT_ENVIRONMENT = false
 
@@ -159,7 +166,8 @@ for (const key of keys) {
 	setup.mockInput.pressKey(resolveKey(key))
 	await settleFrame()
 }
-await setup.renderOnce()
+// One more settled frame so the capture reflects any effect the last key queued.
+await settleFrame()
 
 process.stdout.write(`${showSpans ? formatSpanHistogram(setup.captureSpans()) : setup.captureCharFrame()}\n`)
 setup.renderer.destroy()

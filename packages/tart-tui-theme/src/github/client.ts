@@ -1,12 +1,12 @@
-import { DEMO_FEED } from './fixtures.ts'
-import type { Feed, GhItem, RateLimit } from './types.ts'
+import { DEMO_FEED } from './fixtures'
+import type { Feed, GhItem, RateLimit } from './types'
 
 const API = 'https://api.github.com'
 const PER_PAGE = 30
 /** An unreachable network can hang `fetch` forever; cap every request. */
 const REQUEST_TIMEOUT_MS = 8000
 
-export interface LoadOptions {
+interface LoadOptions {
 	readonly owner: string
 	readonly repo: string
 	/** Skip the network entirely and use the bundled fixtures. */
@@ -40,7 +40,9 @@ function parseLabels(v: unknown): string[] {
 	return v.flatMap((label) => {
 		if (typeof label === 'string') return [label]
 		if (label !== null && typeof label === 'object' && 'name' in label) {
-			const name = (label as { name?: unknown }).name
+			// The `in` check narrows `label` to something carrying `name`, so this
+			// reads without an assertion.
+			const name: unknown = label.name
 			if (typeof name === 'string') return [name]
 		}
 		return []
@@ -155,7 +157,9 @@ function combineReasons(pullsReason: unknown, issuesReason: unknown): string {
 /** Normalize a raw list payload, dropping PRs that the issues endpoint smuggles in. */
 function parseItems(payload: unknown, kind: GhItem['kind']): GhItem[] {
 	if (!Array.isArray(payload)) return []
-	const raw = payload as RawItem[]
+	// `Array.isArray` narrows to `any[]`, so this annotation stands in for an
+	// assertion. Every field is re-validated in `normalize`.
+	const raw: RawItem[] = payload
 	// The issues endpoint also returns pull requests. Anything carrying a
 	// `pull_request` key is a PR wearing an issue costume — drop it.
 	const rows = kind === 'issue' ? raw.filter((item) => item.pull_request === undefined) : raw

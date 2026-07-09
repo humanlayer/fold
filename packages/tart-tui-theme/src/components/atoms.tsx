@@ -1,7 +1,7 @@
 import { TextAttributes } from '@opentui/core'
 
-import type { DisplayState } from '../github/types.ts'
-import { useTheme } from '../theme/index.ts'
+import type { DisplayState } from '../github/types'
+import { useTheme } from '../theme/index'
 
 /** Truncate to `width` cells, with an ellipsis when clipped. */
 export function clip(text: string, width: number): string {

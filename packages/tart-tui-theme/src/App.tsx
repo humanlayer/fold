@@ -2,16 +2,16 @@ import type { KeyEvent } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/react'
 import { useEffect, useMemo, useState } from 'react'
 
-import { Detail } from './components/Detail.tsx'
-import { Footer } from './components/Footer.tsx'
-import { Header } from './components/Header.tsx'
-import { ItemList } from './components/ItemList.tsx'
-import { StatusRail } from './components/StatusRail.tsx'
-import type { Feed, ItemKind } from './github/types.ts'
-import { ALL_FX_ON, installPostFx } from './hud/postfx.ts'
-import type { FxToggles } from './hud/postfx.ts'
-import { nextThemeId, THEMES, ThemeProvider } from './theme/index.ts'
-import type { ThemeId } from './theme/index.ts'
+import { Detail } from './components/Detail'
+import { Footer } from './components/Footer'
+import { Header } from './components/Header'
+import { Insights } from './components/Insights'
+import { ItemList } from './components/ItemList'
+import type { Feed, ItemKind } from './github/types'
+import { ALL_FX_ON, installPostFx } from './hud/postfx'
+import type { FxToggles } from './hud/postfx'
+import { nextThemeId, THEMES, ThemeProvider } from './theme/index'
+import type { ThemeId } from './theme/index'
 
 const LIST_WIDTH = 40
 const RAIL_WIDTH = 34
@@ -19,7 +19,7 @@ const RAIL_WIDTH = 34
 const WIDE = 118
 const NARROW = 84
 
-export interface AppProps {
+interface AppProps {
 	readonly feed: Feed
 	readonly initialTheme: ThemeId
 }
@@ -55,7 +55,7 @@ export function App({ feed, initialTheme }: AppProps) {
 
 		const move = (delta: number) => {
 			setCursor((prev) => {
-				const next = Math.max(0, Math.min(items.length - 1, (prev[kind] ?? 0) + delta))
+				const next = Math.max(0, Math.min(items.length - 1, prev[kind] + delta))
 				return { ...prev, [kind]: next }
 			})
 		}
@@ -80,20 +80,21 @@ export function App({ feed, initialTheme }: AppProps) {
 			case 't':
 				return setThemeId(nextThemeId)
 			case 'b':
-				return setToggles((prev) => ({ ...prev, bloom: !prev.bloom }))
+				return setToggles((prev) => ({ ...prev, glow: !prev.glow }))
 			case 's':
 				return setToggles((prev) => ({ ...prev, scanlines: !prev.scanlines }))
 			case 'g':
 				return setToggles((prev) => ({ ...prev, glitch: !prev.glitch }))
-			case 'c':
-				// Bare `c` toggles the CRT chain. Ctrl+C is a quit, not ours to
-				// swallow: gate the toggle on `!key.ctrl` and fall through to the
-				// guard below, so quitting survives even if the renderer's
-				// `exitOnCtrlC` is ever removed.
-				if (!key.ctrl) setToggles((prev) => ({ ...prev, crt: !prev.crt }))
-				break
+			case 'v':
+				return setToggles((prev) => ({ ...prev, vignette: !prev.vignette }))
+			case 'r':
+				// The scrolling CRT bar gets its own switch: it is the one pass that
+				// never stops moving, so it is the one people want to turn off.
+				return setToggles((prev) => ({ ...prev, rollingBar: !prev.rollingBar }))
 		}
 
+		// No FX toggle claims `c`, so Ctrl+C reaches this unconditionally and quitting
+		// survives even if the renderer's `exitOnCtrlC` is ever removed.
 		if (key.ctrl && key.name === 'c') renderer.destroy()
 	})
 
@@ -114,7 +115,7 @@ export function App({ feed, initialTheme }: AppProps) {
 						width={listWidth}
 					/>
 					<Detail item={selected} />
-					{showRail && <StatusRail width={RAIL_WIDTH} item={selected} />}
+					{showRail && <Insights width={RAIL_WIDTH} items={items} feed={feed} />}
 				</box>
 
 				<Footer toggles={toggles} />

@@ -1,4 +1,4 @@
-import type { Feed, GhItem } from './types.ts'
+import type { Feed, GhItem } from './types'
 
 /**
  * Bundled fixtures so the playground is usable with no network and no token.
@@ -30,10 +30,10 @@ const pulls: GhItem[] = [
 			'## What changed',
 			'- Two complete palettes: `augmented` and `tactical`',
 			'- Post-processing stack is derived from theme tokens, not hardcoded',
-			'- Reticle rings, sweep, and crosshair are declarative `RingSpec[]`',
+			'- Every rail panel is an aggregation over the feed — see `stats.ts`',
 			'',
 			'## Notes',
-			'Bloom is O(w*h*r^2) in JS. Radius stays at 2 and toggles with `b`.',
+			'The glow is O(w*h*r^2) in JS. Radius stays at 2 and toggles with `b`.',
 			'Chromatic aberration only fires during a glitch burst so text stays crisp.',
 			'Builds on the compaction fix in #408.',
 		].join('\n'),
@@ -121,7 +121,7 @@ const issues: GhItem[] = [
 	{
 		kind: 'issue',
 		number: 410,
-		title: 'Reticle tears on terminals without truecolor',
+		title: 'Palette quantizes hard on terminals without truecolor',
 		state: 'open',
 		draft: false,
 		merged: false,
@@ -131,8 +131,8 @@ const issues: GhItem[] = [
 		comments: 4,
 		labels: ['bug', 'tui', 'help wanted'],
 		body: [
-			'On `TERM=xterm-256color` the ring glyphs quantize hard and the purple',
-			'segments collapse into the amber ones.',
+			'On `TERM=xterm-256color` the laser purple collapses into the amber tones',
+			'and the state glyphs stop being distinguishable.',
 			'',
 			'Repro: `TERM=xterm-256color bun run start`',
 			'',
@@ -181,7 +181,7 @@ const issues: GhItem[] = [
 	{
 		kind: 'issue',
 		number: 372,
-		title: 'Flaky: reticle snapshot differs by one cell on CI',
+		title: 'Flaky: activity sparkline differs by one bucket on CI',
 		state: 'open',
 		draft: false,
 		merged: false,

@@ -1,33 +1,12 @@
 import { TextAttributes } from '@opentui/core'
-import { useEffect, useState } from 'react'
 
-import type { Feed } from '../github/types.ts'
-import { useTheme } from '../theme/index.ts'
+import type { Feed } from '../github/types'
+import { useTheme } from '../theme/index'
 
 function rateText(feed: Feed): string {
 	if (feed.offlineReason) return 'OFFLINE'
 	if (!feed.rateLimit) return 'UNKNOWN'
 	return `${feed.rateLimit.remaining}/${feed.rateLimit.limit}`
-}
-
-/**
- * The "active process" spinner. It owns its own frame counter so its 120ms tick
- * re-renders only this one span — not the whole app tree — the same way
- * `Telemetry` isolates its own interval. Laser purple: the "injected" slot per
- * brief A.
- */
-function Spinner() {
-	const theme = useTheme()
-	const [frame, setFrame] = useState(0)
-
-	// A renderer-driving timer is one of the few legitimate uses of an effect.
-	useEffect(() => {
-		const handle = setInterval(() => setFrame((prev) => prev + 1), 120)
-		return () => clearInterval(handle)
-	}, [])
-
-	const glyph = theme.spinner[frame % theme.spinner.length] ?? ''
-	return <span fg={theme.color.inject}>{glyph}</span>
 }
 
 export function Header({ feed }: { feed: Feed }) {
@@ -69,8 +48,7 @@ export function Header({ feed }: { feed: Feed }) {
 
 			<box flexDirection="column" alignItems="flex-end" justifyContent="center">
 				<text wrapMode="none">
-					<Spinner />
-					<span fg={color.textFaint}>{' AUTH '}</span>
+					<span fg={color.textFaint}>{'AUTH '}</span>
 					<span fg={feed.authenticated ? color.grid : color.textDim}>
 						{feed.authenticated ? 'TOKEN' : 'ANON'}
 					</span>

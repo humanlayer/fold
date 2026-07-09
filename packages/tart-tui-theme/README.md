@@ -1,223 +1,236 @@
 # tart-tui-theme
 
-A playable OpenTUI app that renders a GitHub PR/issue browser as a cyberpunk HUD in
-**two swappable themes**, so you can decide which aesthetic to carry into the real Tart
-TUI. Both themes do exactly the same thing; press `t` to swap them live and judge them
-side by side. This package exists to make that decision, not to be production code — see
+A playable OpenTUI app that renders a GitHub PR/issue browser as a cyberpunk HUD in **two
+swappable themes**, so you can decide which aesthetic to carry into the real Tart TUI. Both
+themes render exactly the same data; press `t` to swap them live and judge them side by
+side. This package exists to make that decision, not to be production code — see
 [What this is not](#what-this-is-not).
+
+For the design system itself — the palette, the glow threshold that decides which colors emit
+light, the typography rules, and exactly how the glitch works — see **[STYLE.md](./STYLE.md)**.
+It is written to be self-contained: enough to rebuild this look from scratch without reading
+the source.
 
 ## Run it
 
-From this directory (the repo is a Bun workspace; run `bun install` at the root once if
-you haven't):
+From this directory (the repo is a Bun workspace; run `bun install` at the root once if you
+haven't):
 
 ```bash
 bun run demo
 ```
 
-That is the zero-setup path: it forces the bundled fixtures, so it needs no network and no
-GitHub token. Use `bun run start` to pull live data from GitHub instead, or `bun run
-augmented` / `bun run tactical` to start on a specific theme. The app takes `--theme
+That is the zero-setup path: `--demo` forces the bundled fixtures, so it needs no network
+and no GitHub token. Use `bun run start` to pull live data from GitHub instead, or `bun run
+augmented` / `bun run tactical` to start on a specific theme. The app accepts `--theme
 <augmented|tactical>`, `--repo <owner/repo>` (default `humanlayer/tart`), and `--demo`.
 
 Live data is best-effort: the client discovers a token from `GITHUB_TOKEN`, `GH_TOKEN`, or
 `gh auth token`, and falls back to the fixtures on **any** failure — no token, no network,
-rate limit, private repo. The network can never take the playground down; the header's RATE
-readout shows `OFFLINE` when it happens (the underlying reason is captured on the feed but
-not surfaced in the UI).
+rate limit, private repo, 404. The network can never take the playground down. When it does
+fall back, the header's RATE readout reads `OFFLINE` and the SOURCE panel names the reason.
 
-## The screen
+## Everything on screen is real
+
+Every panel is derived from records GitHub actually returned. The rail used to carry a
+spinning targeting reticle, sine-wave CPU/MEM/NET/IO gauges, fabricated LAT/LON coordinates,
+and a random-hex "data stream" — all of it is gone. The rule now: if a panel can't be backed
+by a function in `src/github/stats.ts` or a field on `Feed`, it doesn't belong on screen.
 
 ```
-┌─ TART │ theme name + tagline │ REPO// │ AUTH + RATE ──────────────────────────┐
-├─────────────┬──────────────────────────────────┬───────────────────────────────┤
-│ INDEX       │ RECORD                           │ OPTIC   (reticle + LAT/LON)   │
-│  PULLS /    │  title, state chip, meta,        ├───────────────────────────────┤
-│  ISSUES     │  labels, rule, description        │ TELEMETRY (CPU/MEM/NET/IO)    │
-│  rows       │  (scrollbox, markdown-ish)        ├───────────────────────────────┤
-│             │                                   │ INJECT  (data stream)         │
-├─────────────┴──────────────────────────────────┴───────────────────────────────┤
-│ footer: keybinds │ FX toggles                                                   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+┌─ TART │ NAME + tagline │ REPO// owner/repo │ AUTH · RATE ─────────────────────────┐
+├───────────────┬──────────────────────────────────────┬──────────────────────────┤
+│ INDEX         │ RECORD                               │ STATE                    │
+│  PULLS /      │  title · state chip · author ·       │  counts per state,       │
+│  ISSUES       │  dates · comments · labels           │  bars in semantic slots  │
+│  + rows,      │  ────────────────────                ├──────────────────────────┤
+│  glyph per    │  // DESCRIPTION                      │ LABELS     top 5         │
+│  row          │  scrollbox, markdown-ish body        ├──────────────────────────┤
+│               │                                      │ AUTHORS    top 4         │
+│               │                                      ├──────────────────────────┤
+│               │                                      │ ACTIVITY   14-day spark  │
+│               │                                      ├──────────────────────────┤
+│               │                                      │ SOURCE     LIVE/FIXTURES │
+├───────────────┴──────────────────────────────────────┴──────────────────────────┤
+│ ↑↓/jk SELECT   TAB PULLS/ISSUES   T THEME   Q QUIT           FX//  B S G V R     │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The layout is responsive: below roughly 118 columns the right-hand rail (OPTIC / TELEMETRY
-/ INJECT) drops, and below roughly 84 the INDEX list narrows. RECORD always survives.
+- **INDEX** — the PULLS / ISSUES list, with per-tab counts and a state glyph on each row.
+  `Tab` switches lists; `j`/`k` moves the cursor.
+- **RECORD** — the selected item in full: title, state chip, author / opened / updated /
+  comments (plus the branch-ref arrow on PRs), labels, and a scrolling, lightly-marked-up
+  body.
+- **STATE** (`stateTallies`) — counts per `open`/`draft`/`merged`/`closed`, each bar drawn
+  in the same `semantic` slot the list uses; zero-count rows render muted.
+- **LABELS** (`labelTallies`) — the top 5 labels by frequency.
+- **AUTHORS** (`authorTallies`) — the top 4 authors by record count.
+- **ACTIVITY** (`updatesByDay`) — a 14-day sparkline of how many records were last updated
+  each day, with running total and peak.
+- **SOURCE** — whether the feed is `LIVE` or `FIXTURES`; when live, the rate-limit reset
+  countdown; when it fell back, the reason (a 404, a rate limit). `offlineReason` and the
+  reset countdown were the only `Feed` fields nothing else surfaced.
 
-Two of the rail panels layer a receding dot-lattice behind their contents —
-`GridRenderable`, mounted as `<grid>` in `src/components/StatusRail.tsx`. In OPTIC a sparse
-`mode="nodes"` lattice sits behind the reticle and frames the crosshair; in INJECT tighter
-dot-rows sit behind the data stream — the horizontal plane the falling code crosses, which
-makes brief A's "cylindrical, spinning column of amber text intersected by a flat,
-horizontal plane of teal gridlines" literal. Both draw in `color.gridDim` under the DIM
-attribute, so they stay a distant background texture the foreground is pushed in front of.
+The layout is responsive: below ~118 columns the right-hand rail (STATE / LABELS / AUTHORS /
+ACTIVITY / SOURCE) drops; below ~84 the INDEX list narrows (to 40% of width, floored, min 24
+cells). RECORD always survives.
 
 ## Comparing the two themes
 
 `t` swaps the theme in place — same data, same layout, different palette and post-process
-chain — so the comparison is instantaneous. The two are deliberately pulled apart along
-these axes; watch them as you toggle:
+chain — so the comparison is instantaneous. The two are deliberately pulled apart along these
+axes:
 
-| Axis | AUGMENTED (A) | TACTICAL (B) |
-|---|---|---|
-| Canvas | absolute black | murky brown-black, like a dirty optic |
-| Neon | teal **and** laser purple **and** red | amber only; a rare cyan flash; red |
-| "Injected" slot | laser purple | bright yellow (same system, running hot) |
-| Frame | thin border, cool teal | heavy border, burnt orange |
-| Heading prefix | `//` | `[` |
-| Signature FX | bloom + chromatic aberration on glitch bursts | vignette + CRT rolling bar + heavier scanlines |
-| Motion | fast, mechanical, occasionally unstable | slow, mechanical, constant |
+| Axis            | AUGMENTED                             | TACTICAL                                           |
+| --------------- | ------------------------------------- | -------------------------------------------------- |
+| Canvas          | absolute black                        | murky brown-black, like a dirty optic              |
+| Neon            | teal **and** laser purple **and** red | amber only; a rare cyan flash; red                 |
+| "Injected" slot | laser purple                          | bright yellow (same system, running hot)           |
+| Frame           | thin `single` border, cool teal       | `heavy` border, burnt orange                       |
+| Heading prefix  | `// `                                 | `[ `                                               |
+| Signature FX    | glow + chromatic-aberration bursts    | vignette + CRT rolling bar + chroma-dropout bursts |
+| Motion          | fast, occasionally unstable           | slow, constant                                     |
 
-The reticle in OPTIC is the fastest read: A layers three colors of counter-rotating rings
-(amber baseline, fast purple graft, receded teal); B is all amber gradations turning
-slowly, with red reserved for the target lock. Also worth toggling FX (`b/s/g/c`) per theme
-— glitch on A separates the color layers and snaps back; glitch on B just tears rows with
-no color separation, because it is an unstable signal, not a splice.
+With the reticle gone, the fastest reads are the **border color** (cool teal vs burnt
+orange), the **`semantic` state colors** in STATE and INDEX (MERGED is laser purple in A, a
+rare cyan in B), the **"injected" slot** (purple vs yellow), and the **FX signature**: glow
+plus a glitch burst that momentarily separates the color layers and snaps back in A, versus a
+vignette + CRT rolling bar + denser scanlines in B, whose bursts instead **drop chroma** — the
+whole frame washes toward monochrome and snaps back (`glitch.chromaticAberration` is pinned at
+`0` in tactical and `chromaDropout` carries the corruption: an unstable analog signal, not a
+splice).
 
-### AUGMENTED — "amber substrate // neon graft"
-
-An older, robust military-grade amber system that has been hacked and augmented with
-experimental cybernetics. Amber carries the structure; electric teal is cool relief on
-borders and coordinates; laser purple marks anything "injected" (the header spinner, the
-data stream, the mid reticle ring); piercing red is rare, reserved for target locks and
-failures. The brief's words: chaotic, dense, spectacular, against a pitch-black void that
-supplies none of its own light.
-
-### TACTICAL — "optic feed // nominal"
-
-Classic cyberpunk optics — looking through the lens of a cyborg or a surveillance rig.
-Serious, gritty, analytical. Amber and burnt orange own nearly the whole screen; neon red
-is the only loud voice; cyan appears as a brief, rare flash. The canvas is not pure black
-but a murky brown, and the dominant artifact is the CRT itself: vignette, a rolling
-brightness bar, and heavier scanlines. This is a *lens*, not a graft.
+The names carry the intent. **AUGMENTED — "amber substrate // neon graft"** is an old amber
+system hacked with experimental cybernetics: amber carries the structure, electric teal is
+cool relief on borders and structural data, laser purple marks anything "injected" (merged
+records, `#123` cross-references, count badges), and piercing red is rare — all against a
+pitch-black void that supplies none of its own light. **TACTICAL — "optic feed // nominal"**
+is the view through a cyborg's lens: amber and burnt orange own the whole screen, neon red is
+the only loud voice, cyan is a single rare flash, and the dominant artifact is the CRT itself.
 
 ## The theming system
 
-This is the part that actually informs the decision: is this the right abstraction to carry
-forward? The shape:
+This is the part that actually informs the decision: is this the right token interface to
+carry forward?
 
-- **`Theme` is one flat token interface** (`src/theme/types.ts`). A theme is `color`,
-  `chrome`, `semantic`, `reticle`, and `fx` sub-objects plus a few odds and ends (spinner
-  frames, the data-stream charset, the telemetry bar ramp). `augmented.ts` and `tactical.ts`
-  each define a private local `palette` of raw colors and then map it onto those tokens.
+- **`Theme` is one flat token interface** (`src/theme/types.ts`): `name` / `tagline`,
+  a `color` object, `chrome`, `semantic`, `fx`, and two block ramps — `barRamp`
+  (`▏▎▍▌▋▊▉█`, left-to-right) for the horizontal count bars and `sparkRamp` (`▁▂▃▄▅▆▇█`,
+  bottom-up) for the activity sparkline. `augmented.ts` and `tactical.ts` each define a
+  private local `palette` of raw colors and map it onto those tokens.
 - **No hex literal exists outside `src/theme/*.ts`.** Every component calls `useTheme()` and
-  references a *slot* — `color.core`, `color.inject`, `color.alert` — never a color. The
-  color tokens are organized by role, not by hue: a foundation (`core`/`coreBright`/
-  `coreDim`), a cool "augmentation" pair (`grid`/`gridDim`), an "injected" pair (`inject`/
-  `injectDim`), a critical pair (`alert`/`alertDim`), and a text hierarchy. Swapping themes
-  is therefore just swapping which raw colors sit in those roles; the components don't
-  change. (Verified: the only 6-digit hex literals in `src/` are in the two theme files.)
-- **The reticle is declarative.** `ThemeReticle` is a `RingSpec[]` plus a crosshair, a lock
-  color, and an optional sweep. Each `RingSpec` is data — a radius, a color, an angular
-  speed whose *sign* picks the rotation direction, a segment count, a duty cycle. Crucially
-  `radius` is a **design unit, not cells**: `ReticleRenderable` (`src/hud/ReticleRenderable.ts`)
-  scales the whole reticle to whatever box it lands in and drops or thins rings that would
-  collapse, so a theme reads the same in the 32-column rail as it does full-screen. A theme
-  author never touches the renderer.
+  references a _slot_ — `color.core`, `color.inject`, `color.alert` — never a color. Slots are
+  named by role, not hue: a foundation (`core`/`coreBright`/`coreDim`), a cool "augmentation"
+  pair (`grid`/`gridDim`), an "injected" slot (`inject`), a critical slot (`alert`), and a
+  text hierarchy. Every slot has a reader — the dead ones were deleted, because a token
+  interface carrying unused slots lies about what the aesthetic needs. Swapping themes is
+  just swapping which raw
+  colors sit in those roles; the components don't change. (Verified: `rg '#[0-9a-fA-F]{6}'
+src` matches only the two theme files.)
 - **The post-process chain is assembled from `fx` tokens** (`src/hud/postfx.ts`).
-  `installPostFx(renderer, theme, toggles)` walks the `PostFx` tokens in a fixed order
-  (bloom → vignette → scanlines → CRT bar → glitch) and pushes one pass per token that is
-  *both* present in the theme and enabled by the runtime toggle. It returns a disposer;
-  `App.tsx` tears the chain down and rebuilds it whenever the theme or a toggle changes.
-  Because passes are gated on the token existing, `c` (CRT) is a no-op on AUGMENTED, which
-  defines no vignette or rolling bar.
-- **`semantic` maps GitHub states onto palette slots.** `open`/`closed`/`merged`/`draft`
-  each name a color slot; `displayState()` in
-  `src/github/types.ts` collapses `state`/`draft`/`merged` into one token, and
-  `useStateStyle()` in `src/components/atoms.tsx` turns that into a `{ glyph, color, label }`.
-  This is where the "no green, red is rare" rule lives: in both themes OPEN is not green, and
-  red is spent only on CLOSED, locks, and destructive arrows.
+  `installPostFx(renderer, theme, toggles)` walks the `PostFx` tokens in a fixed order (glow →
+  vignette → scanlines → CRT bar → glitch) and pushes one pass per token that is _both_
+  present in the theme and enabled by the runtime toggle. It returns a disposer; `App.tsx`
+  tears the chain down and rebuilds it whenever the theme or a toggle changes. **Every pass is
+  independently switchable**, and a pass runs only when the theme declares it _and_ the toggle
+  permits it — so AUGMENTED, which defines no vignette and no rolling bar, shows `V:-- R:--` in
+  the footer rather than pretending they are on. The scrolling CRT bar has its own switch (`r`)
+  because it is the only pass that animates continuously; treat it as opt-in in any product
+  that embeds this style.
+- **`semantic` maps GitHub states onto palette slots.** `open`/`closed`/`merged`/`draft` each
+  name a color slot; `displayState()` in `src/github/types.ts` collapses `state`/`draft`/
+  `merged` into one token, and `useStateStyle()` in `src/components/atoms.tsx` turns that into
+  a `{ glyph, color, label }` used by both the INDEX rows and the STATE panel. This is where
+  the "no green, red is rare" rule lives: in both themes OPEN is not green, and red is spent
+  only on CLOSED, target locks, and destructive arrows.
 
-If you carry this forward, the load-bearing ideas are: role-named color slots instead of
-hues, declarative reticle specs, and an FX chain derived from tokens with per-effect
-runtime gates.
+If you carry this forward, the load-bearing ideas are role-named color slots instead of hues,
+and an FX chain derived from tokens with per-effect runtime gates.
 
 ## Gotchas a maintainer will trip on
 
 These are real and mostly non-obvious. Do not "simplify" them away.
 
-- **Post-process `deltaTime` is milliseconds — but the bundled effects disagree with each
-  other.** `CRTRollingBarEffect` divides by 1000 internally (wants ms), while
-  `DistortionEffect` treats the value as seconds. Fed raw ms, `DistortionEffect` fires
-  roughly every frame and expires the next, degenerating into constant static instead of
-  occasional bursts. This is *why* `postfx.ts` hand-rolls a `GlitchDirector` (seconds
-  internally) instead of using `DistortionEffect`, and passes raw ms straight to
-  `CRTRollingBarEffect`. Keep it.
-- **Terminal cells are ~2:1 (tall:wide).** Any circle multiplies its horizontal component by
-  `CELL_ASPECT` (`src/hud/glyphs.ts`), or it renders as an ellipse.
-- **`live: true` renderables keep the renderer looping.** The reticle and data stream set it
-  so `onUpdate` runs every frame — which means `onUpdate` must **not** call
-  `requestRender()`, and the test harness's `waitForVisualIdle()`/`flush()` will hang on
-  them (see the previews below, which render a single static frame instead).
-- **Custom renderables need a setter for every prop that changes at runtime.** The React
-  reconciler assigns props as `instance[key] = value`; without a setter that creates a
-  shadowing own-property and your private field goes stale. `ReticleRenderable.spec`,
-  `DataStreamRenderable`'s color/char setters, and `GridRenderable`'s setters all exist for
-  this reason — the theme swap flows through them.
-- **`BloomEffect` is O(w·h·r²) in JS** and allocates per bright cell per frame, which is why
-  every FX is toggleable and bloom's radius stays small. On a large bright terminal it is the
-  first thing to turn off.
+- **Post-process `deltaTime` is milliseconds — but the bundled effects disagree.**
+  `CRTRollingBarEffect` divides by 1000 internally (it wants ms), while `DistortionEffect`
+  treats the value as seconds. Fed raw ms, `DistortionEffect` fires roughly every frame and
+  expires the next, degenerating into constant static instead of occasional bursts. This is
+  _why_ `postfx.ts` hand-rolls a `GlitchDirector` (seconds internally) rather than reusing
+  `DistortionEffect`, and passes raw ms straight to `CRTRollingBarEffect`. Keep it.
+- **Do not use opentui's `BloomEffect`.** Its emitter test is `lum(fg) > threshold` and it
+  never looks at the cell's _character_. A blank cell still carries a foreground, and the
+  default foreground is white (luminance 1.0) — so on a mostly-empty HUD over a black void
+  every empty cell becomes a maximum-intensity emitter, `threshold` goes inert, and the
+  palette drowns in a flat white wash (measured: 48% of glyphs rendered pure white).
+  `src/hud/GlowEffect.ts` replaces it: only real glyphs emit (it reads `buffers.char` and
+  skips space/unset), and the glow lands on neighbours' **backgrounds**, tinted toward the
+  emitter's foreground, never on foregrounds — so glyph colours survive exactly, which is what
+  "outer glow" actually means.
+- **Terminal cells are ~2:1 (tall:wide).** `GlowEffect`'s kernel spans `radius * CELL_ASPECT`
+  cells horizontally (`CELL_ASPECT = 2`), or every halo renders as a vertical smear.
+- **The glow is `O(w·h·r²)`.** That is why it is toggleable with `b` and `radius` stays pinned
+  at 2 — the first thing to turn off if a terminal chugs.
 
 ## Verifying changes without a TTY
 
-Two scripts render into the test harness so you can iterate on layout and geometry without
-launching the full app. Both use the fixtures, so no token or network is involved.
-
-| Command | What it does |
-|---|---|
-| `bun run scripts/preview.tsx --theme <id> --size WxH [--keys …] [--spans]` | Renders one frame of the whole app and prints it — see the two flags below |
-| `bun run scripts/reticle.tsx --theme <id> --size WxH` | Renders the reticle alone at any size, for tuning ring geometry |
-| `bun run typecheck` | `tsc --noEmit` (this repo is strict: `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax`) |
-
-`preview.tsx` takes two flags worth knowing:
-
-- **`--keys a,b,c`** drives the app through a comma-separated key sequence before the frame
-  is captured, exactly as a user would type it. Friendly names (`tab`, `up`, `pageup`, …)
-  are mapped to their escape sequences; single letters (`j`, `t`, …) pass straight through.
-  Use it to script a state and then read the frame — e.g. `--keys tab,j,j` lands on the
-  third issue, `--keys t` swaps to TACTICAL.
-- **`--spans`** prints a foreground-color histogram instead of the character grid: every
-  distinct color, how many *visible* (non-space) cells it paints, and its share of the
-  frame. Because the default character capture is monochrome, this is the only way to check
-  palette from the CLI — to answer "is red actually rare? does amber dominate?". `--spans-top
-  N` widens how many colors are listed before the tail is folded into one line.
-
-For example:
+`scripts/preview.tsx` renders one frame into the test harness so you can iterate on layout and
+geometry without launching the full app. It always uses the fixtures, so no token or network
+is involved.
 
 ```bash
 bun run scripts/preview.tsx --theme augmented --size 140x44
 bun run scripts/preview.tsx --theme tactical  --size 140x44 --keys tab,j,j   # drive to 3rd issue
 bun run scripts/preview.tsx --theme augmented --size 140x44 --spans          # palette histogram
-bun run scripts/reticle.tsx --theme tactical  --size 60x30
-bun run scripts/reticle.tsx --theme tactical  --size 32x18   # rail-sized; rings degrade
+bun run scripts/preview.tsx --theme augmented --size 90x30                   # narrow: rail drops
 ```
 
-**`captureCharFrame()` (what `preview.tsx` prints by default) is monochrome.** It proves
-*layout* — that panels tile, that the reticle fits its box, that text does not overflow —
-but says nothing about *color*, which is the whole point of this package. Pass `--spans`
-(above) for a color histogram from the CLI, or in a test call `captureSpans()`, which
-carries a color per cell. The rendered frame is the real arbiter of a theme; look at it in a
-terminal.
+The flags:
+
+- **`--theme <augmented|tactical>`** and **`--size WxH`** (default `140x44`).
+- **`--keys a,b,c`** drives the app through a comma-separated key sequence before the frame is
+  captured, exactly as a user would type it. Friendly names (`tab`, `up`, `pageup`, …) map to
+  their escape sequences; single letters (`j`, `t`, …) pass straight through — so `--keys
+tab,j,j` lands on the third issue and `--keys t` swaps to TACTICAL.
+- **`--spans`** prints a foreground-color histogram instead of the character grid: every
+  distinct color, how many _visible_ (non-space) cells it paints, and its share of the frame.
+  `--spans-top N` widens how many colors are listed before the tail is folded into one line.
+
+`captureCharFrame()` — what preview prints by default — is **monochrome**: it proves _layout_
+(that panels tile, that the sparkline fits its box, that text does not overflow) but says
+nothing about _color_, which is the whole point of this package. `--spans` is the only way to
+weigh the palette from the CLI — to answer "is red actually rare? does amber dominate?" — and
+the rendered frame in a real terminal is the final arbiter.
+
+One harness subtlety worth knowing: `settleFrame()` yields **two** macrotasks before drawing,
+not one. The first lets React flush the _commit_ queued by the key handler; but React 19
+flushes **passive effects** (`useEffect`) on a later task, and `App` installs the post-process
+chain from one — so a single yield would draw the new tree through the _old_ FX chain (a
+one-key `--keys b --spans` reported the glow still on).
 
 ## Keybindings
 
-| Key | Action |
-|---|---|
-| `↑` / `k`, `↓` / `j` | Move selection |
-| `PageUp` / `PageDown` | Jump 8 rows |
-| `Tab` | Switch PULLS ↔ ISSUES |
-| `t` | Swap theme (AUGMENTED ↔ TACTICAL) |
-| `b` | Toggle bloom |
-| `s` | Toggle scanlines |
-| `g` | Toggle glitch |
-| `c` | Toggle CRT (vignette + rolling bar) |
-| `q` / `Esc` / `Ctrl-C` | Quit |
+Every row is sourced from `App.tsx`'s `useKeyboard`:
+
+| Key                    | Action                            |
+| ---------------------- | --------------------------------- |
+| `↑` / `k`, `↓` / `j`   | Move selection                    |
+| `PageUp` / `PageDown`  | Jump 8 rows                       |
+| `Tab`                  | Switch PULLS ↔ ISSUES             |
+| `t`                    | Swap theme (AUGMENTED ↔ TACTICAL) |
+| `b`                    | Toggle glow (the `fx.glow` token) |
+| `s`                    | Toggle scanlines                  |
+| `g`                    | Toggle glitch                     |
+| `v`                    | Toggle vignette                   |
+| `r`                    | Toggle the scrolling CRT bar      |
+| `q` / `Esc` / `Ctrl-C` | Quit                              |
+
+A toggle shows `--` when the active theme declares no such effect.
 
 ## What this is not
 
-This is a **theme playground, not production architecture**. Nowhere is that clearer than
-`src/github/client.ts`: it is plain `async`/`fetch`, with `Bun.spawn` for `gh auth token`
-and `Promise.allSettled` for the two list calls — deliberately **not** Effect, even though
-the rest of Tart is. The point here is the pixels, and Effect would only add ceremony
-between you and the frame. The real Tart TUI will wire its data through Effect; do not
-cargo-cult this client into it.
+This is a **theme playground, not production architecture.** Nowhere is that clearer than
+`src/github/client.ts`: it is plain `async`/`fetch`, with `Bun.spawn` for `gh auth token` and
+`Promise.allSettled` across the two list calls so one disabled endpoint doesn't sink the whole
+feed — deliberately **not** Effect, even though the rest of Tart is. The point here is the
+pixels, and Effect would only add ceremony between you and the frame. The real Tart TUI will
+wire its data through Effect; do not cargo-cult this client into it.

@@ -1,4 +1,4 @@
-import type { Theme } from './types.ts'
+import type { Theme } from './types'
 
 /**
  * TACTICAL RETRO HUD — amber lens.
@@ -10,8 +10,10 @@ import type { Theme } from './types.ts'
  *
  * This is a *lens*, not a graft (contrast AUGMENTED): the whole screen is one
  * warm phosphor, and the signature effect is heavier CRT artifacting —
- * vignette, a rolling bar, and denser scanlines — an unstable signal, *not*
- * spliced color layers. `glitch.chromaticAberration` is therefore held at 0.
+ * vignette, a rolling bar, denser scanlines, and glitch bursts that make the tube
+ * lose chroma sync rather than pull its color layers apart. So
+ * `glitch.chromaticAberration` is held at 0 and `glitch.chromaDropout` carries the
+ * corruption: an unstable analog signal, not a splice.
  */
 const palette = {
 	// B1: "Deep, crushing blacks ... and muted, murky greens or browns." Not the
@@ -36,9 +38,8 @@ const palette = {
 	// B4: the rare cold flash. Used on exactly one surface (a MERGED record).
 	cyan: '#26C9BE',
 
-	// B3: critical only. Neon red — locks, failures, destructive edges.
+	// B3: critical only. Neon red — failures, warnings, destructive edges.
 	red: '#FF2A1F',
-	rust: '#7A0E08',
 
 	// Text hierarchy, all amber-tinted so body copy stays inside the warm world.
 	sand: '#E0A040',
@@ -47,7 +48,6 @@ const palette = {
 } as const
 
 export const tactical: Theme = {
-	id: 'tactical',
 	name: 'TACTICAL',
 	tagline: 'OPTIC FEED // NOMINAL',
 
@@ -70,14 +70,12 @@ export const tactical: Theme = {
 		grid: palette.gold,
 		gridDim: palette.goldDim,
 
-		// B-contrast: no laser purple in this world. "Injected" processes read as
-		// bright yellow — the same amber system, just running hot.
+		// B-contrast: no laser purple in this world. "Injected" values read as bright
+		// yellow — the same amber system, just running hot.
 		inject: palette.yellow,
-		injectDim: palette.burnt,
 
 		// B3: neon red, held in reserve for critical info and warnings.
 		alert: palette.red,
-		alertDim: palette.rust,
 
 		text: palette.sand,
 		textDim: palette.umber,
@@ -104,75 +102,62 @@ export const tactical: Theme = {
 		draft: palette.umber,
 	},
 
-	reticle: {
-		// B8/B9: concentric segmented dials spinning slowly and mechanically, at
-		// different speeds in opposing directions (signs alternate: + / - / +).
-		// "Slow, mechanical, constant" — magnitudes stay well under AUGMENTED's.
-		//
-		// Two defences against the 2:1-cell "bar" (a lit arc on 12/6 o'clock smears
-		// into a flat `──────` run): low duty keeps every lit arc short, and a static
-		// `phase = π/2 − wedge·(1+duty)/2` parks each ring's gaps on the cardinals so
-		// the top and bottom fall open. B10 holographic depth comes from each ring's
-		// `depth` plane (foreground / mid / far). Verified at 60x30 and 32x18.
-		rings: [
-			// 6-segment graduated targeting ring with inward ticks. Foreground (depth 0)
-			// so the dominant amber reads full-bright; gaps parked on the cardinals.
-			{ radius: 9, color: palette.amber, speed: 0.18, segments: 6, duty: 0.4, ticks: true, phase: 0.84, depth: 0 },
-			// A far pair of burnt side-brackets (depth 1 → DIM + 0.45 alpha): 2 arcs at
-			// 42% duty, phase-parked so the lit arcs sit on the left/right and the top
-			// and bottom stay open — never a bar. The far plane for holographic depth (B10).
-			{ radius: 6.6, color: palette.burnt, speed: -0.45, segments: 2, duty: 0.42, phase: -0.66, depth: 1 },
-			// Inner dial: bright yellow, the hottest ring, turning fastest. Mid plane
-			// (depth 0.5) so it floats between the amber frame and the far brackets. Six
-			// shorter arcs, gaps parked on the cardinals — reads as a spinning dial.
-			{ radius: 4.4, color: palette.yellow, speed: 0.85, segments: 6, duty: 0.46, phase: 0.81, depth: 0.5 },
-		],
-		crosshair: palette.yellow,
-		crosshairSpan: 2,
-		// B8: bracketed targeting box. B3: the lock is the reticle's one red voice.
-		lock: palette.red,
-		// "Slow, mechanical, constant." The lock breathes slowly (tempo 1.0 rad/s,
-		// ~1/3 of AUGMENTED's) with a small, steady travel — never snappy.
-		lockPulse: { tempo: 1.0, amplitude: 0.5, gap: 0.8 },
-		// A warm sweep head orbiting the rim — the radar/optic sweep (AUGMENTED's is
-		// laser violet). Slow, with a slightly longer smear to match the constant motion.
-		sweep: { color: palette.amber, speed: 0.55, trail: 4, rim: 0.4, arc: 0.08, arcGain: 0.03 },
-	},
-
 	fx: {
-		// B5: elements emit light — but subtler than AUGMENTED (higher threshold,
-		// lower strength), because here the dominant artifact is the CRT itself.
-		bloom: { threshold: 0.6, strength: 0.22, radius: 2 },
+		// B5: elements emit light — but subtler than AUGMENTED, because here the
+		// dominant artifact is the CRT itself. Read by the glyph-aware GlowEffect
+		// (only glyphs emit; the glow tints neighbour BACKGROUNDS toward the glyph
+		// colour, never the void). The high threshold admits only the dominant warm
+		// tones — amber (0.64), gold (0.68), yellow (0.77), sand text (0.66) — so
+		// the lens emits from its amber structure while red, the rare cyan, and the
+		// dim tiers stay crisp. Low strength keeps it a gentle emission (background
+		// luminance p99 ≈ 0.13 against AUGMENTED's 0.46, and it adds nothing to the
+		// murky-void median) that supports the vignette + rolling bar + heavy
+		// scanlines rather than fighting them. Radius pinned at 2.
+		glow: { threshold: 0.6, strength: 0.07, radius: 2 },
 		// B13: heavier scanlines than AUGMENTED. `applyScanlines` multiplies RGB by
 		// `strength` on every `step`-th row, so lower strength = darker lines and a
-		// smaller step = denser lines. AUGMENTED is 0.94 / step 3; this is darker and
+		// smaller step = denser lines. AUGMENTED is 0.92 / step 3; this is darker and
 		// twice as dense.
 		scanlines: { strength: 0.8, step: 2 },
 		// B13: the "looking through optics" tunnel. AUGMENTED has no vignette at all.
 		vignette: 0.7,
-		// B12/B13: a slow rolling bar — the signature "slightly unstable signal".
-		crtBar: { speed: 0.35, height: 0.1, intensity: 0.5, fadeDistance: 0.25 },
+		// B12/B13: a slow rolling bar — the signature "slightly unstable signal", and
+		// TACTICAL's only *continuous* motion; the glitch is punctuation, not a pulse.
+		//
+		// `speed` is in **rows per second**, not a normalized fraction: the effect
+		// advances `position += (deltaMs/1000) * speed` and wraps at
+		// `cycleHeight = height * (1 + 2*barHeight)`. So the sweep period is
+		// `cycleHeight / speed` seconds — at `speed: 6` that is ~9s over a 44-row
+		// terminal. A value like 0.35 reads as "slow" but means one sweep every two
+		// and a half minutes, i.e. a bar that never visibly moves.
+		crtBar: { speed: 6, height: 0.1, intensity: 0.5, fadeDistance: 0.25 },
 		glitch: {
-			// B12: occasional, short, small bursts — an unstable signal, not chaos.
-			// Rarer and gentler than AUGMENTED (0.55 / 3 lines / shift 9).
-			chancePerSecond: 0.3,
-			maxLines: 2,
-			maxShift: 5,
-			shiftFlipRatio: 0.8,
-			colorGlitchChance: 0.15,
-			minDuration: 0.04,
-			maxDuration: 0.1,
-			// B13, the sharpest differentiator from AUGMENTED: NO color separation.
-			// This signal is unstable, not spliced. Do not raise above 0.
+			// B12: "elements sometimes flicker … or exhibit slight glitch artifacts,
+			// suggesting a complex, perhaps slightly unstable, electronic signal."
+			// Bursts land about as often as AUGMENTED's and tear a comparable number of
+			// rows — the two themes differ in *how the color fails*, not in how often.
+			chancePerSecond: 0.45,
+			maxLines: 3,
+			maxShift: 10,
+			shiftFlipRatio: 0.75,
+			// Datamosh streaks are more of this theme's language than AUGMENTED's, since
+			// it has no channel split to carry the color corruption.
+			colorGlitchChance: 0.4,
+			minDuration: 0.05,
+			maxDuration: 0.16,
+
+			// B13, the sharpest differentiator from AUGMENTED: **no color separation.**
+			// An RGB channel split would fringe this all-warm palette with cool colors
+			// and make it read as a splice. Do not raise above 0.
 			chromaticAberration: 0,
+			// Instead, the analog failure: the tube loses chroma sync and the whole frame
+			// washes toward raw luma for two to four frames, then snaps back. It disturbs
+			// the same share of the screen as AUGMENTED's aberration (~26%), so the two
+			// glitches carry equal weight — but this one invents no hues, it removes them.
+			chromaDropout: 0.6,
 		},
 	},
 
-	// B-contrast / typography: a plain typewriter-terminal spinner (AUGMENTED uses
-	// rounded quadrant arcs).
-	spinner: ['|', '/', '-', '\\'],
-	// B7/B11: narrow, unambiguous-width codepoints only (ASCII + basic symbols) so
-	// the cascading readout never tears the terminal grid.
-	streamChars: '0123456789ABCDEF.:_-=+*#%',
 	barRamp: ['▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'],
+	sparkRamp: ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
 }

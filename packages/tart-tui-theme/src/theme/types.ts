@@ -2,62 +2,6 @@ import type { BorderStyle } from '@opentui/core'
 
 export type ThemeId = 'augmented' | 'tactical'
 
-/**
- * One concentric ring of the HUD reticle.
- *
- * `radius` is expressed in terminal *rows*. Cells are roughly twice as tall as
- * they are wide, so the ring renderer multiplies the horizontal component by
- * {@link CELL_ASPECT} to keep circles looking circular.
- */
-export interface RingSpec {
-	/** Ring radius, in rows. */
-	readonly radius: number
-	/** Ring stroke color. */
-	readonly color: string
-	/** Angular velocity in radians/second. Sign selects direction. */
-	readonly speed: number
-	/** Number of evenly spaced arc segments. `1` with `duty: 1` is a solid ring. */
-	readonly segments: number
-	/** Fraction of each segment that is actually drawn (0..1). */
-	readonly duty: number
-	/** Draw short radial tick marks at every segment boundary. */
-	readonly ticks?: boolean
-	/**
-	 * Static start-angle offset, in radians, added to the rotation. Lets a theme
-	 * stagger rings so their seams don't all begin aligned, and park a ring's gaps
-	 * on the vertical (12/6 o'clock): a terminal cell is 2:1, so a lit arc riding a
-	 * cardinal smears into a horizontal run of `─` that reads as a bar rather than
-	 * an arc. Defaults to `0`.
-	 */
-	readonly phase?: number
-	/**
-	 * Depth plane. `0` = immediate foreground, `1` = far background; values in
-	 * between give intermediate planes. Maps to a combination of reduced alpha
-	 * (via `fade()`) and — past a threshold — the DIM attribute, and orders
-	 * drawing back-to-front so a foreground ring wins a contested cell.
-	 * Defaults to `0` (foreground). Supersedes the old two-state `recede` flag.
-	 */
-	readonly depth?: number
-}
-
-/** A sweep head orbiting the reticle rim with a short comet trail behind it. */
-export interface SweepSpec {
-	readonly color: string
-	/** Angular velocity of the head, radians/second. Sign selects orbit direction. */
-	readonly speed: number
-	/** Number of trailing samples behind the leading edge — the comet's length. */
-	readonly trail: number
-	/**
-	 * How far outside the outer ring rim the head orbits, in design units. Larger
-	 * lifts the comet clear of the rings; at small sizes it rounds back onto the rim.
-	 */
-	readonly rim: number
-	/** Leading-arc length, radians, before the trail lengthens it. */
-	readonly arc: number
-	/** Additional arc length per unit of {@link trail}, radians. */
-	readonly arcGain: number
-}
-
 export interface GlitchSpec {
 	/** Expected number of glitch bursts per second. */
 	readonly chancePerSecond: number
@@ -67,16 +11,35 @@ export interface GlitchSpec {
 	readonly colorGlitchChance: number
 	readonly minDuration: number
 	readonly maxDuration: number
+
+	/*
+	 * Whole-frame color corruption, applied *only while a burst is active*.
+	 *
+	 * Row tearing alone disturbs ~2% of the screen's glyphs — measurably present,
+	 * perceptually almost nothing. Practically all of a glitch's punch comes from
+	 * one of these two passes, which recolor the whole frame for two to four
+	 * frames and then snap back. A theme should pick exactly one: they are the
+	 * signature of *what kind of machine is failing*.
+	 */
+
 	/**
-	 * Chromatic aberration strength applied *only while a burst is active*.
-	 * This is what makes the amber/teal/purple layers separate on impact and
-	 * snap back, rather than smearing text permanently.
+	 * RGB channels slide apart horizontally, offset growing with radial distance
+	 * from the screen center. Reads as separate color layers momentarily losing
+	 * register — a *spliced* system. Set to `0` to disable.
 	 */
 	readonly chromaticAberration: number
+	/**
+	 * Colors wash toward their own luma, `0`..`1`, as a CRT losing chroma sync.
+	 * The frame briefly goes monochrome and snaps back. Reads as an *analog*
+	 * system, and — unlike aberration — it invents no new hues, so it never
+	 * smuggles cool fringes into an all-warm palette. Set to `0` to disable.
+	 */
+	readonly chromaDropout: number
 }
 
 export interface PostFx {
-	readonly bloom?: { readonly threshold: number; readonly strength: number; readonly radius: number }
+	/** Outer glow. See `hud/GlowEffect.ts` — this is NOT opentui's `BloomEffect`. */
+	readonly glow?: { readonly threshold: number; readonly strength: number; readonly radius: number }
 	readonly scanlines?: { readonly strength: number; readonly step: number }
 	readonly vignette?: number
 	readonly crtBar?: {
@@ -96,22 +59,20 @@ export interface ThemeColors {
 	/** Fill behind a selected/active row. */
 	readonly raised: string
 
-	/** THE FOUNDATION — structural baseline, dials, wireframes, standard readouts. */
+	/** THE FOUNDATION — structural baseline: titles, headings, primary readouts. */
 	readonly core: string
 	readonly coreBright: string
 	readonly coreDim: string
 
-	/** AUGMENTATION — cool relief. Grids, bounding boxes, coordinates. */
+	/** AUGMENTATION — cool relief. Borders, structural data, labels, inline code. */
 	readonly grid: string
 	readonly gridDim: string
 
-	/** AUGMENTATION — "injected" processes. Spinners, progress, decryption. */
+	/** AUGMENTATION — "injected" values. Cross-references, highlighted figures. */
 	readonly inject: string
-	readonly injectDim: string
 
-	/** CRITICAL — target locks, failures, destructive actions. Used sparingly. */
+	/** CRITICAL — failures and destructive actions. Used sparingly. */
 	readonly alert: string
-	readonly alertDim: string
 
 	/** Text hierarchy. */
 	readonly text: string
@@ -138,44 +99,15 @@ export interface ThemeSemantic {
 	readonly draft: string
 }
 
-export interface ThemeReticle {
-	readonly rings: readonly RingSpec[]
-	readonly crosshair: string
-	/** Crosshair arm length, in rows. */
-	readonly crosshairSpan: number
-	/** Color of the four target-lock corner brackets. */
-	readonly lock: string
-	/**
-	 * Motion signature of the target-lock brackets. The lock is the most
-	 * eye-catching animated element on screen, so its breathing tempo carries the
-	 * theme's whole motion feel — fast and unstable for AUGMENTED, slow and steady
-	 * for TACTICAL. The brackets ease in and out just outside the outer ring on a
-	 * sine wave.
-	 */
-	readonly lockPulse: {
-		/** Angular frequency of the breathing sine, radians/second. Higher = faster. */
-		readonly tempo: number
-		/** Peak travel of the brackets between tight and loose, in design units. */
-		readonly amplitude: number
-		/** Resting gap the brackets hold outside the outer ring, in design units. */
-		readonly gap: number
-	}
-	readonly sweep?: SweepSpec
-}
-
 export interface Theme {
-	readonly id: ThemeId
 	readonly name: string
 	readonly tagline: string
 	readonly color: ThemeColors
 	readonly chrome: ThemeChrome
 	readonly semantic: ThemeSemantic
-	readonly reticle: ThemeReticle
 	readonly fx: PostFx
-	/** Frames of the "active process" spinner. */
-	readonly spinner: readonly string[]
-	/** Charset rained down by the data-stream panel. */
-	readonly streamChars: string
-	/** Left-to-right partial block ramp used by the telemetry bars. */
+	/** Left-to-right partial block ramp used by the horizontal count bars. */
 	readonly barRamp: readonly string[]
+	/** Bottom-up block ramp used by the activity sparkline. */
+	readonly sparkRamp: readonly string[]
 }

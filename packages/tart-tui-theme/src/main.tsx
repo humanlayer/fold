@@ -1,11 +1,10 @@
 import { createCliRenderer } from '@opentui/core'
 import { createRoot } from '@opentui/react'
 
-import { App } from './App.tsx'
-import { loadFeed } from './github/client.ts'
-import './hud/register.ts'
-import { isThemeId } from './theme/index.ts'
-import type { ThemeId } from './theme/index.ts'
+import { App } from './App'
+import { loadFeed } from './github/client'
+import { isThemeId } from './theme/index'
+import type { ThemeId } from './theme/index'
 
 interface Args {
 	readonly theme: ThemeId
@@ -42,9 +41,7 @@ const args = parseArgs(process.argv.slice(2))
 const feed = await loadFeed(args)
 
 const renderer = await createCliRenderer({
-	// The reticle, grid, and data stream are all `live`, so the renderer loops
-	// continuously rather than rendering on demand. 30fps leaves budget for the
-	// post-process chain (bloom is the expensive pass).
+	// 30fps leaves budget for the post-process chain (the glow is the costly pass).
 	targetFps: 30,
 	exitOnCtrlC: true,
 	// The console overlay would paint over the HUD, and it steals ctrl+k.
@@ -52,3 +49,10 @@ const renderer = await createCliRenderer({
 })
 
 createRoot(renderer).render(<App feed={feed} initialTheme={args.theme} />)
+
+// OpenTUI renders on demand: a frame is drawn only when a prop changes. Nothing in
+// this app animates its *tree* — the motion lives entirely in the time-driven
+// post-process passes (glitch bursts in both themes, the CRT rolling bar in
+// tactical), which only advance on a rendered frame. Without an explicit loop those
+// effects freeze after the first paint. Measured: 4 frames/1.2s off, ~30 on.
+renderer.start()

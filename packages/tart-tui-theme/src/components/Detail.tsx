@@ -1,10 +1,10 @@
 import { TextAttributes } from '@opentui/core'
 import type { ReactNode } from 'react'
 
-import { displayState } from '../github/types.ts'
-import type { GhItem } from '../github/types.ts'
-import { useTheme } from '../theme/index.ts'
-import { Chip, Field, Heading, relativeTime, Rule, useStateStyle } from './atoms.tsx'
+import { displayState } from '../github/types'
+import type { GhItem } from '../github/types'
+import { useTheme } from '../theme/index'
+import { Chip, Field, Heading, relativeTime, Rule, useStateStyle } from './atoms'
 
 /** `#123` cross-references and `inline code` get their own palette slots. */
 const INLINE = /(`[^`]+`|#\d+)/g

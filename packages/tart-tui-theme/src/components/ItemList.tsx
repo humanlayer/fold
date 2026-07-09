@@ -2,10 +2,10 @@ import { TextAttributes } from '@opentui/core'
 import type { ScrollBoxRenderable } from '@opentui/core'
 import { useEffect, useRef } from 'react'
 
-import { displayState } from '../github/types.ts'
-import type { GhItem, ItemKind } from '../github/types.ts'
-import { useTheme } from '../theme/index.ts'
-import { clip, useStateStyle } from './atoms.tsx'
+import { displayState } from '../github/types'
+import type { GhItem, ItemKind } from '../github/types'
+import { useTheme } from '../theme/index'
+import { clip, useStateStyle } from './atoms'
 
 /** Reserved cells per row: gutter + glyph + space + `#nnnn` + space. */
 const ROW_OVERHEAD = 10
@@ -57,7 +57,7 @@ function Tab({ label, count, active }: { label: string; count: number; active: b
 	)
 }
 
-export interface ItemListProps {
+interface ItemListProps {
 	readonly items: readonly GhItem[]
 	readonly kind: ItemKind
 	readonly counts: Readonly<Record<ItemKind, number>>

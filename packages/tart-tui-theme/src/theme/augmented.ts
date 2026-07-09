@@ -1,53 +1,50 @@
-import type { Theme } from './types.ts'
+import type { Theme } from './types'
 
 /**
  * AUGMENTED CYBERPUNK HUD — amber + neon.
  *
  * "An older, robust military-grade system (the amber) has been heavily modified,
  * hacked, or augmented with cutting-edge, experimental cybernetics (the neon)."
- * Amber carries the structure; electric teal is cool relief on borders and
- * coordinates; laser purple marks anything "injected" (spinners, progress,
- * decryption, holographic rings); piercing red is reserved — sparingly — for
- * target locks and failures. Everything sits on a pitch-black void and supplies
- * its own light.
+ * Amber carries the structure; electric teal is cool relief on borders, labels
+ * and structural data; laser purple marks anything "injected" (merged records,
+ * `#123` cross-references, count badges, bullets); piercing red is reserved —
+ * sparingly — for failures and destructive edges. Everything sits on a
+ * pitch-black void and supplies its own light.
  *
  * Chaotic, dense, spectacular.
  */
 const palette = {
 	black: '#000000',
 	// Foundation — "glowing amber, golden yellow, and burnt orange." These handle
-	// the structural baseline. Amber and gold are bright enough to cross the bloom
-	// threshold and glow; burnt orange stays under it so headings read crisp.
+	// the structural baseline. Amber and gold are bright enough to cross the
+	// glow threshold; burnt orange stays under it so headings read crisp.
 	amber: '#FFA31A', // core        lum ~0.69 — glows
 	gold: '#FFD447', // coreBright   lum ~0.82 — glows
 	burnt: '#A34A00', // coreDim     lum ~0.36 — crisp (headings)
 	amberEmber: '#2A1A0C', // raised — a warm ember behind the selected row, never a cool fill
 	// Augmentation — "Electric Teal: a sharp, cool contrast to the amber." The
 	// electric grid teal is for live data (glows); the deep teal is the recessive
-	// structural teal used on borders and dim grids (stays under bloom, so the cool
+	// structural teal used on borders and dim grids (stays under the glow gate, so the cool
 	// frame reads clearly but recedes behind the amber content, per the brief's
 	// "push the cooler teal … to the background").
-	teal: '#12E5C8', // grid         lum ~0.64 — glows (coordinates, code, crosshair)
+	teal: '#12E5C8', // grid         lum ~0.64 — glows (labels, inline code, branch refs)
 	tealDeep: '#0A7E6E', // gridDim + border  lum ~0.35 — crisp, recessive teal
 	// Augmentation — "Laser Purple (Magenta/Violet): used for 'injected' or highly
-	// advanced processes." Bright enough to glow; the trail violet stays dim.
+	// advanced processes." Bright enough to cross the glow threshold.
 	purple: '#B14CFF', // inject     lum ~0.50 — glows
-	violet: '#5A1A94', // injectDim  lum ~0.23 — crisp dim trail
 	// Critical — "Piercing Laser Red." Brightened from a deep crimson so the laser
-	// actually *glows* through bloom (a deep red sits below the threshold and would
-	// read as a dull dot). Reserved for locks and failures, so it stays rare.
+	// actually *glows* (a deep red sits below the threshold and would read as a dull
+	// dot). Reserved for failures and destructive edges, so it stays rare.
 	red: '#FF3344', // alert         lum ~0.45 — glows
-	blood: '#7A0011', // alertDim    lum ~0.15 — crisp dim backing
-	// Text hierarchy, amber-tinted. Scanlines only darken the background buffer, so
-	// legibility here is purely fg-on-black + bloom: bone is bright, umber is a
+	// Text hierarchy, amber-tinted. Scanlines only darken the *background* buffer,
+	// so legibility here is purely foreground-on-black: bone is bright, umber is a
 	// readable dim, ash is faint scaffolding (lifted a touch from pure shadow).
 	bone: '#E8B563', // text         lum ~0.73
-	umber: '#8A5A12', // textDim     lum ~0.38 — under bloom, so body text never smears
+	umber: '#8A5A12', // textDim     lum ~0.38 — under the glow gate, so body text stays crisp
 	ash: '#4A2F0E', // textFaint     lum ~0.20 — faint but legible
 } as const
 
 export const augmented: Theme = {
-	id: 'augmented',
 	name: 'AUGMENTED',
 	tagline: 'AMBER SUBSTRATE // NEON GRAFT',
 
@@ -67,14 +64,13 @@ export const augmented: Theme = {
 		grid: palette.teal,
 		gridDim: palette.tealDeep,
 
-		// "Laser Purple … 'injected' processes … cascading code overlays, or data
-		// streams that appear to bypass the standard amber system."
+		// "Laser Purple … used for 'injected' or highly advanced processes." Lands on
+		// merged records, `#123` cross-references, tab counts, and body bullets.
 		inject: palette.purple,
-		injectDim: palette.violet,
 
-		// "Piercing Laser Red. Reserved exclusively for extreme contrast." Used sparingly.
+		// "Piercing Laser Red. Reserved exclusively for extreme contrast." Used sparingly:
+		// the selection caret, the CLOSED state, the branch arrow, a spent rate limit.
 		alert: palette.red,
-		alertDim: palette.blood,
 
 		text: palette.bone,
 		textDim: palette.umber,
@@ -88,7 +84,7 @@ export const augmented: Theme = {
 		panelStyle: 'single',
 		// "Use teal for borders …" — the recessive deep teal: unmistakably a teal
 		// frame (the tell against tactical's burnt-orange "heavy" frame) but dim
-		// enough to stay under bloom and recede behind the amber content it wraps.
+		// enough to stay under the glow gate and recede behind the amber it wraps.
 		border: palette.tealDeep,
 		title: palette.amber,
 		heading: '// ', // "frequent use of brackets [ ], slashes //, and underscores _"
@@ -107,52 +103,25 @@ export const augmented: Theme = {
 		draft: palette.umber,
 	},
 
-	reticle: {
-		// "A large amber targeting ring might be surrounded by a fast-spinning,
-		// segmented purple ring, with a static teal crosshair in the center." Nested
-		// rings "rotate in opposite directions at different speeds" (parallax), and
-		// "extreme artificial depth … amber and red to the immediate foreground …
-		// cooler teal and purple to the background" (see each ring's `depth`).
-		//
-		// `phase` parks each ring's gaps on the vertical (12/6 o'clock) so no lit arc
-		// smears into a horizontal bar, and staggers the rings' start angles. Values
-		// come from `phase = π/2 − wedge·(1+duty)/2` (centres a gap on the cardinal).
-		rings: [
-			// Outer amber targeting ring — the grounded baseline, slow (+). Foreground
-			// (depth 0): "amber … to the immediate foreground." 4 gaps land on the four
-			// cardinals, so its lit arcs ride the diagonals as clean curves.
-			{ radius: 9, color: palette.amber, speed: 0.35, segments: 4, duty: 0.86, ticks: true, phase: 0.11, depth: 0 },
-			// Fast-spinning segmented purple graft — counter-rotating hard (−). Mid plane
-			// (depth 0.5 → DIM + ~0.73 alpha): a holographic ring floating behind the amber.
-			{ radius: 6.6, color: palette.purple, speed: -2.8, segments: 8, duty: 0.55, phase: 0.96, depth: 0.5 },
-			// Teal structural ring — the far plane (depth 1 → DIM + 0.45 alpha), "pushed
-			// … to the background." Counter-rotates the purple (+); gap parked on top.
-			{ radius: 4.4, color: palette.tealDeep, speed: 0.9, segments: 3, duty: 0.62, phase: -0.13, depth: 1 },
-		],
-		// "a static teal crosshair in the center."
-		crosshair: palette.teal,
-		crosshairSpan: 2,
-		// "target locks … flashing warnings" — piercing red, on top of everything.
-		lock: palette.red,
-		// "The animation should feel fast, mechanical, and occasionally unstable." The
-		// lock breathes fast (tempo 3.6 rad/s, ~2× tactical) with a big, snappy travel.
-		lockPulse: { tempo: 3.6, amplitude: 0.9, gap: 0.8 },
-		// The scan head reads teal ("environmental scans or network pings"), orbiting
-		// the rim fast, counter to the purple ring for extra parallax. A tight comet.
-		sweep: { color: palette.teal, speed: 1.6, trail: 3, rim: 0.4, arc: 0.06, arcGain: 0.03 },
-	},
-
 	fx: {
-		// "Heavy use of 'bloom' (outer glow) on all elements … intensely bright
-		// optical lasers and glowing gas tubes overlapping in dark space." The low
-		// threshold is what makes it heavy: every neon — amber, gold, teal, AND the
-		// purple/red lasers — crosses it and glows, while the dim text tiers, the
-		// teal border, and burnt headings stay just under it and stay crisp. Radius
-		// is pinned at 2 (bloom is O(w·h·r²)).
-		bloom: { threshold: 0.4, strength: 0.34, radius: 2 },
+		// "Heavy use of bloom (outer glow) on all elements … intensely bright
+		// optical lasers and glowing gas tubes overlapping in dark space." Read by
+		// the glyph-aware GlowEffect: only real glyphs emit, and the glow lands on
+		// the BACKGROUND of neighbours (tinted toward the glyph's colour), so amber
+		// stays amber and the void stays black. The low threshold is what carries the
+		// "heavy" — every neon crosses it and glows: amber (0.69), gold (0.82), teal
+		// (0.64), and crucially the purple (0.50) and red (0.45) *lasers*, which a
+		// higher gate would extinguish. The dim tiers, the teal border, and burnt
+		// headings sit just under it and stay crisp. Strength is deliberately modest:
+		// glow is meant to halo the hottest glyphs (background luminance p99 ≈ 0.46),
+		// not light the field — the median cell stays at 0.02 and the void reads black.
+		// Pushing strength past ~0.15 washes a quarter of the screen and the palette
+		// stops being legible. Radius is pinned at 2: the kernel is O(w·h·r²), and it
+		// spans `r * CELL_ASPECT` cells horizontally so the halo is round on screen.
+		glow: { threshold: 0.4, strength: 0.1, radius: 2 },
 		// Scanlines only darken the background buffer, which is a transparent void
-		// here, so they read as a faint texture over the bloom glow — deliberately
-		// lighter/sparser than tactical's CRT (this theme's signature is the bloom,
+		// here, so they read as a faint texture over the glow halo — deliberately
+		// lighter/sparser than tactical's CRT (this theme's signature is the glow,
 		// not the tube). No vignette, no rolling CRT bar: those belong to tactical.
 		scanlines: { strength: 0.92, step: 3 },
 		glitch: {
@@ -172,16 +141,15 @@ export const augmented: Theme = {
 			// and purple layers … to misalign horizontally for a split second
 			// (chromatic aberration) before snapping back." Gated to fire *only* during
 			// a burst (see GlitchDirector), strongest at the edges, zero at the center.
+			//
+			// This is where essentially all of the glitch's punch lives: the row tearing
+			// alone disturbs ~2% of the screen's glyphs, the aberration ~26%. A spliced
+			// system loses register between its color layers.
 			chromaticAberration: 3,
+			chromaDropout: 0,
 		},
 	},
 
-	// A spinning quarter-arc — a little holographic ring, rendered purple (injected)
-	// in the header. Contrast tactical's classic ASCII |/-\ spinner.
-	spinner: ['◜', '◝', '◞', '◟'],
-	// Narrow, unambiguous-width glyphs only — wide/ambiguous codepoints tear the
-	// grid. Hex + box-drawing (the wireframe look) + brackets/slashes/underscores
-	// per the brief's typography. (Tactical rains plain ASCII punctuation instead.)
-	streamChars: '0123456789ABCDEF╱╲│─┼:.><[]{}/_',
 	barRamp: ['▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'],
+	sparkRamp: ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'],
 }
