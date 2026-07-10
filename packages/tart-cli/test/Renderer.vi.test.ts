@@ -81,6 +81,68 @@ it.effect('renders the session id in the header and finish line', () =>
 	}),
 )
 
+it.effect('renders profile-based resume command when the session used --profile', () =>
+	Effect.gen(function* () {
+		const chunks: Array<string> = []
+		const renderer = makeOutputRenderer({
+			colors: false,
+			stdout: (text) =>
+				Effect.sync(() => {
+					chunks.push(text)
+				}),
+		})
+		const sessionId = SessionId.make('sess_dddddddddddddddddddddddd')
+		const agentId = AgentId.make('agent_dddddddddddddddddddddddd')
+		const model: ActiveModel = {
+			providerId: 'codex',
+			providerKind: 'codex',
+			modelId: 'gpt-5.2-sol',
+			role: 'orchestrator',
+			requestedReasoningLevel: 'high',
+			reasoning: { _tag: 'effort', effort: 'high', summary: 'auto' },
+		}
+
+		yield* renderer.renderHeader({
+			sessionId,
+			cwd: '/tmp/project',
+			logPath: '/tmp/tart/sessions/p/sess.jsonl',
+			mode: 'new',
+			profile: 'ultracodex',
+			resumeFlags: [
+				{ name: 'profile', value: 'ultracodex' },
+				{ name: 'mode', value: 'rlm' },
+				{ name: 'rpi' },
+			],
+			model,
+			credential: { _tag: 'found', detail: 'valid entry "codex" in /tmp/tart/auth.json' },
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'agent_started',
+				seq: 1,
+				ts: 1,
+				agentId,
+				parentAgentId: null,
+				toolCallId: null,
+				mode: 'fresh',
+				model,
+				tools: [],
+				skill: null,
+				fork: null,
+				agentType: null,
+			},
+		})
+		yield* renderer.renderResumeCommand
+
+		const output = chunks.join('')
+		expect(output).toContain(`profile ultracodex`)
+		expect(output).toContain(`resume tart --resume ${sessionId} --profile ultracodex --mode rlm --rpi`)
+		expect(output).not.toContain('--provider codex')
+		expect(output).not.toContain('--model gpt-5.2-sol')
+	}),
+)
+
 const gptTestCatalog: ReadonlyArray<ModelCatalogEntry> = [
 	{
 		providerId: 'openai',

@@ -15,6 +15,7 @@ import { JsonSchema, Effect, Schema } from 'effect'
 import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { TartConfig } from './ConfigSchema'
 import { defaultConfigPath, defaultTartHome } from './Load'
+import { writeTartInfo } from './TartInfo'
 
 /** The generated schema file path for a home directory. */
 export const configSchemaPath = (tartHome?: string): string => join(tartHome ?? defaultTartHome(), 'config.schema.json')
@@ -69,6 +70,33 @@ export const starterConfigJsonc = (): string =>
 		"orchestrator": { "provider": "codex", "reasoning": "high" }
 	},
 
+	// Named profiles selected with \`tart --profile <name>\`; the top-level "roles" stays the default.
+	// A profile is a complete role map and may pin a mode ("rlm" here) - an explicit --mode still wins.
+	// RLM mode always includes the RPI specialist subagents.
+	"profiles": {
+		// Everything-max claude preset driving the RLM orchestrator mode.
+		"ultraclaude": {
+			"mode": "rlm",
+			"orchestrator": { "provider": "anthropic", "model": "claude-fable-5", "reasoning": "max" },
+			"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "max" },
+			"fast": { "provider": "anthropic", "model": "claude-sonnet-5", "reasoning": "max" }
+		},
+		// Like ultraclaude, but the orchestrator runs on opus-4-8 instead of fable-5.
+		"powerclaude": {
+			"mode": "rlm",
+			"orchestrator": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "max" },
+			"smart": { "provider": "anthropic", "model": "claude-opus-4-8", "reasoning": "max" },
+			"fast": { "provider": "anthropic", "model": "claude-sonnet-5", "reasoning": "max" }
+		},
+		// Everything-max codex preset driving the RLM orchestrator mode.
+		"ultracodex": {
+			"mode": "rlm",
+			"orchestrator": { "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "max" },
+			"smart": { "provider": "codex", "model": "gpt-5.6-terra", "reasoning": "max" },
+			"fast": { "provider": "codex", "model": "gpt-5.6-luna", "reasoning": "max" }
+		}
+	},
+
 	// Auto-compaction is enabled by default. Optional knobs are thresholdTokens, contextWindow,
 	// reserveTokens, keepRecentTokens, and compactionPrompt.
 	"compaction": { "enabled": true },
@@ -100,29 +128,51 @@ export const writeTartConfigSchema = (options?: ConfigInitOptions): Effect.Effec
 		return path
 	})
 
-/** Result of {@link configInit}. */
+/** Result of {@link bootstrapTartHome} / {@link configInit}. */
 export type ConfigInitResult = {
 	readonly configPath: string
 	readonly schemaPath: string
+	/** Path of the generated TART_INFO.md guide (always rewritten). */
+	readonly infoPath: string
+	/** Path of the OAuth credential store (created EMPTY when absent; filled by `tart auth codex login`). */
+	readonly authPath: string
 	/** True when a starter `config.jsonc` was created; false when one already existed (left untouched). */
 	readonly createdConfig: boolean
+	/** True when an empty `auth.json` was created; false when one already existed (left untouched). */
+	readonly createdAuth: boolean
 }
 
 /**
- * Initialize the tart config directory (`tart config init`): (re)write the version-matched
- * `config.schema.json` and, only when no `config.jsonc` exists yet, write a commented starter. An
- * existing config is never overwritten.
+ * Bootstrap the tart home. Runs on EVERY CLI session start (synchronously, before the config loads)
+ * and behind `tart config init`: create the directory, (re)write the version-matched
+ * `config.schema.json` and `TART_INFO.md`, write the commented starter `config.jsonc` only when none
+ * exists, and create an EMPTY provider-keyed `auth.json` (mode 0600) only when none exists - a first
+ * run lands a working layout with providers configured but credential-less until
+ * `tart auth codex login` runs or the `apiKeyEnv` variables are exported. Only the two generated
+ * files are ever overwritten.
  */
-export const configInit = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult> =>
+export const bootstrapTartHome = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult> =>
 	Effect.gen(function* () {
 		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
 		const schemaPath = yield* writeTartConfigSchema(options)
+		const infoPath = yield* writeTartInfo(options)
 
 		const configPath = defaultConfigPath(options?.tartHome)
-		const exists = yield* fs.exists(configPath).pipe(Effect.catch(() => Effect.succeed(false)))
-		if (!exists) {
+		const configExists = yield* fs.exists(configPath).pipe(Effect.catch(() => Effect.succeed(false)))
+		if (!configExists) {
 			yield* fs.writeFileString(configPath, starterConfigJsonc()).pipe(Effect.orDie)
 		}
 
-		return { configPath, schemaPath, createdConfig: !exists }
+		const authPath = join(options?.tartHome ?? defaultTartHome(), 'auth.json')
+		const authExists = yield* fs.exists(authPath).pipe(Effect.catch(() => Effect.succeed(false)))
+		if (!authExists) {
+			// Same document shape and permissions the codex auth store maintains (provider-keyed JSON).
+			yield* fs.writeFileString(authPath, '{}\n', { mode: 0o600 }).pipe(Effect.orDie)
+			yield* fs.chmod(authPath, 0o600).pipe(Effect.catch(() => Effect.void))
+		}
+
+		return { configPath, schemaPath, infoPath, authPath, createdConfig: !configExists, createdAuth: !authExists }
 	})
+
+/** `tart config init`: the same bootstrap, kept under its command-facing name. */
+export const configInit = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult> => bootstrapTartHome(options)

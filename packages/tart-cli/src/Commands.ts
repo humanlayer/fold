@@ -115,6 +115,7 @@ const commonFlags = {
 	provider: optionalString('provider', 'Provider profile key from config.providers'),
 	model: optionalString('model', 'Provider model id override for the selected role'),
 	role: optionalChoice('role', ['smart', 'fast', 'orchestrator'] as const, 'Config role to resolve'),
+	profile: optionalString('profile', 'Named profile from config.profiles (a role map, optionally pinning a mode)'),
 	mode: optionalChoice(
 		'mode',
 		TART_MODE_NAMES,
@@ -158,6 +159,7 @@ export type CommonFlagValues = {
 	readonly provider: Option.Option<string>
 	readonly model: Option.Option<string>
 	readonly role: Option.Option<'smart' | 'fast' | 'orchestrator'>
+	readonly profile: Option.Option<string>
 	readonly mode: Option.Option<TartModeName>
 	readonly rpi: boolean
 	readonly reasoning: Option.Option<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>
@@ -267,6 +269,7 @@ export const sessionOptionsFromFlags = (
 		const rawResume = optionValue(input.resume)
 		const resume = rawResume === undefined ? undefined : yield* parseResumeFlag(rawResume)
 		const tartHome = optionValue(input.tartHome)
+		const profile = optionValue(input.profile)
 		const mode = optionValue(input.mode)
 		const modelSelection = modelSelectionFromFlags(input)
 		const autoCompact = autoCompactFromFlags(input)
@@ -274,6 +277,7 @@ export const sessionOptionsFromFlags = (
 		return {
 			cwd: optionValue(input.cwd) ?? process.cwd(),
 			...(tartHome === undefined ? {} : { tartHome }),
+			...(profile === undefined ? {} : { profile }),
 			...(mode === undefined ? {} : { mode }),
 			...(input.rpi ? { rpi: true } : {}),
 			...(resume === undefined ? {} : { resume }),
@@ -332,7 +336,7 @@ const bin = Command.make('bin').pipe(
 		Command.make('install', { tartHome: commonFlags.tartHome }, (input) =>
 			Effect.gen(function* () {
 				const tartHome = optionValue(input.tartHome) ?? defaultTartHome()
-				const statuses = yield* ensureManagedBinaries({ tartHome, memoize: false })
+				const statuses = yield* ensureManagedBinaries({ tartHome, requireManagedInstall: true, memoize: false })
 				for (const status of statuses) yield* Console.log(binStatusLine(status))
 			}),
 		).pipe(Command.withDescription('Install any missing managed binaries into <tartHome>/bin')),
@@ -369,7 +373,9 @@ const config = Command.make('config').pipe(
 				const tartHome = optionValue(input.tartHome)
 				const result = yield* configInit(tartHome === undefined ? {} : { tartHome })
 				yield* Console.log(`${result.createdConfig ? 'Created' : 'Found'} ${result.configPath}`)
+				yield* Console.log(`${result.createdAuth ? 'Created' : 'Found'} ${result.authPath}`)
 				yield* Console.log(`Wrote ${result.schemaPath}`)
+				yield* Console.log(`Wrote ${result.infoPath}`)
 			}),
 		).pipe(Command.withDescription('Create ~/.tart/config.jsonc and config.schema.json')),
 		Command.make('validate', { tartHome: commonFlags.tartHome }, (input) =>
@@ -560,6 +566,10 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			ConfigDecodeError: (error) =>
 				printFailure(`config shape is invalid${error.path === null ? '' : ` ${error.path}`}: ${error.message}`),
 			RoleResolutionError: (error) => printFailure(error.message),
+			UnknownProfileError: (error) =>
+				printFailure(
+					`unknown profile "${error.profile}"; available: ${error.available.length === 0 ? '(none configured)' : error.available.join(', ')}`,
+				),
 			NoSessionToResumeError: (error) => printFailure(`no tart sessions exist for ${error.cwd}`),
 			SessionToResumeNotFoundError: (error) =>
 				printFailure(`session ${error.sessionId} was not found for ${error.cwd}`),

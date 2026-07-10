@@ -64,17 +64,24 @@ it.effect('configInit writes the schema and a starter config, then never clobber
 		expect(first.createdConfig).toBe(true)
 		expect(first.configPath).toBe('/home/user/.tart/config.jsonc')
 		expect(first.schemaPath).toBe('/home/user/.tart/config.schema.json')
+		// The bootstrap also lands an EMPTY provider-keyed auth store (filled later by codex login).
+		expect(first.createdAuth).toBe(true)
+		expect(first.authPath).toBe('/home/user/.tart/auth.json')
+		expect(yield* memoryFileFor(fs, first.authPath)).toBe('{}\n')
 
 		const schemaFile = yield* memoryFileFor(fs, first.schemaPath)
 		expect(schemaFile).not.toBeNull()
 		expect(schemaFile ?? '').toContain(JsonSchema.META_SCHEMA_URI_DRAFT_07)
 
-		// A user edits their config; a second init refreshes the schema but leaves the config untouched.
+		// A user edits their config and logs in; a second init refreshes the generated files but leaves both alone.
 		yield* fs.writeFileString('/home/user/.tart/config.jsonc', '{ "edited": true }').pipe(Effect.orDie)
+		yield* fs.writeFileString('/home/user/.tart/auth.json', '{ "codex": { "access": "tok" } }').pipe(Effect.orDie)
 		const second = yield* configInit({ tartHome: '/home/user/.tart', fileSystem: fs })
 		expect(second.createdConfig).toBe(false)
+		expect(second.createdAuth).toBe(false)
 
 		const configFile = yield* memoryFileFor(fs, second.configPath)
 		expect(configFile).toBe('{ "edited": true }')
+		expect(yield* memoryFileFor(fs, second.authPath)).toBe('{ "codex": { "access": "tok" } }')
 	}),
 )

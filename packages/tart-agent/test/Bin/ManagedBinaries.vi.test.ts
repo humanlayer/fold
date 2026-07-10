@@ -102,6 +102,48 @@ it.effect('a system alias hit short-circuits the ladder without downloading', ()
 	}),
 )
 
+it.effect('requireManagedInstall installs the canonical managed binary even when a system binary exists', () =>
+	Effect.gen(function* () {
+		const home = yield* tempDir
+		const download = recordingDownload(binaryBytes)
+
+		const [status] = yield* ensureManagedBinaries({
+			tartHome: home,
+			memoize: false,
+			env: emptyEnv,
+			which: whichOf({ rg: '/opt/homebrew/bin/rg' }),
+			download: download.seam,
+			exec: extractingExec('rg-1.0.0/rg'),
+			requireManagedInstall: true,
+			registry: [definitionOf()],
+		})
+
+		expect(status?.resolution).toBe('installed-now')
+		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
+		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(true)
+		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
+	}),
+)
+
+it.effect('requireManagedInstall plus disabled downloads can still report a usable system binary', () =>
+	Effect.gen(function* () {
+		const home = yield* tempDir
+		const [status] = yield* ensureManagedBinaries({
+			tartHome: home,
+			memoize: false,
+			disableDownloads: true,
+			env: emptyEnv,
+			which: whichOf({ rg: '/opt/homebrew/bin/rg' }),
+			requireManagedInstall: true,
+			registry: [definitionOf()],
+		})
+
+		expect(status?.resolution).toBe('system')
+		expect(status?.path).toBe('/opt/homebrew/bin/rg')
+		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(false)
+	}),
+)
+
 it.effect('a system binary below the version floor falls through past the system rung', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir

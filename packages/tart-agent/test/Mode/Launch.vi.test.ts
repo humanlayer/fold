@@ -14,6 +14,7 @@ import { LanguageModel, type Response } from 'effect/unstable/ai'
 
 import {
 	DEFAULT_CODING_PROMPT,
+	defaultCodingMode,
 	launchSession,
 	mergeModelSelection,
 	parseTartConfig,
@@ -295,6 +296,106 @@ it.effect('launchSession wires session profiles end to end: role-bound roster st
 				yield* session.setProfile('fast', alwaysTextModel('rebound'))
 			}),
 		)
+	}),
+)
+
+const namedProfileConfigText = `{
+	"providers": {
+		"openai": { "kind": "openai-compat", "apiKey": "sk-inline" }
+	},
+	"roles": {
+		"smart": { "provider": "openai", "model": "gpt-default-smart" },
+		"fast": { "provider": "openai", "model": "gpt-default-fast" }
+	},
+	"profiles": {
+		"ultratest": {
+			"mode": "rlm",
+			"orchestrator": { "provider": "openai", "model": "gpt-ultra-orchestrator" },
+			"smart": { "provider": "openai", "model": "gpt-ultra-smart" },
+			"fast": { "provider": "openai", "model": "gpt-ultra-fast" }
+		}
+	}
+}`
+
+it.effect('--profile substitutes the profile roles and applies its pinned rlm mode', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		const config = yield* parseTartConfig(namedProfileConfigText)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({
+					config,
+					profile: 'ultratest',
+					cwd: workspace,
+					tartHome,
+					catalog: [],
+				})
+				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+
+				expect(started?._tag).toBe('agent_started')
+				if (started?._tag !== 'agent_started') return
+				// The rlm mode pinned by the profile runs the primary on the ORCHESTRATOR role, and its
+				// toolset carries no bash - both prove the profile's roles AND mode were applied.
+				expect(started.model.modelId).toBe('gpt-ultra-orchestrator')
+				expect(started.tools).not.toContain('bash')
+				expect(started.tools).toContain('subagent')
+
+				// RLM carries the RPI specialists BY DEFAULT: the hint block lands without any --rpi flag.
+				const entries = yield* session.entries
+				const leading = entries.find(
+					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
+				)
+				expect(JSON.stringify(leading)).toContain(RPI_HINT_PROMPT)
+			}),
+		)
+	}),
+)
+
+it.effect('an explicit mode option beats the profile pinned mode', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		const config = yield* parseTartConfig(namedProfileConfigText)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({
+					config,
+					profile: 'ultratest',
+					mode: defaultCodingMode,
+					cwd: workspace,
+					tartHome,
+					catalog: [],
+				})
+				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+
+				expect(started?._tag).toBe('agent_started')
+				if (started?._tag !== 'agent_started') return
+				// Default mode wins: primary on the profile's SMART binding, bash back in the toolset.
+				expect(started.model.modelId).toBe('gpt-ultra-smart')
+				expect(started.tools).toContain('bash')
+			}),
+		)
+	}),
+)
+
+it.effect('an unknown --profile fails with UnknownProfileError naming what exists', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+		const config = yield* parseTartConfig(namedProfileConfigText)
+
+		const error = yield* launchSession({ config, profile: 'nope', cwd: workspace, tartHome, catalog: [] }).pipe(
+			Effect.scoped,
+			Effect.flip,
+		)
+
+		expect(error._tag).toBe('UnknownProfileError')
+		if (error._tag !== 'UnknownProfileError') return
+		expect(error.profile).toBe('nope')
+		expect(error.available).toEqual(['ultratest'])
 	}),
 )
 

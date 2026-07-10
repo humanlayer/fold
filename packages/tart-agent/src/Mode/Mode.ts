@@ -41,6 +41,11 @@ export type TartMode = {
 	readonly role: ConfigRole
 	/** The mode's leading system prompt block (composed before agentfiles and the skills block). */
 	readonly systemPrompt?: string
+	/**
+	 * Include the RPI specialist roster by default (user ruling: RLM always carries it). The launch's
+	 * effective rpi is `options.rpi || mode.rpiByDefault`, driving both the roster and the hint block.
+	 */
+	readonly rpiByDefault?: boolean
 	/** Build the mode's tool roster for a working directory. */
 	readonly buildTools: (context: ModeToolContext) => ReadonlyArray<TartTool>
 }

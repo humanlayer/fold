@@ -59,6 +59,8 @@ it('is named rlm and runs on the orchestrator role', () => {
 	expect(rlmMode.name).toBe('rlm')
 	expect(rlmMode.role).toBe('orchestrator')
 	expect(rlmMode.systemPrompt).toBe(RLM_ORCHESTRATOR_PROMPT)
+	// RLM always carries the RPI specialists: the launch's effective rpi honors this mode default.
+	expect(rlmMode.rpiByDefault).toBe(true)
 })
 
 it('holds the file tools, skills, and subagents - and deliberately no bash', () => {

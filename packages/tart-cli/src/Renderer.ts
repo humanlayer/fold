@@ -44,6 +44,9 @@ export type RendererOptions = {
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
+/** One CLI flag to carry into the printed resume command. */
+export type ResumeCommandFlag = { readonly name: string; readonly value?: string }
+
 /** Header values printed when a CLI session is opened. */
 export type SessionHeader = {
 	readonly sessionId: SessionId
@@ -52,6 +55,10 @@ export type SessionHeader = {
 	readonly mode: 'new' | 'resumed'
 	/** Selected agent mode name; set only when the session runs a non-default mode. */
 	readonly agentMode?: string
+	/** Named config profile selected with --profile; absent when running the default roles. */
+	readonly profile?: string
+	/** Session-affecting flags from this CLI invocation, excluding --resume itself. */
+	readonly resumeFlags?: ReadonlyArray<ResumeCommandFlag>
 	readonly model: ActiveModel | null
 	readonly credential: CredentialSummary
 }
@@ -198,9 +205,18 @@ const usageTable = (
 	return `${ansi.dim(header)}\n${row}`
 }
 
-const resumeCommand = (sessionId: SessionId, model: ActiveModel | null): string => {
+const formattedFlag = (flag: ResumeCommandFlag): string =>
+	flag.value === undefined ? `--${flag.name}` : `--${flag.name} ${shellQuote(flag.value)}`
+
+const resumeCommand = (
+	sessionId: SessionId,
+	input: { readonly model: ActiveModel | null; readonly flags: ReadonlyArray<ResumeCommandFlag> },
+): string => {
 	const flags = [`--resume ${shellQuote(sessionId)}`]
-	if (model !== null) {
+	if (input.flags.length > 0) {
+		flags.push(...input.flags.map(formattedFlag))
+	} else if (input.model !== null) {
+		const model = input.model
 		flags.push(`--provider ${shellQuote(model.providerId)}`)
 		flags.push(`--model ${shellQuote(model.modelId)}`)
 		if (model.role !== null && model.role !== 'inherit') flags.push(`--role ${shellQuote(model.role)}`)
@@ -243,6 +259,8 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const agentTagColors = new Map<string, (text: string) => string>()
 	let currentSessionId: SessionId | null = null
 	let headerModel: ActiveModel | null = null
+	let headerProfile: string | undefined
+	let headerResumeFlags: ReadonlyArray<ResumeCommandFlag> = []
 	let rootAgentId: string | null = null
 	let lineOpen = false
 	// The agent whose streamed deltas last wrote to stdout, for interleaving transition markers.
@@ -534,7 +552,12 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			Effect.andThen(
 				currentSessionId === null
 					? Effect.void
-					: writeStdout(`${ansi.dim('resume')} ${resumeCommand(currentSessionId, resumeModel)}\n\n`),
+					: writeStdout(
+							`${ansi.dim('resume')} ${resumeCommand(currentSessionId, {
+								model: resumeModel,
+								flags: headerResumeFlags,
+							})}\n\n`,
+						),
 			),
 			Effect.andThen(
 				usage === undefined
@@ -549,11 +572,14 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			Effect.sync(() => {
 				currentSessionId = header.sessionId
 				headerModel = header.model
+				headerProfile = header.profile
+				headerResumeFlags = header.resumeFlags ?? []
 			}).pipe(
 				Effect.andThen(
 					writeStdout(
 						`${ansi.bold('tart')} ${header.mode === 'new' ? ansi.green('new session') : ansi.cyan('resumed session')} ${header.sessionId}\n` +
 							(header.agentMode === undefined ? '' : `${ansi.dim('mode')} ${header.agentMode}\n`) +
+							(header.profile === undefined ? '' : `${ansi.dim('profile')} ${header.profile}\n`) +
 							`${ansi.dim('model')} ${header.model === null ? ansi.yellow('unknown') : activeModelName(header.model)}\n` +
 							`${ansi.dim('credential')} ${credentialText(ansi, header.credential)}\n` +
 							`${ansi.dim('cwd')} ${header.cwd}\n` +
@@ -569,7 +595,10 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 				: newlineIfOpen().pipe(
 						Effect.andThen(
 							writeStdout(
-								`\n${ansi.dim('resume')} ${resumeCommand(currentSessionId, currentResumeModel())}\n\n`,
+								`\n${ansi.dim('resume')} ${resumeCommand(currentSessionId, {
+									model: currentResumeModel(),
+									flags: headerResumeFlags,
+								})}\n\n`,
 							),
 						),
 					),

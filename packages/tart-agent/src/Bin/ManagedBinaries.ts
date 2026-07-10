@@ -104,6 +104,10 @@ export type EnsureManagedBinariesOptions = {
 	readonly arch?: string
 	/** Skip the download step (used by `tart bin status`); system/managed hits still resolve. */
 	readonly disableDownloads?: boolean
+	/** Install/check the canonical managed copy in `<tartHome>/bin` even when a system binary exists. */
+	readonly requireManagedInstall?: boolean
+	/** Do not log per-binary resolution failures; callers that run in the background can fail silently. */
+	readonly suppressWarnings?: boolean
 	/** Registry override for tests. Defaults to {@link managedBinaryRegistry}. */
 	readonly registry?: ReadonlyArray<ManagedBinaryDefinition>
 	/** Set false to bypass the per-process memoization (tests). Defaults to true. */
@@ -121,6 +125,8 @@ type ResolveContext = {
 	readonly platform: string
 	readonly arch: string
 	readonly downloadsDisabled: boolean
+	readonly requireManagedInstall: boolean
+	readonly suppressWarnings: boolean
 }
 
 /** The ONE mapper from thrown download failures to the typed download error. */
@@ -336,20 +342,29 @@ const installFromAsset = (
 /** Resolve one binary through the system -> managed -> download ladder. Failures propagate typed (inferred). */
 const resolveOne = (context: ResolveContext, definition: ManagedBinaryDefinition) =>
 	Effect.gen(function* () {
-		for (const systemName of definition.systemNames) {
-			const found = yield* context.which(systemName)
-			if (found === null) continue
-			if (definition.minVersion !== null) {
-				const usable = yield* satisfiesMinVersion(context, found, definition.minVersion)
-				if (!usable) continue
+		const resolveSystem = Effect.gen(function* () {
+			for (const systemName of definition.systemNames) {
+				const found = yield* context.which(systemName)
+				if (found === null) continue
+				if (definition.minVersion !== null) {
+					const usable = yield* satisfiesMinVersion(context, found, definition.minVersion)
+					if (!usable) continue
+				}
+
+				return {
+					name: definition.name,
+					resolution: 'system' as const,
+					path: found,
+					detail: `system binary "${systemName}" on PATH`,
+				}
 			}
 
-			return {
-				name: definition.name,
-				resolution: 'system' as const,
-				path: found,
-				detail: `system binary "${systemName}" on PATH`,
-			}
+			return null
+		})
+
+		if (!context.requireManagedInstall) {
+			const system = yield* resolveSystem
+			if (system !== null) return system
 		}
 
 		const binDir = managedBinDir(context.tartHome)
@@ -362,6 +377,11 @@ const resolveOne = (context: ResolveContext, definition: ManagedBinaryDefinition
 				path: installPath,
 				detail: `already installed in ${binDir}`,
 			}
+		}
+
+		if (context.requireManagedInstall) {
+			const system = yield* resolveSystem
+			if (system !== null && context.downloadsDisabled) return system
 		}
 
 		if (context.downloadsDisabled) {
@@ -407,14 +427,17 @@ const resolveOneNeverFailing = (
 	resolveOne(context, definition).pipe(
 		Effect.catchCause((cause) => {
 			const message = failureMessageOf(Cause.squash(cause))
+			const unavailable = {
+				name: definition.name,
+				resolution: 'unavailable' as const,
+				path: null,
+				detail: message,
+			}
+
+			if (context.suppressWarnings) return Effect.succeed(unavailable)
 
 			return Effect.logWarning(`could not resolve managed binary ${definition.name}: ${message}`).pipe(
-				Effect.as({
-					name: definition.name,
-					resolution: 'unavailable' as const,
-					path: null,
-					detail: message,
-				}),
+				Effect.as(unavailable),
 			)
 		}),
 	)
@@ -434,6 +457,8 @@ const ensureOnce = (options: EnsureManagedBinariesOptions): Effect.Effect<Readon
 			platform,
 			arch: options.arch ?? process.arch,
 			downloadsDisabled: options.disableDownloads === true || (disableFlag !== undefined && disableFlag !== ''),
+			requireManagedInstall: options.requireManagedInstall === true,
+			suppressWarnings: options.suppressWarnings === true,
 		}
 		const registry = options.registry ?? managedBinaryRegistry
 
@@ -455,7 +480,7 @@ export const ensureManagedBinaries = (
 	Effect.suspend(() => {
 		if (options.memoize === false) return ensureOnce(options)
 
-		const key = `${options.tartHome} ${options.disableDownloads === true}`
+		const key = `${options.tartHome} ${options.disableDownloads === true} ${options.requireManagedInstall === true}`
 		const existing = memoizedRuns.get(key)
 		if (existing !== undefined) return existing
 

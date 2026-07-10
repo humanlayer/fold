@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 /**
  * This file is the tart-agent composition root over tart-core's `startSession`/`resumeSession` (D27):
  * it turns a mode + the loaded `TartConfig` + agentfiles into a running coding session, so the CLI and
@@ -36,7 +38,7 @@ import { Effect, Schema, type Scope } from 'effect'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
-import type { ConfigRole, RoleBinding, TartConfig } from '../Config/ConfigSchema'
+import type { ConfigRole, ProfileModeName, RoleBinding, TartConfig } from '../Config/ConfigSchema'
 import {
 	defaultTartHome,
 	loadTartConfig,
@@ -49,11 +51,23 @@ import { memoryPromptBlock } from '../Memory/AgentFiles'
 import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
 import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
 import { defaultCodingMode, type TartMode } from './Mode'
+import { modeForName } from './ModeName'
 import { RPI_HINT_PROMPT } from './Rpi'
 import type { ModeModels } from './Subagents'
 
-/** Failures resolving the primary model for a launch (config load + role resolution). */
-export type LaunchModelError = ConfigFileNotFoundError | ConfigParseError | ConfigDecodeError | RoleResolutionError
+/** A `--profile` name that is not defined under the config's `profiles` map. */
+export class UnknownProfileError extends Schema.TaggedErrorClass<UnknownProfileError>()('UnknownProfileError', {
+	profile: Schema.String,
+	available: Schema.Array(Schema.String),
+}) {}
+
+/** Failures resolving the primary model for a launch (config load + profile/role resolution). */
+export type LaunchModelError =
+	| ConfigFileNotFoundError
+	| ConfigParseError
+	| ConfigDecodeError
+	| RoleResolutionError
+	| UnknownProfileError
 
 /** No session log exists for the working directory to resume. */
 export class NoSessionToResumeError extends Schema.TaggedErrorClass<NoSessionToResumeError>()(
@@ -94,6 +108,11 @@ export type LaunchSessionOptions = {
 	 * different rpi setting is an ordinary configuration change - the existing drift transition applies.
 	 */
 	readonly rpi?: boolean
+	/**
+	 * Named profile from `config.profiles` (`--profile`): its role map replaces the top-level `roles`
+	 * for this launch, and its pinned `mode` applies unless an explicit `mode` option/flag overrides it.
+	 */
+	readonly profile?: string
 	/** An already-decoded config. When omitted, the config is loaded from `<tartHome>/config.jsonc`. */
 	readonly config?: TartConfig
 	/** An explicit model, bypassing config/role resolution entirely (no config file needed). */
@@ -135,6 +154,44 @@ export const defaultStopConditions: StopConditionConfig = {
 export const defaultAutoCompact: AutoCompactConfig = {
 	enabled: true,
 }
+
+/**
+ * Resolve `--profile`: substitute the profile's role map into the config (top-level `roles` is the
+ * default) and surface its pinned mode. Loads the config exactly when a profile is requested; the
+ * enriched options carry the substituted config so every later step (role resolution, compaction and
+ * stop-condition folds) reads the profile's view without re-loading.
+ */
+const resolveProfileSelection = (
+	opts: LaunchSessionOptions,
+): Effect.Effect<
+	{ readonly options: LaunchSessionOptions; readonly profileMode: ProfileModeName | null },
+	LaunchModelError
+> =>
+	Effect.gen(function* () {
+		if (opts.profile === undefined) return { options: opts, profileMode: null }
+
+		const config =
+			opts.config ?? (yield* loadTartConfig(opts.tartHome === undefined ? {} : { tartHome: opts.tartHome }))
+		const profile = config.profiles?.[opts.profile]
+		if (profile === undefined) {
+			return yield* new UnknownProfileError({
+				profile: opts.profile,
+				available: Object.keys(config.profiles ?? {}),
+			})
+		}
+
+		const roles = {
+			smart: profile.smart,
+			fast: profile.fast,
+			...(profile.orchestrator === undefined ? {} : { orchestrator: profile.orchestrator }),
+		}
+
+		return { options: { ...opts, config: { ...config, roles } }, profileMode: profile.mode ?? null }
+	})
+
+/** The mode for a launch: an explicit option wins, then the selected profile's pinned mode, then default. */
+const modeFor = (opts: LaunchSessionOptions, profileMode: ProfileModeName | null): TartMode =>
+	opts.mode ?? (profileMode === null ? defaultCodingMode : modeForName(profileMode))
 
 const roleBindingFor = (config: TartConfig, role: ConfigRole): RoleBinding =>
 	role === 'fast'
@@ -220,7 +277,19 @@ const resolveModeModels = (
 		}
 	})
 
-/** Assemble the agent definition: mode prompt (+ RPI hint) + agentfiles as leading blocks, mode + extra tools. */
+/**
+ * The self-configuration pointer baked into every leading prompt: where the generated tart guide
+ * lives, so the agent can answer configuration questions and edit the config on request.
+ */
+const tartInfoBlock = (tartHome: string): string =>
+	`Tart reference: ${join(tartHome, 'TART_INFO.md')} documents this CLI - its flags (--mode, --profile, ` +
+	'--rpi, model overrides), the config file format (providers, roles, named profiles) at ' +
+	`${join(tartHome, 'config.jsonc')}, interactive commands, and the managed search binaries. When the user ` +
+	'asks how to configure or use tart, read that file first and answer from it. You may edit the config ' +
+	'file to reconfigure tart on request; changes bind on the next launch or resume. For source-level questions, ' +
+	'point them to https://github.com/humanlayer/tart.'
+
+/** Assemble the agent definition: mode prompt (+ RPI hint) + agentfiles + tart pointer as leading blocks. */
 const buildAgentDefinition = (
 	options: LaunchSessionOptions,
 	mode: TartMode,
@@ -233,12 +302,14 @@ const buildAgentDefinition = (
 			cwd,
 			...(options.home === undefined ? {} : { home: options.home }),
 		})
-		const rpi = options.rpi ?? false
+		// Effective RPI: the flag, or the mode's own default (RLM always carries the specialists).
+		const rpi = options.rpi === true || mode.rpiByDefault === true
 		const tools = [...mode.buildTools({ cwd, models, rpi }), ...(options.extraTools ?? [])]
 		const blocks = [
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
 			...(rpi ? [RPI_HINT_PROMPT] : []),
 			...(memoryBlock === null ? [] : [memoryBlock]),
+			tartInfoBlock(options.tartHome ?? defaultTartHome()),
 		]
 		const autoCompact = options.autoCompact ?? config?.compaction ?? defaultAutoCompact
 
@@ -288,8 +359,8 @@ export const launchSession = (
 	options?: LaunchSessionOptions,
 ): Effect.Effect<TartSession, LaunchModelError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const opts = options ?? {}
-		const mode = opts.mode ?? defaultCodingMode
+		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
+		const mode = modeFor(opts, profileMode)
 		const cwd = opts.cwd ?? process.cwd()
 
 		// The catalog loads before model resolution: role bindings validate reasoning against it (D23).
@@ -347,8 +418,8 @@ export const resumeLatestSession = (
 	options?: LaunchSessionOptions,
 ): Effect.Effect<TartSession, LaunchModelError | NoSessionToResumeError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const opts = options ?? {}
-		const mode = opts.mode ?? defaultCodingMode
+		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
+		const mode = modeFor(opts, profileMode)
 		const cwd = opts.cwd ?? process.cwd()
 
 		const latest = yield* latestSessionLog({
@@ -370,8 +441,8 @@ export const resumeSessionById = (
 	options?: LaunchSessionOptions,
 ): Effect.Effect<TartSession, LaunchModelError | SessionToResumeNotFoundError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const opts = options ?? {}
-		const mode = opts.mode ?? defaultCodingMode
+		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
+		const mode = modeFor(opts, profileMode)
 		const cwd = opts.cwd ?? process.cwd()
 
 		const log = yield* sessionLogById(sessionId, {

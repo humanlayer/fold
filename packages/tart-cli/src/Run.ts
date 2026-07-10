@@ -1,4 +1,7 @@
+import { join } from 'node:path'
+
 import {
+	bootstrapTartHome,
 	defaultTartHome,
 	ensureManagedBinaries,
 	launchSession,
@@ -25,7 +28,7 @@ import type {
 import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
 
 import { runInteractive } from './Readline'
-import type { CredentialSummary, OutputRenderer, SessionHeader } from './Renderer'
+import type { CredentialSummary, OutputRenderer, ResumeCommandFlag, SessionHeader } from './Renderer'
 
 /**
  * What `--resume` selected: the newest session log for this project, or one exact id. Absent means a
@@ -41,6 +44,8 @@ export type CliSessionOptions = {
 	readonly mode?: TartModeName
 	/** Install the RPI specialist subagents alongside the selected mode's roster (`--rpi`). */
 	readonly rpi?: boolean
+	/** Named profile from config.profiles (`--profile`): its roles apply, and its pinned mode unless --mode is set. */
+	readonly profile?: string
 	readonly modelSelection?: ModelSelection
 	readonly resume?: ResumeTarget
 	readonly autoCompact?: AutoCompactConfig
@@ -72,6 +77,7 @@ const launchOptions = (options: CliSessionOptions) => ({
 	...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
 	...(options.mode === undefined ? {} : { mode: modeForName(options.mode) }),
 	...(options.rpi === true ? { rpi: true } : {}),
+	...(options.profile === undefined ? {} : { profile: options.profile }),
 	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
 	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
 	...(options.catalog === undefined ? {} : { catalog: options.catalog }),
@@ -111,12 +117,15 @@ const activeModelFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 	return null
 }
 
-const credentialSummary = (model: ActiveModel | null): Effect.Effect<CredentialSummary> =>
+const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions): Effect.Effect<CredentialSummary> =>
 	Effect.gen(function* () {
 		if (model === null) return { _tag: 'unknown', detail: 'no active model row found in the session log' }
 
 		if (model.providerKind === 'codex') {
-			const store = makeCodexAuthStore({ providerId: model.providerId })
+			const store = makeCodexAuthStore({
+				providerId: model.providerId,
+				...(options.tartHome === undefined ? {} : { path: join(options.tartHome, 'auth.json') }),
+			})
 			const token = yield* store.load
 			if (Option.isNone(token)) return { _tag: 'missing', detail: `entry "${model.providerId}" in ${store.path}` }
 
@@ -140,11 +149,45 @@ const agentModeLabel = (options: CliSessionOptions): string | undefined => {
 	return mode === 'default' ? undefined : mode
 }
 
+const compactResumeFlags = (autoCompact: AutoCompactConfig | undefined): ReadonlyArray<ResumeCommandFlag> => {
+	if (autoCompact === undefined) return []
+	if (!autoCompact.enabled) return [{ name: 'disable-auto-compact' }]
+
+	return [
+		{ name: 'auto-compact' },
+		...(autoCompact.thresholdTokens === undefined
+			? []
+			: [{ name: 'compaction-threshold', value: String(autoCompact.thresholdTokens) }]),
+		...(autoCompact.reserveTokens === undefined
+			? []
+			: [{ name: 'compaction-reserve-tokens', value: String(autoCompact.reserveTokens) }]),
+		...(autoCompact.keepRecentTokens === undefined
+			? []
+			: [{ name: 'compaction-keep-recent-tokens', value: String(autoCompact.keepRecentTokens) }]),
+		...(autoCompact.compactionPrompt === undefined
+			? []
+			: [{ name: 'compaction-prompt', value: autoCompact.compactionPrompt }]),
+	]
+}
+
+export const resumeFlagsFor = (options: CliSessionOptions): ReadonlyArray<ResumeCommandFlag> => [
+	...(options.cwd === process.cwd() ? [] : [{ name: 'cwd', value: options.cwd }]),
+	...(options.tartHome === undefined ? [] : [{ name: 'tart-home', value: options.tartHome }]),
+	...(options.mode === undefined ? [] : [{ name: 'mode', value: options.mode }]),
+	...(options.rpi === true ? [{ name: 'rpi' }] : []),
+	...(options.profile === undefined ? [] : [{ name: 'profile', value: options.profile }]),
+	...(options.modelSelection?.role === undefined ? [] : [{ name: 'role', value: options.modelSelection.role }]),
+	...(options.modelSelection?.provider === undefined ? [] : [{ name: 'provider', value: options.modelSelection.provider }]),
+	...(options.modelSelection?.model === undefined ? [] : [{ name: 'model', value: options.modelSelection.model }]),
+	...(options.modelSelection?.reasoning === undefined ? [] : [{ name: 'reasoning', value: options.modelSelection.reasoning }]),
+	...compactResumeFlags(options.autoCompact),
+]
+
 const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effect.Effect<SessionHeader> =>
 	Effect.gen(function* () {
 		const entries = yield* opened.session.entries
 		const model = activeModelFromEntries(entries, opened.session.rootAgentId)
-		const credential = yield* credentialSummary(model)
+		const credential = yield* credentialSummary(model, options)
 		const agentMode = agentModeLabel(options)
 
 		return {
@@ -153,6 +196,8 @@ const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effec
 			logPath: opened.logPath,
 			mode: opened.mode,
 			...(agentMode === undefined ? {} : { agentMode }),
+			...(options.profile === undefined ? {} : { profile: options.profile }),
+			resumeFlags: resumeFlagsFor(options),
 			model,
 			credential,
 		}
@@ -204,24 +249,30 @@ const withProcessSignals = <A, E, R>(
 	)
 
 /**
- * Ensure the managed binaries (rg, fd, ast-grep) in the BACKGROUND: forked into the session scope so
- * it never delays the first model request; fresh installs print one dim note, everything else is
- * silent (failures already logWarning inside the ensure, which never fails).
+ * Synchronous first-run bootstrap, ahead of the session open so the launch's config load finds the
+ * layout: `~/.tart` with a starter `config.jsonc` (when absent), an empty 0600 `auth.json` (when
+ * absent), and the regenerated `config.schema.json` + `TART_INFO.md`. Never fails a run - a broken
+ * home surfaces as the launch's own config error moments later.
  */
-const forkBinariesEnsure = (
-	options: CliSessionOptions,
-	renderer: OutputRenderer,
-): Effect.Effect<void, never, Scope.Scope> =>
-	Effect.forkScoped(
-		ensureManagedBinaries({ tartHome: options.tartHome ?? defaultTartHome() }).pipe(
-			Effect.flatMap((statuses) =>
-				Effect.forEach(
-					statuses.filter((status) => status.resolution === 'installed-now'),
-					(status) =>
-						renderer.renderNote(`installed ${status.name} into ${status.path ?? 'the tart bin dir'}`),
-				),
-			),
-		),
+const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void> =>
+	bootstrapTartHome(options.tartHome === undefined ? {} : { tartHome: options.tartHome }).pipe(
+		Effect.asVoid,
+		Effect.catchCause(() => Effect.void),
+	)
+
+const forkStartupEnsures = (options: CliSessionOptions, renderer: OutputRenderer): Effect.Effect<void> =>
+	Effect.forkDetach(
+		Effect.gen(function* () {
+			const statuses = yield* ensureManagedBinaries({
+				tartHome: options.tartHome ?? defaultTartHome(),
+				requireManagedInstall: true,
+				suppressWarnings: true,
+			})
+			yield* Effect.forEach(
+				statuses.filter((status) => status.resolution === 'installed-now'),
+				(status) => renderer.renderNote(`installed ${status.name} into ${status.path ?? 'the tart bin dir'}`),
+			)
+		}),
 	).pipe(Effect.asVoid)
 
 /** Open a session, print its header, and run one CI-friendly prompt. */
@@ -230,10 +281,11 @@ export const runPrompt = (
 	renderer: OutputRenderer,
 ): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope> =>
 	Effect.gen(function* () {
+		yield* bootstrapForRun(options)
 		const opened = yield* openSession(options)
 		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
-		yield* forkBinariesEnsure(options, renderer)
+		yield* forkStartupEnsures(options, renderer)
 		const finished = yield* withProcessSignals(
 			opened.session,
 			renderer,
@@ -256,10 +308,11 @@ export const runReadline = (
 	renderer: OutputRenderer,
 ): Effect.Effect<void, OpenSessionError, Scope.Scope> =>
 	Effect.gen(function* () {
+		yield* bootstrapForRun(options)
 		const opened = yield* openSession(options)
 		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
-		yield* forkBinariesEnsure(options, renderer)
+		yield* forkStartupEnsures(options, renderer)
 		yield* runInteractive(opened.session, renderer)
 		yield* Fiber.interrupt(renderFiber)
 	})

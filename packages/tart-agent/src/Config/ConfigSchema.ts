@@ -75,6 +75,32 @@ export type RolesConfig = typeof RolesConfig.Type
 export const ConfigRole = Schema.Literals(['orchestrator', 'smart', 'fast']).annotate({ identifier: 'ConfigRole' })
 export type ConfigRole = typeof ConfigRole.Type
 
+/**
+ * Mode names a profile may pin. A config-side literal copy of `TART_MODE_NAMES` (Mode/ModeName.ts) -
+ * importing it here would cycle Config -> Mode -> Config; a test asserts the two stay in sync.
+ */
+export const ProfileModeName = Schema.Literals(['default', 'rlm']).annotate({
+	identifier: 'ProfileModeName',
+	description: 'Agent mode this profile selects (an explicit --mode flag still wins)',
+})
+export type ProfileModeName = typeof ProfileModeName.Type
+
+/**
+ * One named profile: a complete role map plus, optionally, the agent mode it is meant to drive
+ * (the shipped `ultraclaude`/`ultracodex` presets pin `rlm`). Selected with `--profile <name>`.
+ */
+export const ProfileConfig = Schema.Struct({
+	/** The strong general-purpose model for this profile. */
+	smart: RoleBinding,
+	/** The cheaper/faster model for this profile. */
+	fast: RoleBinding,
+	/** Optional orchestrator model; falls back to this profile's `smart` when unset. */
+	orchestrator: Schema.optionalKey(RoleBinding),
+	/** Agent mode this profile selects. Omit to keep the launch's mode (default, or --mode). */
+	mode: Schema.optionalKey(ProfileModeName),
+}).annotate({ identifier: 'ProfileConfig', description: 'A named role map, optionally pinning an agent mode' })
+export type ProfileConfig = typeof ProfileConfig.Type
+
 /** Auto-compaction policy for sessions launched through tart-agent. */
 export const AutoCompactConfig = Schema.Union([
 	Schema.Struct({ enabled: Schema.Literal(false) }),
@@ -113,6 +139,16 @@ const TartConfigFields = {
 	providers: Schema.Record(Schema.String, ProviderConnection),
 	/** Cross-provider model roles. */
 	roles: RolesConfig,
+	/**
+	 * Named profiles selected with `--profile <name>` (the top-level `roles` stays the default).
+	 * Each profile is a complete role map (smart + fast required, orchestrator optional) and may pin
+	 * an agent mode. tart ships `ultraclaude` and `ultracodex` RLM presets in the starter config.
+	 */
+	profiles: Schema.optionalKey(
+		Schema.Record(Schema.String, ProfileConfig).annotate({
+			description: 'Named profiles selectable with --profile <name>; may pin a mode; `roles` is the default',
+		}),
+	),
 	/** Auto-compaction policy. Omit to use tart-agent defaults (enabled today). */
 	compaction: Schema.optionalKey(AutoCompactConfig),
 	/** Runtime stop conditions. Omit to use tart-agent defaults. */
@@ -121,24 +157,31 @@ const TartConfigFields = {
 
 /** The value shape the cross-reference check reads (a structural supertype of the decoded config). */
 type RoleBindingRef = { readonly provider: string }
+type RolesRef = {
+	readonly smart: RoleBindingRef
+	readonly fast: RoleBindingRef
+	readonly orchestrator?: RoleBindingRef
+}
 type CrossRefShape = {
 	readonly providers: Record<string, unknown>
-	readonly roles: {
-		readonly smart: RoleBindingRef
-		readonly fast: RoleBindingRef
-		readonly orchestrator?: RoleBindingRef
-	}
+	readonly roles: RolesRef
+	readonly profiles?: Record<string, RolesRef>
 }
 
-/** Every provider a role binds to must be declared in `providers` (decode-time typo/reference safety). */
+const bindingsOf = (roles: RolesRef): ReadonlyArray<RoleBindingRef> => [
+	roles.smart,
+	roles.fast,
+	...(roles.orchestrator === undefined ? [] : [roles.orchestrator]),
+]
+
+/**
+ * Every provider a role binds to - in the default `roles` map AND in every named profile - must be
+ * declared in `providers` (decode-time typo/reference safety).
+ */
 const providersReferencedByRolesExist = Schema.makeFilter<CrossRefShape>(
-	({ providers, roles }) => {
+	({ providers, roles, profiles }) => {
 		const declared = new Set(Object.keys(providers))
-		const bindings: ReadonlyArray<RoleBindingRef> = [
-			roles.smart,
-			roles.fast,
-			...(roles.orchestrator === undefined ? [] : [roles.orchestrator]),
-		]
+		const bindings = [...bindingsOf(roles), ...Object.values(profiles ?? {}).flatMap(bindingsOf)]
 		const missing = [...new Set(bindings.map((binding) => binding.provider).filter((name) => !declared.has(name)))]
 		return missing.length === 0
 			? undefined

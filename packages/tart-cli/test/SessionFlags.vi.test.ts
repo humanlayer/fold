@@ -5,7 +5,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 
-import { sessionOptionsFromFlags, type CommonFlagValues } from '../src/index'
+import { resumeFlagsFor, sessionOptionsFromFlags, type CommonFlagValues } from '../src/index'
 
 const baseFlags: CommonFlagValues = {
 	prompt: Option.none(),
@@ -13,6 +13,7 @@ const baseFlags: CommonFlagValues = {
 	provider: Option.none(),
 	model: Option.none(),
 	role: Option.none(),
+	profile: Option.none(),
 	mode: Option.none(),
 	rpi: false,
 	reasoning: Option.none(),
@@ -67,5 +68,41 @@ it.effect('omits rpi when the flag is absent', () =>
 		const options = yield* sessionOptionsFromFlags(baseFlags)
 
 		expect('rpi' in options).toBe(false)
+	}),
+)
+
+it.effect('lowers --profile into the session options and omits it when absent', () =>
+	Effect.gen(function* () {
+		const withProfile = yield* sessionOptionsFromFlags({ ...baseFlags, profile: Option.some('ultraclaude') })
+		const without = yield* sessionOptionsFromFlags(baseFlags)
+
+		expect(withProfile.profile).toBe('ultraclaude')
+		expect('profile' in without).toBe(false)
+	}),
+)
+
+it.effect('builds resume suggestions from the current run flags', () =>
+	Effect.gen(function* () {
+		const options = yield* sessionOptionsFromFlags({
+			...baseFlags,
+			profile: Option.some('ultracodex'),
+			mode: Option.some('rlm'),
+			rpi: true,
+			reasoning: Option.some('high'),
+			tartHome: Option.some('/tmp/tart home'),
+			autoCompact: true,
+			compactionReserveTokens: Option.some(12_000),
+		})
+
+		expect(resumeFlagsFor(options)).toEqual([
+			{ name: 'cwd', value: '/tmp/project' },
+			{ name: 'tart-home', value: '/tmp/tart home' },
+			{ name: 'mode', value: 'rlm' },
+			{ name: 'rpi' },
+			{ name: 'profile', value: 'ultracodex' },
+			{ name: 'reasoning', value: 'high' },
+			{ name: 'auto-compact' },
+			{ name: 'compaction-reserve-tokens', value: '12000' },
+		])
 	}),
 )

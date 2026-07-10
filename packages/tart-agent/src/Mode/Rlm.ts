@@ -54,6 +54,9 @@ export const rlmMode: TartMode = {
 	name: 'rlm',
 	role: 'orchestrator',
 	systemPrompt: RLM_ORCHESTRATOR_PROMPT,
+	// RLM always carries the RPI specialists (user ruling 2026-07-09): an orchestrator with no bash
+	// lives and dies by the quality of its delegates, so the full specialist roster is the default.
+	rpiByDefault: true,
 	buildTools: ({ cwd, rpi }) => [
 		readTool({ cwd }),
 		writeTool({ cwd }),
