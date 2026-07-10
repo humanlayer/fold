@@ -7,9 +7,10 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
+import { SessionId, ToolCallId } from '@humanlayer/tart-core'
 import { Duration, Effect, Fiber } from 'effect'
 
-import { bashTool, decodeBashOutputDelta } from '../../src/index'
+import { bashTool, decodeBashOutputDelta, makeOutputStore, toolOutputPathFor } from '../../src/index'
 import { handlerOf, makeAmbientServices, messageOf, outputOf, runHandler, tempDir } from '../TestHelpers'
 
 it.live('captures stdout and reports success on exit 0', () =>
@@ -145,6 +146,25 @@ it.live('tail-truncates long output and spills the full output to a file', () =>
 		const spilled = readFileSync(spillPath, 'utf-8')
 		expect(spilled.startsWith('1\n2\n3\n')).toBe(true)
 		expect(spilled.endsWith('2999\n3000\n')).toBe(true)
+	}),
+)
+
+it.live('uses OutputStore for deterministic bash spill paths when provided', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		const sessionId = SessionId.make('sess_eeeeeeeeeeeeeeeeeeeeeeee')
+		const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
+		const outputStore = makeOutputStore({ sessionId, tartHome: dir })
+		const ambient = yield* makeAmbientServices()
+
+		const result = yield* handlerOf(bashTool({ cwd: dir, outputStore }))({ command: 'seq 1 3000' }).pipe(
+			Effect.provide(ambient.layer),
+		)
+		const expectedPath = toolOutputPathFor({ sessionId, toolCallId, tartHome: dir })
+
+		expect(outputOf(result)).toContain(`Full output: ${expectedPath}`)
+		expect(readFileSync(expectedPath, 'utf-8')).toContain('1\n2\n3\n')
+		expect(readFileSync(expectedPath, 'utf-8')).toContain('2999\n3000\n')
 	}),
 )
 

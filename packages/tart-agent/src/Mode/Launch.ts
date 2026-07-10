@@ -48,6 +48,7 @@ import {
 } from '../Config/Load'
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
+import { makeOutputStore, type OutputStoreService } from '../OutputStore/OutputStore'
 import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
 import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
 import { defaultCodingMode, type TartMode } from './Mode'
@@ -296,6 +297,7 @@ const buildAgentDefinition = (
 	models: ModeModels,
 	cwd: string,
 	config: TartConfig | null,
+	outputStore: OutputStoreService,
 ): Effect.Effect<AgentDefinition> =>
 	Effect.gen(function* () {
 		const memoryBlock = yield* memoryPromptBlock({
@@ -304,7 +306,7 @@ const buildAgentDefinition = (
 		})
 		// Effective RPI: the flag, or the mode's own default (RLM always carries the specialists).
 		const rpi = options.rpi === true || mode.rpiByDefault === true
-		const tools = [...mode.buildTools({ cwd, models, rpi }), ...(options.extraTools ?? [])]
+		const tools = [...mode.buildTools({ cwd, models, rpi, outputStore }), ...(options.extraTools ?? [])]
 		const blocks = [
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
 			...(rpi ? [RPI_HINT_PROMPT] : []),
@@ -367,12 +369,16 @@ export const launchSession = (
 		const catalog = yield* catalogFor(opts)
 		const models = yield* resolveModeModels(opts, mode, catalog)
 		const config = yield* runtimeConfigFor(opts)
-		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
-
 		const prepared = yield* prepareSessionLog({
 			cwd,
 			...(opts.tartHome === undefined ? {} : { tartHome: opts.tartHome }),
 		})
+		const outputStore = makeOutputStore({
+			sessionId: prepared.sessionId,
+			...(opts.tartHome === undefined ? {} : { tartHome: opts.tartHome }),
+		})
+		yield* outputStore.sweep
+		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config, outputStore)
 
 		return yield* startSession({
 			agent,
@@ -397,7 +403,12 @@ const resumeFromLog = (
 		const catalog = yield* catalogFor(options)
 		const models = yield* resolveModeModels(options, mode, catalog)
 		const config = yield* runtimeConfigFor(options)
-		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
+		const outputStore = makeOutputStore({
+			sessionId: log.sessionId,
+			...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
+		})
+		yield* outputStore.sweep
+		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config, outputStore)
 
 		return yield* resumeSession({
 			agent,

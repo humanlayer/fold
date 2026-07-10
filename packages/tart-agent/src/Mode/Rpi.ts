@@ -25,6 +25,7 @@
  */
 import { defineSubagent, subagentTool, type SubagentDefinition } from '@humanlayer/tart-core'
 
+import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { bashTool } from '../Tools/BashTool'
 import { codingTools } from '../Tools/CodingTools'
 import { readTool } from '../Tools/ReadTool'
@@ -637,6 +638,7 @@ export const OUTLINE_IMPLEMENTER_AGENT_PROMPT: string =
 /** Inputs for building the RPI roster against one working directory. */
 export type RpiSubagentOptions = {
 	readonly cwd: string
+	readonly outputStore?: OutputStoreService
 	/**
 	 * The default roster's own `bash` and `general-purpose` definitions, threaded in BY REFERENCE: the
 	 * implementer types dispatch these exact instances, so the session registry's identity dedup sees
@@ -654,11 +656,16 @@ export type RpiSubagentOptions = {
  * over the default roster's bash and general-purpose instances ("agents sharing one roster should
  * share one value").
  */
-export const rpiSubagents = ({ cwd, delegates }: RpiSubagentOptions): ReadonlyArray<SubagentDefinition> => {
+export const rpiSubagents = ({
+	cwd,
+	outputStore,
+	delegates,
+}: RpiSubagentOptions): ReadonlyArray<SubagentDefinition> => {
 	const read = readTool({ cwd })
-	const bash = bashTool({ cwd })
+	const bashOptions = { cwd, ...(outputStore === undefined ? {} : { outputStore }) }
+	const bash = bashTool(bashOptions)
 	const readAndBash = [read, bash]
-	const coding = codingTools({ cwd })
+	const coding = codingTools(bashOptions)
 	const implementerDelegates = subagentTool([delegates.bash, delegates.generalPurpose])
 
 	const codebaseLocator = defineSubagent({
@@ -738,6 +745,7 @@ export const rpiSubagents = ({ cwd, delegates }: RpiSubagentOptions): ReadonlyAr
 /** Inputs for assembling a mode's dispatchable roster. */
 export type ModeSubagentOptions = {
 	readonly cwd: string
+	readonly outputStore?: OutputStoreService
 	/** When true, the six RPI specialist types are appended to the default roster. */
 	readonly rpi: boolean
 }
@@ -755,14 +763,15 @@ const delegateByName = (roster: ReadonlyArray<SubagentDefinition>, name: string)
  * the six specialists wired to delegate to the default roster's own bash/general-purpose instances.
  * Shared by `defaultCodingMode` and `rlmMode` so the roster composition never diverges between modes.
  */
-export const modeSubagents = ({ cwd, rpi }: ModeSubagentOptions): ReadonlyArray<SubagentDefinition> => {
-	const roster = defaultSubagents({ cwd })
+export const modeSubagents = ({ cwd, outputStore, rpi }: ModeSubagentOptions): ReadonlyArray<SubagentDefinition> => {
+	const roster = defaultSubagents({ cwd, ...(outputStore === undefined ? {} : { outputStore }) })
 	if (!rpi) return roster
 
 	return [
 		...roster,
 		...rpiSubagents({
 			cwd,
+			...(outputStore === undefined ? {} : { outputStore }),
 			delegates: {
 				bash: delegateByName(roster, 'bash'),
 				generalPurpose: delegateByName(roster, 'general-purpose'),

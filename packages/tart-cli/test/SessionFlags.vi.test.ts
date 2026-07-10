@@ -5,7 +5,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 
-import { resumeFlagsFor, sessionOptionsFromFlags, type CommonFlagValues } from '../src/index'
+import { outputModeFromFlags, resumeFlagsFor, sessionOptionsFromFlags, type CommonFlagValues } from '../src/index'
 
 const baseFlags: CommonFlagValues = {
 	prompt: Option.none(),
@@ -21,6 +21,8 @@ const baseFlags: CommonFlagValues = {
 	tartHome: Option.none(),
 	noColor: false,
 	verbose: false,
+	output: Option.none(),
+	outputJson: false,
 	autoCompact: false,
 	disableAutoCompact: false,
 	compactionThreshold: Option.none(),
@@ -106,3 +108,11 @@ it.effect('builds resume suggestions from the current run flags', () =>
 		])
 	}),
 )
+
+it('defaults to human output and treats --output json as concise JSONL', () => {
+	expect(outputModeFromFlags(baseFlags)).toBe('human')
+	expect(outputModeFromFlags({ ...baseFlags, output: Option.some('json') })).toBe('json-concise')
+	expect(outputModeFromFlags({ ...baseFlags, output: Option.some('json-concise') })).toBe('json-concise')
+	expect(outputModeFromFlags({ ...baseFlags, output: Option.some('json-verbose') })).toBe('json-verbose')
+	expect(outputModeFromFlags({ ...baseFlags, outputJson: true })).toBe('json-concise')
+})

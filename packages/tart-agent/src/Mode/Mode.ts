@@ -14,6 +14,7 @@
 import { skillTool, subagentTool, type TartTool } from '@humanlayer/tart-core'
 
 import type { ConfigRole } from '../Config/ConfigSchema'
+import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { codingTools } from '../Tools/CodingTools'
 import { modeSubagents } from './Rpi'
@@ -31,6 +32,8 @@ export type ModeToolContext = {
 	readonly models: ModeModels
 	/** Install the RPI specialist subagents alongside the default roster (composable with any mode). */
 	readonly rpi: boolean
+	/** Deterministic full-output store scoped to the current session. */
+	readonly outputStore?: OutputStoreService
 }
 
 /** A pre-baked agent composition: primary model role, mode prompt, and tool roster. */
@@ -65,9 +68,9 @@ export const defaultCodingMode: TartMode = {
 	name: 'coding',
 	role: 'smart',
 	systemPrompt: DEFAULT_CODING_PROMPT,
-	buildTools: ({ cwd, rpi }) => [
-		...codingTools({ cwd }),
+	buildTools: ({ cwd, rpi, outputStore }) => [
+		...codingTools({ cwd, ...(outputStore === undefined ? {} : { outputStore }) }),
 		skillTool(skillsFromDisk({ cwd })),
-		subagentTool(modeSubagents({ cwd, rpi })),
+		subagentTool(modeSubagents({ cwd, rpi, ...(outputStore === undefined ? {} : { outputStore }) })),
 	],
 }

@@ -29,7 +29,7 @@ import { Clock, Console, Effect, Option, Schema } from 'effect'
 import { CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
-import { makeOutputRenderer } from './Renderer'
+import { makeJsonOutputRenderer, makeOutputRenderer, type JsonOutputMode } from './Renderer'
 import { runPrompt, runReadline, type CliSessionOptions, type ResumeTarget } from './Run'
 
 const version = '0.0.0'
@@ -136,6 +136,14 @@ const commonFlags = {
 	),
 	noColor: Flag.boolean('no-color').pipe(Flag.withDescription('Disable ANSI colors')),
 	verbose: Flag.boolean('verbose').pipe(Flag.withDescription('Stream full tool output/progress')),
+	output: optionalChoice(
+		'output',
+		['human', 'json', 'json-concise', 'json-verbose'] as const,
+		'Output format: human (default), json/json-concise (durable log rows), or json-verbose (rows + deltas)',
+	),
+	outputJson: Flag.boolean('output-json').pipe(
+		Flag.withDescription('Alias for --output json (newline-delimited durable log rows on stdout)'),
+	),
 	autoCompact: Flag.boolean('auto-compact').pipe(Flag.withDescription('Enable auto-compaction for this session')),
 	disableAutoCompact: Flag.boolean('disable-auto-compact').pipe(
 		Flag.withDescription('Disable auto-compaction even when config enables it'),
@@ -167,6 +175,8 @@ export type CommonFlagValues = {
 	readonly tartHome: Option.Option<string>
 	readonly noColor: boolean
 	readonly verbose: boolean
+	readonly output: Option.Option<'human' | 'json' | 'json-concise' | 'json-verbose'>
+	readonly outputJson: boolean
 	readonly autoCompact: boolean
 	readonly disableAutoCompact: boolean
 	readonly compactionThreshold: Option.Option<number>
@@ -261,6 +271,22 @@ const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | unde
 		: undefined
 }
 
+/** CLI rendering mode selected by `--output*` flags. */
+export type CliOutputMode = 'human' | JsonOutputMode
+
+/** Lower output flags. `--output json` is intentionally the concise JSONL mode. */
+export const outputModeFromFlags = (input: {
+	readonly output: Option.Option<'human' | 'json' | 'json-concise' | 'json-verbose'>
+	readonly outputJson: boolean
+}): CliOutputMode => {
+	const output = optionValue(input.output)
+	if (output === 'human') return 'human'
+	if (output === 'json-verbose') return 'json-verbose'
+	if (output === 'json' || output === 'json-concise') return 'json-concise'
+
+	return input.outputJson ? 'json-concise' : 'human'
+}
+
 /** Lower the root command's flags into the session options `runPrompt`/`runReadline` consume. */
 export const sessionOptionsFromFlags = (
 	input: CommonFlagValues,
@@ -297,7 +323,11 @@ const run = Command.make('tart', commonFlags, (input) =>
 				env: (name) => process.env[name],
 			})
 			const sessionOptions = { ...flagOptions, catalog }
-			const renderer = makeOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
+			const outputMode = outputModeFromFlags(input)
+			const renderer =
+				outputMode === 'human'
+					? makeOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
+					: makeJsonOutputRenderer({ mode: outputMode })
 			const prompt = optionValue(input.prompt)
 
 			if (prompt === undefined) {

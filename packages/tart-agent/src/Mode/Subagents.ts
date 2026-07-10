@@ -29,6 +29,7 @@ import {
 	type TartTool,
 } from '@humanlayer/tart-core'
 
+import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { bashTool } from '../Tools/BashTool'
 import { codingTools } from '../Tools/CodingTools'
@@ -48,6 +49,7 @@ export type ModeModels = {
 /** Inputs for building a subagent roster against one working directory. */
 export type SubagentRosterOptions = {
 	readonly cwd: string
+	readonly outputStore?: OutputStoreService
 }
 
 /** Leading prompt for the `bash` subagent. */
@@ -150,10 +152,11 @@ export const WEB_SEARCH_RESEARCHER_PROMPT: string =
  * types that get skills, so the session scans the skills directory exactly once (D20). Every type
  * binds its model by profile role, resolved through the session's profiles map at each dispatch.
  */
-export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
-	const coding = codingTools({ cwd })
+export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
+	const coding = codingTools({ cwd, ...(outputStore === undefined ? {} : { outputStore }) })
 	const skills = skillTool(skillsFromDisk({ cwd }))
 	const web = webTools()
+	const bashOptions = { cwd, ...(outputStore === undefined ? {} : { outputStore }) }
 
 	const bash = defineSubagent({
 		name: 'bash',
@@ -161,7 +164,7 @@ export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<
 			'Run shell commands (builds, tests, git, rg searches) and report the commands, exit status, and ' +
 			'the output that matters. Use it to execute something without spending your own context on raw output.',
 		systemPrompt: BASH_SUBAGENT_PROMPT,
-		tools: [bashTool({ cwd })],
+		tools: [bashTool(bashOptions)],
 		model: 'fast',
 	})
 
@@ -173,7 +176,7 @@ export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<
 			'Locate code and explain how it works, returning a structured report with file:line references. ' +
 			'Use it for "where is X" and "how does Y work" questions that would otherwise require reading many files.',
 		systemPrompt: [RESEARCHER_SUBAGENT_PROMPT, AST_GREP_OUTLINE_GUIDANCE],
-		tools: [readTool({ cwd }), bashTool({ cwd }), skills],
+		tools: [readTool({ cwd }), bashTool(bashOptions), skills],
 		model: 'fast',
 	})
 

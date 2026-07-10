@@ -22,6 +22,7 @@ import {
 	defaultMaxBytes,
 	defineTool,
 	formatSize,
+	CurrentToolCall,
 	InterruptNote,
 	ToolEvents,
 	truncateTail,
@@ -32,6 +33,7 @@ import { Context, Duration, Effect, Fiber, Layer, Option, Ref, Schema, Semaphore
 import { ChildProcess, type ChildProcessSpawner } from 'effect/unstable/process'
 
 import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
 
 /**
@@ -84,6 +86,8 @@ const inMemoryRetentionBytes = 4 * defaultMaxBytes
 export type BashToolOptions = FsToolOptions & {
 	/** Base directory for spill files holding full untruncated output. Defaults to `os.tmpdir()`. */
 	readonly spillDir?: string
+	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
+	readonly outputStore?: OutputStoreService
 }
 
 let spawnerContext: Context.Context<ChildProcessSpawner.ChildProcessSpawner> | null = null
@@ -279,11 +283,20 @@ export const bashTool = (options?: BashToolOptions): TartTool =>
 
 				const events = yield* ToolEvents
 				const interruptNote = yield* InterruptNote
-				const spillPath = join(options?.spillDir ?? tmpdir(), `tart-bash-${randomBytes(8).toString('hex')}.log`)
+				const currentToolCall = yield* CurrentToolCall
+				const outputStore = options?.outputStore
+				const spillRef = outputStore?.refFor(currentToolCall.toolCallId)
+				const spillPath =
+					spillRef?.path ??
+					join(options?.spillDir ?? tmpdir(), `tart-bash-${randomBytes(8).toString('hex')}.log`)
 				const accumulator = yield* makeAccumulator({
 					spillPath,
 					writeSpill: (path, chunk) =>
-						fs.writeFileString(path, chunk, { flag: 'a' }).pipe(Effect.catch(() => Effect.void)),
+						outputStore === undefined
+							? fs.writeFileString(path, chunk, { flag: 'a' }).pipe(Effect.catch(() => Effect.void))
+							: outputStore
+									.append(currentToolCall.toolCallId, chunk)
+									.pipe(Effect.catch(() => Effect.void)),
 				})
 
 				// If this call is interrupted, the synthetic tool result points the model at the partial

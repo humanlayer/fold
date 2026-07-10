@@ -3,7 +3,7 @@ import { AgentId, MessageId, SessionId, ToolCallId } from '@humanlayer/tart-core
 import type { ActiveModel, ModelCatalogEntry, UsageEncoded } from '@humanlayer/tart-core'
 import { Effect } from 'effect'
 
-import { makeOutputRenderer, responseCostUsd } from '../src/index'
+import { makeJsonOutputRenderer, makeOutputRenderer, responseCostUsd } from '../src/index'
 
 it.effect('renders the session id in the header and finish line', () =>
 	Effect.gen(function* () {
@@ -81,6 +81,74 @@ it.effect('renders the session id in the header and finish line', () =>
 	}),
 )
 
+it.effect('json renderer emits only log rows in concise mode and finish is not duplicated', () =>
+	Effect.gen(function* () {
+		const chunks: Array<string> = []
+		const renderer = makeJsonOutputRenderer({
+			mode: 'json-concise',
+			stdout: (text) =>
+				Effect.sync(() => {
+					chunks.push(text)
+				}),
+		})
+		const agentId = AgentId.make('agent_eeeeeeeeeeeeeeeeeeeeeeee')
+		const entry = {
+			_tag: 'agent-finished' as const,
+			seq: 7,
+			ts: 1,
+			agentId,
+			parentAgentId: null,
+			toolCallId: null,
+			outcome: 'completed' as const,
+			resultText: 'done',
+			reason: null,
+		}
+
+		yield* renderer.renderEvent({
+			kind: 'delta',
+			agentId,
+			parentAgentId: null,
+			toolCallId: null,
+			part: { type: 'text-delta', id: 'delta-1', delta: 'streamed' },
+		})
+		yield* renderer.renderEvent({ kind: 'log', entry })
+		yield* renderer.renderFinish(entry)
+
+		expect(chunks).toHaveLength(1)
+		const parsed = JSON.parse(chunks[0] ?? '')
+		expect(parsed.kind).toBe('log')
+		expect(parsed.entry._tag).toBe('agent-finished')
+		expect(parsed.entry.seq).toBe(7)
+	}),
+)
+
+it.effect('json renderer includes deltas in verbose mode', () =>
+	Effect.gen(function* () {
+		const chunks: Array<string> = []
+		const renderer = makeJsonOutputRenderer({
+			mode: 'json-verbose',
+			stdout: (text) =>
+				Effect.sync(() => {
+					chunks.push(text)
+				}),
+		})
+		const agentId = AgentId.make('agent_ffffffffffffffffffffffff')
+
+		yield* renderer.renderEvent({
+			kind: 'delta',
+			agentId,
+			parentAgentId: null,
+			toolCallId: null,
+			part: { type: 'reasoning-delta', id: 'delta-2', delta: 'thinking' },
+		})
+
+		expect(chunks).toHaveLength(1)
+		const parsed = JSON.parse(chunks[0] ?? '')
+		expect(parsed.kind).toBe('delta')
+		expect(parsed.part.type).toBe('reasoning-delta')
+	}),
+)
+
 it.effect('renders profile-based resume command when the session used --profile', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
@@ -108,11 +176,7 @@ it.effect('renders profile-based resume command when the session used --profile'
 			logPath: '/tmp/tart/sessions/p/sess.jsonl',
 			mode: 'new',
 			profile: 'ultracodex',
-			resumeFlags: [
-				{ name: 'profile', value: 'ultracodex' },
-				{ name: 'mode', value: 'rlm' },
-				{ name: 'rpi' },
-			],
+			resumeFlags: [{ name: 'profile', value: 'ultracodex' }, { name: 'mode', value: 'rlm' }, { name: 'rpi' }],
 			model,
 			credential: { _tag: 'found', detail: 'valid entry "codex" in /tmp/tart/auth.json' },
 		})

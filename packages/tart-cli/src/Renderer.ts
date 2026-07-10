@@ -44,6 +44,16 @@ export type RendererOptions = {
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 }
 
+/** Machine-readable JSONL output modes. */
+export type JsonOutputMode = 'json-concise' | 'json-verbose'
+
+/** Creation options for the machine-readable JSONL renderer. */
+export type JsonRendererOptions = {
+	readonly stdout?: Writer
+	readonly stderr?: Writer
+	readonly mode?: JsonOutputMode
+}
+
 /** One CLI flag to carry into the printed resume command. */
 export type ResumeCommandFlag = { readonly name: string; readonly value?: string }
 
@@ -88,6 +98,39 @@ const safeStringify = (value: unknown): string => {
 		return JSON.stringify(value) ?? String(value)
 	} catch {
 		return String(value)
+	}
+}
+
+const jsonLine = (value: unknown): string => `${JSON.stringify(value)}\n`
+
+/** Create a JSONL renderer for programmatic/headless consumers. */
+export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRenderer => {
+	const stdout = options?.stdout ?? defaultStdout
+	const stderr = options?.stderr ?? defaultStderr
+	const mode = options?.mode ?? 'json-concise'
+	const seenLogSeqs = new Set<number>()
+
+	const writeEvent = (event: TartEvent): Effect.Effect<void> => stdout(jsonLine(event))
+
+	return {
+		renderHeader: () => Effect.void,
+		renderEvent: (event) => {
+			if (event.kind === 'log') {
+				if (seenLogSeqs.has(event.entry.seq)) return Effect.void
+				seenLogSeqs.add(event.entry.seq)
+			}
+			if (mode === 'json-concise' && event.kind !== 'log') return Effect.void
+			return writeEvent(event)
+		},
+		renderFinish: (entry) => {
+			if (seenLogSeqs.has(entry.seq)) return Effect.void
+			seenLogSeqs.add(entry.seq)
+			return writeEvent({ kind: 'log', entry })
+		},
+		renderResumeCommand: Effect.void,
+		renderNote: (message) => stderr(`${message}\n`),
+		renderError: (message) => stderr(`error: ${message}\n`),
+		prompt: Effect.succeed(''),
 	}
 }
 
@@ -259,7 +302,6 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const agentTagColors = new Map<string, (text: string) => string>()
 	let currentSessionId: SessionId | null = null
 	let headerModel: ActiveModel | null = null
-	let headerProfile: string | undefined
 	let headerResumeFlags: ReadonlyArray<ResumeCommandFlag> = []
 	let rootAgentId: string | null = null
 	let lineOpen = false
@@ -572,7 +614,6 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			Effect.sync(() => {
 				currentSessionId = header.sessionId
 				headerModel = header.model
-				headerProfile = header.profile
 				headerResumeFlags = header.resumeFlags ?? []
 			}).pipe(
 				Effect.andThen(

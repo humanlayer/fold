@@ -177,9 +177,13 @@ export const resumeFlagsFor = (options: CliSessionOptions): ReadonlyArray<Resume
 	...(options.rpi === true ? [{ name: 'rpi' }] : []),
 	...(options.profile === undefined ? [] : [{ name: 'profile', value: options.profile }]),
 	...(options.modelSelection?.role === undefined ? [] : [{ name: 'role', value: options.modelSelection.role }]),
-	...(options.modelSelection?.provider === undefined ? [] : [{ name: 'provider', value: options.modelSelection.provider }]),
+	...(options.modelSelection?.provider === undefined
+		? []
+		: [{ name: 'provider', value: options.modelSelection.provider }]),
 	...(options.modelSelection?.model === undefined ? [] : [{ name: 'model', value: options.modelSelection.model }]),
-	...(options.modelSelection?.reasoning === undefined ? [] : [{ name: 'reasoning', value: options.modelSelection.reasoning }]),
+	...(options.modelSelection?.reasoning === undefined
+		? []
+		: [{ name: 'reasoning', value: options.modelSelection.reasoning }]),
 	...compactResumeFlags(options.autoCompact),
 ]
 
