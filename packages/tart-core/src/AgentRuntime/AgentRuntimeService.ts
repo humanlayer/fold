@@ -7,6 +7,7 @@
 import { Context } from 'effect'
 import type { Array as Arr, Effect } from 'effect'
 
+import type { CompactionTrigger } from '../Compaction/CompactionService'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -15,7 +16,6 @@ import type {
 	AgentStartedLogEntry,
 	CompactionLogEntry,
 } from '../EventLog/Schemas'
-import type { CompactionTrigger } from '../Compaction/CompactionService'
 import type { AgentId, ToolCallId } from '../Ids'
 
 /** Input for starting one agent. parentAgentId and toolCallId are null for root agents. */

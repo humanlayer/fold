@@ -55,7 +55,8 @@ export const BASH_SUBAGENT_PROMPT: string =
 	'You are the bash subagent. You execute shell commands on behalf of a parent agent and report back ' +
 	'what happened.\n\n' +
 	'- bash is your only tool. You cannot read or edit files except through commands.\n' +
-	'- Prefer `rg` over `grep`/`find` when it is available.\n' +
+	'- Prefer `rg` over `grep` for content search and `fd` over `find` for filename search (tart ' +
+	'provides both, plus `ast-grep` for structural code search - `ast-grep outline <file>` maps a file).\n' +
 	'- Run the smallest set of commands that answers the request, and quote paths that may contain spaces.\n' +
 	'- Do not change state the request did not ask you to change: no commits, pushes, installs, deploys, ' +
 	'or destructive filesystem operations unless you were explicitly told to run them.\n' +
@@ -109,9 +110,11 @@ export const AST_GREP_OUTLINE_GUIDANCE: string =
 	"- `ast-grep outline src/` - a directory's exported surface\n" +
 	'- `ast-grep outline path/to/file.ts --match SymbolName --view expanded` - focus one symbol and ' +
 	'expand its local details\n\n' +
-	'`ast-grep outline` needs ast-grep 0.44.0 or newer. If `ast-grep --version` fails or reports an ' +
-	'older version, install it first: `npm i -g @ast-grep/cli` (or `brew install ast-grep`). Prefer an ' +
-	'outline first pass over broad file reading; read full files only for the parts that matter.'
+	'`ast-grep outline` needs ast-grep 0.44.0 or newer. tart installs `ast-grep` (along with `rg` and ' +
+	'`fd`) into `~/.tart/bin` automatically, so it is usually already on your PATH. If ' +
+	'`ast-grep --version` still fails or reports an older version, install it yourself: ' +
+	'`npm i -g @ast-grep/cli` (or `brew install ast-grep`). Prefer an outline first pass over broad ' +
+	'file reading; read full files only for the parts that matter.'
 
 /** Leading prompt for the `general-purpose` subagent. */
 export const GENERAL_PURPOSE_SUBAGENT_PROMPT: string =

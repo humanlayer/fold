@@ -5,12 +5,14 @@ import {
 	configInit,
 	configPathFor,
 	defaultTartHome,
+	ensureManagedBinaries,
 	listSessionLogs,
 	loadModelCatalog,
 	loadTartConfig,
 	TART_MODE_NAMES,
 	type AutoCompactConfig,
 	type LaunchModelError,
+	type ManagedBinaryStatus,
 	type ModelSelection,
 	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
@@ -314,6 +316,29 @@ const run = Command.make('tart', commonFlags, (input) =>
 	]),
 )
 
+const binStatusLine = (status: ManagedBinaryStatus): string =>
+	`${status.name}\t${status.resolution}\t${status.path ?? status.detail ?? ''}`
+
+const bin = Command.make('bin').pipe(
+	Command.withDescription('Manage the external binaries tart provides to agents (rg, fd, ast-grep)'),
+	Command.withSubcommands([
+		Command.make('status', { tartHome: commonFlags.tartHome }, (input) =>
+			Effect.gen(function* () {
+				const tartHome = optionValue(input.tartHome) ?? defaultTartHome()
+				const statuses = yield* ensureManagedBinaries({ tartHome, disableDownloads: true, memoize: false })
+				for (const status of statuses) yield* Console.log(binStatusLine(status))
+			}),
+		).pipe(Command.withDescription('Show how each managed binary resolves (never downloads)')),
+		Command.make('install', { tartHome: commonFlags.tartHome }, (input) =>
+			Effect.gen(function* () {
+				const tartHome = optionValue(input.tartHome) ?? defaultTartHome()
+				const statuses = yield* ensureManagedBinaries({ tartHome, memoize: false })
+				for (const status of statuses) yield* Console.log(binStatusLine(status))
+			}),
+		).pipe(Command.withDescription('Install any missing managed binaries into <tartHome>/bin')),
+	]),
+)
+
 const sessions = Command.make(
 	'sessions',
 	{
@@ -543,7 +568,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 	)
 
 /** Effect CLI command tree for the installed `tart` binary. */
-export const command = run.pipe(Command.withSubcommands([sessions, config, auth]))
+export const command = run.pipe(Command.withSubcommands([sessions, config, auth, bin]))
 
 /** Main Effect for the installed CLI binary. */
 export const main = withErrorHandling(command.pipe(Command.run({ version })))

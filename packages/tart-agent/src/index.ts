@@ -1,3 +1,5 @@
+export * from './Bin/ManagedBinaries'
+export * from './Bin/Registry'
 export * from './Catalog/BakedCatalog'
 export * from './Catalog/LoadCatalog'
 export * from './Catalog/ModelsDevSchema'

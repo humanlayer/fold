@@ -52,13 +52,11 @@ export const parseInteractiveInput = (line: string): InteractiveCommand => {
 	if (!trimmed.startsWith('/')) return { _tag: 'message', text: trimmed }
 
 	const { word, rest } = splitFirstWord(trimmed)
-		switch (word) {
+	switch (word) {
 		case '/help':
 			return rest.length === 0 ? { _tag: 'help' } : { _tag: 'invalid', message: '/help takes no arguments' }
 		case '/compact':
-			return rest.length === 0
-				? { _tag: 'compact' }
-				: { _tag: 'invalid', message: '/compact takes no arguments' }
+			return rest.length === 0 ? { _tag: 'compact' } : { _tag: 'invalid', message: '/compact takes no arguments' }
 		case '/stop':
 			return { _tag: 'stop', reason: rest.length === 0 ? undefined : rest }
 		case '/steer':

@@ -1,112 +1,188 @@
-import { defineTool, webSearchToolContract, type TartTool } from '@humanlayer/tart-core'
+import { CurrentAgent, defineTool, webSearchToolContract, type TartTool } from '@humanlayer/tart-core'
 import { Effect } from 'effect'
 
 const defaultTimeoutMs = 25_000
+const maxNumResults = 20
+const maxContextCharacters = 50_000
+const exaUrl = 'https://mcp.exa.ai/mcp'
+const parallelUrl = 'https://search.parallel.ai/mcp'
+
+export type WebSearchProvider = 'exa' | 'parallel'
 
 export type WebSearchToolOptions = {
 	readonly exaApiKey?: string
+	readonly parallelApiKey?: string
+	readonly provider?: WebSearchProvider
 	readonly timeoutMs?: number
 	readonly env?: (name: string) => string | undefined
 }
 
-type ExaSearchResponse = {
-	readonly results?: ReadonlyArray<{
-		readonly title?: string
-		readonly url?: string
-		readonly text?: string
-		readonly snippet?: string
-	}>
+const resolveEnv = (options: WebSearchToolOptions | undefined, name: string): string | undefined =>
+	options?.env?.(name) ?? process.env[name]
+
+const resolveExaUrl = (options?: WebSearchToolOptions): string => {
+	const apiKey = options?.exaApiKey ?? resolveEnv(options, 'EXA_API_KEY')
+	if (apiKey === undefined || apiKey.length === 0) return exaUrl
+	const url = new URL(exaUrl)
+	url.searchParams.set('exaApiKey', apiKey)
+	return url.toString()
 }
 
-const stringField = (value: unknown, key: string): string | undefined => {
-	if (typeof value !== 'object' || value === null || !(key in value)) return undefined
-	const field = Reflect.get(value, key)
-	return typeof field === 'string' ? field : undefined
-}
-
-const normalizeExaSearchResponse = (value: unknown): ExaSearchResponse => {
-	if (typeof value !== 'object' || value === null || !('results' in value) || !Array.isArray(value.results)) return {}
-
+const resolveParallelHeaders = (options?: WebSearchToolOptions): Record<string, string> => {
+	const apiKey = options?.parallelApiKey ?? resolveEnv(options, 'PARALLEL_API_KEY')
 	return {
-		results: value.results.map((result) => {
-			const title = stringField(result, 'title')
-			const url = stringField(result, 'url')
-			const text = stringField(result, 'text')
-			const snippet = stringField(result, 'snippet')
-
-			return {
-				...(title === undefined ? {} : { title }),
-				...(url === undefined ? {} : { url }),
-				...(text === undefined ? {} : { text }),
-				...(snippet === undefined ? {} : { snippet }),
-			}
-		}),
+		'User-Agent': 'tart/1.0',
+		...(apiKey === undefined || apiKey.length === 0 ? {} : { Authorization: `Bearer ${apiKey}` }),
 	}
 }
 
-const resolveExaApiKey = (options?: WebSearchToolOptions): string | undefined =>
-	options?.exaApiKey ?? options?.env?.('EXA_API_KEY') ?? process.env.EXA_API_KEY
+const checksum = (text: string): number => {
+	let hash = 0
+	for (let index = 0; index < text.length; index += 1) {
+		hash = (hash * 31 + text.charCodeAt(index)) >>> 0
+	}
+	return hash
+}
+
+const selectProvider = (seed: string, options?: WebSearchToolOptions): WebSearchProvider => {
+	const override =
+		options?.provider ??
+		resolveEnv(options, 'TART_WEBSEARCH_PROVIDER') ??
+		resolveEnv(options, 'OPENCODE_WEBSEARCH_PROVIDER')
+	if (override === 'exa' || override === 'parallel') return override
+	return checksum(seed) % 2 === 0 ? 'exa' : 'parallel'
+}
+
+const textField = (value: unknown): string | undefined => {
+	if (typeof value !== 'object' || value === null || !('text' in value)) return undefined
+	const text = Reflect.get(value, 'text')
+	return typeof text === 'string' && text.length > 0 ? text : undefined
+}
+
+const parsePayload = (payload: string): string | undefined => {
+	const trimmed = payload.trim()
+	if (!trimmed.startsWith('{')) return undefined
+
+	const decoded: unknown = JSON.parse(trimmed)
+	if (typeof decoded !== 'object' || decoded === null || !('result' in decoded)) return undefined
+	const result = Reflect.get(decoded, 'result')
+	if (typeof result !== 'object' || result === null || !('content' in result)) return undefined
+	const content = Reflect.get(result, 'content')
+	if (!Array.isArray(content)) return undefined
+
+	return content.map(textField).find((text) => text !== undefined)
+}
+
+const parseMcpResponse = (body: string): Effect.Effect<string | undefined, { message: string }> =>
+	Effect.try({
+		try: () => {
+			const direct = body.trim().length > 0 ? parsePayload(body) : undefined
+			if (direct !== undefined) return direct
+
+			for (const line of body.split('\n')) {
+				if (!line.startsWith('data: ')) continue
+				const text = parsePayload(line.slice(6))
+				if (text !== undefined) return text
+			}
+
+			return undefined
+		},
+		catch: (error) => ({
+			message: `Failed to parse web search response: ${error instanceof Error ? error.message : String(error)}`,
+		}),
+	})
+
+const callMcp = (input: {
+	readonly url: string
+	readonly tool: string
+	readonly arguments: Record<string, unknown>
+	readonly headers?: Record<string, string>
+	readonly timeoutMs: number
+}): Effect.Effect<string | undefined, { message: string }> =>
+	Effect.gen(function* () {
+		const controller = new AbortController()
+		const timer = setTimeout(() => controller.abort(), input.timeoutMs)
+
+		return yield* Effect.gen(function* () {
+			const response = yield* Effect.tryPromise({
+				try: () =>
+					fetch(input.url, {
+						method: 'POST',
+						signal: controller.signal,
+						headers: {
+							accept: 'application/json, text/event-stream',
+							'content-type': 'application/json',
+							...(input.headers ?? {}),
+						},
+						body: JSON.stringify({
+							jsonrpc: '2.0',
+							id: 1,
+							method: 'tools/call',
+							params: { name: input.tool, arguments: input.arguments },
+						}),
+					}),
+				catch: (error) => ({
+					message:
+						error instanceof Error && error.name === 'AbortError'
+							? `${input.tool} request timed out`
+							: error instanceof Error
+								? error.message
+								: String(error),
+				}),
+			})
+
+			if (!response.ok) {
+				return yield* Effect.fail({
+					message: `${input.tool} request failed with status code: ${response.status}`,
+				})
+			}
+
+			const body = yield* Effect.tryPromise({
+				try: () => response.text(),
+				catch: (error) => ({
+					message: `Failed to read web search response: ${error instanceof Error ? error.message : String(error)}`,
+				}),
+			})
+			return yield* parseMcpResponse(body)
+		}).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))))
+	})
 
 export const webSearchTool = (options?: WebSearchToolOptions): TartTool =>
 	defineTool({
 		...webSearchToolContract,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const apiKey = resolveExaApiKey(options)
-				if (apiKey === undefined || apiKey.length === 0) {
-					return yield* Effect.fail({ message: 'web_search requires EXA_API_KEY to be set' })
-				}
-
-				const controller = new AbortController()
+				const currentAgent = yield* CurrentAgent
+				const provider = selectProvider(currentAgent.agentId, options)
+				const numResults = Math.min(params.numResults ?? 8, maxNumResults)
+				const contextMaxCharacters = Math.min(params.contextMaxCharacters ?? 10_000, maxContextCharacters)
 				const timeoutMs = options?.timeoutMs ?? defaultTimeoutMs
-				const timer = setTimeout(() => controller.abort(), timeoutMs)
-				const numResults = Math.min(params.numResults ?? 5, 10)
 
-				const response = yield* Effect.tryPromise({
-					try: () =>
-						fetch('https://api.exa.ai/search', {
-							method: 'POST',
-							signal: controller.signal,
-							headers: {
-								'content-type': 'application/json',
-								'x-api-key': apiKey,
-							},
-							body: JSON.stringify({
-								query: params.query,
-								numResults,
-								contents: { text: { maxCharacters: 500 } },
-							}),
-						}),
-					catch: (error) => ({
-						message:
-							error instanceof Error && error.name === 'AbortError'
-								? 'Search request timed out'
-								: error instanceof Error
-									? error.message
-									: String(error),
-					}),
-				}).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))))
+				const result =
+					provider === 'exa'
+						? yield* callMcp({
+								url: resolveExaUrl(options),
+								tool: 'web_search_exa',
+								arguments: {
+									query: params.query,
+									type: params.type ?? 'auto',
+									numResults,
+									livecrawl: params.livecrawl ?? 'fallback',
+									contextMaxCharacters,
+								},
+								timeoutMs,
+							})
+						: yield* callMcp({
+								url: parallelUrl,
+								tool: 'web_search',
+								arguments: {
+									objective: params.query,
+									search_queries: [params.query],
+								},
+								headers: resolveParallelHeaders(options),
+								timeoutMs,
+							})
 
-				if (!response.ok) {
-					return yield* Effect.fail({ message: `Search request failed with status code: ${response.status}` })
-				}
-
-				const data = yield* Effect.tryPromise({
-					try: async () => {
-						const data = await response.json()
-						return normalizeExaSearchResponse(data)
-					},
-					catch: (error) => ({
-						message: `Failed to parse search response: ${error instanceof Error ? error.message : String(error)}`,
-					}),
-				})
-
-				return {
-					results: (data.results ?? []).map((result) => ({
-						title: result.title ?? '',
-						url: result.url ?? '',
-						snippet: result.text ?? result.snippet ?? '',
-					})),
-				}
+				return result ?? 'No search results found. Please try a different query.'
 			}),
 	})

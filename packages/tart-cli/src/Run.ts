@@ -1,4 +1,6 @@
 import {
+	defaultTartHome,
+	ensureManagedBinaries,
 	launchSession,
 	modeForName,
 	resumeLatestSession,
@@ -201,6 +203,27 @@ const withProcessSignals = <A, E, R>(
 			}),
 	)
 
+/**
+ * Ensure the managed binaries (rg, fd, ast-grep) in the BACKGROUND: forked into the session scope so
+ * it never delays the first model request; fresh installs print one dim note, everything else is
+ * silent (failures already logWarning inside the ensure, which never fails).
+ */
+const forkBinariesEnsure = (
+	options: CliSessionOptions,
+	renderer: OutputRenderer,
+): Effect.Effect<void, never, Scope.Scope> =>
+	Effect.forkScoped(
+		ensureManagedBinaries({ tartHome: options.tartHome ?? defaultTartHome() }).pipe(
+			Effect.flatMap((statuses) =>
+				Effect.forEach(
+					statuses.filter((status) => status.resolution === 'installed-now'),
+					(status) =>
+						renderer.renderNote(`installed ${status.name} into ${status.path ?? 'the tart bin dir'}`),
+				),
+			),
+		),
+	).pipe(Effect.asVoid)
+
 /** Open a session, print its header, and run one CI-friendly prompt. */
 export const runPrompt = (
 	options: PromptRunOptions,
@@ -210,6 +233,7 @@ export const runPrompt = (
 		const opened = yield* openSession(options)
 		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
+		yield* forkBinariesEnsure(options, renderer)
 		const finished = yield* withProcessSignals(
 			opened.session,
 			renderer,
@@ -235,6 +259,7 @@ export const runReadline = (
 		const opened = yield* openSession(options)
 		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
+		yield* forkBinariesEnsure(options, renderer)
 		yield* runInteractive(opened.session, renderer)
 		yield* Fiber.interrupt(renderFiber)
 	})

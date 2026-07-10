@@ -188,32 +188,32 @@ export const webFetchToolContract = {
 
 // --- web_search -------------------------------------------------------------------------------------
 
-const WebSearchResult = Schema.Struct({
-	title: Schema.String,
-	url: Schema.String,
-	snippet: Schema.String,
-})
-
 const WebSearchParameters = Schema.Struct({
 	query: Schema.String.annotate({ description: 'Search query to run against the web.' }),
 	numResults: Schema.optionalKey(Schema.Number).annotate({
-		description: 'Number of results to return. Defaults to 5; maximum 10.',
+		description: 'Number of search results to return. Defaults to 8; maximum 20.',
 	}),
-})
-
-const WebSearchSuccess = Schema.Struct({
-	results: Schema.Array(WebSearchResult),
+	livecrawl: Schema.optionalKey(Schema.Literals(['fallback', 'preferred'])).annotate({
+		description: "Live crawl mode: 'fallback' uses live crawling as backup; 'preferred' prioritizes live crawling.",
+	}),
+	type: Schema.optionalKey(Schema.Literals(['auto', 'fast', 'deep'])).annotate({
+		description: "Search type: 'auto' balances search, 'fast' is quicker, 'deep' is more comprehensive.",
+	}),
+	contextMaxCharacters: Schema.optionalKey(Schema.Number).annotate({
+		description: 'Maximum characters for the LLM-optimized context string. Defaults to 10000; maximum 50000.',
+	}),
 })
 
 export const webSearchToolContract = {
 	name: 'web_search',
 	description:
-		'Search the web for up-to-date information and return result titles, URLs, and snippets. Prefer ' +
-		'official documentation and fetch high-value results with web_fetch.',
+		'Search the web for up-to-date information using the local web search provider and return an ' +
+		'LLM-optimized result summary with source URLs. Prefer official documentation and fetch high-value ' +
+		'results with web_fetch when more detail is needed.',
 	parameters: WebSearchParameters,
-	success: WebSearchSuccess,
+	success: Schema.String,
 	failure: ToolFailure,
-} satisfies ToolContract<typeof WebSearchParameters, typeof WebSearchSuccess, typeof ToolFailure>
+} satisfies ToolContract<typeof WebSearchParameters, typeof Schema.String, typeof ToolFailure>
 
 // --- skill ------------------------------------------------------------------------------------------
 

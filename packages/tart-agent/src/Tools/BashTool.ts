@@ -248,7 +248,13 @@ export const bashTool = (options?: BashToolOptions): TartTool =>
 		description:
 			'Execute a bash command and return its output (stdout and stderr interleaved, tail-truncated ' +
 			`to 2000 lines or ${formatSize(defaultMaxBytes)} with the full output saved to a file). The command runs in its ` +
-			'own process group and is killed at the timeout. Prefer `rg` (ripgrep) over grep/find when available.',
+			'own process group and is killed at the timeout.\n\n' +
+			'Fast search binaries are provided on PATH (tart auto-installs them into ~/.tart/bin): prefer ' +
+			'`rg` over grep for content search, `fd` over find for locating files by name (fast and ' +
+			'gitignore-aware), and `ast-grep` for syntax-aware structural search over code. ' +
+			'`ast-grep outline <file-or-dir>` prints a structural table of contents - functions, classes, ' +
+			'imports, and exports with their line ranges - so use it to map a file before reading it; ' +
+			'`ast-grep outline <file> --match <Symbol> --view expanded` expands one symbol in detail.',
 		parameters: BashParameters,
 		success: BashSuccess,
 		failure: BashFailure,

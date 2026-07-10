@@ -717,7 +717,8 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 			}),
 		)
 
-	const compact = (): Effect.Effect<CompactionLogEntry | null> => gate.withPermit(session.compact().pipe(Effect.orDie))
+	const compact = (): Effect.Effect<CompactionLogEntry | null> =>
+		gate.withPermit(session.compact().pipe(Effect.orDie))
 
 	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
 	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.
