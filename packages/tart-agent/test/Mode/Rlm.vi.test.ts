@@ -5,6 +5,7 @@
  */
 import { expect, it } from '@effect/vitest'
 import {
+	AgentId,
 	collectSubagentDefinitions,
 	customModel,
 	type ActiveModel,
@@ -16,6 +17,7 @@ import { LanguageModel } from 'effect/unstable/ai'
 
 import {
 	defaultCodingMode,
+	formatCompactionArchiveInstructions,
 	modeForName,
 	RLM_ORCHESTRATOR_PROMPT,
 	rlmMode,
@@ -49,7 +51,7 @@ const models: ModeModels = {
 	orchestrator: namedModel('orchestrator-model'),
 }
 
-const rlmTools = (): ReadonlyArray<TartTool> => rlmMode.buildTools({ cwd: '/tmp/project', models })
+const rlmTools = (): ReadonlyArray<TartTool> => rlmMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
 
 const toolNames = (tools: ReadonlyArray<TartTool>): ReadonlyArray<string> => tools.map((tool) => tool.name)
 
@@ -91,4 +93,36 @@ it('instructs delegation and states the no-bash rule', () => {
 	expect(RLM_ORCHESTRATOR_PROMPT).toContain('`subagent`')
 	expect(RLM_ORCHESTRATOR_PROMPT).toContain('general-purpose')
 	expect(RLM_ORCHESTRATOR_PROMPT).toContain('researcher')
+})
+
+it('formats RLM root archive instructions around bash delegation', () => {
+	const text = formatCompactionArchiveInstructions({
+		logPath: '/tmp/tart/sess_1.jsonl',
+		modeName: 'rlm',
+		agentId: AgentId.make(`agent_abcdef12${'0'.repeat(16)}`),
+		parentAgentId: null,
+	})
+
+	expect(text).toContain('RLM/orchestrator mode')
+	expect(text).toContain('delegate a narrow search to the bash subagent')
+	expect(text).toContain('/tmp/tart/sess_1.jsonl')
+	expect(text).toContain('agent_abcdef12')
+	expect(text).toContain('agent_started: agentType')
+	expect(text).toContain('system-message')
+	expect(text).toContain('fork.fromAgentId')
+})
+
+it('formats non-RLM archive instructions with direct agent-id grep guidance', () => {
+	const text = formatCompactionArchiveInstructions({
+		logPath: '/tmp/tart/sess_2.jsonl',
+		modeName: 'default',
+		agentId: AgentId.make(`agent_12345678${'0'.repeat(16)}`),
+		parentAgentId: null,
+	})
+
+	expect(text).toContain('Your current agent id')
+	expect(text).toContain('rg -n -F')
+	expect(text).toContain('"agentId":"agent_12345678')
+	expect(text).not.toContain('do not have bash')
+	expect(text).toContain('tool-result: message.content[].result')
 })

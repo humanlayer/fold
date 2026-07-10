@@ -14,6 +14,7 @@ const baseFlags: CommonFlagValues = {
 	model: Option.none(),
 	role: Option.none(),
 	mode: Option.none(),
+	rpi: false,
 	reasoning: Option.none(),
 	cwd: Option.some('/tmp/project'),
 	tartHome: Option.none(),
@@ -49,5 +50,22 @@ it.effect('lowers --mode default as an explicit mode selection', () =>
 		const options = yield* sessionOptionsFromFlags({ ...baseFlags, mode: Option.some('default') })
 
 		expect(options.mode).toBe('default')
+	}),
+)
+
+it.effect('lowers --rpi into the session options, composable with --mode', () =>
+	Effect.gen(function* () {
+		const options = yield* sessionOptionsFromFlags({ ...baseFlags, mode: Option.some('rlm'), rpi: true })
+
+		expect(options.rpi).toBe(true)
+		expect(options.mode).toBe('rlm')
+	}),
+)
+
+it.effect('omits rpi when the flag is absent', () =>
+	Effect.gen(function* () {
+		const options = yield* sessionOptionsFromFlags(baseFlags)
+
+		expect('rpi' in options).toBe(false)
 	}),
 )

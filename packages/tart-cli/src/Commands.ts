@@ -118,6 +118,9 @@ const commonFlags = {
 		TART_MODE_NAMES,
 		'Agent mode: default (full coding toolset) or rlm (orchestrator that delegates to subagents)',
 	),
+	rpi: Flag.boolean('rpi').pipe(
+		Flag.withDescription('Add the RPI specialist subagents (composable with any --mode)'),
+	),
 	reasoning: optionalChoice(
 		'reasoning',
 		['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const,
@@ -154,6 +157,7 @@ export type CommonFlagValues = {
 	readonly model: Option.Option<string>
 	readonly role: Option.Option<'smart' | 'fast' | 'orchestrator'>
 	readonly mode: Option.Option<TartModeName>
+	readonly rpi: boolean
 	readonly reasoning: Option.Option<'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'>
 	readonly cwd: Option.Option<string>
 	readonly tartHome: Option.Option<string>
@@ -269,6 +273,7 @@ export const sessionOptionsFromFlags = (
 			cwd: optionValue(input.cwd) ?? process.cwd(),
 			...(tartHome === undefined ? {} : { tartHome }),
 			...(mode === undefined ? {} : { mode }),
+			...(input.rpi ? { rpi: true } : {}),
 			...(resume === undefined ? {} : { resume }),
 			...(modelSelection === undefined ? {} : { modelSelection }),
 			...(autoCompact === undefined ? {} : { autoCompact }),

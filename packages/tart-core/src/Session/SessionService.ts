@@ -8,7 +8,7 @@ import { Context, Schema } from 'effect'
 import type { Effect, Stream } from 'effect'
 
 import type { TartEvent } from '../AgentEvents/AgentEventsService'
-import type { ActiveModel, AgentFinishedLogEntry, LogSeq } from '../EventLog/Schemas'
+import type { ActiveModel, AgentFinishedLogEntry, CompactionLogEntry, LogSeq } from '../EventLog/Schemas'
 import type { AgentId, SessionId } from '../Ids'
 import type { SessionAlreadyStartedError, SessionNotStartedError } from './Errors'
 
@@ -55,6 +55,7 @@ export type SessionService = {
 	readonly adopt: (input: StartedSession) => Effect.Effect<StartedSession, SessionAlreadyStartedError>
 	readonly send: (input: { readonly text: string }) => Effect.Effect<AgentFinishedLogEntry, SessionNotStartedError>
 	readonly switchModel: (input: SwitchSessionModelInput) => Effect.Effect<void, SessionNotStartedError>
+	readonly compact: () => Effect.Effect<CompactionLogEntry | null, SessionNotStartedError>
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<TartEvent>
 }
 

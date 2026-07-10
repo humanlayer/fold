@@ -16,7 +16,7 @@ import { editTool } from '../Tools/EditTool'
 import { readTool } from '../Tools/ReadTool'
 import { writeTool } from '../Tools/WriteTool'
 import type { TartMode } from './Mode'
-import { defaultSubagents } from './Subagents'
+import { modeSubagents } from './Rpi'
 
 /** The RLM orchestrator system prompt (agentlayer's orchestrator prompt, ported and strengthened). */
 export const RLM_ORCHESTRATOR_PROMPT: string =
@@ -53,12 +53,12 @@ export const rlmMode: TartMode = {
 	name: 'rlm',
 	role: 'orchestrator',
 	systemPrompt: RLM_ORCHESTRATOR_PROMPT,
-	buildTools: ({ cwd }) => [
+	buildTools: ({ cwd, rpi }) => [
 		readTool({ cwd }),
 		writeTool({ cwd }),
 		editTool({ cwd }),
 		applyPatchTool({ cwd }),
 		skillTool(skillsFromDisk({ cwd })),
-		subagentTool(defaultSubagents({ cwd })),
+		subagentTool(modeSubagents({ cwd, rpi })),
 	],
 }

@@ -6,7 +6,8 @@
  * error classifier for the reactive path. Everything here is data-in/data-out; the Compaction
  * service and the agent loop orchestrate around it.
  */
-import type { LogEntry, UsageEncoded } from '../EventLog/Schemas'
+import type { LogEntry } from '../EventLog/Schemas'
+import { usageInputTotal, usageOutputTotal, type UsageEncoded } from '../EventLog/Usage'
 import type { ProjectedMessage } from '../Projection/Projection'
 
 /** Reserve kept free below the usable budget so compaction fires before requests fail (pi default). */
@@ -69,10 +70,8 @@ export const compactionUsableTokens = (input: {
  * provider reported nothing useful - a null estimate never triggers compaction.
  */
 export const contextTokensFromUsage = (usage: UsageEncoded): number | null => {
-	const input =
-		usage.inputTokens.total ??
-		(usage.inputTokens.uncached ?? 0) + (usage.inputTokens.cacheRead ?? 0) + (usage.inputTokens.cacheWrite ?? 0)
-	const output = usage.outputTokens.total ?? 0
+	const input = usageInputTotal(usage)
+	const output = usageOutputTotal(usage)
 	const total = input + output
 
 	return total > 0 ? total : null

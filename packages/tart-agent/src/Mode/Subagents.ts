@@ -3,9 +3,10 @@
  * dispatch, each a plain `SubagentDefinition` whose `tools` array carries its own capabilities.
  *
  * - `bash`         - bash only, no delegation. Runs commands and reports what happened.
- * - `researcher`   - the full coding toolset + skills, no delegation. Locates code and explains how it
- *                    works with file:line references (ported from the riptide-rpi codebase-analyzer /
- *                    codebase-locator prompts, whose Grep/Glob/LS tools collapse into bash + rg here).
+ * - `researcher`   - read + bash + skills, no delegation and no editing tools (user ruling reversed
+ *                    2026-07-09). Locates code and explains how it works with file:line references
+ *                    (ported from the riptide-rpi codebase-analyzer / codebase-locator prompts, whose
+ *                    Grep/Glob/LS tools collapse into find/rg/grep via bash here).
  * - `general-purpose` - the full coding toolset + skills + a roster of {general-purpose, bash,
  *                    researcher}. Takes a self-contained task end to end and may delegate.
  *
@@ -29,6 +30,7 @@ import {
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { bashTool } from '../Tools/BashTool'
 import { codingTools } from '../Tools/CodingTools'
+import { readTool } from '../Tools/ReadTool'
 
 /** The models a mode binds its agents to, resolved from config roles (or a single explicit override). */
 export type ModeModels = {
@@ -70,9 +72,9 @@ export const RESEARCHER_SUBAGENT_PROMPT: string =
 	'- ONLY describe what exists, where it lives, and how the pieces interact\n' +
 	'You are a documentarian, not a critic.\n\n' +
 	'## How to search\n' +
-	'You have no grep or glob tool - use bash:\n' +
-	'- `rg -n "pattern" path` to search contents with line numbers\n' +
-	'- `rg --files -g "**/*.ts"` to list files by glob\n' +
+	'You have read and bash - search with `find`, `rg`, and `grep` via bash:\n' +
+	'- `rg -n "pattern" path` (or `grep -rn`) to search contents with line numbers\n' +
+	'- `rg --files -g "**/*.ts"` (or `find`) to list files by name pattern\n' +
 	'- Then read the files you found. Never make a claim about a file you have not read.\n\n' +
 	'## Output format\n' +
 	'```\n' +
@@ -88,8 +90,25 @@ export const RESEARCHER_SUBAGENT_PROMPT: string =
 	'- `path/to/other.ts` - why it is relevant\n' +
 	'```\n\n' +
 	'Always include file:line references. Quote short snippets, never whole files. If you could not find ' +
-	'something, say so plainly rather than guessing. Editing tools are available to you, but changing ' +
-	'files is not your job unless your parent explicitly instructed it.'
+	'something, say so plainly rather than guessing. You have no editing tools - changing files is not ' +
+	'your job.'
+
+/**
+ * Shared structural-navigation guidance appended AFTER the research/review prompts as its own leading
+ * block (user-directed 2026-07-09 addition; it rides beside the faithful prompt ports, never spliced
+ * into ported source text). Commands per the ast-grep outline announcement (requires ast-grep 0.44.0+).
+ */
+export const AST_GREP_OUTLINE_GUIDANCE: string =
+	'## Structural outlines with ast-grep\n\n' +
+	'Before reading full source files, get a structural map with `ast-grep outline` via bash:\n' +
+	'- `ast-grep outline path/to/file.ts` - a table of contents for one file: functions, classes, ' +
+	'imports, exports, and source ranges\n' +
+	"- `ast-grep outline src/` - a directory's exported surface\n" +
+	'- `ast-grep outline path/to/file.ts --match SymbolName --view expanded` - focus one symbol and ' +
+	'expand its local details\n\n' +
+	'`ast-grep outline` needs ast-grep 0.44.0 or newer. If `ast-grep --version` fails or reports an ' +
+	'older version, install it first: `npm i -g @ast-grep/cli` (or `brew install ast-grep`). Prefer an ' +
+	'outline first pass over broad file reading; read full files only for the parts that matter.'
 
 /** Leading prompt for the `general-purpose` subagent. */
 export const GENERAL_PURPOSE_SUBAGENT_PROMPT: string =
@@ -124,13 +143,15 @@ export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<
 		model: 'fast',
 	})
 
+	// Read + bash + skill ONLY (user ruling reversed 2026-07-09): the researcher is a documentarian, so
+	// it holds no write/edit/apply_patch value at all rather than being merely told not to edit.
 	const researcher = defineSubagent({
 		name: 'researcher',
 		description:
 			'Locate code and explain how it works, returning a structured report with file:line references. ' +
 			'Use it for "where is X" and "how does Y work" questions that would otherwise require reading many files.',
-		systemPrompt: RESEARCHER_SUBAGENT_PROMPT,
-		tools: [...coding, skills],
+		systemPrompt: [RESEARCHER_SUBAGENT_PROMPT, AST_GREP_OUTLINE_GUIDANCE],
+		tools: [readTool({ cwd }), bashTool({ cwd }), skills],
 		model: 'fast',
 	})
 

@@ -26,6 +26,7 @@ const helpText = [
 	'  <text>                    start a run when idle; steer the running agent otherwise',
 	'  /steer <agent_id> <text>  steer a specific running agent',
 	'  /send <agent_id> <text>   message a subagent by id (resumes it when finished)',
+	'  /compact                  force a root-agent compaction now',
 	'  /stop [reason]            graceful stop: agents finish the current tool batch, then stop',
 	'  /help                     show this help',
 	'  /exit                     interrupt any active run and quit (Ctrl-C interrupts; exits when idle)',
@@ -178,6 +179,15 @@ export const runInteractive = (
 						}
 						case 'send': {
 							yield* Effect.forkScoped(subagentSendEffect(command.agentId, command.text))
+							continue
+						}
+						case 'compact': {
+							const compaction = yield* session.compact()
+							yield* renderer.renderNote(
+								compaction === null
+									? 'compaction skipped; there is nothing safe to summarize yet'
+									: `compacted through seq ${compaction.replacesThroughSeq} (${compaction.tokensBefore} tokens)`,
+							)
 							continue
 						}
 						case 'stop': {

@@ -6,6 +6,7 @@ import {
 	AgentId,
 	EventLog,
 	EventLogCorruptEntryError,
+	MessageId,
 	SessionId,
 	StateId,
 	type LogEntryInput,
@@ -95,6 +96,48 @@ it.effect('jsonl layer maps invalid persisted lines to EventLogCorruptEntryError
 				throw new Error(`expected EventLogCorruptEntryError, got ${error._tag}`)
 			}
 			expect(error.line).toBe(1)
+		}),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('jsonl layer replays assistant usage when cache fields are absent', () =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const dir = yield* fs.makeTempDirectoryScoped({ prefix: 'tart-event-log-' })
+			const filePath = join(dir, 'usage.jsonl')
+			const agentId = AgentId.create()
+			const line = JSON.stringify({
+				_tag: 'assistant-message',
+				seq: 0,
+				ts: 1,
+				agentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: MessageId.create(),
+				message: { options: {}, role: 'assistant', content: 'done' },
+				finish: {
+					reason: 'stop',
+					usage: {
+						inputTokens: { uncached: 10, total: 10, cacheRead: 0 },
+						outputTokens: { total: 2 },
+					},
+				},
+			})
+
+			yield* fs.writeFileString(filePath, `${line}\n`)
+
+			const entries = yield* Effect.gen(function* () {
+				const log = yield* EventLog
+				return yield* Stream.runCollect(log.entries())
+			}).pipe(Effect.provide(layerJsonl(filePath)))
+			const entry = entries[0]
+
+			expect(entry?._tag).toBe('assistant-message')
+			if (entry?._tag !== 'assistant-message') return
+			expect(entry.finish?.usage.inputTokens?.cacheWrite).toBeUndefined()
+			expect(entry.finish?.usage.inputTokens?.cacheRead).toBe(0)
+			expect(entry.finish?.usage.outputTokens?.total).toBe(2)
 		}),
 	).pipe(Effect.provide(NodeFileSystem.layer)),
 )

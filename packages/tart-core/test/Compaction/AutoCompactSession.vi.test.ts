@@ -24,6 +24,7 @@ import {
 	startSession,
 	EventLog,
 	type AutoCompactConfig,
+	type CompactionArchiveAccessService,
 	type CompactionLogEntry,
 	type ErrorLogEntry,
 	type EventLogService,
@@ -62,6 +63,9 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 			textTurn('## Goal\n- compaction demo summary'),
 			textTurn('all done'),
 		])
+		const archiveAccess: CompactionArchiveAccessService = {
+			instructions: ({ agentId }) => Effect.succeed(`<archive-access>agent=${agentId}</archive-access>`),
+		}
 
 		const session = yield* startSession({
 			agent: defineAgent({
@@ -70,6 +74,7 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 				tools: [echoTool],
 				autoCompact: compactConfig,
 			}),
+			compactionArchiveAccess: archiveAccess,
 		})
 
 		const finished = yield* session.send('use echo with the big payload')
@@ -89,6 +94,9 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 		expect(compaction.parentAgentId).toBeNull()
 		expect(compaction.toolCallId).toBeNull()
 		expect(compaction.summary).toContain('compaction demo summary')
+		expect(compaction.postCompactionInstructions).toBe(
+			`<archive-access>agent=${session.rootAgentId}</archive-access>`,
+		)
 		expect(compaction.tokensBefore).toBe(7_005)
 		expect(compaction.replacesThroughSeq).toBe(userEntries(entries)[0]?.seq)
 
@@ -102,6 +110,7 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 		expect(summarizeRequest).toContain('context summarization assistant')
 		expect(summarizeRequest).toContain('structured context checkpoint summary')
 		expect(summarizeRequest).toContain('[User]: use echo with the big payload')
+		expect(summarizeRequest).not.toContain('<archive-access>')
 
 		// The post-compaction request: the summary stands in for the replaced user message, the kept
 		// tool exchange is still there verbatim, and the epoch configuration is untouched - same
@@ -109,6 +118,7 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 		const finalRequest = JSON.stringify(requests[2]?.prompt)
 		expect(finalRequest).toContain('<conversation-summary>')
 		expect(finalRequest).toContain('compaction demo summary')
+		expect(finalRequest).toContain(`<archive-access>agent=${session.rootAgentId}</archive-access>`)
 		expect(finalRequest).not.toContain('use echo with the big payload')
 		expect(finalRequest).toContain('x'.repeat(100))
 		expect(finalRequest).toContain('You are the compaction demo agent.')

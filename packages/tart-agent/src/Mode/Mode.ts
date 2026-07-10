@@ -8,14 +8,16 @@
  * write, edit, apply_patch, bash - the family policy advertises the right editing subset per model),
  * the disk skill tool, and the default subagent roster (general-purpose, bash, researcher - see
  * Mode/Subagents). Other modes are just other `TartMode` values (Mode/Rlm); Mode/ModeName maps the
- * selectable names to them. RPI is a later slice.
+ * selectable names to them. RPI is not a mode: the `rpi` context flag appends the RPI specialist
+ * roster to ANY mode's subagents (Mode/Rpi).
  */
 import { skillTool, subagentTool, type TartTool } from '@humanlayer/tart-core'
 
 import type { ConfigRole } from '../Config/ConfigSchema'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { codingTools } from '../Tools/CodingTools'
-import { defaultSubagents, type ModeModels } from './Subagents'
+import { modeSubagents } from './Rpi'
+import type { ModeModels } from './Subagents'
 
 /** Context handed to a mode when it builds its tool roster. */
 export type ModeToolContext = {
@@ -27,6 +29,8 @@ export type ModeToolContext = {
 	 * same resolved models as the session's profiles map.
 	 */
 	readonly models: ModeModels
+	/** Install the RPI specialist subagents alongside the default roster (composable with any mode). */
+	readonly rpi: boolean
 }
 
 /** A pre-baked agent composition: primary model role, mode prompt, and tool roster. */
@@ -56,9 +60,9 @@ export const defaultCodingMode: TartMode = {
 	name: 'coding',
 	role: 'smart',
 	systemPrompt: DEFAULT_CODING_PROMPT,
-	buildTools: ({ cwd }) => [
+	buildTools: ({ cwd, rpi }) => [
 		...codingTools({ cwd }),
 		skillTool(skillsFromDisk({ cwd })),
-		subagentTool(defaultSubagents({ cwd })),
+		subagentTool(modeSubagents({ cwd, rpi })),
 	],
 }

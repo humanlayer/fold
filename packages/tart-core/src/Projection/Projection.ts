@@ -55,7 +55,7 @@ export type ProjectedToolResult = ProjectedLogEntry<ToolResultLogEntry, 'toolCal
 /** Projection-only stand-in for history replaced by a compaction entry. */
 export type ProjectedCompactionSummary = ProjectedLogEntryFields<
 	CompactionLogEntry,
-	'compactionId' | 'replacesThroughSeq' | 'summary' | 'tokensBefore'
+	'compactionId' | 'replacesThroughSeq' | 'summary' | 'tokensBefore' | 'postCompactionInstructions'
 > & {
 	readonly _tag: `${CompactionLogEntry['_tag']}-summary`
 }
@@ -316,6 +316,9 @@ export const messagesForAgent = (
 			compactionId: compaction.compactionId,
 			replacesThroughSeq: compaction.replacesThroughSeq,
 			summary: compaction.summary,
+			...(compaction.postCompactionInstructions === undefined
+				? {}
+				: { postCompactionInstructions: compaction.postCompactionInstructions }),
 			tokensBefore: compaction.tokensBefore,
 		})
 	}

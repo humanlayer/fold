@@ -13,7 +13,9 @@ import type {
 	AgentFork,
 	AgentLaunchMode,
 	AgentStartedLogEntry,
+	CompactionLogEntry,
 } from '../EventLog/Schemas'
+import type { CompactionTrigger } from '../Compaction/CompactionService'
 import type { AgentId, ToolCallId } from '../Ids'
 
 /** Input for starting one agent. parentAgentId and toolCallId are null for root agents. */
@@ -57,6 +59,14 @@ export type SwitchModelInput = {
 	readonly reason: string | null
 }
 
+/** Input for explicitly compacting one already-started agent without making a model request afterward. */
+export type CompactAgentInput = {
+	readonly agentId: AgentId
+	readonly parentAgentId: AgentId | null
+	readonly toolCallId: ToolCallId | null
+	readonly trigger: CompactionTrigger
+}
+
 /**
  * Agent lifecycle operations.
  *
@@ -73,6 +83,7 @@ export type AgentRuntimeService = {
 	readonly start: (input: StartAgentInput) => Effect.Effect<AgentStartedLogEntry>
 	readonly run: (input: RunAgentInput) => Effect.Effect<AgentFinishedLogEntry>
 	readonly switchModel: (input: SwitchModelInput) => Effect.Effect<void>
+	readonly compact: (input: CompactAgentInput) => Effect.Effect<CompactionLogEntry | null>
 }
 
 /** AgentRuntime service tag. */

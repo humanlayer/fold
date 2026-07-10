@@ -37,6 +37,8 @@ export type CliSessionOptions = {
 	readonly tartHome?: string
 	/** Selected agent mode. Absent keeps tart-agent's default (the full coding mode). */
 	readonly mode?: TartModeName
+	/** Install the RPI specialist subagents alongside the selected mode's roster (`--rpi`). */
+	readonly rpi?: boolean
 	readonly modelSelection?: ModelSelection
 	readonly resume?: ResumeTarget
 	readonly autoCompact?: AutoCompactConfig
@@ -67,6 +69,7 @@ const launchOptions = (options: CliSessionOptions) => ({
 	cwd: options.cwd,
 	...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
 	...(options.mode === undefined ? {} : { mode: modeForName(options.mode) }),
+	...(options.rpi === true ? { rpi: true } : {}),
 	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
 	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
 	...(options.catalog === undefined ? {} : { catalog: options.catalog }),
@@ -123,18 +126,31 @@ const credentialSummary = (model: ActiveModel | null): Effect.Effect<CredentialS
 		return { _tag: 'found', detail: `API key resolved for provider "${model.providerId}"` }
 	})
 
+/**
+ * The header's agent-mode label: non-default modes print their name, and an enabled RPI roster is
+ * always visible as a `+rpi` suffix - including `default+rpi`, where the default mode alone would
+ * print no mode line at all.
+ */
+const agentModeLabel = (options: CliSessionOptions): string | undefined => {
+	const mode = options.mode ?? 'default'
+	if (options.rpi === true) return `${mode}+rpi`
+
+	return mode === 'default' ? undefined : mode
+}
+
 const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effect.Effect<SessionHeader> =>
 	Effect.gen(function* () {
 		const entries = yield* opened.session.entries
 		const model = activeModelFromEntries(entries, opened.session.rootAgentId)
 		const credential = yield* credentialSummary(model)
+		const agentMode = agentModeLabel(options)
 
 		return {
 			sessionId: opened.session.sessionId,
 			cwd: options.cwd,
 			logPath: opened.logPath,
 			mode: opened.mode,
-			...(options.mode === undefined || options.mode === 'default' ? {} : { agentMode: options.mode }),
+			...(agentMode === undefined ? {} : { agentMode }),
 			model,
 			credential,
 		}

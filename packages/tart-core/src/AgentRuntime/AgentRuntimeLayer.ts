@@ -15,6 +15,7 @@ import { LanguageModel, Prompt, Response } from 'effect/unstable/ai'
 import type { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
+import { CompactionArchiveAccess } from '../Compaction/CompactionArchiveAccess'
 import { isContextOverflowError } from '../Compaction/CompactionEngine'
 import { Compaction, type CompactionService, type CompactionTrigger } from '../Compaction/CompactionService'
 import { EventLog } from '../EventLog/EventLogService'
@@ -22,9 +23,11 @@ import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
 	AgentFinishedOutcome,
+	CompactionLogEntry,
 	LogEntry,
 	LogEntryInput,
 } from '../EventLog/Schemas'
+import { usageFromResponseUsage } from '../EventLog/Usage'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
 import { ModelCatalog } from '../Model/ModelCatalog'
@@ -46,6 +49,7 @@ import { Toolset } from '../ToolRuntime/ToolsetService'
 import {
 	AgentRuntime,
 	type AgentRuntimeService,
+	type CompactAgentInput,
 	type RunAgentInput,
 	type StartAgentInput,
 	type SwitchModelInput,
@@ -68,7 +72,6 @@ const leadingSystemMessageFor = (content: string, cacheBreakpoint: boolean): Pro
 	})
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
-const encodeUsage = Schema.encodeUnknownSync(Response.Usage)
 
 /** Result of one private model/tool turn. */
 type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
@@ -122,6 +125,8 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const sessionControls = yield* SessionControls
 		// Defaulted reference (D11): resolves the session-installed live policy, or the disabled no-op.
 		const installedCompaction = yield* Compaction
+		// Defaulted reference: host-specific post-compaction archive/log access guidance.
+		const compactionArchiveAccess = yield* CompactionArchiveAccess
 		// Defaulted reference (D15): the session catalog is captured HERE, at layer construction under
 		// the session services, and re-provided around every compaction call - run effects execute on
 		// caller fibers whose context lacks session services, so the compaction checks would otherwise
@@ -233,14 +238,14 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		 * service - the summarization call runs on this runtime's own LanguageModel, so every agent
 		 * (root or subagent) summarizes with its own model - and append the durable `compaction` entry
 		 * under this run's envelope. A summarization failure never kills the run: it lands as a durable
-		 * `error` note and the turn proceeds uncompacted. Returns whether a compaction entry was written.
+		 * `error` note and the turn proceeds uncompacted. Returns the written compaction entry, if any.
 		 */
 		const performCompaction = (
-			input: RunAgentInput,
+			input: CompactAgentInput,
 			entries: ReadonlyArray<LogEntry>,
 			model: ActiveModel | null,
 			trigger: CompactionTrigger,
-		): Effect.Effect<boolean> =>
+		): Effect.Effect<CompactionLogEntry | null> =>
 			Effect.gen(function* () {
 				const planned = yield* compaction
 					.plan({ agentId: input.agentId, entries, model, trigger })
@@ -256,23 +261,30 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						message: planned.failure.message,
 						details: { trigger },
 					})
-					return false
+					return null
 				}
 
-				if (planned.success === null) return false
+				if (planned.success === null) return null
+				const postCompactionInstructions = yield* compactionArchiveAccess.instructions({
+					agentId: input.agentId,
+					parentAgentId: input.parentAgentId,
+					trigger,
+				})
 
-				yield* appendToEventLog({
+				const entry = yield* appendToEventLog({
 					_tag: 'compaction',
 					agentId: input.agentId,
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
 					compactionId: yield* ids.makeCompactionId,
 					summary: planned.success.summary,
+					...(postCompactionInstructions === null ? {} : { postCompactionInstructions }),
 					replacesThroughSeq: planned.success.replacesThroughSeq,
 					tokensBefore: planned.success.tokensBefore,
 				})
 
-				return true
+				if (entry._tag === 'compaction') return entry
+				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending compaction`))
 			})
 
 		/** Run one model turn: build the request, call the model, persist, and settle tool calls. */
@@ -446,7 +458,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					finish:
 						finishPart === undefined
 							? null
-							: { reason: finishPart.reason, usage: encodeUsage(finishPart.usage) },
+							: { reason: finishPart.reason, usage: usageFromResponseUsage(finishPart.usage) },
 				})
 
 				const toolCalls = persistedAssistant.content.flatMap((part) =>
@@ -655,6 +667,16 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			}),
 		)
 
-		return { start, run, switchModel }
+		const compact: AgentRuntimeService['compact'] = Effect.fn('tart.agent_runtime.compact')(
+			(input: CompactAgentInput) =>
+				Effect.gen(function* () {
+					const entries = yield* collectEntries
+					const runtimeState = runtimeForAgent(entries, input.agentId)
+
+					return yield* performCompaction(input, entries, runtimeState.activeModel, input.trigger)
+				}),
+		)
+
+		return { start, run, switchModel, compact }
 	}),
 )

@@ -19,6 +19,7 @@ import {
 	parseTartConfig,
 	resumeLatestSession,
 	resumeSessionById,
+	RPI_HINT_PROMPT,
 } from '../../src/index'
 import { tempDir } from '../TestHelpers'
 
@@ -99,6 +100,8 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
 				expect(leadingJson).toContain('MEMORY-MARKER')
 				expect(leadingJson).toContain('project_context')
+				// Without rpi, the RPI hint block is absent.
+				expect(leadingJson).not.toContain(RPI_HINT_PROMPT)
 
 				// The mode's tool roster reached the agent (family-neutral + skill are always present).
 				const agentStarted = entries.find((entry) => entry._tag === 'agent_started')
@@ -107,6 +110,34 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 				expect(tools).toContain('bash')
 				expect(tools).toContain('skill')
 				expect(tools).toContain('subagent')
+			}),
+		)
+	}),
+)
+
+it.effect('launchSession with rpi appends the hint block after the mode prompt', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, tartHome } = workspaceAndHome(root)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({
+					model: alwaysTextModel('Done.'),
+					cwd: workspace,
+					tartHome,
+					rpi: true,
+				})
+
+				const leading = (yield* session.entries).find(
+					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
+				)
+				const leadingJson = JSON.stringify(leading)
+
+				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
+				expect(leadingJson).toContain(RPI_HINT_PROMPT)
+				// The hint composes AFTER the mode's own system prompt.
+				expect(leadingJson.indexOf(RPI_HINT_PROMPT)).toBeGreaterThan(leadingJson.indexOf(DEFAULT_CODING_PROMPT))
 			}),
 		)
 	}),

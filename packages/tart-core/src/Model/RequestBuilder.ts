@@ -88,9 +88,15 @@ const restoreToolResultIds = (
 	})
 
 /** Render a compaction summary as the user-visible stand-in for the history it replaced. */
-const compactionSummaryMessage = (summary: string): Prompt.UserMessage =>
+const compactionSummaryMessage = (summary: string, postCompactionInstructions?: string): Prompt.UserMessage =>
 	Prompt.userMessage({
-		content: [Prompt.textPart({ text: `<conversation-summary>\n${summary}\n</conversation-summary>` })],
+		content: [
+			Prompt.textPart({
+				text:
+					`<conversation-summary>\n${summary}\n</conversation-summary>` +
+					(postCompactionInstructions === undefined ? '' : `\n\n${postCompactionInstructions}`),
+			}),
+		],
 	})
 
 const cacheMarkedUserMessage = (message: Prompt.UserMessage): Prompt.UserMessage =>
@@ -253,7 +259,9 @@ export const buildPrompt = (
 				}
 
 				case 'compaction-summary':
-					promptMessages.push(compactionSummaryMessage(projected.summary))
+					promptMessages.push(
+						compactionSummaryMessage(projected.summary, projected.postCompactionInstructions),
+					)
 					break
 			}
 		}

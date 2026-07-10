@@ -2,6 +2,7 @@ import { Schema } from 'effect'
 import { Prompt, Response } from 'effect/unstable/ai'
 
 import { AgentId, CompactionId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
+import { UsageEncoded } from './Usage'
 
 /** The sequence number of a log entry. The first entry in a session is seq 0. */
 export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
@@ -152,10 +153,6 @@ export type AssistantMessageEncoded = typeof AssistantMessageEncoded.Type
 /** Encoded schema object to JSON for persisted tool result messages. */
 export const ToolMessageEncoded = Schema.toEncoded(Prompt.ToolMessage)
 export type ToolMessageEncoded = typeof ToolMessageEncoded.Type
-
-/** Encoded schema object to JSON for persisted model usage. */
-export const UsageEncoded = Schema.toEncoded(Response.Usage)
-export type UsageEncoded = typeof UsageEncoded.Type
 
 type AgentRunContext = {
 	readonly parentAgentId: AgentId | null
@@ -419,6 +416,7 @@ export const CompactionLogEntryInput = Schema.TaggedStruct('compaction', {
 	toolCallId: Schema.NullOr(ToolCallId),
 	compactionId: CompactionId,
 	summary: Schema.String,
+	postCompactionInstructions: Schema.optionalKey(Schema.String),
 	replacesThroughSeq: LogSeq,
 	tokensBefore: Schema.Number,
 })
@@ -435,6 +433,7 @@ export const CompactionLogEntry = Schema.TaggedStruct('compaction', {
 	toolCallId: Schema.NullOr(ToolCallId),
 	compactionId: CompactionId,
 	summary: Schema.String,
+	postCompactionInstructions: Schema.optionalKey(Schema.String),
 	replacesThroughSeq: LogSeq,
 	tokensBefore: Schema.Number,
 })

@@ -112,10 +112,10 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			// Clamp the kept tail to a fraction of the usable budget so a compaction always frees
 			// meaningful space, even under tiny configured windows.
 			const usable = yield* thresholdFor(input)
-			const keepRecentTokens = Math.min(
-				config.keepRecentTokens ?? defaultKeepRecentTokens,
-				Math.max(1, Math.floor(usable / 4)),
-			)
+			const keepRecentTokens =
+				input.trigger === 'manual'
+					? 1
+					: Math.min(config.keepRecentTokens ?? defaultKeepRecentTokens, Math.max(1, Math.floor(usable / 4)))
 
 			const cut = findCompactionCut(conversation, keepRecentTokens)
 			if (cut <= 0) return null

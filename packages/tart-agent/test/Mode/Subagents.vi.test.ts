@@ -17,7 +17,7 @@ import {
 import { Effect, Stream } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
-import { defaultCodingMode, defaultSubagents, type ModeModels } from '../../src/index'
+import { AST_GREP_OUTLINE_GUIDANCE, defaultCodingMode, defaultSubagents, type ModeModels } from '../../src/index'
 
 const namedModel = (modelId: string): TartModel => {
 	const activeModel: ActiveModel = {
@@ -76,10 +76,22 @@ it('gives bash only the bash tool and no way to delegate', () => {
 	expect(dispatchableFrom(bash)).toEqual([])
 })
 
-it('gives researcher the full coding toolset plus skills, but no way to delegate', () => {
+// The 2026-07-09 ruling reversal: researcher is a documentarian, so it holds NO editing capability at
+// all - read + bash + skill only - rather than a full toolset it is merely told not to use.
+it('gives researcher read + bash + skill only - no editing tools, no way to delegate', () => {
 	const researcher = byName('researcher')
-	expect(toolNames(researcher.tools ?? [])).toEqual(['read', 'write', 'edit', 'apply_patch', 'bash', 'skill'])
+	const names = toolNames(researcher.tools ?? [])
+
+	expect(names).toEqual(['read', 'bash', 'skill'])
+	for (const editing of ['write', 'edit', 'apply_patch'] as const) {
+		expect(names, editing).not.toContain(editing)
+	}
 	expect(dispatchableFrom(researcher)).toEqual([])
+	// The shared ast-grep outline guidance rides as a second leading block after the ported prompt.
+	expect(Array.isArray(researcher.systemPrompt)).toBe(true)
+	if (Array.isArray(researcher.systemPrompt)) {
+		expect(researcher.systemPrompt.at(-1)).toBe(AST_GREP_OUTLINE_GUIDANCE)
+	}
 })
 
 it('lets general-purpose dispatch itself, bash, and researcher', () => {
@@ -97,7 +109,7 @@ it('lets general-purpose dispatch itself, bash, and researcher', () => {
 })
 
 it('exposes the whole roster to the root agent', () => {
-	const rootTools = defaultCodingMode.buildTools({ cwd: '/tmp/project', models })
+	const rootTools = defaultCodingMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
 	const dispatchable = rootTools.flatMap((tool) => (subagentRosterOf(tool) ?? []).map((agent) => agent.name))
 	expect(dispatchable).toEqual(['general-purpose', 'bash', 'researcher'])
 })
@@ -106,7 +118,7 @@ it('exposes the whole roster to the root agent', () => {
 // terminate rather than recurse forever.
 it.effect('collects a terminating flat registry despite the general-purpose self-cycle', () =>
 	Effect.gen(function* () {
-		const rootTools = defaultCodingMode.buildTools({ cwd: '/tmp/project', models })
+		const rootTools = defaultCodingMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
 		const definitions = yield* collectSubagentDefinitions(rootTools)
 
 		expect(definitions.map((definition) => definition.name)).toEqual(['general-purpose', 'bash', 'researcher'])

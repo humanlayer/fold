@@ -41,8 +41,8 @@ it.effect('completes a text-only run with the full log shape', () =>
 			(entry): entry is AssistantMessageLogEntry => entry._tag === 'assistant-message',
 		)
 		expect(assistant?.finish?.reason).toBe('stop')
-		expect(assistant?.finish?.usage.inputTokens.total).toBe(10)
-		expect(assistant?.finish?.usage.outputTokens.total).toBe(5)
+		expect(assistant?.finish?.usage.inputTokens?.total).toBe(10)
+		expect(assistant?.finish?.usage.outputTokens?.total).toBe(5)
 
 		expect(yield* scripted.remainingTurns).toBe(0)
 	}),

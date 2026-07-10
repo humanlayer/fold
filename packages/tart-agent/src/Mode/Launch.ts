@@ -47,7 +47,9 @@ import {
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
 import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
+import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
 import { defaultCodingMode, type TartMode } from './Mode'
+import { RPI_HINT_PROMPT } from './Rpi'
 import type { ModeModels } from './Subagents'
 
 /** Failures resolving the primary model for a launch (config load + role resolution). */
@@ -86,6 +88,12 @@ export type ModelSelection = {
 export type LaunchSessionOptions = {
 	/** The mode to run. Defaults to {@link defaultCodingMode}. */
 	readonly mode?: TartMode
+	/**
+	 * Install the RPI specialist subagents as additional dispatchable types, composable with any mode
+	 * (default false). Also appends the RPI hint block after the mode's system prompt. Resuming with a
+	 * different rpi setting is an ordinary configuration change - the existing drift transition applies.
+	 */
+	readonly rpi?: boolean
 	/** An already-decoded config. When omitted, the config is loaded from `<tartHome>/config.jsonc`. */
 	readonly config?: TartConfig
 	/** An explicit model, bypassing config/role resolution entirely (no config file needed). */
@@ -212,7 +220,7 @@ const resolveModeModels = (
 		}
 	})
 
-/** Assemble the agent definition: mode prompt + agentfiles as leading blocks, mode + extra tools. */
+/** Assemble the agent definition: mode prompt (+ RPI hint) + agentfiles as leading blocks, mode + extra tools. */
 const buildAgentDefinition = (
 	options: LaunchSessionOptions,
 	mode: TartMode,
@@ -225,9 +233,11 @@ const buildAgentDefinition = (
 			cwd,
 			...(options.home === undefined ? {} : { home: options.home }),
 		})
-		const tools = [...mode.buildTools({ cwd, models }), ...(options.extraTools ?? [])]
+		const rpi = options.rpi ?? false
+		const tools = [...mode.buildTools({ cwd, models, rpi }), ...(options.extraTools ?? [])]
 		const blocks = [
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
+			...(rpi ? [RPI_HINT_PROMPT] : []),
 			...(memoryBlock === null ? [] : [memoryBlock]),
 		]
 		const autoCompact = options.autoCompact ?? config?.compaction ?? defaultAutoCompact
@@ -300,6 +310,7 @@ export const launchSession = (
 			sessionId: prepared.sessionId,
 			profiles: sessionProfilesFor(models),
 			catalog,
+			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
 			...(opts.steering === undefined ? {} : { steering: opts.steering }),
 		})
 	})
@@ -322,6 +333,7 @@ const resumeFromLog = (
 			log: jsonlEventLog(log.path),
 			profiles: sessionProfilesFor(models),
 			catalog,
+			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
 			...(options.steering === undefined ? {} : { steering: options.steering }),
 		})
 	})

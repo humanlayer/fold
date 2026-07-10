@@ -32,11 +32,16 @@ import { Cause, Context, Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Semapho
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { TartEvent } from '../AgentEvents/AgentEventsService'
 import { AgentRuntime, type AgentRuntimeService } from '../AgentRuntime/AgentRuntimeService'
+import {
+	CompactionArchiveAccess,
+	noopCompactionArchiveAccess,
+	type CompactionArchiveAccessService,
+} from '../Compaction/CompactionArchiveAccess'
 import { compactionServiceFor } from '../Compaction/CompactionLayer'
 import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLog } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
-import type { AgentFinishedLogEntry, LogEntry, LogSeq } from '../EventLog/Schemas'
+import type { AgentFinishedLogEntry, CompactionLogEntry, LogEntry, LogSeq } from '../EventLog/Schemas'
 import { layerLiveIdFactory, type AgentId, type SessionId } from '../Ids'
 import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
 import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
@@ -100,6 +105,8 @@ export type StartSessionOptions = {
 	 * empty catalog - every consumer falls back to its interim defaults.
 	 */
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
+	/** Optional host-provided archive/log access guidance appended after compaction summaries. */
+	readonly compactionArchiveAccess?: CompactionArchiveAccessService
 }
 
 /** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
@@ -121,6 +128,8 @@ export type ResumeSessionOptions = {
 	 * empty catalog - every consumer falls back to its interim defaults.
 	 */
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
+	/** Optional host-provided archive/log access guidance appended after compaction summaries. */
+	readonly compactionArchiveAccess?: CompactionArchiveAccessService
 }
 
 /** Options for {@link TartSession.switchModel}. Omitted fields keep the session's current configuration. */
@@ -190,6 +199,8 @@ export type TartSession = {
 	 * subsequent send. The same log continues across the switch.
 	 */
 	readonly switchModel: (model: TartModel, options?: SwitchModelOptions) => Effect.Effect<void>
+	/** Force a root-agent compaction now. Returns null when there is nothing safe to summarize. */
+	readonly compact: () => Effect.Effect<CompactionLogEntry | null>
 	/**
 	 * Rebind one profile role to a different model (profiles slice). Role-bound subagent types resolve
 	 * their binding at each dispatch/resume, so the swap applies from the very next run. No gating or
@@ -258,6 +269,7 @@ const assembleSessionGraph = (options: {
 	readonly steering?: SteeringMode
 	readonly profiles?: SessionProfiles
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
+	readonly compactionArchiveAccess?: CompactionArchiveAccessService
 }): Effect.Effect<SessionGraph, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const agent = options.agent
@@ -386,6 +398,7 @@ const assembleSessionGraph = (options: {
 			// no-op default otherwise. Every provisioned runtime - root and subagent - shares this one
 			// policy while checking against its own projection and summarizing with its own model.
 			Layer.succeed(Compaction, compactionServiceFor(agent.autoCompact)),
+			Layer.succeed(CompactionArchiveAccess, options.compactionArchiveAccess ?? noopCompactionArchiveAccess),
 			// Session-wide model catalog (D15): compaction resolves context windows through it. Omitted
 			// entries build the empty catalog, which behaves exactly like the Reference default.
 			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
@@ -703,6 +716,8 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 			}),
 		)
 
+	const compact = (): Effect.Effect<CompactionLogEntry | null> => gate.withPermit(session.compact().pipe(Effect.orDie))
+
 	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
 	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.
 	const setProfile = (role: ProfileRole, model: TartModel): Effect.Effect<void> => profiles.set(role, model)
@@ -715,6 +730,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		stop,
 		interrupt,
 		switchModel,
+		compact,
 		setProfile,
 		events: (fromSeq?: LogSeq) => session.events(fromSeq),
 		entries: collectEntries,

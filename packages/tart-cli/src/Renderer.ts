@@ -3,6 +3,11 @@ import {
 	defaultContextWindowFor,
 	lookupCatalogEntry,
 	shortAgentId,
+	usageCacheRead,
+	usageCacheWrite,
+	usageInputTotal,
+	usageInputUncached,
+	usageOutputTotal,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
 	type AgentId,
@@ -128,12 +133,6 @@ const shellQuote = (value: string): string => {
 	return `'${value.replaceAll("'", "'\\''")}'`
 }
 
-const inputUncached = (usage: UsageEncoded): number => usage.inputTokens.uncached ?? usage.inputTokens.total ?? 0
-const inputTotal = (usage: UsageEncoded): number => usage.inputTokens.total ?? inputUncached(usage)
-const cacheRead = (usage: UsageEncoded): number | undefined => usage.inputTokens.cacheRead
-const cacheWrite = (usage: UsageEncoded): number | undefined => usage.inputTokens.cacheWrite
-const outputTotal = (usage: UsageEncoded): number => usage.outputTokens.total ?? 0
-
 const formatMaybeInt = (value: number | undefined): string => (value === undefined ? '--' : formatInt(value))
 
 /**
@@ -146,12 +145,11 @@ const formatMaybeInt = (value: number | undefined): string => (value === undefin
 export const responseCostUsd = (usage: UsageEncoded, pricing: ModelPricing | null): number | null => {
 	if (pricing === null) return null
 
-	const cacheReadTokens = usage.inputTokens.cacheRead ?? 0
-	const cacheWriteTokens = usage.inputTokens.cacheWrite ?? 0
-	const totalInputTokens =
-		usage.inputTokens.total ?? (usage.inputTokens.uncached ?? 0) + cacheReadTokens + cacheWriteTokens
+	const cacheReadTokens = usageCacheRead(usage) ?? 0
+	const cacheWriteTokens = usageCacheWrite(usage) ?? 0
+	const totalInputTokens = usageInputTotal(usage)
 	const uncachedTokens = Math.max(0, totalInputTokens - cacheReadTokens - cacheWriteTokens)
-	const outputTokens = outputTotal(usage)
+	const outputTokens = usageOutputTotal(usage)
 
 	const cacheReadRate = pricing.cacheReadPerMTokens ?? pricing.inputPerMTokens
 	const cacheWriteRate = pricing.cacheWritePerMTokens ?? pricing.inputPerMTokens
@@ -171,7 +169,7 @@ const costText = (usage: UsageEncoded, entry: ModelCatalogEntry | null): string 
 }
 
 const contextText = (usage: UsageEncoded, model: ActiveModel | null, entry: ModelCatalogEntry | null): string => {
-	const used = inputTotal(usage) + outputTotal(usage)
+	const used = usageInputTotal(usage) + usageOutputTotal(usage)
 	if (model === null) return formatInt(used)
 
 	const limit = entry?.contextWindow ?? defaultContextWindowFor(model.modelId)
@@ -192,9 +190,9 @@ const usageTable = (
 		`  ${'Model'.padEnd(modelWidth)} ${'Input'.padStart(8)} ${'CacheR'.padStart(8)} ` +
 		`${'CacheW'.padStart(8)} ${'Output'.padStart(8)} ${'Cost'.padStart(8)} ${'Context'.padStart(20)}`
 	const row =
-		`  ${displayModel.padEnd(modelWidth)} ${formatInt(inputUncached(usage)).padStart(8)} ` +
-		`${formatMaybeInt(cacheRead(usage)).padStart(8)} ${formatMaybeInt(cacheWrite(usage)).padStart(8)} ` +
-		`${formatInt(outputTotal(usage)).padStart(8)} ${costText(usage, entry).padStart(8)} ` +
+		`  ${displayModel.padEnd(modelWidth)} ${formatInt(usageInputUncached(usage)).padStart(8)} ` +
+		`${formatMaybeInt(usageCacheRead(usage)).padStart(8)} ${formatMaybeInt(usageCacheWrite(usage)).padStart(8)} ` +
+		`${formatInt(usageOutputTotal(usage)).padStart(8)} ${costText(usage, entry).padStart(8)} ` +
 		`${contextText(usage, model, entry).padStart(20)}`
 
 	return `${ansi.dim(header)}\n${row}`

@@ -144,6 +144,23 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 				}),
 		)
 
+		const compact: SessionService['compact'] = Effect.fn('tart.session.compact')(() =>
+			Effect.gen(function* () {
+				const started = yield* Ref.get(startedRef)
+
+				if (started === null) {
+					return yield* new SessionNotStartedError({ message: 'session not started' })
+				}
+
+				return yield* agentRuntime.compact({
+					agentId: started.rootAgentId,
+					parentAgentId: null,
+					toolCallId: null,
+					trigger: 'manual',
+				})
+			}),
+		)
+
 		// Durable rows replay from `fromSeq` and then follow; the EventLogError channel dies (infrastructure
 		// failure), leaving an error-free stream merged with the live ephemeral deltas.
 		const events: SessionService['events'] = (fromSeq?: LogSeq) =>
@@ -153,6 +170,6 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 				Stream.merge(agentEvents.subscribe),
 			)
 
-		return { start, adopt, send, switchModel, events }
+		return { start, adopt, send, switchModel, compact, events }
 	}),
 )

@@ -44,8 +44,8 @@ export type AutoCompactConfig =
 			readonly keepRecentTokens?: number
 	  }
 
-/** Why a compaction ran: the proactive threshold check, or recovery from a provider overflow error. */
-export type CompactionTrigger = 'threshold' | 'overflow'
+/** Why a compaction ran: proactive threshold, provider overflow recovery, or explicit user command. */
+export type CompactionTrigger = 'threshold' | 'overflow' | 'manual'
 
 /** Input for the top-of-turn threshold check. */
 export type CompactionCheckInput = {
