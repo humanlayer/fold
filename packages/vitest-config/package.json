@@ -2,6 +2,7 @@
 	"name": "@humanlayer/tart-vitest-config",
 	"version": "0.0.0",
 	"private": true,
+	"license": "MIT",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
