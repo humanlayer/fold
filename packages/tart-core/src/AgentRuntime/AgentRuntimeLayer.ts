@@ -76,6 +76,8 @@ const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 /** Result of one private model/tool turn. */
 type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
 
+type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>
+
 /** Derive a short human-readable message from a model provider failure. */
 const describeModelError = (error: unknown): string => {
 	if (error instanceof Error) return error.message
@@ -241,7 +243,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		 * `error` note and the turn proceeds uncompacted. Returns the written compaction entry, if any.
 		 */
 		const performCompaction = (
-			input: CompactAgentInput,
+			input: CompactionEnvelope,
 			entries: ReadonlyArray<LogEntry>,
 			model: ActiveModel | null,
 			trigger: CompactionTrigger,

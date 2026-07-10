@@ -269,6 +269,34 @@ it.effect('compaction is off by default and with enabled: false, even under huge
 	}),
 )
 
+it.effect('manual facade compaction delegates through the provisioned root runtime', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			textTurn('first answer'),
+			textTurn('## Goal\n- manual compaction summary'),
+		])
+		const session = yield* startSession({
+			agent: defineAgent({ model, autoCompact: compactConfig }),
+		})
+
+		yield* session.send('manual compact anchor')
+		const compacted = yield* session.compact()
+		const entries = yield* session.entries
+
+		expect(compacted).not.toBeNull()
+		expect(compactionEntries(entries)).toHaveLength(1)
+		expect(compacted?.agentId).toBe(session.rootAgentId)
+		expect(compacted?.parentAgentId).toBeNull()
+		expect(compacted?.toolCallId).toBeNull()
+		expect(compacted?.summary).toContain('manual compaction summary')
+
+		const requests = yield* scripted.requests
+		expect(requests).toHaveLength(2)
+		expect(JSON.stringify(requests[1]?.prompt)).toContain('manual compact anchor')
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped),
+)
+
 it.effect('a configured compactionPrompt replaces the default instruction template', () =>
 	Effect.gen(function* () {
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [

@@ -457,6 +457,7 @@ const assembleSessionGraph = (options: {
 			start: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.start(input))),
 			run: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.run(input))),
 			switchModel: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.switchModel(input))),
+			compact: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.compact(input))),
 		}
 
 		const sessionContext = yield* Layer.buildWithMemoMap(
