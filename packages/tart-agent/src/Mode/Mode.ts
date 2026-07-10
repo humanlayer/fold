@@ -51,8 +51,8 @@ export const DEFAULT_CODING_PROMPT: string =
 	'Use your tools to inspect and change files, run commands, and accomplish the task. ' +
 	'Prefer reading before editing, make focused changes, and verify your work when you can. ' +
 	'Delegate to a subagent when a step would burn context you need for the main task: researcher for ' +
-	'locating and explaining code, bash for running a command and summarizing its output, and ' +
-	'general-purpose for a self-contained multi-step task. Do simple work yourself. ' +
+	'locating and explaining code, web-search-researcher for current web research, bash for running a ' +
+	'command and summarizing its output, and general-purpose for a self-contained multi-step task. Do simple work yourself. ' +
 	'Keep responses concise; let the tools do the work.'
 
 /** The batteries-included local coding agent: full filesystem toolset, disk skills, default subagents. */

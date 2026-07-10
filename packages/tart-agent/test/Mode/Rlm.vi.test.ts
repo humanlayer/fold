@@ -77,7 +77,12 @@ it.effect('exposes the default roster to the orchestrator', () =>
 	Effect.gen(function* () {
 		const definitions = yield* collectSubagentDefinitions(rlmTools())
 
-		expect(definitions.map((definition) => definition.name)).toEqual(['general-purpose', 'bash', 'researcher'])
+		expect(definitions.map((definition) => definition.name)).toEqual([
+			'general-purpose',
+			'bash',
+			'researcher',
+			'web-search-researcher',
+		])
 	}),
 )
 
@@ -93,6 +98,7 @@ it('instructs delegation and states the no-bash rule', () => {
 	expect(RLM_ORCHESTRATOR_PROMPT).toContain('`subagent`')
 	expect(RLM_ORCHESTRATOR_PROMPT).toContain('general-purpose')
 	expect(RLM_ORCHESTRATOR_PROMPT).toContain('researcher')
+	expect(RLM_ORCHESTRATOR_PROMPT).toContain('web-search-researcher')
 })
 
 it('formats RLM root archive instructions around bash delegation', () => {

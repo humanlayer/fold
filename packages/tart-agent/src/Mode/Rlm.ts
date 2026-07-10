@@ -3,7 +3,7 @@
  * hands-on work. Its prompt ports agentlayer's rich orchestrator prompt, strengthened with an explicit
  * "you have no bash" rule, and its toolset is the standard file tools WITHOUT bash - the absence of
  * bash on the root is the whole point, so every command execution is forced through the `subagent`
- * tool's roster (general-purpose, researcher, bash - see Mode/Subagents).
+ * tool's roster (general-purpose, researcher, web-search-researcher, bash - see Mode/Subagents).
  *
  * The mode runs on the `orchestrator` config role, which falls back to `smart` when the config
  * declares no orchestrator binding (D25).
@@ -27,7 +27,8 @@ export const RLM_ORCHESTRATOR_PROMPT: string =
 	'All non-trivial operations should be delegated to sub-agents. You should NOT attempt to do complex ' +
 	'work directly - instead, break it down and dispatch it to the appropriate sub-agent with the ' +
 	'`subagent` tool. Your roster: `general-purpose` (multi-step tasks end to end), `researcher` ' +
-	'(locating and explaining code), and `bash` (running commands).\n\n' +
+	'(locating and explaining code), `web-search-researcher` (current web research), and `bash` ' +
+	'(running commands).\n\n' +
 	'## Delegation Strategy\n\n' +
 	'- Research and understanding: Delegate codebase exploration, file reading, pattern discovery, and ' +
 	'context gathering to sub-agents.\n' +

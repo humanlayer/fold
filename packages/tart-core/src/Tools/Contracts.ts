@@ -1,9 +1,9 @@
 /**
  * This file defines the isomorphic built-in tool contracts (D18): name, description, and schemas for
- * read / write / edit / apply_patch / skill, with NO handlers. Platform packages (tart-agent today;
- * browser/worker hosts later) pair these contracts with their own handlers via `defineTool`; the
- * ToolsetResolver's family policy keys off these exact names (claude-family edits through write/edit,
- * gpt/codex-family through apply_patch).
+ * read / write / edit / apply_patch / skill / web_fetch / web_search, with NO handlers. Platform
+ * packages (tart-agent today; browser/worker hosts later) pair these contracts with their own handlers
+ * via `defineTool`; the ToolsetResolver's family policy keys off these exact names (claude-family edits
+ * through write/edit, gpt/codex-family through apply_patch).
  */
 import { Schema } from 'effect'
 
@@ -164,6 +164,57 @@ export const applyPatchToolContract = {
 	failure: ToolFailure,
 } satisfies ToolContract<typeof ApplyPatchParameters, typeof ApplyPatchSuccess, typeof ToolFailure>
 
+// --- web_fetch --------------------------------------------------------------------------------------
+
+const WebFetchParameters = Schema.Struct({
+	url: Schema.String.annotate({ description: 'URL to fetch. Must start with http:// or https://' }),
+	format: Schema.optionalKey(Schema.Literals(['markdown', 'text', 'html'])).annotate({
+		description: 'Output format. Defaults to markdown; html returns raw HTML; text strips HTML tags.',
+	}),
+	timeout: Schema.optionalKey(Schema.Number).annotate({
+		description: 'Request timeout in milliseconds. Defaults to 30000; maximum 120000.',
+	}),
+})
+
+export const webFetchToolContract = {
+	name: 'web_fetch',
+	description:
+		'Fetch content from a URL and return it as markdown, plain text, or raw HTML. Use this for specific ' +
+		'official docs pages, articles, and other known sources. Responses over 5MB are rejected.',
+	parameters: WebFetchParameters,
+	success: Schema.String,
+	failure: ToolFailure,
+} satisfies ToolContract<typeof WebFetchParameters, typeof Schema.String, typeof ToolFailure>
+
+// --- web_search -------------------------------------------------------------------------------------
+
+const WebSearchResult = Schema.Struct({
+	title: Schema.String,
+	url: Schema.String,
+	snippet: Schema.String,
+})
+
+const WebSearchParameters = Schema.Struct({
+	query: Schema.String.annotate({ description: 'Search query to run against the web.' }),
+	numResults: Schema.optionalKey(Schema.Number).annotate({
+		description: 'Number of results to return. Defaults to 5; maximum 10.',
+	}),
+})
+
+const WebSearchSuccess = Schema.Struct({
+	results: Schema.Array(WebSearchResult),
+})
+
+export const webSearchToolContract = {
+	name: 'web_search',
+	description:
+		'Search the web for up-to-date information and return result titles, URLs, and snippets. Prefer ' +
+		'official documentation and fetch high-value results with web_fetch.',
+	parameters: WebSearchParameters,
+	success: WebSearchSuccess,
+	failure: ToolFailure,
+} satisfies ToolContract<typeof WebSearchParameters, typeof WebSearchSuccess, typeof ToolFailure>
+
 // --- skill ------------------------------------------------------------------------------------------
 
 const SkillParameters = Schema.Struct({
@@ -259,6 +310,8 @@ export const builtinToolContracts = {
 	write: writeToolContract,
 	edit: editToolContract,
 	apply_patch: applyPatchToolContract,
+	web_fetch: webFetchToolContract,
+	web_search: webSearchToolContract,
 	skill: skillToolContract,
 	subagent: subagentToolContract,
 } as const

@@ -1,5 +1,5 @@
 /**
- * RPI roster tests (design §3 "riptide-rpi"): the seven specialist types are load-bearing configuration
+ * RPI roster tests (design §3 "riptide-rpi"): the six specialist types are load-bearing configuration
  * - exact names, delegation shape (only the implementers delegate, and only to the default roster's own
  * bash/general-purpose INSTANCES - identity is what keeps the combined registry free of duplicate-name
  * defects), profile-role model bindings, and the prompt-port guards (no Grep/Glob/TodoWrite/thoughts
@@ -89,7 +89,6 @@ const RPI_NAMES = [
 	'implementation-reviewer',
 	'implementer-agent',
 	'outline-implementer-agent',
-	'web-search-researcher',
 ] as const
 
 const rpiPrompts: Record<(typeof RPI_NAMES)[number], string> = {
@@ -99,10 +98,9 @@ const rpiPrompts: Record<(typeof RPI_NAMES)[number], string> = {
 	'implementation-reviewer': IMPLEMENTATION_REVIEWER_PROMPT,
 	'implementer-agent': IMPLEMENTER_AGENT_PROMPT,
 	'outline-implementer-agent': OUTLINE_IMPLEMENTER_AGENT_PROMPT,
-	'web-search-researcher': WEB_SEARCH_RESEARCHER_PROMPT,
 }
 
-it('registers the seven RPI specialist types with their source names, unprefixed', () => {
+it('registers the six RPI specialist types with their source names, unprefixed', () => {
 	expect(rpi.map((definition) => definition.name)).toEqual([...RPI_NAMES])
 })
 
@@ -115,14 +113,13 @@ it('binds the implementer types to smart and every other type to fast', () => {
 		'codebase-analyzer',
 		'codebase-pattern-finder',
 		'implementation-reviewer',
-		'web-search-researcher',
 	] as const) {
 		expect(byNameIn(rpi, name).model, name).toBe('fast')
 	}
 })
 
 // The four research/review types compose the shared ast-grep outline guidance as a SECOND leading
-// block after their byte-faithful ported prompt; the implementers and web-search-researcher do not.
+// block after their byte-faithful ported prompt; the implementers do not.
 it('wires each exported prompt const onto its definition, with outline guidance on the research types', () => {
 	for (const name of [
 		'codebase-locator',
@@ -132,7 +129,7 @@ it('wires each exported prompt const onto its definition, with outline guidance 
 	] as const) {
 		expect(byNameIn(rpi, name).systemPrompt, name).toEqual([rpiPrompts[name], AST_GREP_OUTLINE_GUIDANCE])
 	}
-	for (const name of ['implementer-agent', 'outline-implementer-agent', 'web-search-researcher'] as const) {
+	for (const name of ['implementer-agent', 'outline-implementer-agent'] as const) {
 		expect(byNameIn(rpi, name).systemPrompt, name).toBe(rpiPrompts[name])
 	}
 })
@@ -158,10 +155,6 @@ it('gives the researcher leaves read + bash and no way to delegate', () => {
 		expect(toolNames(definition.tools ?? []), name).toEqual(['read', 'bash'])
 		expect(dispatchableFrom(definition), name).toEqual([])
 	}
-
-	const webSearch = byNameIn(rpi, 'web-search-researcher')
-	expect(toolNames(webSearch.tools ?? [])).toEqual(['bash', 'read'])
-	expect(dispatchableFrom(webSearch)).toEqual([])
 })
 
 it('gives the implementers the full coding toolset and one subagent tool over the SHARED delegate instances', () => {
@@ -173,6 +166,8 @@ it('gives the implementers the full coding toolset and one subagent tool over th
 			'edit',
 			'apply_patch',
 			'bash',
+			'web_fetch',
+			'web_search',
 			'subagent',
 		])
 
@@ -219,22 +214,23 @@ it('standardizes directory references to .humanlayer/tasks/', () => {
 	expect(IMPLEMENTATION_REVIEWER_PROMPT).toContain('.humanlayer/tasks/')
 })
 
-it('web-search-researcher plainly states it has no web tools and fetches with curl + llms.txt', () => {
-	expect(WEB_SEARCH_RESEARCHER_PROMPT).toContain('NO WebSearch or WebFetch tool')
-	expect(WEB_SEARCH_RESEARCHER_PROMPT).toContain('curl -sL')
-	expect(WEB_SEARCH_RESEARCHER_PROMPT).toContain('llms.txt')
+it('default web-search-researcher uses web_search and web_fetch tools', () => {
+	expect(WEB_SEARCH_RESEARCHER_PROMPT).toContain('`web_search`')
+	expect(WEB_SEARCH_RESEARCHER_PROMPT).toContain('`web_fetch`')
 })
 
-it('modeSubagents returns the default three without rpi and appends the seven with it', () => {
+it('modeSubagents returns the default four without rpi and appends the six with it', () => {
 	expect(modeSubagents({ cwd: '/tmp/project', rpi: false }).map((definition) => definition.name)).toEqual([
 		'general-purpose',
 		'bash',
 		'researcher',
+		'web-search-researcher',
 	])
 	expect(modeSubagents({ cwd: '/tmp/project', rpi: true }).map((definition) => definition.name)).toEqual([
 		'general-purpose',
 		'bash',
 		'researcher',
+		'web-search-researcher',
 		...RPI_NAMES,
 	])
 })
@@ -247,7 +243,7 @@ it.effect('the default mode with rpi flattens to exactly ten unique types - the 
 
 		// collectSubagentDefinitions dies on a same-name duplicate across distinct definitions, so this
 		// succeeding AND yielding ten unique names asserts the implementers reused the default instances.
-		expect(names).toEqual(['general-purpose', 'bash', 'researcher', ...RPI_NAMES])
+		expect(names).toEqual(['general-purpose', 'bash', 'researcher', 'web-search-researcher', ...RPI_NAMES])
 		expect(new Set(names).size).toBe(10)
 	}),
 )
@@ -263,6 +259,7 @@ it.effect('the rlm mode with rpi flattens to the same ten types and still has no
 			'general-purpose',
 			'bash',
 			'researcher',
+			'web-search-researcher',
 			...RPI_NAMES,
 		])
 	}),

@@ -7,8 +7,10 @@
  *                    2026-07-09). Locates code and explains how it works with file:line references
  *                    (ported from the riptide-rpi codebase-analyzer / codebase-locator prompts, whose
  *                    Grep/Glob/LS tools collapse into find/rg/grep via bash here).
+ * - `web-search-researcher` - web_search + web_fetch only, no delegation. Researches current docs and
+ *                    public web sources with citations.
  * - `general-purpose` - the full coding toolset + skills + a roster of {general-purpose, bash,
- *                    researcher}. Takes a self-contained task end to end and may delegate.
+ *                    researcher, web-search-researcher}. Takes a self-contained task end to end and may delegate.
  *
  * Depth is a roster choice, never an engine setting (D21): `bash` and `researcher` hold no
  * `subagentTool` value, so they cannot delegate at all; `general-purpose` holds one that includes
@@ -31,6 +33,7 @@ import { skillsFromDisk } from '../Skills/DiskSkills'
 import { bashTool } from '../Tools/BashTool'
 import { codingTools } from '../Tools/CodingTools'
 import { readTool } from '../Tools/ReadTool'
+import { webTools } from '../Tools/WebTools'
 
 /** The models a mode binds its agents to, resolved from config roles (or a single explicit override). */
 export type ModeModels = {
@@ -116,6 +119,7 @@ export const GENERAL_PURPOSE_SUBAGENT_PROMPT: string =
 	'out end to end, and report the result.\n\n' +
 	'You have the full coding toolset, skills, and your own roster of subagents:\n' +
 	'- `researcher` - locating code or explaining how something works across many files\n' +
+	'- `web-search-researcher` - researching current web sources, docs, changelogs, and forums\n' +
 	'- `bash` - running a command and summarizing its output\n' +
 	'- `general-purpose` - an independent sub-task you would otherwise interleave with your own\n\n' +
 	'Delegate only when it saves you real context. Each dispatch costs a full model call, so never ' +
@@ -123,6 +127,20 @@ export const GENERAL_PURPOSE_SUBAGENT_PROMPT: string =
 	'- prefer doing the work yourself.\n\n' +
 	'Your parent sees only your final message, not your tool calls. End with what you did, what you ' +
 	'found (file:line where relevant), and anything you could not complete.'
+
+/** Leading prompt for `web-search-researcher` (agentlayer specialist, backed by web_search/web_fetch). */
+export const WEB_SEARCH_RESEARCHER_PROMPT: string =
+	'You research up-to-date information from documentation, blogs, changelogs, and forums. Use ' +
+	'`web_search` to discover sources and `web_fetch` to retrieve specific high-value pages.\n\n' +
+	'## Core Responsibilities\n\n' +
+	'1. Search for official documentation first\n' +
+	'2. Gather recent and relevant technical context\n' +
+	'3. Summarize the answer clearly with source URLs when helpful\n\n' +
+	'## Guidelines\n\n' +
+	'- Prioritize official documentation\n' +
+	'- Prefer concise, relevant findings over broad digressions\n' +
+	'- Fetch promising results instead of relying on snippets alone\n' +
+	'- Call out uncertainty when sources disagree'
 
 /**
  * Build the default roster for a working directory. The skill source is one shared value across the
@@ -132,6 +150,7 @@ export const GENERAL_PURPOSE_SUBAGENT_PROMPT: string =
 export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
 	const coding = codingTools({ cwd })
 	const skills = skillTool(skillsFromDisk({ cwd }))
+	const web = webTools()
 
 	const bash = defineSubagent({
 		name: 'bash',
@@ -155,6 +174,16 @@ export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<
 		model: 'fast',
 	})
 
+	const webSearchResearcher = defineSubagent({
+		name: 'web-search-researcher',
+		description:
+			'Researches web sources for up-to-date technical information. Use when you need documentation, ' +
+			'guides, changelogs, or forum context from the public web.',
+		systemPrompt: WEB_SEARCH_RESEARCHER_PROMPT,
+		tools: web,
+		model: 'fast',
+	})
+
 	// general-purpose dispatches ITSELF, so its roster cannot exist before the definition does. The tools
 	// array is built first, handed to the definition, then closed over its own subagentTool value. The
 	// registry walk dedups by identity and carries a seen-set, so the resulting cycle is traversal-safe
@@ -170,7 +199,7 @@ export const defaultSubagents = ({ cwd }: SubagentRosterOptions): ReadonlyArray<
 		tools: generalPurposeTools,
 		model: 'smart',
 	})
-	generalPurposeTools.push(subagentTool([generalPurpose, bash, researcher]))
+	generalPurposeTools.push(subagentTool([generalPurpose, bash, researcher, webSearchResearcher]))
 
-	return [generalPurpose, bash, researcher]
+	return [generalPurpose, bash, researcher, webSearchResearcher]
 }

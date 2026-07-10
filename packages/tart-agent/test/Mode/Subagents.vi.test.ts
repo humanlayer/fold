@@ -60,14 +60,20 @@ const toolNames = (tools: ReadonlyArray<TartTool>): ReadonlyArray<string> => too
 const dispatchableFrom = (definition: SubagentDefinition): ReadonlyArray<string> =>
 	(definition.tools ?? []).flatMap((tool) => (subagentRosterOf(tool) ?? []).map((agent) => agent.name))
 
-it('registers general-purpose, bash, and researcher', () => {
-	expect(roster().map((definition) => definition.name)).toEqual(['general-purpose', 'bash', 'researcher'])
+it('registers general-purpose, bash, researcher, and web-search-researcher', () => {
+	expect(roster().map((definition) => definition.name)).toEqual([
+		'general-purpose',
+		'bash',
+		'researcher',
+		'web-search-researcher',
+	])
 })
 
 it('binds each type to its profile role (resolved through the session profiles map, not here)', () => {
 	expect(byName('general-purpose').model).toBe('smart')
 	expect(byName('bash').model).toBe('fast')
 	expect(byName('researcher').model).toBe('fast')
+	expect(byName('web-search-researcher').model).toBe('fast')
 })
 
 it('gives bash only the bash tool and no way to delegate', () => {
@@ -94,7 +100,13 @@ it('gives researcher read + bash + skill only - no editing tools, no way to dele
 	}
 })
 
-it('lets general-purpose dispatch itself, bash, and researcher', () => {
+it('gives web-search-researcher web tools only and no way to delegate', () => {
+	const webSearchResearcher = byName('web-search-researcher')
+	expect(toolNames(webSearchResearcher.tools ?? [])).toEqual(['web_fetch', 'web_search'])
+	expect(dispatchableFrom(webSearchResearcher)).toEqual([])
+})
+
+it('lets general-purpose dispatch itself, bash, researcher, and web-search-researcher', () => {
 	const generalPurpose = byName('general-purpose')
 	expect(toolNames(generalPurpose.tools ?? [])).toEqual([
 		'read',
@@ -102,16 +114,18 @@ it('lets general-purpose dispatch itself, bash, and researcher', () => {
 		'edit',
 		'apply_patch',
 		'bash',
+		'web_fetch',
+		'web_search',
 		'skill',
 		'subagent',
 	])
-	expect(dispatchableFrom(generalPurpose)).toEqual(['general-purpose', 'bash', 'researcher'])
+	expect(dispatchableFrom(generalPurpose)).toEqual(['general-purpose', 'bash', 'researcher', 'web-search-researcher'])
 })
 
 it('exposes the whole roster to the root agent', () => {
 	const rootTools = defaultCodingMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
 	const dispatchable = rootTools.flatMap((tool) => (subagentRosterOf(tool) ?? []).map((agent) => agent.name))
-	expect(dispatchable).toEqual(['general-purpose', 'bash', 'researcher'])
+	expect(dispatchable).toEqual(['general-purpose', 'bash', 'researcher', 'web-search-researcher'])
 })
 
 // general-purpose's roster contains general-purpose: the registry walk must dedup by identity and
@@ -121,7 +135,12 @@ it.effect('collects a terminating flat registry despite the general-purpose self
 		const rootTools = defaultCodingMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
 		const definitions = yield* collectSubagentDefinitions(rootTools)
 
-		expect(definitions.map((definition) => definition.name)).toEqual(['general-purpose', 'bash', 'researcher'])
+		expect(definitions.map((definition) => definition.name)).toEqual([
+			'general-purpose',
+			'bash',
+			'researcher',
+			'web-search-researcher',
+		])
 	}),
 )
 
