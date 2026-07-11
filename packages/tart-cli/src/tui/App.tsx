@@ -5,6 +5,14 @@ import { TextAttributes, type KeyEvent } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
 import { createEffect, createMemo, createSignal, Index, onCleanup, type Accessor } from 'solid-js'
 
+import {
+	isEnterKey,
+	isSubmitShortcut,
+	nextRootInputVerb,
+	normalizeRootInputVerb,
+	rootInputVerbLabel,
+	type RootInputVerb,
+} from './Converse'
 import { containsMarkdown } from './MarkdownDetection'
 import { MarkdownText } from './MarkdownText'
 import { conversationRows, replayIsReady, type ConversationRow, type SessionState } from './SessionState'
@@ -16,6 +24,8 @@ export type TuiAppProps = {
 	readonly sessionId: string
 	readonly mode: string
 	readonly profile: string
+	readonly notice: Accessor<string | null>
+	readonly onSubmit: (verb: RootInputVerb, text: string) => void
 	readonly onInterrupt: () => void
 }
 
@@ -151,8 +161,20 @@ export const TuiApp = (props: TuiAppProps) => {
 	const renderer = useRenderer()
 	const dimensions = useTerminalDimensions()
 	const [toggles, setToggles] = createSignal<FxToggles>(ALL_FX_ON)
+	const [draft, setDraft] = createSignal('')
+	const [inputFocused, setInputFocused] = createSignal(false)
+	const [verb, setVerb] = createSignal<RootInputVerb>('send')
 	const rows = createMemo(() => conversationRows(props.state()))
 	const verboseFooter = createMemo(() => dimensions().width >= 120)
+	const verbLabel = createMemo(() => rootInputVerbLabel(verb()))
+	const submitDraft = (): void => {
+		const text = draft().trim()
+		if (text.length === 0) return
+		props.onSubmit(verb(), text)
+		setDraft('')
+	}
+
+	createEffect(() => setVerb((current) => normalizeRootInputVerb(props.state().status, current)))
 
 	createEffect(() => {
 		renderer.setBackgroundColor(tactical.color.void)
@@ -163,15 +185,38 @@ export const TuiApp = (props: TuiAppProps) => {
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release') return
 		if (key.ctrl && key.name === 'c') {
-			renderer.destroy()
+			key.preventDefault()
 			props.onInterrupt()
+			return
+		}
+
+		if (inputFocused()) {
+			if (key.name === 'escape') {
+				key.preventDefault()
+				setInputFocused(false)
+				return
+			}
+			if (key.name === 'tab') {
+				key.preventDefault()
+				setVerb((current) => nextRootInputVerb(props.state().status, current))
+				return
+			}
+			if (isEnterKey(key.name)) {
+				key.preventDefault()
+				if (isSubmitShortcut(key)) submitDraft()
+			}
 			return
 		}
 
 		switch (key.name) {
 			case 'q':
-			case 'escape':
 				renderer.destroy()
+				return
+			case 'tab':
+			case 'enter':
+			case 'return':
+				key.preventDefault()
+				setInputFocused(true)
 				return
 			case 'b':
 				setToggles((current) => ({ ...current, glow: !current.glow }))
@@ -269,6 +314,47 @@ export const TuiApp = (props: TuiAppProps) => {
 						{(row) => <EventRow row={row} />}
 					</Index>
 				</scrollbox>
+				<box
+					flexDirection="row"
+					height={3}
+					flexShrink={0}
+					alignItems="center"
+					paddingLeft={1}
+					paddingRight={1}
+					gap={1}
+					border={['top']}
+					borderStyle={tactical.chrome.panelStyle}
+					borderColor={inputFocused() ? tactical.color.core : tactical.color.gridDim}
+					backgroundColor={inputFocused() ? tactical.color.raised : tactical.color.panel}
+				>
+					<text wrapMode="none">
+						<span style={{ fg: tactical.color.textFaint }}>[</span>
+						<span style={{ fg: inputFocused() ? tactical.color.coreBright : tactical.color.grid }}>
+							{` ${verbLabel()} `}
+						</span>
+						<span style={{ fg: tactical.color.textFaint }}>]</span>
+					</text>
+					<text fg={inputFocused() ? tactical.color.alert : tactical.color.textFaint} wrapMode="none">
+						{'›'}
+					</text>
+					<input
+						flexGrow={1}
+						value={draft()}
+						focused={inputFocused()}
+						placeholder={inputFocused() ? 'TYPE ROOT MESSAGE' : 'TAB OR ENTER TO FOCUS'}
+						placeholderColor={tactical.color.textFaint}
+						textColor={tactical.color.textDim}
+						focusedTextColor={tactical.color.text}
+						backgroundColor={tactical.color.panel}
+						focusedBackgroundColor={tactical.color.raised}
+						onInput={setDraft}
+					/>
+					<text fg={props.notice() === null ? tactical.color.textFaint : tactical.color.grid} wrapMode="none">
+						{`${props.notice() === null ? '' : `${props.notice()} · `}${
+							inputFocused() ? '⌘↵ SUBMIT · TAB VERB · ESC BLUR' : 'INPUT BLURRED'
+						}`}
+					</text>
+				</box>
 			</box>
 
 			<box
@@ -281,8 +367,11 @@ export const TuiApp = (props: TuiAppProps) => {
 				borderStyle={tactical.chrome.frameStyle}
 				borderColor={tactical.chrome.border}
 			>
-				<KeyHint keyName="Q/ESC" label="QUIT" />
-				<KeyHint keyName="^C" label="INTERRUPT + QUIT" />
+				<KeyHint keyName="TAB/↵" label="INPUT" />
+				<KeyHint keyName="⌘↵" label="SUBMIT" />
+				<KeyHint keyName="ESC" label="BLUR" />
+				<KeyHint keyName="^C" label="INTERRUPT" />
+				<KeyHint keyName="Q" label="QUIT" />
 				<box flexGrow={1} />
 				<text fg={tactical.color.textFaint} wrapMode="none">
 					FX//

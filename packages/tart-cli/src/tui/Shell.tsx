@@ -12,11 +12,12 @@ import type { TartSession } from '@humanlayer/tart-core'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { Cause, Deferred, Duration, Effect, Match, Schema, Stream, type Scope } from 'effect'
-import { batch } from 'solid-js'
+import { batch, createSignal } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 
 import type { CliSessionOptions } from '../Run'
 import { TuiApp } from './App'
+import { executeRootInputAction, rootInputVerbLabel, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
 import { makeSessionStateFromEntries, reduceSessionEvents } from './SessionState'
 
 export class TuiRequiresTtyError extends Schema.TaggedErrorClass<TuiRequiresTtyError>()('TuiRequiresTtyError', {}) {}
@@ -59,8 +60,23 @@ export const runTui = (
 		const replayHead = replay.at(-1)?.seq ?? -1
 		const quit = yield* Deferred.make<void>()
 		const [state, setState] = createStore(makeSessionStateFromEntries(replay, session.rootAgentId))
+		const [notice, setNotice] = createSignal<string | null>(null)
 		const context = yield* Effect.context<never>()
 		const runFork = Effect.runForkWith(context)
+		const submit = (verb: RootInputVerb, text: string): void => {
+			setNotice(`${rootInputVerbLabel(verb)} QUEUED`)
+			runFork(executeRootInputAction(session, verb, text, setNotice))
+		}
+		const interrupt = (): void => {
+			setNotice('INTERRUPT REQUESTED')
+			runFork(
+				session
+					.interrupt()
+					.pipe(
+						Effect.catchCause((cause) => Effect.sync(() => setNotice(unexpectedActionCauseNotice(cause)))),
+					),
+			)
+		}
 
 		const renderer = yield* Effect.tryPromise({
 			try: () =>
@@ -101,7 +117,9 @@ export const runTui = (
 							sessionId={session.sessionId}
 							mode={`${options.mode ?? 'default'}${options.rpi === true ? '+rpi' : ''}`}
 							profile={options.profile ?? 'default'}
-							onInterrupt={() => runFork(session.interrupt())}
+							notice={notice}
+							onSubmit={submit}
+							onInterrupt={interrupt}
 						/>
 					),
 					renderer,

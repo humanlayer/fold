@@ -101,6 +101,8 @@ await render(
 			sessionId="sess_markdown"
 			mode="default"
 			profile="default"
+			notice={() => null}
+			onSubmit={() => undefined}
 			onInterrupt={() => undefined}
 		/>
 	),
