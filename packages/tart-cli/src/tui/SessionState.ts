@@ -1,0 +1,330 @@
+import { type AgentFinishedOutcome, type AgentId, LogEntry, LogSeq, type TartEvent } from '@humanlayer/tart-core'
+import { Match, Schema } from 'effect'
+
+export const TransientContent = Schema.Struct({
+	key: Schema.String,
+	kind: Schema.Literals(['text', 'reasoning']),
+	text: Schema.String,
+}).annotate({ identifier: 'TuiTransientContent' })
+export type TransientContent = typeof TransientContent.Type
+
+export const ReplayState = Schema.Union([
+	Schema.TaggedStruct('replaying', { head: LogSeq }),
+	Schema.TaggedStruct('ready', { head: Schema.NullOr(LogSeq) }),
+]).annotate({ identifier: 'TuiReplayState', discriminator: '_tag' })
+export type ReplayState = typeof ReplayState.Type
+
+export const SessionState = Schema.Struct({
+	seenSeqs: Schema.Array(LogSeq),
+	durableHead: Schema.NullOr(LogSeq),
+	rootContent: Schema.Array(LogEntry),
+	transientContent: Schema.Array(TransientContent),
+	replay: ReplayState,
+	status: Schema.Literals(['RUNNING', 'IDLE', 'STOPPED']),
+	model: Schema.String,
+}).annotate({ identifier: 'TuiSessionState' })
+export type SessionState = typeof SessionState.Type
+
+export const ConversationRow = Schema.Struct({
+	key: Schema.String,
+	seq: Schema.NullOr(LogSeq),
+	kind: Schema.Literals(['user', 'assistant', 'reasoning', 'tool-call', 'tool-result', 'compaction', 'error']),
+	label: Schema.String,
+	text: Schema.String,
+	toolName: Schema.NullOr(Schema.String),
+	isFailure: Schema.Boolean,
+}).annotate({ identifier: 'TuiConversationRow' })
+export type ConversationRow = typeof ConversationRow.Type
+
+export const makeSessionState = (durableHead: number | null): SessionState => ({
+	seenSeqs: [],
+	durableHead: null,
+	rootContent: [],
+	transientContent: [],
+	replay: durableHead === null ? { _tag: 'ready', head: null } : { _tag: 'replaying', head: durableHead },
+	status: 'IDLE',
+	model: 'unresolved',
+})
+
+const isRootContent = Match.type<LogEntry>().pipe(
+	Match.tags({
+		'user-message': () => true,
+		'assistant-message': () => true,
+		'tool-result': () => true,
+		compaction: () => true,
+		error: () => true,
+		session_started: () => false,
+		agent_started: () => false,
+		'system-message': () => false,
+		tool_state: () => false,
+		'model-change': () => false,
+		'thinking-change': () => false,
+		'tools-change': () => false,
+		'agent-finished': () => false,
+	}),
+	Match.exhaustive,
+)
+
+const isAssistantMessage = Match.type<LogEntry>().pipe(
+	Match.tag('assistant-message', () => true),
+	Match.orElse(() => false),
+)
+
+const statusAfterFinish = (outcome: AgentFinishedOutcome): SessionState['status'] =>
+	outcome === 'completed' ? 'IDLE' : 'STOPPED'
+
+const replayAfter = (replay: ReplayState, seenSeqs: ReadonlyArray<number>): ReplayState =>
+	Match.value(replay).pipe(
+		Match.tag('ready', () => replay),
+		Match.tag('replaying', ({ head }) => (seenSeqs.includes(head) ? { _tag: 'ready' as const, head } : replay)),
+		Match.exhaustive,
+	)
+
+const reduceLog = (state: SessionState, entry: LogEntry, rootAgentId: AgentId): SessionState => {
+	if (state.seenSeqs.includes(entry.seq)) return state
+
+	const durableHead = Math.max(state.durableHead ?? entry.seq, entry.seq)
+	const seenSeqs = [...state.seenSeqs, entry.seq]
+	const rootEntry = entry.agentId === rootAgentId && isRootContent(entry)
+	const rootContent = rootEntry
+		? [...state.rootContent, entry].sort((left, right) => left.seq - right.seq)
+		: state.rootContent
+
+	const projection =
+		entry.agentId === rootAgentId
+			? Match.value(entry).pipe(
+					Match.tags({
+						agent_started: ({ model }) => ({ status: 'IDLE' as const, model: model.modelId }),
+						'model-change': ({ model }) => ({ status: state.status, model: model.modelId }),
+						'user-message': () => ({ status: 'RUNNING' as const, model: state.model }),
+						'agent-finished': ({ outcome }) => ({
+							status: statusAfterFinish(outcome),
+							model: state.model,
+						}),
+					}),
+					Match.orElse(() => ({ status: state.status, model: state.model })),
+				)
+			: { status: state.status, model: state.model }
+
+	return {
+		...state,
+		seenSeqs,
+		durableHead,
+		rootContent,
+		transientContent: rootEntry && isAssistantMessage(entry) ? [] : state.transientContent,
+		replay: replayAfter(state.replay, seenSeqs),
+		...projection,
+	}
+}
+
+const appendTransient = (
+	state: SessionState,
+	kind: TransientContent['kind'],
+	id: string,
+	delta: string,
+): SessionState => {
+	const key = `${kind}:${id}`
+	const existing = state.transientContent.find((content) => content.key === key)
+	const transientContent =
+		existing === undefined
+			? [...state.transientContent, { key, kind, text: delta }]
+			: state.transientContent.map((content) =>
+					content.key === key ? { ...content, text: content.text + delta } : content,
+				)
+	return { ...state, transientContent }
+}
+
+export const reduceSessionEvent = (state: SessionState, event: TartEvent, rootAgentId: AgentId): SessionState => {
+	if (event.kind === 'log') return reduceLog(state, event.entry, rootAgentId)
+	if (event.agentId !== rootAgentId) return state
+
+	switch (event.part.type) {
+		case 'text-delta':
+			return { ...appendTransient(state, 'text', event.part.id, event.part.delta), status: 'RUNNING' }
+		case 'reasoning-delta':
+			return { ...appendTransient(state, 'reasoning', event.part.id, event.part.delta), status: 'RUNNING' }
+		case 'tool-progress':
+			return state
+	}
+}
+
+export const reduceSessionEvents = (
+	state: SessionState,
+	events: ReadonlyArray<TartEvent>,
+	rootAgentId: AgentId,
+): SessionState => events.reduce((next, event) => reduceSessionEvent(next, event, rootAgentId), state)
+
+export const makeSessionStateFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: AgentId): SessionState =>
+	reduceSessionEvents(
+		makeSessionState(null),
+		entries.map((entry) => ({ kind: 'log' as const, entry })),
+		rootAgentId,
+	)
+
+const clippedText = (text: string): string => {
+	const flat = text.replace(/\s+/g, ' ').trim()
+	return flat.length <= 180 ? flat : `${flat.slice(0, 179)}…`
+}
+
+const clippedSummary = (value: unknown): string => {
+	const encoded = JSON.stringify(value)
+	return encoded === undefined ? '' : clippedText(encoded)
+}
+
+const toolCallSummary = (params: unknown): string => {
+	if (typeof params !== 'object' || params === null) return clippedSummary(params)
+	if ('command' in params && typeof params.command === 'string') return clippedText(params.command)
+	if ('path' in params && typeof params.path === 'string') return clippedText(params.path)
+	if ('description' in params && typeof params.description === 'string') return clippedText(params.description)
+	return clippedSummary(params)
+}
+
+const toolResultSummary = (result: unknown): string => {
+	if (typeof result === 'string') return clippedText(result)
+	if (typeof result === 'object' && result !== null && 'output' in result && typeof result.output === 'string') {
+		return clippedText(result.output)
+	}
+	return clippedSummary(result)
+}
+
+const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
+	Match.value(entry).pipe(
+		Match.tags({
+			'user-message': ({ message, messageId, seq }): ReadonlyArray<ConversationRow> => {
+				const text =
+					typeof message.content === 'string'
+						? message.content
+						: message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+				return text.length === 0
+					? []
+					: [{ key: messageId, seq, kind: 'user', label: 'USER', text, toolName: null, isFailure: false }]
+			},
+			'assistant-message': ({ message, messageId, seq }) => {
+				if (typeof message.content === 'string') {
+					return message.content.length === 0
+						? []
+						: [
+								{
+									key: messageId,
+									seq,
+									kind: 'assistant' as const,
+									label: 'ASSISTANT',
+									text: message.content,
+									toolName: null,
+									isFailure: false,
+								},
+							]
+				}
+
+				return message.content.flatMap((part, index): ReadonlyArray<ConversationRow> => {
+					switch (part.type) {
+						case 'text':
+							return part.text.length === 0
+								? []
+								: [
+										{
+											key: `${messageId}:text:${index}`,
+											seq,
+											kind: 'assistant',
+											label: 'ASSISTANT',
+											text: part.text,
+											toolName: null,
+											isFailure: false,
+										},
+									]
+						case 'reasoning':
+							return part.text.length === 0
+								? []
+								: [
+										{
+											key: `${messageId}:reasoning:${index}`,
+											seq,
+											kind: 'reasoning',
+											label: 'THINKING',
+											text: part.text,
+											toolName: null,
+											isFailure: false,
+										},
+									]
+						case 'tool-call':
+							return [
+								{
+									key: `${messageId}:tool:${part.id}`,
+									seq,
+									kind: 'tool-call',
+									label: part.name.toUpperCase(),
+									text: toolCallSummary(part.params),
+									toolName: part.name,
+									isFailure: false,
+								},
+							]
+						default:
+							return []
+					}
+				})
+			},
+			'tool-result': ({ message, messageId, seq }) =>
+				typeof message.content === 'string'
+					? []
+					: message.content.flatMap(
+							(part, index): ReadonlyArray<ConversationRow> =>
+								part.type === 'tool-result'
+									? [
+											{
+												key: `${messageId}:result:${index}`,
+												seq,
+												kind: 'tool-result',
+												label: part.isFailure ? 'FAILED' : 'RESULT',
+												text: toolResultSummary(part.result),
+												toolName: part.name,
+												isFailure: part.isFailure,
+											},
+										]
+									: [],
+						),
+			compaction: ({ compactionId, seq, summary }): ReadonlyArray<ConversationRow> => [
+				{
+					key: compactionId,
+					seq,
+					kind: 'compaction',
+					label: 'COMPACT',
+					text: summary,
+					toolName: null,
+					isFailure: false,
+				},
+			],
+			error: ({ seq, errorType, message }): ReadonlyArray<ConversationRow> => [
+				{
+					key: `error:${seq}`,
+					seq,
+					kind: 'error',
+					label: errorType.toUpperCase(),
+					text: message,
+					toolName: null,
+					isFailure: true,
+				},
+			],
+		}),
+		Match.orElse(() => []),
+	)
+
+export const conversationRows = (state: SessionState): ReadonlyArray<ConversationRow> => [
+	...state.rootContent.flatMap(rowsForEntry),
+	...state.transientContent.map(
+		(content): ConversationRow => ({
+			key: `transient:${content.key}`,
+			seq: null,
+			kind: content.kind === 'text' ? 'assistant' : 'reasoning',
+			label: content.kind === 'text' ? 'ASSISTANT' : 'THINKING',
+			text: content.text,
+			toolName: null,
+			isFailure: false,
+		}),
+	),
+]
+
+export const replayIsReady = Match.type<ReplayState>().pipe(
+	Match.tag('ready', () => true),
+	Match.tag('replaying', () => false),
+	Match.exhaustive,
+)

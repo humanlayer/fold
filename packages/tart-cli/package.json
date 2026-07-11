@@ -15,18 +15,24 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun vitest run",
+		"test:tui": "TART_TUI_TERMINAL_TEST=1 bun vitest run test/TuiTerminalControl.vi.test.ts",
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
+		"@opentui/core": "catalog:",
+		"@opentui/solid": "catalog:",
 		"@effect/platform-node": "catalog:",
 		"@humanlayer/tart-agent": "workspace:*",
 		"@humanlayer/tart-codex": "workspace:*",
 		"@humanlayer/tart-core": "workspace:*",
-		"effect": "catalog:"
+		"@humanlayer/tart-tui-theme": "workspace:*",
+		"effect": "catalog:",
+		"solid-js": "catalog:"
 	},
 	"devDependencies": {
 		"@effect/vitest": "catalog:",
 		"@humanlayer/tart-vitest-config": "workspace:*",
+		"@kitlangton/terminal-control": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

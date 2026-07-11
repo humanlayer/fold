@@ -395,6 +395,27 @@ const sessions = Command.make(
 		}),
 ).pipe(Command.withDescription('List sessions for the current project'))
 
+const tui = Command.make('tui', commonFlags, (input) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const options = yield* sessionOptionsFromFlags(input)
+			const prompt = optionValue(input.prompt)
+			yield* Effect.promise(() => import('@opentui/solid/preload'))
+			const module = yield* Effect.promise(() => import('./tui/Shell'))
+			yield* module.runTui({ ...options, ...(prompt === undefined ? {} : { prompt }) }).pipe(
+				Effect.catchTags({
+					TuiRequiresTtyError: () =>
+						printFailure(
+							'tart tui requires an interactive TTY; use tart --prompt "..." --output json instead',
+						),
+					TuiRendererError: (error: { readonly message: string }) =>
+						printFailure(`could not start the TUI: ${error.message}`),
+				}),
+			)
+		}),
+	),
+).pipe(Command.withDescription('Run the interactive TACTICAL terminal UI'))
+
 const config = Command.make('config').pipe(
 	Command.withDescription('Manage tart configuration'),
 	Command.withSubcommands([
@@ -608,7 +629,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 	)
 
 /** Effect CLI command tree for the installed `tart` binary. */
-export const command = run.pipe(Command.withSubcommands([sessions, config, auth, bin]))
+export const command = run.pipe(Command.withSubcommands([tui, sessions, config, auth, bin]))
 
 /** Main Effect for the installed CLI binary. */
 export const main = withErrorHandling(command.pipe(Command.run({ version })))

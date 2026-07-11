@@ -6,6 +6,13 @@
 	"license": "MIT",
 	"type": "module",
 	"module": "src/main.tsx",
+	"exports": {
+		".": "./src/main.tsx",
+		"./tactical": "./src/theme/tactical.ts",
+		"./theme-types": "./src/theme/types.ts",
+		"./glow": "./src/hud/GlowEffect.ts",
+		"./postfx": "./src/hud/postfx.ts"
+	},
 	"scripts": {
 		"start": "bun run src/main.tsx",
 		"augmented": "bun run src/main.tsx --theme augmented",
@@ -14,7 +21,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@opentui/core": "0.4.3",
+		"@opentui/core": "catalog:",
 		"@opentui/react": "0.4.3",
 		"react": "19.2.0"
 	},
