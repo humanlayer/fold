@@ -99,13 +99,18 @@ export type CompactionRequestTextInput = {
 	readonly customPrompt: string | null
 }
 
+/** Resolve the exact instruction template shown to the summarizer. */
+export const compactionInstruction = (
+	input: Pick<CompactionRequestTextInput, 'previousSummary' | 'customPrompt'>,
+): string =>
+	input.customPrompt ?? (input.previousSummary === null ? defaultCompactionPrompt : defaultCompactionUpdatePrompt)
+
 /**
  * Assemble the summarizer's user message (pi's `generateSummary` shape): the serialized conversation,
  * the previous summary when incremental, then the instruction template.
  */
 export const buildCompactionRequestText = (input: CompactionRequestTextInput): string => {
-	const instruction =
-		input.customPrompt ?? (input.previousSummary === null ? defaultCompactionPrompt : defaultCompactionUpdatePrompt)
+	const instruction = compactionInstruction(input)
 
 	const previousBlock =
 		input.previousSummary === null ? '' : `<previous-summary>\n${input.previousSummary}\n</previous-summary>\n\n`

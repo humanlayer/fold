@@ -1,4 +1,11 @@
-import { type AgentFinishedOutcome, type AgentId, LogEntry, LogSeq, type TartEvent } from '@humanlayer/tart-core'
+import {
+	defaultCompactionPrompt,
+	type AgentFinishedOutcome,
+	type AgentId,
+	LogEntry,
+	LogSeq,
+	type TartEvent,
+} from '@humanlayer/tart-core'
 import { Match, Schema } from 'effect'
 
 export const TransientContent = Schema.Struct({
@@ -354,16 +361,22 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 										]
 									: [],
 						),
-			compaction: ({ compactionId, seq, summary }): ReadonlyArray<ConversationRow> => [
+			compaction: ({
+				compactionId,
+				postCompactionInstructions,
+				prompt,
+				seq,
+				summary,
+			}): ReadonlyArray<ConversationRow> => [
 				{
 					key: compactionId,
 					seq,
 					kind: 'compaction',
 					label: 'COMPACT',
 					text: summary,
-					inputText: null,
-					executedInputText: null,
-					resultText: null,
+					inputText: prompt ?? defaultCompactionPrompt,
+					executedInputText: postCompactionInstructions ?? null,
+					resultText: summary,
 					toolName: null,
 					toolCallId: null,
 					status: 'none' as const,

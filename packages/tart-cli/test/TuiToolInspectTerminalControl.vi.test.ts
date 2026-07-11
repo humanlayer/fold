@@ -33,7 +33,9 @@ terminalDescribe('TUI tool inspectors', () => {
 		await session.screen.waitForText('Loaded Skill Heading', { timeoutMs: 10_000 })
 		const skill = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
 		expect(skill.text).toContain('Use structured verification for this task.')
-		expect(skill.text).not.toContain('<skill name=')
+		expect(skill.text).toContain('<skill name="demo-skill"')
+		expect(skill.text).toContain('Relative paths referenced by this skill')
+		expect(skill.text).toContain('</skill>')
 		expect(skill.text).not.toContain('**structured verification**')
 
 		await session.keyboard.type('gg')

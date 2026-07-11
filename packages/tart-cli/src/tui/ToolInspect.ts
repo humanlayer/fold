@@ -161,14 +161,31 @@ export const diffsForTool = (toolName: string | null, inputText: string | null):
 export const diffForTool = (toolName: string | null, inputText: string | null): string | null =>
 	diffsForTool(toolName, inputText)[0] ?? null
 
-export const skillMarkdown = (resultText: string | null): string | null => {
-	if (resultText === null) return null
-	const wrapped = resultText.match(/<skill\b[^>]*>\n([\s\S]*?)\n<\/skill>/)
-	const body = wrapped?.[1]?.trim() ?? resultText.trim()
-	return body.replace(
-		/^Relative paths referenced by this skill \(references\/, scripts\/, \.\.\.\) resolve against [^\n]+\.\n\n/,
-		'',
-	)
+export type SkillInspection = {
+	readonly openingTag: string
+	readonly relativePathNote: string | null
+	readonly markdown: string
+	readonly closingTag: string
+	readonly trailingText: string | null
 }
+
+export const skillInspection = (resultText: string | null): SkillInspection | null => {
+	if (resultText === null) return null
+	const wrapped = resultText.trim().match(/^(<skill\b[^>]*>)\n([\s\S]*?)\n(<\/skill>)([\s\S]*)$/)
+	if (wrapped === null) return null
+	const inner = wrapped[2] ?? ''
+	const note = inner.match(
+		/^(Relative paths referenced by this skill \(references\/, scripts\/, \.\.\.\) resolve against [^\n]+\.)\n\n/,
+	)
+	return {
+		openingTag: wrapped[1] ?? '<skill>',
+		relativePathNote: note?.[1] ?? null,
+		markdown: inner.slice(note?.[0].length ?? 0).trim(),
+		closingTag: wrapped[3] ?? '</skill>',
+		trailingText: (wrapped[4] ?? '').trim() || null,
+	}
+}
+
+export const skillMarkdown = (resultText: string | null): string | null => skillInspection(resultText)?.markdown ?? null
 
 export const diffHeight = (diff: string): number => Math.max(4, lines(diff).length + 1)

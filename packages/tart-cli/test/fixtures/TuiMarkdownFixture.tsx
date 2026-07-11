@@ -103,6 +103,7 @@ await render(
 			mode="default"
 			profile="default"
 			notice={() => null}
+			onCompact={() => undefined}
 			onSubmit={() => undefined}
 			onInterrupt={() => undefined}
 			onCopySessionId={() => undefined}

@@ -59,6 +59,8 @@ const calls = [
 		result: {
 			content: [
 				'<skill name="demo-skill" baseDir="/tmp/demo-skill">',
+				'Relative paths referenced by this skill (references/, scripts/, ...) resolve against /tmp/demo-skill.',
+				'',
 				'# Loaded Skill Heading',
 				'',
 				'Use **structured verification** for this task.',
@@ -139,6 +141,7 @@ await render(
 			mode="default"
 			profile="default"
 			notice={() => null}
+			onCompact={() => undefined}
 			onSubmit={() => undefined}
 			onInterrupt={() => undefined}
 		/>

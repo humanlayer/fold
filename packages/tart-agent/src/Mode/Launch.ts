@@ -290,6 +290,8 @@ const tartInfoBlock = (tartHome: string): string =>
 	'file to reconfigure tart on request; changes bind on the next launch or resume. For source-level questions, ' +
 	'point them to https://github.com/humanlayer/tart.'
 
+const modelStyleBlock = 'Do not use emoticons.'
+
 /** Assemble the agent definition: mode prompt (+ RPI hint) + agentfiles + tart pointer as leading blocks. */
 const buildAgentDefinition = (
 	options: LaunchSessionOptions,
@@ -309,6 +311,7 @@ const buildAgentDefinition = (
 		const tools = [...mode.buildTools({ cwd, models, rpi, outputStore }), ...(options.extraTools ?? [])]
 		const blocks = [
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
+			modelStyleBlock,
 			...(rpi ? [RPI_HINT_PROMPT] : []),
 			...(memoryBlock === null ? [] : [memoryBlock]),
 			tartInfoBlock(options.tartHome ?? defaultTartHome()),

@@ -288,6 +288,7 @@ it.effect('manual facade compaction delegates through the provisioned root runti
 		expect(compacted?.agentId).toBe(session.rootAgentId)
 		expect(compacted?.parentAgentId).toBeNull()
 		expect(compacted?.toolCallId).toBeNull()
+		expect(compacted?.prompt).toContain('structured context checkpoint summary')
 		expect(compacted?.summary).toContain('manual compaction summary')
 
 		const requests = yield* scripted.requests
@@ -318,6 +319,7 @@ it.effect('a configured compactionPrompt replaces the default instruction templa
 
 		expect(finished.outcome).toBe('completed')
 		expect(compactionEntries(entries)[0]?.summary).toContain('CUSTOM CHECKPOINT')
+		expect(compactionEntries(entries)[0]?.prompt).toBe('Reply with a CUSTOM CHECKPOINT of the work.')
 
 		const summarizeRequest = JSON.stringify((yield* scripted.requests)[1]?.prompt)
 		expect(summarizeRequest).toContain('Reply with a CUSTOM CHECKPOINT of the work.')

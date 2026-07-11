@@ -99,6 +99,7 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 				)
 				const leadingJson = JSON.stringify(leading)
 				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
+				expect(leadingJson).toContain('Do not use emoticons.')
 				expect(leadingJson).toContain('MEMORY-MARKER')
 				expect(leadingJson).toContain('project_context')
 				// Without rpi, the RPI hint block is absent.

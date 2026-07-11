@@ -30,6 +30,7 @@ await render(
 			mode="default"
 			profile="default"
 			notice={notice}
+			onCompact={() => setNotice('COMPACTED')}
 			onSubmit={(verb, text) => {
 				setNotice(`${rootInputVerbLabel(verb)} RECEIVED · ${text.replaceAll('\n', ' / ')}`)
 				setStatus('RUNNING')

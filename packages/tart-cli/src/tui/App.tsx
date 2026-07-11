@@ -20,7 +20,7 @@ import {
 	type NavigationState,
 } from './Navigation'
 import { conversationRows, replayIsReady, type ConversationRow, type SessionState } from './SessionState'
-import { diffHeight, diffsForTool, skillMarkdown } from './ToolInspect'
+import { diffHeight, diffsForTool, skillInspection } from './ToolInspect'
 import { TUI_CONTEXT_TITLE, TUI_INSPECT_BADGE, TUI_LIVE_BADGE } from './TuiChrome'
 
 export type TuiAppProps = {
@@ -30,7 +30,9 @@ export type TuiAppProps = {
 	readonly mode: string
 	readonly profile: string
 	readonly notice: Accessor<string | null>
+	readonly compacting?: Accessor<boolean>
 	readonly onSubmit: (verb: RootInputVerb, text: string) => void
+	readonly onCompact: () => void
 	readonly onInterrupt: () => void
 	readonly onCopySessionId?: () => void
 }
@@ -220,9 +222,36 @@ const EventDetail = (props: { readonly row: Accessor<ConversationRow> }) => {
 	const result = createMemo(() => props.row().resultText)
 	const diffs = createMemo(() => diffsForTool(props.row().toolName, executedInput() ?? input()))
 	const readContent = createMemo(() => (props.row().toolName === 'read' ? result() : null))
-	const loadedSkill = createMemo(() => (props.row().toolName === 'skill' ? skillMarkdown(result()) : null))
+	const loadedSkill = createMemo(() => (props.row().toolName === 'skill' ? skillInspection(result()) : null))
 
-	return (
+	return props.row().kind === 'compaction' ? (
+		<box flexDirection="column" flexShrink={0} width="100%">
+			<box flexDirection="row" flexShrink={0} paddingLeft={2} paddingRight={2} gap={1}>
+				<text fg={visual().color} attributes={TextAttributes.BOLD} wrapMode="none">
+					{`${visual().glyph} COMPACTION`}
+				</text>
+				<box flexGrow={1} />
+				<text fg={tactical.color.textDim} wrapMode="none">
+					CHECKPOINT
+				</text>
+			</box>
+			<box flexDirection="column" flexShrink={0} paddingLeft={2} paddingRight={2} paddingTop={1}>
+				<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
+					PROMPT
+				</text>
+				<MarkdownText content={props.row().inputText ?? ''} tone="muted" />
+			</box>
+			<box flexDirection="column" flexShrink={0} paddingLeft={2} paddingRight={2} paddingTop={1}>
+				<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
+					SUMMARY
+				</text>
+				<MarkdownText content={props.row().resultText ?? props.row().text} tone="normal" />
+			</box>
+			{props.row().executedInputText !== null ? (
+				<DetailSection title="POST-COMPACTION INSTRUCTIONS" text={props.row().executedInputText ?? ''} muted />
+			) : null}
+		</box>
+	) : (
 		<Show when={isToolCall()} fallback={<EventRow row={props.row} />}>
 			<box flexDirection="column" flexShrink={0} width="100%">
 				<box flexDirection="row" flexShrink={0} paddingLeft={2} paddingRight={2} gap={1}>
@@ -247,9 +276,25 @@ const EventDetail = (props: { readonly row: Accessor<ConversationRow> }) => {
 				{loadedSkill() !== null ? (
 					<box flexDirection="column" flexShrink={0} paddingLeft={2} paddingRight={2} paddingTop={1}>
 						<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
-							SKILL.MD
+							RESULT · SKILL.MD
 						</text>
-						<MarkdownText content={loadedSkill() ?? ''} tone="normal" />
+						<text fg={tactical.color.textDim} wrapMode="word">
+							{loadedSkill()?.openingTag ?? ''}
+						</text>
+						{loadedSkill()?.relativePathNote !== null ? (
+							<text fg={tactical.color.textDim} wrapMode="word">
+								{loadedSkill()?.relativePathNote ?? ''}
+							</text>
+						) : null}
+						<MarkdownText content={loadedSkill()?.markdown ?? ''} tone="normal" />
+						<text fg={tactical.color.textDim} wrapMode="word">
+							{loadedSkill()?.closingTag ?? ''}
+						</text>
+						{loadedSkill()?.trailingText !== null ? (
+							<text fg={tactical.color.textDim} wrapMode="word">
+								{loadedSkill()?.trailingText ?? ''}
+							</text>
+						) : null}
 					</box>
 				) : null}
 				<Index each={diffs()}>
@@ -362,6 +407,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	const eventPaneWidth = createMemo(() => (dimensions().width < 84 ? '40%' : '32%'))
 	const verboseFooter = createMemo(() => dimensions().width >= 120)
 	const verbLabel = createMemo(() => rootInputVerbLabel(verb()))
+	const isCompacting = createMemo(() => props.compacting?.() === true)
 	const paneState = (pane: NavigationState['pane']): 'inactive' | 'selected' | 'focused' => {
 		if (navigation().pane !== pane) return 'inactive'
 		return navigation().level === 'pane' ? 'selected' : 'focused'
@@ -393,7 +439,8 @@ export const TuiApp = (props: TuiAppProps) => {
 	const submitDraft = (): void => {
 		const text = (editor?.plainText ?? draft()).trim()
 		if (text.length === 0) return
-		props.onSubmit(verb(), text)
+		if (text === '/compact') props.onCompact()
+		else props.onSubmit(verb(), text)
 		setNavigation(followLive)
 		setDraft('')
 		editor?.setText('')
@@ -665,6 +712,27 @@ export const TuiApp = (props: TuiAppProps) => {
 								{inputFocused() ? 'ENTER SEND · SHIFT+ENTER NEWLINE · TAB TYPE' : 'TAB INPUT'}
 							</text>
 						</box>
+						<Show when={isCompacting()}>
+							<box
+								position="absolute"
+								top={0}
+								left={0}
+								width="100%"
+								height={4}
+								zIndex={5}
+								paddingLeft={1}
+								flexDirection="column"
+								justifyContent="center"
+								backgroundColor={tactical.color.raised}
+							>
+								<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
+									⧗ COMPACTING CONTEXT
+								</text>
+								<text fg={tactical.color.textDim} wrapMode="none">
+									SUMMARIZING CONVERSATION
+								</text>
+							</box>
+						</Show>
 					</box>
 				</box>
 				<box

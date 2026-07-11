@@ -63,6 +63,8 @@ export type CompactionPlanInput = CompactionCheckInput & {
 
 /** The payload of one durable `compaction` entry, ready for the loop to append. */
 export type CompactionPlan = {
+	/** Exact instruction template shown to the summarizer, excluding the serialized conversation. */
+	readonly prompt: string
 	readonly summary: string
 	/** Projection drops visible message entries at or below this sequence (D2). */
 	readonly replacesThroughSeq: LogSeq

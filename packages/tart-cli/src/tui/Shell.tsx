@@ -61,11 +61,26 @@ export const runTui = (
 		const quit = yield* Deferred.make<void>()
 		const [state, setState] = createStore(makeSessionStateFromEntries(replay, session.rootAgentId))
 		const [notice, setNotice] = createSignal<string | null>(null)
+		const [compacting, setCompacting] = createSignal(false)
 		const context = yield* Effect.context<never>()
 		const runFork = Effect.runForkWith(context)
 		const submit = (verb: RootInputVerb, text: string): void => {
 			setNotice(null)
 			runFork(executeRootInputAction(session, verb, text, setNotice))
+		}
+		const compact = (): void => {
+			if (compacting()) return
+			setCompacting(true)
+			setNotice('COMPACTING')
+			runFork(
+				session.compact().pipe(
+					Effect.tap((entry) =>
+						Effect.sync(() => setNotice(entry === null ? 'NOTHING TO COMPACT' : 'COMPACTED')),
+					),
+					Effect.catchCause((cause) => Effect.sync(() => setNotice(unexpectedActionCauseNotice(cause)))),
+					Effect.ensuring(Effect.sync(() => setCompacting(false))),
+				),
+			)
 		}
 		const interrupt = (): void => {
 			setNotice('INTERRUPT REQUESTED')
@@ -122,7 +137,9 @@ export const runTui = (
 							mode={`${options.mode ?? 'default'}${options.rpi === true ? '+rpi' : ''}`}
 							profile={options.profile ?? 'default'}
 							notice={notice}
+							compacting={compacting}
 							onSubmit={submit}
+							onCompact={compact}
 							onInterrupt={interrupt}
 							onCopySessionId={copySessionId}
 						/>
@@ -132,6 +149,9 @@ export const runTui = (
 			catch: (error) => new TuiRendererError({ message: String(error) }),
 		})
 		yield* Effect.sync(() => renderer.start())
-		if (options.prompt !== undefined) yield* Effect.forkScoped(session.send(options.prompt))
+		if (options.prompt !== undefined) {
+			if (options.prompt.trim() === '/compact') yield* Effect.forkScoped(session.compact())
+			else yield* Effect.forkScoped(session.send(options.prompt))
+		}
 		yield* Deferred.await(quit)
 	})

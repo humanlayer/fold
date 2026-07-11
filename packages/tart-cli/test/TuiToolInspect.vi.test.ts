@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { diffForTool, skillMarkdown } from '../src/tui/ToolInspect'
+import { diffForTool, skillInspection, skillMarkdown } from '../src/tui/ToolInspect'
 
 describe('TUI tool inspection', () => {
 	it('builds an added-file diff for write', () => {
@@ -49,5 +49,15 @@ describe('TUI tool inspection', () => {
 			].join('\n'),
 		)
 		expect(markdown).toBe('# Demo\n\nRun the **checks**.')
+		const inspection = skillInspection(
+			'<skill name="demo" baseDir="/tmp/demo">\nRelative paths referenced by this skill (references/, scripts/, ...) resolve against /tmp/demo.\n\n# Demo\n</skill>',
+		)
+		expect(inspection).toMatchObject({
+			openingTag: '<skill name="demo" baseDir="/tmp/demo">',
+			relativePathNote:
+				'Relative paths referenced by this skill (references/, scripts/, ...) resolve against /tmp/demo.',
+			markdown: '# Demo',
+			closingTag: '</skill>',
+		})
 	})
 })

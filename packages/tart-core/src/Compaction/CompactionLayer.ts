@@ -21,7 +21,7 @@ import {
 	latestReportedContextTokens,
 	serializeConversation,
 } from './CompactionEngine'
-import { buildCompactionRequestText, compactionSystemPrompt } from './CompactionPrompts'
+import { buildCompactionRequestText, compactionInstruction, compactionSystemPrompt } from './CompactionPrompts'
 import {
 	CompactionSummarizeError,
 	noopCompaction,
@@ -135,6 +135,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				previousSummary,
 				customPrompt: config.compactionPrompt ?? null,
 			})
+			const prompt = compactionInstruction({ previousSummary, customPrompt: config.compactionPrompt ?? null })
 
 			const languageModel = yield* LanguageModel.LanguageModel
 			const parts = yield* Stream.runCollect(
@@ -158,6 +159,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			}
 
 			const compactionPlan: CompactionPlan = {
+				prompt,
 				summary,
 				replacesThroughSeq: lastReplaced.sourceSeq,
 				tokensBefore: latestReportedContextTokens(visible) ?? 0,

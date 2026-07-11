@@ -279,6 +279,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
 					compactionId: yield* ids.makeCompactionId,
+					prompt: planned.success.prompt,
 					summary: planned.success.summary,
 					...(postCompactionInstructions === null ? {} : { postCompactionInstructions }),
 					replacesThroughSeq: planned.success.replacesThroughSeq,
