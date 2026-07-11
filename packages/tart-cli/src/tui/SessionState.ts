@@ -32,6 +32,8 @@ export const ConversationRow = Schema.Struct({
 	label: Schema.String,
 	text: Schema.String,
 	toolName: Schema.NullOr(Schema.String),
+	toolCallId: Schema.NullOr(Schema.String),
+	status: Schema.Literals(['none', 'running', 'done', 'error']),
 	isFailure: Schema.Boolean,
 }).annotate({ identifier: 'TuiConversationRow' })
 export type ConversationRow = typeof ConversationRow.Type
@@ -197,7 +199,19 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 						: message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 				return text.length === 0
 					? []
-					: [{ key: messageId, seq, kind: 'user', label: 'USER', text, toolName: null, isFailure: false }]
+					: [
+							{
+								key: messageId,
+								seq,
+								kind: 'user',
+								label: 'USER',
+								text,
+								toolName: null,
+								toolCallId: null,
+								status: 'none' as const,
+								isFailure: false,
+							},
+						]
 			},
 			'assistant-message': ({ message, messageId, seq }) => {
 				if (typeof message.content === 'string') {
@@ -211,6 +225,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 									label: 'ASSISTANT',
 									text: message.content,
 									toolName: null,
+									toolCallId: null,
+									status: 'none' as const,
 									isFailure: false,
 								},
 							]
@@ -229,6 +245,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 											label: 'ASSISTANT',
 											text: part.text,
 											toolName: null,
+											toolCallId: null,
+											status: 'none' as const,
 											isFailure: false,
 										},
 									]
@@ -243,6 +261,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 											label: 'THINKING',
 											text: part.text,
 											toolName: null,
+											toolCallId: null,
+											status: 'none' as const,
 											isFailure: false,
 										},
 									]
@@ -255,6 +275,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 									label: part.name.toUpperCase(),
 									text: toolCallSummary(part.params),
 									toolName: part.name,
+									toolCallId: part.id,
+									status: 'running' as const,
 									isFailure: false,
 								},
 							]
@@ -277,6 +299,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 												label: part.isFailure ? 'FAILED' : 'RESULT',
 												text: toolResultSummary(part.result),
 												toolName: part.name,
+												toolCallId: part.id,
+												status: part.isFailure ? 'error' : 'done',
 												isFailure: part.isFailure,
 											},
 										]
@@ -290,6 +314,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 					label: 'COMPACT',
 					text: summary,
 					toolName: null,
+					toolCallId: null,
+					status: 'none' as const,
 					isFailure: false,
 				},
 			],
@@ -301,6 +327,8 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 					label: errorType.toUpperCase(),
 					text: message,
 					toolName: null,
+					toolCallId: null,
+					status: 'none' as const,
 					isFailure: true,
 				},
 			],
@@ -308,8 +336,36 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 		Match.orElse(() => []),
 	)
 
+const collapseToolResults = (rows: ReadonlyArray<ConversationRow>): ReadonlyArray<ConversationRow> => {
+	const visible: ConversationRow[] = []
+	const toolCallIndexes = new Map<string, number>()
+
+	for (const row of rows) {
+		if (row.kind === 'tool-call' && row.toolCallId !== null) {
+			toolCallIndexes.set(row.toolCallId, visible.length)
+			visible.push(row)
+			continue
+		}
+
+		if (row.kind === 'tool-result') {
+			const index = row.toolCallId === null ? undefined : toolCallIndexes.get(row.toolCallId)
+			if (index !== undefined) {
+				const toolCall = visible[index]
+				if (toolCall !== undefined) {
+					visible[index] = { ...toolCall, status: row.status, isFailure: row.isFailure }
+				}
+			}
+			continue
+		}
+
+		visible.push(row)
+	}
+
+	return visible
+}
+
 export const conversationRows = (state: SessionState): ReadonlyArray<ConversationRow> => [
-	...state.rootContent.flatMap(rowsForEntry),
+	...collapseToolResults(state.rootContent.flatMap(rowsForEntry)),
 	...state.transientContent.map(
 		(content): ConversationRow => ({
 			key: `transient:${content.key}`,
@@ -318,6 +374,8 @@ export const conversationRows = (state: SessionState): ReadonlyArray<Conversatio
 			label: content.kind === 'text' ? 'ASSISTANT' : 'THINKING',
 			text: content.text,
 			toolName: null,
+			toolCallId: null,
+			status: 'none',
 			isFailure: false,
 		}),
 	),

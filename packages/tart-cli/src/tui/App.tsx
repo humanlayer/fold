@@ -3,8 +3,10 @@ import { installPostFx, ALL_FX_ON, nextVignetteMode, type FxToggles } from '@hum
 import { tactical } from '@humanlayer/tart-tui-theme/tactical'
 import { TextAttributes, type KeyEvent } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, type Accessor } from 'solid-js'
+import { createEffect, createMemo, createSignal, Index, onCleanup, type Accessor } from 'solid-js'
 
+import { containsMarkdown } from './MarkdownDetection'
+import { MarkdownText } from './MarkdownText'
 import { conversationRows, replayIsReady, type ConversationRow, type SessionState } from './SessionState'
 import { TUI_CONTEXT_TITLE, TUI_LIVE_BADGE } from './TuiChrome'
 
@@ -61,6 +63,19 @@ const toolGlyph = (toolName: string | null): string => {
 	}
 }
 
+const toolColor = (toolName: string | null): string => {
+	switch (toolName) {
+		case 'read':
+			return tactical.color.textDim
+		case 'subagent':
+			return tactical.color.inject
+		case 'skill':
+			return tactical.semantic.merged
+		default:
+			return tactical.color.core
+	}
+}
+
 const rowVisual = (row: ConversationRow): { readonly glyph: string; readonly color: string; readonly dim: boolean } => {
 	switch (row.kind) {
 		case 'user':
@@ -70,7 +85,11 @@ const rowVisual = (row: ConversationRow): { readonly glyph: string; readonly col
 		case 'reasoning':
 			return { glyph: '∴', color: tactical.color.textDim, dim: true }
 		case 'tool-call':
-			return { glyph: toolGlyph(row.toolName), color: tactical.color.core, dim: false }
+			return {
+				glyph: toolGlyph(row.toolName),
+				color: row.status === 'error' ? tactical.color.alert : toolColor(row.toolName),
+				dim: false,
+			}
 		case 'tool-result':
 			return {
 				glyph: row.isFailure ? '✕' : '⮑',
@@ -84,10 +103,19 @@ const rowVisual = (row: ConversationRow): { readonly glyph: string; readonly col
 	}
 }
 
-const EventRow = (props: { readonly row: ConversationRow }) => {
-	const visual = createMemo(() => rowVisual(props.row))
+const EventRow = (props: { readonly row: Accessor<ConversationRow> }) => {
+	const visual = createMemo(() => rowVisual(props.row()))
+	const isToolCall = createMemo(() => props.row().kind === 'tool-call')
+	const bodyColor = createMemo(() =>
+		isToolCall() ? tactical.color.textDim : visual().dim ? tactical.color.textDim : tactical.color.text,
+	)
+	const rendersMarkdown = createMemo(
+		() =>
+			['user', 'assistant', 'reasoning', 'compaction'].includes(props.row().kind) &&
+			containsMarkdown(props.row().text),
+	)
 	return (
-		<box flexDirection="row" flexShrink={0} paddingLeft={1} paddingRight={1}>
+		<box flexDirection="row" flexShrink={0} width="100%" paddingLeft={1} paddingRight={1}>
 			<box width={3} flexShrink={0}>
 				<text fg={visual().color} wrapMode="none">
 					{visual().glyph}
@@ -99,17 +127,21 @@ const EventRow = (props: { readonly row: ConversationRow }) => {
 					attributes={visual().dim ? TextAttributes.DIM : TextAttributes.NONE}
 					wrapMode="none"
 				>
-					{props.row.label}
+					{props.row().label}
 				</text>
 			</box>
-			<box flexGrow={1}>
-				<text
-					fg={visual().dim ? tactical.color.textDim : tactical.color.text}
-					attributes={visual().dim ? TextAttributes.DIM : TextAttributes.NONE}
-					wrapMode="word"
-				>
-					{props.row.text}
-				</text>
+			<box flexGrow={1} flexShrink={1}>
+				{rendersMarkdown() ? (
+					<MarkdownText content={props.row().text} tone={visual().dim ? 'muted' : 'normal'} />
+				) : (
+					<text
+						fg={bodyColor()}
+						attributes={visual().dim ? TextAttributes.DIM : TextAttributes.NONE}
+						wrapMode="word"
+					>
+						{props.row().text}
+					</text>
+				)}
 			</box>
 		</box>
 	)
@@ -222,7 +254,7 @@ export const TuiApp = (props: TuiAppProps) => {
 						},
 					}}
 				>
-					<For
+					<Index
 						each={rows()}
 						fallback={
 							<box paddingLeft={1}>
@@ -235,7 +267,7 @@ export const TuiApp = (props: TuiAppProps) => {
 						}
 					>
 						{(row) => <EventRow row={row} />}
-					</For>
+					</Index>
 				</scrollbox>
 			</box>
 

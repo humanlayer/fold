@@ -207,7 +207,7 @@ describe('TUI session reducer', () => {
 		expect(state.replay).toEqual({ _tag: 'ready', head: null })
 	})
 
-	it('projects user, thinking, assistant, tool call, and result as distinct rows', () => {
+	it('folds tool results into their call row without exposing result contents', () => {
 		const user = entry({
 			_tag: 'user-message',
 			seq: 1,
@@ -271,8 +271,9 @@ describe('TUI session reducer', () => {
 			{ kind: 'reasoning', label: 'THINKING' },
 			{ kind: 'assistant', label: 'ASSISTANT' },
 			{ kind: 'tool-call', label: 'BASH' },
-			{ kind: 'tool-result', label: 'RESULT' },
 		])
+		expect(rows.at(-1)).toMatchObject({ kind: 'tool-call', status: 'done', isFailure: false })
+		expect(rows.some(({ text }) => text.includes('tart-cli'))).toBe(false)
 	})
 
 	it('is deterministic for the same initial state and events', () => {

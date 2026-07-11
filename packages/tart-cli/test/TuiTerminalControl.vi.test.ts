@@ -13,6 +13,33 @@ terminalDescribe('TUI terminal behavior', () => {
 		await terminal.close()
 	})
 
+	it('renders markdown in user, reasoning, and assistant rows', async () => {
+		await using session = await terminal.launch({
+			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiMarkdownFixture.tsx'],
+			cwd: import.meta.dirname.replace(/\/test$/, ''),
+			host: 'opentui',
+			viewport: { cols: 140, rows: 44 },
+			record: 'on-failure',
+		})
+
+		await session.screen.waitForText('OPTIC FEED // NOMINAL', { timeoutMs: 10_000 })
+		const frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(frame.text).toContain('User asks for bold input and code')
+		expect(frame.text).toContain('const userPrompt = true')
+		expect(frame.text).toContain('Thinking with emphasis before answering')
+		expect(frame.text).toContain('inlineCode()')
+		expect(frame.text).toContain('themed first item')
+		const bashLine = frame.text.split('\n').find((line) => line.includes('BASH'))
+		expect(bashLine).toContain('⚙')
+		expect(bashLine).not.toContain('◆')
+		expect(frame.text).not.toContain('**')
+		expect(frame.text).not.toContain('```')
+		const lines = frame.text.split('\n')
+		const firstParagraph = lines.findIndex((line) => line.includes('Assistant returns bold response'))
+		const secondParagraph = lines.findIndex((line) => line.includes('Second paragraph after a blank line'))
+		expect(secondParagraph - firstParagraph).toBeGreaterThanOrEqual(2)
+	}, 30_000)
+
 	it('renders the tactical shell, responds to keys, and exits cleanly', async () => {
 		await using session = await terminal.launch({
 			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiAppFixture.tsx'],
