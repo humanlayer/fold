@@ -1,5 +1,4 @@
 import type { AgentNotRunningError, SubagentNotFoundError } from '@humanlayer/tart-core'
-import type { KeyEvent } from '@opentui/core'
 import { Cause, Effect } from 'effect'
 
 import type { SessionState } from './SessionState'
@@ -27,9 +26,6 @@ export const rootInputVerbLabel = (verb: RootInputVerb): string =>
 	verb === 'interrupt-send' ? 'INTERRUPT+SEND' : verb.toUpperCase()
 
 export const isEnterKey = (name: string): boolean => name === 'enter' || name === 'return'
-
-export const isSubmitShortcut = (key: Pick<KeyEvent, 'name' | 'meta' | 'super'>): boolean =>
-	isEnterKey(key.name) && (key.meta || key.super === true)
 
 export type RootInputActionTarget = {
 	readonly send: (text: string) => Effect.Effect<unknown, SubagentNotFoundError>
@@ -61,11 +57,7 @@ export const executeRootInputAction = (
 			case 'steer':
 				return target
 					.steer(text)
-					.pipe(
-						Effect.catchTag('AgentNotRunningError', () =>
-							notify('TARGET IDLE · SENDING').pipe(Effect.andThen(target.send(text)), Effect.asVoid),
-						),
-					)
+					.pipe(Effect.catchTag('AgentNotRunningError', () => target.send(text).pipe(Effect.asVoid)))
 			case 'interrupt-send':
 				return target.interrupt().pipe(Effect.andThen(target.send(text)), Effect.asVoid)
 		}

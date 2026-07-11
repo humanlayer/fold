@@ -4,7 +4,6 @@ import { expect, it } from 'vitest'
 import {
 	executeRootInputAction,
 	isEnterKey,
-	isSubmitShortcut,
 	nextRootInputVerb,
 	normalizeRootInputVerb,
 	rootInputVerbLabel,
@@ -26,13 +25,10 @@ it('cycles only the verbs valid for a running target', () => {
 	expect(rootInputVerbLabel('interrupt-send')).toBe('INTERRUPT+SEND')
 })
 
-it('requires a command/meta modified enter to submit', () => {
-	expect(isSubmitShortcut({ name: 'enter', meta: true, super: false })).toBe(true)
-	expect(isSubmitShortcut({ name: 'return', meta: false, super: true })).toBe(true)
-	expect(isSubmitShortcut({ name: 'enter', meta: false, super: true })).toBe(true)
-	expect(isSubmitShortcut({ name: 'enter', meta: false, super: false })).toBe(false)
-	expect(isSubmitShortcut({ name: 'q', meta: true, super: false })).toBe(false)
+it('recognizes enter key names', () => {
+	expect(isEnterKey('enter')).toBe(true)
 	expect(isEnterKey('return')).toBe(true)
+	expect(isEnterKey('q')).toBe(false)
 })
 
 it('runs interrupt before sending the replacement message', async () => {

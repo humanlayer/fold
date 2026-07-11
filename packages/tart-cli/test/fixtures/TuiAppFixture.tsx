@@ -15,6 +15,7 @@ const renderer = await createCliRenderer({
 	targetFps: 30,
 	exitOnCtrlC: false,
 	consoleMode: 'disabled',
+	useKittyKeyboard: {},
 	onDestroy: () => resolveDestroyed?.(),
 })
 const [status, setStatus] = createSignal<'RUNNING' | 'IDLE' | 'STOPPED'>('IDLE')
@@ -29,14 +30,15 @@ await render(
 			mode="default"
 			profile="default"
 			notice={notice}
-			onSubmit={(verb) => {
-				setNotice(`${rootInputVerbLabel(verb)} QUEUED`)
+			onSubmit={(verb, text) => {
+				setNotice(`${rootInputVerbLabel(verb)} RECEIVED · ${text.replaceAll('\n', ' / ')}`)
 				setStatus('RUNNING')
 			}}
 			onInterrupt={() => {
 				setNotice('INTERRUPT REQUESTED')
 				setStatus('STOPPED')
 			}}
+			onCopySessionId={() => setNotice('SESSION ID COPIED')}
 		/>
 	),
 	renderer,

@@ -22,6 +22,7 @@
 		"catalog": {
 			"@kitlangton/terminal-control": "0.3.1",
 			"@opentui/core": "0.4.3",
+			"@opentui/keymap": "0.4.3",
 			"@opentui/solid": "0.4.3",
 			"solid-js": "1.9.12",
 			"effect": "4.0.0-beta.93",

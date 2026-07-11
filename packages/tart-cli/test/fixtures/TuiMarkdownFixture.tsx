@@ -90,6 +90,7 @@ const renderer = await createCliRenderer({
 	targetFps: 30,
 	exitOnCtrlC: false,
 	consoleMode: 'disabled',
+	useKittyKeyboard: {},
 	onDestroy: () => resolveDestroyed?.(),
 })
 
@@ -104,6 +105,7 @@ await render(
 			notice={() => null}
 			onSubmit={() => undefined}
 			onInterrupt={() => undefined}
+			onCopySessionId={() => undefined}
 		/>
 	),
 	renderer,

@@ -31,6 +31,9 @@ export const ConversationRow = Schema.Struct({
 	kind: Schema.Literals(['user', 'assistant', 'reasoning', 'tool-call', 'tool-result', 'compaction', 'error']),
 	label: Schema.String,
 	text: Schema.String,
+	inputText: Schema.NullOr(Schema.String),
+	executedInputText: Schema.NullOr(Schema.String),
+	resultText: Schema.NullOr(Schema.String),
 	toolName: Schema.NullOr(Schema.String),
 	toolCallId: Schema.NullOr(Schema.String),
 	status: Schema.Literals(['none', 'running', 'done', 'error']),
@@ -173,6 +176,20 @@ const clippedSummary = (value: unknown): string => {
 	return encoded === undefined ? '' : clippedText(encoded)
 }
 
+const prettyJson = (value: unknown): string => {
+	const encoded = JSON.stringify(value, null, 2)
+	return encoded === undefined ? '' : encoded
+}
+
+const contentPartText = (part: unknown): string => {
+	if (typeof part !== 'object' || part === null || !('type' in part)) return prettyJson(part)
+	if (part.type === 'text' && 'text' in part && typeof part.text === 'string') return part.text
+	if (part.type === 'image') return '[image content]'
+	return prettyJson(part)
+}
+
+const toolInputDetail = (params: unknown): string => prettyJson(params)
+
 const toolCallSummary = (params: unknown): string => {
 	if (typeof params !== 'object' || params === null) return clippedSummary(params)
 	if ('command' in params && typeof params.command === 'string') return clippedText(params.command)
@@ -188,6 +205,18 @@ const toolResultSummary = (result: unknown): string => {
 	}
 	return clippedSummary(result)
 }
+
+const toolResultDetail = (result: unknown): string => {
+	if (typeof result === 'string') return result
+	if (typeof result !== 'object' || result === null) return prettyJson(result)
+	if ('output' in result && typeof result.output === 'string') return result.output
+	if ('message' in result && typeof result.message === 'string') return result.message
+	if ('content' in result && typeof result.content === 'string') return result.content
+	if ('content' in result && Array.isArray(result.content)) return result.content.map(contentPartText).join('\n')
+	return prettyJson(result)
+}
+
+const sameText = (left: string | null, right: string | null): boolean => left === right
 
 const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 	Match.value(entry).pipe(
@@ -206,6 +235,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 								kind: 'user',
 								label: 'USER',
 								text,
+								inputText: null,
+								executedInputText: null,
+								resultText: null,
 								toolName: null,
 								toolCallId: null,
 								status: 'none' as const,
@@ -224,6 +256,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 									kind: 'assistant' as const,
 									label: 'ASSISTANT',
 									text: message.content,
+									inputText: null,
+									executedInputText: null,
+									resultText: null,
 									toolName: null,
 									toolCallId: null,
 									status: 'none' as const,
@@ -244,6 +279,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 											kind: 'assistant',
 											label: 'ASSISTANT',
 											text: part.text,
+											inputText: null,
+											executedInputText: null,
+											resultText: null,
 											toolName: null,
 											toolCallId: null,
 											status: 'none' as const,
@@ -260,6 +298,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 											kind: 'reasoning',
 											label: 'THINKING',
 											text: part.text,
+											inputText: null,
+											executedInputText: null,
+											resultText: null,
 											toolName: null,
 											toolCallId: null,
 											status: 'none' as const,
@@ -274,6 +315,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 									kind: 'tool-call',
 									label: part.name.toUpperCase(),
 									text: toolCallSummary(part.params),
+									inputText: toolInputDetail(part.params),
+									executedInputText: null,
+									resultText: null,
 									toolName: part.name,
 									toolCallId: part.id,
 									status: 'running' as const,
@@ -285,7 +329,7 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 					}
 				})
 			},
-			'tool-result': ({ message, messageId, seq }) =>
+			'tool-result': ({ executedInput, message, messageId, seq }) =>
 				typeof message.content === 'string'
 					? []
 					: message.content.flatMap(
@@ -298,6 +342,10 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 												kind: 'tool-result',
 												label: part.isFailure ? 'FAILED' : 'RESULT',
 												text: toolResultSummary(part.result),
+												inputText: null,
+												executedInputText:
+													executedInput === undefined ? null : toolInputDetail(executedInput),
+												resultText: toolResultDetail(part.result),
 												toolName: part.name,
 												toolCallId: part.id,
 												status: part.isFailure ? 'error' : 'done',
@@ -313,6 +361,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 					kind: 'compaction',
 					label: 'COMPACT',
 					text: summary,
+					inputText: null,
+					executedInputText: null,
+					resultText: null,
 					toolName: null,
 					toolCallId: null,
 					status: 'none' as const,
@@ -326,6 +377,9 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 					kind: 'error',
 					label: errorType.toUpperCase(),
 					text: message,
+					inputText: null,
+					executedInputText: null,
+					resultText: null,
 					toolName: null,
 					toolCallId: null,
 					status: 'none' as const,
@@ -352,7 +406,15 @@ const collapseToolResults = (rows: ReadonlyArray<ConversationRow>): ReadonlyArra
 			if (index !== undefined) {
 				const toolCall = visible[index]
 				if (toolCall !== undefined) {
-					visible[index] = { ...toolCall, status: row.status, isFailure: row.isFailure }
+					visible[index] = {
+						...toolCall,
+						status: row.status,
+						isFailure: row.isFailure,
+						executedInputText: sameText(toolCall.inputText, row.executedInputText)
+							? null
+							: row.executedInputText,
+						resultText: row.resultText,
+					}
 				}
 			}
 			continue
@@ -373,6 +435,9 @@ export const conversationRows = (state: SessionState): ReadonlyArray<Conversatio
 			kind: content.kind === 'text' ? 'assistant' : 'reasoning',
 			label: content.kind === 'text' ? 'ASSISTANT' : 'THINKING',
 			text: content.text,
+			inputText: null,
+			executedInputText: null,
+			resultText: null,
 			toolName: null,
 			toolCallId: null,
 			status: 'none',

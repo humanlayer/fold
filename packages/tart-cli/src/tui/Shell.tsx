@@ -17,7 +17,7 @@ import { createStore, reconcile } from 'solid-js/store'
 
 import type { CliSessionOptions } from '../Run'
 import { TuiApp } from './App'
-import { executeRootInputAction, rootInputVerbLabel, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
+import { executeRootInputAction, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
 import { makeSessionStateFromEntries, reduceSessionEvents } from './SessionState'
 
 export class TuiRequiresTtyError extends Schema.TaggedErrorClass<TuiRequiresTtyError>()('TuiRequiresTtyError', {}) {}
@@ -64,7 +64,7 @@ export const runTui = (
 		const context = yield* Effect.context<never>()
 		const runFork = Effect.runForkWith(context)
 		const submit = (verb: RootInputVerb, text: string): void => {
-			setNotice(`${rootInputVerbLabel(verb)} QUEUED`)
+			setNotice(null)
 			runFork(executeRootInputAction(session, verb, text, setNotice))
 		}
 		const interrupt = (): void => {
@@ -84,11 +84,15 @@ export const runTui = (
 					targetFps: 30,
 					exitOnCtrlC: false,
 					consoleMode: 'disabled',
+					useKittyKeyboard: {},
 					onDestroy: () => Deferred.doneUnsafe(quit, Effect.void),
 				}),
 			catch: (error) => new TuiRendererError({ message: String(error) }),
 		})
 		yield* Effect.addFinalizer(() => Effect.sync(() => renderer.destroy()))
+		const copySessionId = (): void => {
+			setNotice(renderer.copyToClipboardOSC52(session.sessionId) ? 'SESSION ID COPIED' : 'CLIPBOARD UNAVAILABLE')
+		}
 
 		const drain = session.events(replayHead + 1).pipe(
 			Stream.groupedWithin(1024, Duration.millis(16)),
@@ -120,6 +124,7 @@ export const runTui = (
 							notice={notice}
 							onSubmit={submit}
 							onInterrupt={interrupt}
+							onCopySessionId={copySessionId}
 						/>
 					),
 					renderer,

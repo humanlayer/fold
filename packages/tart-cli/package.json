@@ -15,11 +15,12 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun vitest run",
-		"test:tui": "TART_TUI_TERMINAL_TEST=1 bun vitest run test/TuiTerminalControl.vi.test.ts",
+		"test:tui": "TART_TUI_TERMINAL_TEST=1 bun vitest run test/TuiToolInspectTerminalControl.vi.test.ts && TART_TUI_TERMINAL_TEST=1 bun vitest run test/TuiTerminalControl.vi.test.ts",
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
 		"@opentui/core": "catalog:",
+		"@opentui/keymap": "catalog:",
 		"@opentui/solid": "catalog:",
 		"@effect/platform-node": "catalog:",
 		"@humanlayer/tart-agent": "workspace:*",
