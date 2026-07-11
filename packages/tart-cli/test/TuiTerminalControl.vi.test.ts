@@ -28,9 +28,16 @@ terminalDescribe('TUI terminal behavior', () => {
 		expect(initial.text).toContain('REPO// /workspace/tart')
 		expect(initial.text).toContain('FX//')
 		expect(initial.text).toContain('B GLOW:ON')
+		expect(initial.text).toContain('V VIGNETTE:HEAVY')
 
 		await session.keyboard.type('b')
 		await session.screen.waitForText('B GLOW:OFF', { timeoutMs: 10_000 })
+		await session.keyboard.type('v')
+		await session.screen.waitForText('V VIGNETTE:OFF', { timeoutMs: 10_000 })
+		await session.keyboard.type('v')
+		await session.screen.waitForText('V VIGNETTE:LIGHT', { timeoutMs: 10_000 })
+		await session.keyboard.type('v')
+		await session.screen.waitForText('V VIGNETTE:HEAVY', { timeoutMs: 10_000 })
 
 		await session.keyboard.type('q')
 		const exit = await session.waitForExit({ timeoutMs: 5_000 })
@@ -46,5 +53,5 @@ terminalDescribe('TUI terminal behavior', () => {
 		await interrupted.keyboard.press('Control+C')
 		const interruptedExit = await interrupted.waitForExit({ timeoutMs: 5_000 })
 		expect(interruptedExit).toMatchObject({ reason: 'exited', exit: { code: 0 } })
-	}, 30_000)
+	}, 60_000)
 })

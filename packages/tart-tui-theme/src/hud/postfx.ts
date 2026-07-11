@@ -33,16 +33,40 @@ export interface FxToggles {
 	readonly glow: boolean
 	readonly scanlines: boolean
 	readonly glitch: boolean
-	readonly vignette: boolean
+	readonly vignette: VignetteMode
 	/** The scrolling CRT brightness band. Continuous motion — keep it optional. */
 	readonly rollingBar: boolean
+}
+
+export type VignetteMode = 'off' | 'light' | 'heavy'
+
+export const nextVignetteMode = (mode: VignetteMode): VignetteMode => {
+	switch (mode) {
+		case 'off':
+			return 'light'
+		case 'light':
+			return 'heavy'
+		case 'heavy':
+			return 'off'
+	}
+}
+
+export const vignetteStrength = (strength: number, mode: VignetteMode): number => {
+	switch (mode) {
+		case 'off':
+			return 0
+		case 'light':
+			return strength * 0.5
+		case 'heavy':
+			return strength
+	}
 }
 
 export const ALL_FX_ON: FxToggles = {
 	glow: true,
 	scanlines: true,
 	glitch: true,
-	vignette: true,
+	vignette: 'heavy',
 	rollingBar: true,
 }
 
@@ -412,8 +436,8 @@ export function installPostFx(renderer: CliRenderer, theme: Theme, toggles: FxTo
 		passes.push((buffer) => glow.apply(buffer))
 	}
 
-	if (fx.vignette !== undefined && toggles.vignette) {
-		const vignette = new VignetteEffect(fx.vignette)
+	if (fx.vignette !== undefined && toggles.vignette !== 'off') {
+		const vignette = new VignetteEffect(vignetteStrength(fx.vignette, toggles.vignette))
 		passes.push((buffer) => vignette.apply(buffer))
 	}
 

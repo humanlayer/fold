@@ -8,7 +8,7 @@ import { Header } from './components/Header'
 import { Insights } from './components/Insights'
 import { ItemList } from './components/ItemList'
 import type { Feed, ItemKind } from './github/types'
-import { ALL_FX_ON, installPostFx } from './hud/postfx'
+import { ALL_FX_ON, installPostFx, nextVignetteMode } from './hud/postfx'
 import type { FxToggles } from './hud/postfx'
 import { nextThemeId, THEMES, ThemeProvider } from './theme/index'
 import type { ThemeId } from './theme/index'
@@ -86,7 +86,7 @@ export function App({ feed, initialTheme }: AppProps) {
 			case 'g':
 				return setToggles((prev) => ({ ...prev, glitch: !prev.glitch }))
 			case 'v':
-				return setToggles((prev) => ({ ...prev, vignette: !prev.vignette }))
+				return setToggles((prev) => ({ ...prev, vignette: nextVignetteMode(prev.vignette) }))
 			case 'r':
 				// The scrolling CRT bar gets its own switch: it is the one pass that
 				// never stops moving, so it is the one people want to turn off.

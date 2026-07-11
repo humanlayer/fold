@@ -15,7 +15,19 @@ const VERBOSE_WIDTH = 120
  * A pass the active theme never declares renders wholly faint as `--`. Printing
  * `ON` for an effect that cannot run would make the readout lie.
  */
-function Toggle({ label, name, on, available }: { label: string; name: string; on: boolean; available: boolean }) {
+function Toggle({
+	label,
+	name,
+	status,
+	active,
+	available,
+}: {
+	label: string
+	name: string
+	status: string
+	active: boolean
+	available: boolean
+}) {
 	const { color } = useTheme()
 	const { width } = useTerminalDimensions()
 	const verbose = width >= VERBOSE_WIDTH
@@ -35,7 +47,7 @@ function Toggle({ label, name, on, available }: { label: string; name: string; o
 			<span fg={color.coreBright}>{label}</span>
 			{verbose ? <span fg={color.textFaint}>{` ${name}`}</span> : null}
 			<span fg={color.textFaint}>{':'}</span>
-			<span fg={on ? color.grid : color.textFaint}>{on ? 'ON' : 'OFF'}</span>
+			<span fg={active ? color.grid : color.textFaint}>{status}</span>
 		</text>
 	)
 }
@@ -65,11 +77,41 @@ export function Footer({ toggles }: { toggles: FxToggles }) {
 			<text fg={color.textFaint} wrapMode="none">
 				{'FX//'}
 			</text>
-			<Toggle label="B" name="GLOW" on={toggles.glow} available={fx.glow !== undefined} />
-			<Toggle label="S" name="SCAN" on={toggles.scanlines} available={fx.scanlines !== undefined} />
-			<Toggle label="G" name="GLITCH" on={toggles.glitch} available={fx.glitch !== undefined} />
-			<Toggle label="V" name="VIGNETTE" on={toggles.vignette} available={fx.vignette !== undefined} />
-			<Toggle label="R" name="CRT-BAR" on={toggles.rollingBar} available={fx.crtBar !== undefined} />
+			<Toggle
+				label="B"
+				name="GLOW"
+				status={toggles.glow ? 'ON' : 'OFF'}
+				active={toggles.glow}
+				available={fx.glow !== undefined}
+			/>
+			<Toggle
+				label="S"
+				name="SCAN"
+				status={toggles.scanlines ? 'ON' : 'OFF'}
+				active={toggles.scanlines}
+				available={fx.scanlines !== undefined}
+			/>
+			<Toggle
+				label="G"
+				name="GLITCH"
+				status={toggles.glitch ? 'ON' : 'OFF'}
+				active={toggles.glitch}
+				available={fx.glitch !== undefined}
+			/>
+			<Toggle
+				label="V"
+				name="VIGNETTE"
+				status={toggles.vignette.toUpperCase()}
+				active={toggles.vignette !== 'off'}
+				available={fx.vignette !== undefined}
+			/>
+			<Toggle
+				label="R"
+				name="CRT-BAR"
+				status={toggles.rollingBar ? 'ON' : 'OFF'}
+				active={toggles.rollingBar}
+				available={fx.crtBar !== undefined}
+			/>
 		</box>
 	)
 }

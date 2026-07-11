@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { installPostFx, ALL_FX_ON, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
+import { installPostFx, ALL_FX_ON, nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
 import { tactical } from '@humanlayer/tart-tui-theme/tactical'
 import { TextAttributes, type KeyEvent } from '@opentui/core'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
@@ -31,6 +31,7 @@ const Toggle = (props: {
 	readonly label: string
 	readonly name: string
 	readonly enabled: boolean
+	readonly status?: string
 	readonly verbose: boolean
 }) => (
 	<text wrapMode="none">
@@ -38,7 +39,7 @@ const Toggle = (props: {
 		{props.verbose ? <span style={{ fg: tactical.color.textFaint }}>{` ${props.name}`}</span> : null}
 		<span style={{ fg: tactical.color.textFaint }}>:</span>
 		<span style={{ fg: props.enabled ? tactical.color.grid : tactical.color.textFaint }}>
-			{props.enabled ? 'ON' : 'OFF'}
+			{props.status ?? (props.enabled ? 'ON' : 'OFF')}
 		</span>
 	</text>
 )
@@ -150,7 +151,7 @@ export const TuiApp = (props: TuiAppProps) => {
 				setToggles((current) => ({ ...current, glitch: !current.glitch }))
 				return
 			case 'v':
-				setToggles((current) => ({ ...current, vignette: !current.vignette }))
+				setToggles((current) => ({ ...current, vignette: nextVignetteMode(current.vignette) }))
 				return
 			case 'r':
 				setToggles((current) => ({ ...current, rollingBar: !current.rollingBar }))
@@ -257,7 +258,13 @@ export const TuiApp = (props: TuiAppProps) => {
 				<Toggle label="B" name="GLOW" enabled={toggles().glow} verbose={verboseFooter()} />
 				<Toggle label="S" name="SCAN" enabled={toggles().scanlines} verbose={verboseFooter()} />
 				<Toggle label="G" name="GLITCH" enabled={toggles().glitch} verbose={verboseFooter()} />
-				<Toggle label="V" name="VIGNETTE" enabled={toggles().vignette} verbose={verboseFooter()} />
+				<Toggle
+					label="V"
+					name="VIGNETTE"
+					enabled={toggles().vignette !== 'off'}
+					status={toggles().vignette.toUpperCase()}
+					verbose={verboseFooter()}
+				/>
 				<Toggle label="R" name="CRT-BAR" enabled={toggles().rollingBar} verbose={verboseFooter()} />
 			</box>
 		</box>
