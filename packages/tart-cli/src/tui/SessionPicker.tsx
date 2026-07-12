@@ -1,7 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 import type { SessionSummary } from '@humanlayer/tart-agent'
 import type { SessionId } from '@humanlayer/tart-core'
-import { ALL_FX_ON, nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
+import { nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
+import type { ThemeId } from '@humanlayer/tart-tui-theme/themes'
 import { TextAttributes, type KeyEvent } from '@opentui/core'
 import { useKeyboard, useTerminalDimensions } from '@opentui/solid'
 import { createEffect, createMemo, createSignal, Index, Show, type Accessor } from 'solid-js'
@@ -9,6 +10,7 @@ import { createEffect, createMemo, createSignal, Index, Show, type Accessor } fr
 import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { relativeSessionTime, shortSessionId } from './SessionPickerState'
 import { theme as tactical } from './ThemeState'
+import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
 
 export type SessionPickerProps = {
 	readonly cwd: string
@@ -24,45 +26,17 @@ export type SessionPickerProps = {
 	readonly toggles?: Accessor<FxToggles>
 	readonly setToggles?: (update: (current: FxToggles) => FxToggles) => void
 	readonly onCycleTheme?: () => void
-	readonly onSelectTheme?: (
-		theme: 'tactical' | 'wintermute' | 'neuromancer' | 'redalert' | 'covenant' | 'rapture',
-	) => void
+	readonly onSelectTheme?: (theme: ThemeId) => void
 }
 
 export type SessionPickerRow = SessionSummary & { readonly contextPercent: number | null }
-
-const KeyHint = (props: { readonly keyName: string; readonly label: string }) => (
-	<text wrapMode="none">
-		<span style={{ fg: tactical.color.coreBright }}>{props.keyName}</span>
-		<span style={{ fg: tactical.color.textDim }}>{` ${props.label}`}</span>
-	</text>
-)
-
-const Toggle = (props: {
-	readonly label: string
-	readonly name: string
-	readonly enabled: boolean
-	readonly status?: string
-	readonly verbose: boolean
-}) => (
-	<text wrapMode="none">
-		<span style={{ fg: tactical.color.coreBright }}>{props.label}</span>
-		{props.verbose ? <span style={{ fg: tactical.color.textDim }}>{` ${props.name}`}</span> : null}
-		<span style={{ fg: tactical.color.textDim }}>:</span>
-		<span style={{ fg: props.enabled ? tactical.color.grid : tactical.color.textDim }}>
-			{props.status ?? (props.enabled ? 'ON' : 'OFF')}
-		</span>
-	</text>
-)
 
 export const SessionPicker = (props: SessionPickerProps) => {
 	const dimensions = useTerminalDimensions()
 	const [selected, setSelected] = createSignal(0)
 	const [deleteTarget, setDeleteTarget] = createSignal<SessionPickerRow | null>(null)
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
-	const [fallbackToggles, setFallbackToggles] = createSignal<FxToggles>({ ...ALL_FX_ON, vignette: 'light' })
-	const toggles = () => props.toggles?.() ?? fallbackToggles()
-	const setToggles = props.setToggles ?? setFallbackToggles
+	const { toggles, setToggles } = createFxControls(props.toggles, props.setToggles)
 	const itemCount = createMemo(() => props.sessions().length + 1)
 	const showModeProfile = createMemo(() => dimensions().width >= 105)
 	const showProviderModel = createMemo(() => dimensions().width >= 130)
@@ -85,58 +59,14 @@ export const SessionPicker = (props: SessionPickerProps) => {
 		else props.onOpen(session.sessionId)
 	}
 	const paletteCommands = createMemo<ReadonlyArray<TuiCommand>>(() => {
-		const themeCommands: ReadonlyArray<TuiCommand> = (
-			['tactical', 'wintermute', 'neuromancer', 'redalert', 'covenant', 'rapture'] as const
-		).map((id) => ({
-			id: `theme.${id}`,
-			title: id === 'redalert' ? 'Red Alert' : id.charAt(0).toUpperCase() + id.slice(1),
-			category: 'VIEW',
-			run: () => props.onSelectTheme?.(id),
-		}))
+		const themes = themeCommands(props.onSelectTheme)
+		const fx = fxCommands({ toggles, setToggles })
 		const commands: Array<TuiCommand> = [
 			{ id: 'new', title: 'New session', category: 'NAVIGATE', shortcut: '^N', run: props.onNew },
 			{ id: 'open', title: 'Open selected session', category: 'NAVIGATE', run: activate },
-			{
-				id: 'glow',
-				title: `Turn glow ${toggles().glow ? 'off' : 'on'}`,
-				category: 'VIEW',
-				shortcut: 'B',
-				run: () => setToggles((value) => ({ ...value, glow: !value.glow })),
-			},
-			{
-				id: 'scan',
-				title: `Turn scanlines ${toggles().scanlines ? 'off' : 'on'}`,
-				category: 'VIEW',
-				shortcut: 'S',
-				run: () => setToggles((value) => ({ ...value, scanlines: !value.scanlines })),
-			},
-			{
-				id: 'glitch',
-				title: `Turn glitch ${toggles().glitch ? 'off' : 'on'}`,
-				category: 'VIEW',
-				shortcut: 'G',
-				run: () => setToggles((value) => ({ ...value, glitch: !value.glitch })),
-			},
-			{
-				id: 'vignette',
-				title: 'Vignette…',
-				category: 'VIEW',
-				shortcut: 'V',
-				children: (['off', 'light', 'heavy'] as const).map((mode) => ({
-					id: `vignette.${mode}`,
-					title: mode.toUpperCase(),
-					category: 'VIEW',
-					run: () => setToggles((value) => ({ ...value, vignette: mode })),
-				})),
-			},
-			{ id: 'theme', title: 'Switch theme…', category: 'VIEW', shortcut: 'T', children: themeCommands },
-			{
-				id: 'bar',
-				title: `Turn rolling CRT bar ${toggles().rollingBar ? 'off' : 'on'}`,
-				category: 'VIEW',
-				shortcut: 'R',
-				run: () => setToggles((value) => ({ ...value, rollingBar: !value.rollingBar })),
-			},
+			...fx.slice(0, 4),
+			{ id: 'theme', title: 'Switch theme…', category: 'VIEW', shortcut: 'T', children: themes },
+			fx[4],
 			{ id: 'quit', title: 'Quit Tart', category: 'APPLICATION', shortcut: 'Q', run: props.onQuit },
 		]
 		const session = props.sessions()[selected()]
@@ -378,20 +308,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 				<KeyHint keyName="T" label="THEME" />
 				<KeyHint keyName="Q" label="QUIT" />
 				<box flexGrow={1} />
-				<text fg={tactical.color.textDim} wrapMode="none">
-					FX//
-				</text>
-				<Toggle label="B" name="GLOW" enabled={toggles().glow} verbose={verboseFooter()} />
-				<Toggle label="S" name="SCAN" enabled={toggles().scanlines} verbose={verboseFooter()} />
-				<Toggle label="G" name="GLITCH" enabled={toggles().glitch} verbose={verboseFooter()} />
-				<Toggle
-					label="V"
-					name="VIGNETTE"
-					enabled={toggles().vignette !== 'off'}
-					status={toggles().vignette.toUpperCase()}
-					verbose={verboseFooter()}
-				/>
-				<Toggle label="R" name="CRT-BAR" enabled={toggles().rollingBar} verbose={verboseFooter()} />
+				<FxFooter toggles={toggles()} verbose={verboseFooter()} />
 			</box>
 			<Show when={deleteTarget()}>
 				<box
