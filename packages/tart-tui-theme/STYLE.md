@@ -28,7 +28,7 @@ single commitment drives every other decision:
 - Chrome is machine-like: uppercase, monospaced, bracketed, abbreviated. It should read as a
   readout, not as prose.
 
-Two variants are implemented. **AUGMENTED** is an old amber military system that has been
+Two variants are implemented. **RAPTURE** is an old amber military system that has been
 spliced with experimental neon cybernetics — amber structure, electric teal relief, laser
 purple grafts, piercing red alarms, on absolute black. **TACTICAL** is the view through a
 cyborg's optic — amber and burnt orange everywhere, one rare flash of cyan, neon red the only
@@ -59,8 +59,8 @@ be empty.
 
 ```ts
 interface Theme {
-	name: string // 'AUGMENTED'
-	tagline: string // 'AMBER SUBSTRATE // NEON GRAFT'
+	name: string // 'RAPTURE'
+	tagline: string // 'DROWNED DECO // NEON SPLICE'
 	color: ThemeColors
 	chrome: ThemeChrome
 	semantic: ThemeSemantic
@@ -117,7 +117,7 @@ interface that carries unused slots is lying about what the aesthetic needs.
 
 ### 4.1 The two palettes
 
-**AUGMENTED** — absolute black, amber substrate, neon graft.
+**RAPTURE** — absolute black, amber substrate, neon graft.
 
 | Role         | Hex           | Name                        |
 | ------------ | ------------- | --------------------------- |
@@ -160,7 +160,7 @@ them a `◆` glyph or the MERGED bar. Everything else is warm.
 
 ### 4.2 Semantic mapping
 
-|          | AUGMENTED                         | TACTICAL                  |
+|          | RAPTURE                           | TACTICAL                  |
 | -------- | --------------------------------- | ------------------------- |
 | `open`   | amber (the baseline record)       | amber                     |
 | `merged` | laser purple (a graft spliced in) | cyan — the one cold flash |
@@ -171,7 +171,7 @@ No green anywhere. Green reads as "web dashboard," and it is the fastest way to 
 
 ### 4.3 Scarcity is a rule, not a vibe
 
-Red must be **rare**. Measured on a full screen of AUGMENTED: red paints **11 of 2233 visible
+Red must be **rare**. Measured on a full screen of RAPTURE: red paints **11 of 2233 visible
 glyph cells (0.5%)** and purple **1.7%**, while the teal border (41.7%), body text (18.6%) and
 amber (7.5%) carry the screen. If red is common it stops meaning _critical_ and becomes a color.
 
@@ -184,7 +184,7 @@ The glow pass (§6.2) lights only glyphs whose foreground **luminance** exceeds 
 Using Rec. 601 luma, `L = 0.299R + 0.587G + 0.114B` on 0–1 channels, that threshold cuts the
 palette into two tiers, and _you choose the cut by choosing your hex values_:
 
-**AUGMENTED, threshold 0.40**
+**RAPTURE, threshold 0.40**
 
 | Role               | Hex       | L    | glows? |
 | ------------------ | --------- | ---- | ------ |
@@ -213,7 +213,7 @@ palette into two tiers, and _you choose the cut by choosing your hex values_:
 | `gridDim`          | `#7E5518` | 0.35 | —      |
 | `textFaint`        | `#3A2408` | 0.15 | —      |
 
-Read those tables as a design statement. In AUGMENTED the threshold sits at 0.40 **because**
+Read those tables as a design statement. In RAPTURE the threshold sits at 0.40 **because**
 laser purple (0.50) and piercing red (0.45) must glow — they are the "lasers," and a higher
 gate would extinguish exactly the elements the aesthetic is named for. The red was
 deliberately brightened from a deep crimson to `#FF3344` so it would clear the gate. Meanwhile
@@ -290,7 +290,7 @@ crowd the glyphs. The outer frame (header rule, footer rule) uses `chrome.frameS
 single-sided borders — a header is a box with `border={['bottom']}`, a horizontal rule is a
 1-row box with `border={['top']}` and nothing inside.
 
-**Frame style is a theme tell.** AUGMENTED frames in thin `single` teal; TACTICAL frames in
+**Frame style is a theme tell.** RAPTURE frames in thin `single` teal; TACTICAL frames in
 `heavy` burnt orange. At a glance, across the room, that alone identifies the theme.
 
 **Selection.** A selected row gets three simultaneous signals: a red `▸` caret, a `raised`
@@ -331,7 +331,7 @@ toggle allows it. Nothing is hard-coded.
 
 > **The non-obvious consequence.** Scanlines darken the **background** buffer only (so text
 > stays legible). On an absolute-black canvas there is nothing to darken — with the glow off,
-> scanlines are _invisible_. Measured on AUGMENTED: with glow on, mean background luminance
+> scanlines are _invisible_. Measured on RAPTURE: with glow on, mean background luminance
 > on scanline rows is `0.067` vs `0.075` elsewhere; with glow on and scanlines off, `0.073` vs
 > `0.075`; with glow off entirely, `0.000` vs `0.001`. **Scanlines are a texture carved into
 > the glow, not an independent effect.** If your canvas is pure black and your scanlines seem
@@ -393,7 +393,7 @@ at the distribution:
 - A halo must exist → **p99 clearly > 0**.
 - A _flat_ distribution (p50 ≈ p90 ≈ p99) means you are washing, not haloing.
 
-Shipped values, at radius 2: AUGMENTED `threshold 0.40, strength 0.10` → bg luminance
+Shipped values, at radius 2: RAPTURE `threshold 0.40, strength 0.10` → bg luminance
 p50 `0.02`, p90 `0.22`, p99 `0.46`. TACTICAL `threshold 0.60, strength 0.07` → p99 `0.13`.
 Past roughly `strength 0.15` a quarter of the screen lifts and the palette stops being legible.
 
@@ -409,14 +409,14 @@ toggleable anyway.
   from a bright center), scrolling down the screen and wrapping — a mistimed refresh. Both themes
   carry one, tuned to opposite characters.
 
-|                                   | AUGMENTED              | TACTICAL             |
+|                                   | RAPTURE                | TACTICAL             |
 | --------------------------------- | ---------------------- | -------------------- |
 | `speed` (rows/sec)                | 9 — a ~6 s sweep       | 6 — a ~9 s sweep     |
 | `height` (of screen)              | 0.06, a thin scan line | 0.1, a fat tube roll |
 | `intensity` (peak row multiplier) | 0.35 → `1.35×`         | 0.5 → `1.5×`         |
 | reads as                          | a system **scanning**  | a tube **failing**   |
 
-The effect multiplies foreground _and_ background. On AUGMENTED's absolute-black canvas there is
+The effect multiplies foreground _and_ background. On RAPTURE's absolute-black canvas there is
 no background to lift, so only the glyphs flare as the sweep passes — which is exactly the "gas
 tubes in dark space" the palette is after. On TACTICAL's murky canvas both lift, and the band
 reads as a physical artifact of the tube.
@@ -445,7 +445,7 @@ if the bar stops, the screen looks frozen between bursts.
 > undiscoverable toggle is the same as no toggle; users conclude the key is broken.
 
 Every pass in the chain is gated twice: the **theme** declares whether an effect exists, and a
-**toggle** decides whether it may run. Both must agree. That is why AUGMENTED's footer reads
+**toggle** decides whether it may run. Both must agree. That is why RAPTURE's footer reads
 `V VIGNETTE:--` — it defines no vignette, and a readout claiming `ON` for a pass that cannot run
 would be lying. It is also the trap: a key bound to a pass the current theme never declares looks
 exactly like a broken key.
@@ -453,7 +453,7 @@ exactly like a broken key.
 ### 7.4 The glitch — including the thing where colors suddenly shift
 
 This is the effect that fires every couple of seconds: a few rows tear sideways, some of them
-smear into the wrong color, the whole frame briefly recolors — channels separating (AUGMENTED) or
+smear into the wrong color, the whole frame briefly recolors — channels separating (RAPTURE) or
 chroma draining (TACTICAL) — and solid corrupt-colored blocks and tinted runs stamp across the
 screen, over the logo and the panel borders, for a few frames before it all snaps back.
 
@@ -531,7 +531,7 @@ frames — and that is **two distinct jobs**, not one.
 **Job one — a whole-frame pass that MOVES or REMOVES colour**, gated on the burst. Each theme
 picks the idiom that matches what kind of machine is failing.
 
-**Chromatic aberration** (AUGMENTED). For each cell, take the red channel from a cell offset to
+**Chromatic aberration** (RAPTURE). For each cell, take the red channel from a cell offset to
 the left, green from itself, and blue from a cell offset to the right, with the offset growing
 with radial distance from the screen center. The color layers slide out of register, strongest
 at the edges, zero at the center, then snap back. This is the failure mode of a **spliced**
@@ -609,7 +609,7 @@ permanent smear, dropout a washed-out theme, and the blocks a broken-looking ove
 
 **Parameters.**
 
-|                                   | AUGMENTED                          | TACTICAL                                      |
+|                                   | RAPTURE                            | TACTICAL                                      |
 | --------------------------------- | ---------------------------------- | --------------------------------------------- |
 | `chancePerSecond`                 | 0.5                                | 0.45                                          |
 | `maxLines`                        | 3                                  | 3                                             |
@@ -623,10 +623,10 @@ permanent smear, dropout a washed-out theme, and the blocks a broken-looking ove
 | `blockChance` / `maxBlocks`       | 0.6 / 2                            | 0.8 / 4                                       |
 | `tintChance` / `maxTints`         | 0.6 / 3                            | 0.75 / 3                                      |
 
-`corruptColors` obeys the same rule as the base palette: AUGMENTED keeps its cool signatures
+`corruptColors` obeys the same rule as the base palette: RAPTURE keeps its cool signatures
 (teal, purple); TACTICAL is warm tones + red + two dark grays and **nothing cool**. Verified over
 300 forced bursts — TACTICAL introduces no foreground whose blue channel exceeds its red and green
-(its one cool token, `merged` cyan, is never a corrupt colour), while AUGMENTED's aberration
+(its one cool token, `merged` cyan, is never a corrupt colour), while RAPTURE's aberration
 deliberately fringes cyan/magenta.
 
 **Balancing.** Compare the whole-frame passes by mean per-glyph RGB displacement, not changed-cell
@@ -638,11 +638,11 @@ glyphs, 0–441.)
 |                                           | mean ‖ΔRGB‖ | recolored (>30) | block bg / burst | tint fg / burst | border injected / burst |
 | ----------------------------------------- | ----------- | --------------- | ---------------- | --------------- | ----------------------- |
 | row tearing only (either theme)           | ~3          | ~1.3%           | 0                | 0               | 0                       |
-| AUGMENTED (aberration + injection)        | 45          | 24%             | 10               | —¹              | 25                      |
+| RAPTURE (aberration + injection)          | 45          | 24%             | 10               | —¹              | 25                      |
 | TACTICAL, old (dropout `0.6`, no inject)  | 70          | 87%             | 0                | 0               | 6²                      |
 | TACTICAL, now (dropout `0.4` + injection) | 48          | 87%             | 24               | 57              | 28                      |
 
-¹ AUGMENTED's tint-cell count can't be isolated: aberration coincidentally reconstructs exact
+¹ RAPTURE's tint-cell count can't be isolated: aberration coincidentally reconstructs exact
 palette hexes, so the fg-match metric is swamped by aberration noise. Blocks set `bg` (untouched by
 aberration) and are the clean proof: 0 → 10 per burst. ² TACTICAL's baseline 6 is a few cells where
 a `shift` moves a space onto a border, not colour injection.

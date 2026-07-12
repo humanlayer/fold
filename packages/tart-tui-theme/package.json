@@ -15,8 +15,12 @@
 	},
 	"scripts": {
 		"start": "bun run src/main.tsx",
-		"augmented": "bun run src/main.tsx --theme augmented",
+		"rapture": "bun run src/main.tsx --theme rapture",
 		"tactical": "bun run src/main.tsx --theme tactical",
+		"neuromancer": "bun run src/main.tsx --theme neuromancer",
+		"redalert": "bun run src/main.tsx --theme redalert",
+		"covenant": "bun run src/main.tsx --theme covenant",
+		"wintermute": "bun run src/main.tsx --theme wintermute",
 		"demo": "bun run src/main.tsx --demo",
 		"typecheck": "tsc --noEmit"
 	},

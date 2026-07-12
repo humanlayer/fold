@@ -1,10 +1,11 @@
 # tart-tui-theme
 
-A playable OpenTUI app that renders a GitHub PR/issue browser as a cyberpunk HUD in **two
-swappable themes**, so you can decide which aesthetic to carry into the real Tart TUI. Both
-themes render exactly the same data; press `t` to swap them live and judge them side by
-side. This package exists to make that decision, not to be production code — see
-[What this is not](#what-this-is-not).
+A playable OpenTUI app that renders a GitHub PR/issue browser as a cyberpunk HUD in **six
+swappable themes** — the two canonical candidates (RAPTURE, TACTICAL) plus four
+experiments (NEUROMANCER, RED ALERT, COVENANT, WINTERMUTE) — so you can decide which
+aesthetic to carry into the real Tart TUI. Every theme renders exactly the same data; press
+`t` to cycle them live and judge them side by side. This package exists to make that
+decision, not to be production code — see [What this is not](#what-this-is-not).
 
 For the design system itself — the palette, the glow threshold that decides which colors emit
 light, the typography rules, and exactly how the glitch works — see **[STYLE.md](./STYLE.md)**.
@@ -22,8 +23,9 @@ bun run demo
 
 That is the zero-setup path: `--demo` forces the bundled fixtures, so it needs no network
 and no GitHub token. Use `bun run start` to pull live data from GitHub instead, or `bun run
-augmented` / `bun run tactical` to start on a specific theme. The app accepts `--theme
-<augmented|tactical>`, `--repo <owner/repo>` (default `humanlayer/tart`), and `--demo`.
+<theme-id>` (`rapture`, `tactical`, `neuromancer`, `redalert`, `covenant`, `wintermute`)
+to start on a specific theme. The app accepts `--theme <theme-id>`, `--repo <owner/repo>`
+(default `humanlayer/tart`), and `--demo`.
 
 Live data is best-effort: the client discovers a token from `GITHUB_TOKEN`, `GH_TOKEN`, or
 `gh auth token`, and falls back to the fixtures on **any** failure — no token, no network,
@@ -75,13 +77,14 @@ The layout is responsive: below ~118 columns the right-hand rail (STATE / LABELS
 ACTIVITY / SOURCE) drops; below ~84 the INDEX list narrows (to 40% of width, floored, min 24
 cells). RECORD always survives.
 
-## Comparing the two themes
+## Comparing the themes
 
-`t` swaps the theme in place — same data, same layout, different palette and post-process
-chain — so the comparison is instantaneous. The two are deliberately pulled apart along these
-axes:
+`t` cycles the theme in place — same data, same layout, different palette and post-process
+chain — so the comparison is instantaneous. The cycle order is RAPTURE → TACTICAL →
+NEUROMANCER → RED ALERT → COVENANT → WINTERMUTE. The two canonical candidates are
+deliberately pulled apart along these axes:
 
-| Axis            | AUGMENTED                                  | TACTICAL                                                               |
+| Axis            | RAPTURE                                    | TACTICAL                                                               |
 | --------------- | ------------------------------------------ | ---------------------------------------------------------------------- |
 | Canvas          | absolute black                             | murky brown-black, like a dirty optic                                  |
 | Neon            | teal **and** laser purple **and** red      | amber only; a rare cyan flash; red                                     |
@@ -98,20 +101,43 @@ plus a glitch burst in A that separates the color layers (chromatic aberration) 
 versus a vignette + denser scanlines in B whose bursts **drop chroma** — the whole frame washes
 toward monochrome. In both, the burst also **injects** corrupt color it cannot get by moving or
 draining the frame: solid color blocks stamped over the logo and borders, and tinted runs of
-foreground — warm/red/gray in tactical (never cool), the spliced neon palette in augmented. Dropout
+foreground — warm/red/gray in tactical (never cool), the spliced neon palette in rapture. Dropout
 alone could only ever _darken_ B; the injection is what turns things red, burnt-orange and amber.
 (`glitch.chromaticAberration` is pinned at `0` in tactical; `chromaDropout` at `0.4` plus injection
 carries its corruption — an unstable analog signal, not a splice.) Both themes roll a CRT bar, but
 A's is a fast thin **scan sweep** over a black void (only glyphs flare) and B's a slow fat **tube
 roll** that lifts the murky canvas with it.
 
-The names carry the intent. **AUGMENTED — "amber substrate // neon graft"** is an old amber
-system hacked with experimental cybernetics: amber carries the structure, electric teal is
-cool relief on borders and structural data, laser purple marks anything "injected" (merged
-records, `#123` cross-references, count badges), and piercing red is rare — all against a
-pitch-black void that supplies none of its own light. **TACTICAL — "optic feed // nominal"**
+The names carry the intent. **RAPTURE — "drowned deco // neon splice"** is a sunken art-deco
+city lit only from within: amber brass carries the structure, electric teal is the cold sea
+pressing on the glass (borders and structural data), laser purple is the neon signage marking
+anything "injected" (merged records, `#123` cross-references, count badges), and piercing red
+is the rare emergency — all against absolute-black water that supplies none of its own light. **TACTICAL — "optic feed // nominal"**
 is the view through a cyborg's lens: amber and burnt orange own the whole screen, neon red is
 the only loud voice, cyan is a single rare flash, and the dominant artifact is the CRT itself.
+
+### The four experimental themes
+
+Each is a complete `Theme` under `src/theme/`, built with the same discipline (role-named
+slots, a documented glow-threshold partition, a scarcity budget for the critical color, one
+whole-frame glitch idiom):
+
+- **NEUROMANCER — "matrix feed // ice intact."** Green phosphor owns the world (the matrix
+  itself); cold cyan is ICE — the countermeasure lattice — on structural data; the one warm
+  flash is an amber klaxon (black ICE burning). Analog chroma-dropout glitch, `double` frame.
+  WINTERMUTE's twin.
+- **RED ALERT — "master alarm // all systems red."** An anime mech cockpit mid-alarm:
+  blue-shadowed razor reds on near-pure black (no rust, no orange drift), a white strobe as
+  the critical color (the only thing brighter than a red world), one cyan sync light, hazard
+  yellow on DRAFT. Digital chromatic-aberration glitch, urgent CRT bar.
+- **COVENANT — "plasma lattice // shields nominal."** An alien warship's hardlight command
+  surface: magenta-pink plasma structure, electric shield-cyan relief, a rare relic-gold,
+  acid containment yellow for critical (red would mud into the pink). Aberration reads as
+  shield harmonics; the `rounded` frame is the alien curvature tell.
+- **WINTERMUTE — "ice lattice // self-diagnostic."** A glacial orbital AI auditing itself.
+  Restraint is the signature: the glow gate admits exactly one token (white-ice), the glitch
+  fires roughly once a minute, no vignette, `double` frost frame, and the single warm color
+  is a thermal-amber fault light. NEUROMANCER's twin.
 
 ## The theming system
 
@@ -121,7 +147,7 @@ carry forward?
 - **`Theme` is one flat token interface** (`src/theme/types.ts`): `name` / `tagline`,
   a `color` object, `chrome`, `semantic`, `fx`, and two block ramps — `barRamp`
   (`▏▎▍▌▋▊▉█`, left-to-right) for the horizontal count bars and `sparkRamp` (`▁▂▃▄▅▆▇█`,
-  bottom-up) for the activity sparkline. `augmented.ts` and `tactical.ts` each define a
+  bottom-up) for the activity sparkline. `rapture.ts` and `tactical.ts` each define a
   private local `palette` of raw colors and map it onto those tokens.
 - **No hex literal exists outside `src/theme/*.ts`.** Every component calls `useTheme()` and
   references a _slot_ — `color.core`, `color.inject`, `color.alert` — never a color. Slots are
@@ -138,7 +164,7 @@ src` matches only the two theme files.)
   present in the theme and enabled by the runtime toggle. It returns a disposer; `App.tsx`
   tears the chain down and rebuilds it whenever the theme or a toggle changes. **Every pass is
   independently switchable**, and a pass runs only when the theme declares it _and_ the toggle
-  permits it — so AUGMENTED, which defines no vignette, shows `V VIGNETTE:--` rather than
+  permits it — so RAPTURE, which defines no vignette, shows `V VIGNETTE:--` rather than
   pretending it is on. Everything ships **on by default**; the footer spells out each key and
   what it drives, because a toggle nobody can find is a toggle that looks broken. The scrolling
   CRT bar gets its own switch (`r`), never shared with the static vignette, since it is the only
@@ -184,15 +210,15 @@ geometry without launching the full app. It always uses the fixtures, so no toke
 is involved.
 
 ```bash
-bun run scripts/preview.tsx --theme augmented --size 140x44
+bun run scripts/preview.tsx --theme rapture --size 140x44
 bun run scripts/preview.tsx --theme tactical  --size 140x44 --keys tab,j,j   # drive to 3rd issue
-bun run scripts/preview.tsx --theme augmented --size 140x44 --spans          # palette histogram
-bun run scripts/preview.tsx --theme augmented --size 90x30                   # narrow: rail drops
+bun run scripts/preview.tsx --theme rapture --size 140x44 --spans          # palette histogram
+bun run scripts/preview.tsx --theme rapture --size 90x30                   # narrow: rail drops
 ```
 
 The flags:
 
-- **`--theme <augmented|tactical>`** and **`--size WxH`** (default `140x44`).
+- **`--theme <rapture|tactical>`** and **`--size WxH`** (default `140x44`).
 - **`--keys a,b,c`** drives the app through a comma-separated key sequence before the frame is
   captured, exactly as a user would type it. Friendly names (`tab`, `up`, `pageup`, …) map to
   their escape sequences; single letters (`j`, `t`, …) pass straight through — so `--keys
@@ -222,7 +248,7 @@ Every row is sourced from `App.tsx`'s `useKeyboard`:
 | `↑` / `k`, `↓` / `j`   | Move selection                    |
 | `PageUp` / `PageDown`  | Jump 8 rows                       |
 | `Tab`                  | Switch PULLS ↔ ISSUES             |
-| `t`                    | Swap theme (AUGMENTED ↔ TACTICAL) |
+| `t`                    | Cycle theme (all six)             |
 | `b`                    | Toggle glow (the `fx.glow` token) |
 | `s`                    | Toggle scanlines                  |
 | `g`                    | Toggle glitch                     |
@@ -231,7 +257,7 @@ Every row is sourced from `App.tsx`'s `useKeyboard`:
 | `q` / `Esc` / `Ctrl-C` | Quit                              |
 
 All effects are on by default. A toggle reads `--` when the active theme declares no such
-effect — AUGMENTED has no vignette, so `v` is inert there. Above 120 columns the footer names
+effect — RAPTURE has no vignette, so `v` is inert there. Above 120 columns the footer names
 each key (`R CRT-BAR:ON`); below it, initials (`R:ON`).
 
 ## What this is not

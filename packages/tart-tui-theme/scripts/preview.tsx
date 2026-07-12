@@ -5,7 +5,7 @@
  *
  *   bun run scripts/preview.tsx --theme tactical --size 140x44
  *   bun run scripts/preview.tsx --keys tab,j,j
- *   bun run scripts/preview.tsx --theme augmented --spans   # fg-color histogram
+ *   bun run scripts/preview.tsx --theme rapture --spans   # fg-color histogram
  *
  * `--keys` delivers a comma-separated key sequence, driving the app the same way
  * a user would. Two non-obvious things make this work:
@@ -36,7 +36,7 @@ function hasFlag(name: string): boolean {
 }
 
 const themeArg = flag('theme')
-const theme: ThemeId = themeArg && isThemeId(themeArg) ? themeArg : 'augmented'
+const theme: ThemeId = themeArg && isThemeId(themeArg) ? themeArg : 'tactical'
 
 const [w = '140', h = '44'] = (flag('size') ?? '140x44').split('x')
 const width = Number(w)

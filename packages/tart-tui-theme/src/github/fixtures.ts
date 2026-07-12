@@ -28,7 +28,7 @@ const pulls: GhItem[] = [
 			'clears the palette half of #410.',
 			'',
 			'## What changed',
-			'- Two complete palettes: `augmented` and `tactical`',
+			'- Two complete palettes: `rapture` and `tactical`',
 			'- Post-processing stack is derived from theme tokens, not hardcoded',
 			'- Every rail panel is an aggregation over the feed — see `stats.ts`',
 			'',

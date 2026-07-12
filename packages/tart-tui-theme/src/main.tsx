@@ -14,7 +14,7 @@ interface Args {
 }
 
 function parseArgs(argv: readonly string[]): Args {
-	let theme: ThemeId = 'augmented'
+	let theme: ThemeId = 'tactical'
 	let slug = 'humanlayer/tart'
 	let demo = false
 

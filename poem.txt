@@ -1,0 +1,11 @@
+Branded IDs
+
+In the quiet of the runtime, schemas hold their ground,
+A prefix and a cuid2, collision-free and sound.
+usr_, ord_, ses_ — small sigils of intent,
+Each string a promise kept, each type a covenant.
+
+Effect threads the needle, validation in its wake,
+No accidental crossing of the boundaries we make.
+So here in tart's small garden of packages and code,
+A poem for the branded IDs that lighten every load.

@@ -1,6 +1,6 @@
 import type { BorderStyle } from '@opentui/core'
 
-export type ThemeId = 'augmented' | 'tactical'
+export type ThemeId = 'rapture' | 'tactical' | 'neuromancer' | 'redalert' | 'covenant' | 'wintermute'
 
 export interface GlitchSpec {
 	/** Expected number of glitch bursts per second. */
@@ -51,7 +51,7 @@ export interface GlitchSpec {
 	 * smears a *neighbour's* colour, these inject a *chosen* colour.
 	 *
 	 * Every hue is a theme token (no literal may live outside theme/*). TACTICAL
-	 * supplies warm tones + red + grays only — nothing cool; AUGMENTED may add its
+	 * supplies warm tones + red + grays only — nothing cool; RAPTURE may add its
 	 * teal/purple. `postfx` parses these to RGB once per install, never per frame.
 	 */
 
