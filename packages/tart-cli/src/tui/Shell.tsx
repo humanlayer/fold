@@ -11,6 +11,8 @@ import {
 	type SessionToResumeNotFoundError,
 } from '@humanlayer/tart-agent'
 import { lookupCatalogEntry, type SessionId, type TartSession } from '@humanlayer/tart-core'
+import { ALL_FX_ON, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
+import { nextThemeId, type ThemeId } from '@humanlayer/tart-tui-theme/themes'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { Cause, Deferred, Duration, Effect, Exit, Match, Schema, Scope, Stream } from 'effect'
@@ -22,6 +24,7 @@ import { TuiApp } from './App'
 import { executeRootInputAction, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
 import { SessionPicker } from './SessionPicker'
 import { makeSessionStateFromEntries, reduceSessionEvents, type SessionState } from './SessionState'
+import { setCurrentTheme } from './ThemeState'
 
 export class TuiRequiresTtyError extends Schema.TaggedErrorClass<TuiRequiresTtyError>()('TuiRequiresTtyError', {}) {}
 
@@ -62,6 +65,7 @@ type ActiveTuiSession = {
 	readonly submit: (verb: RootInputVerb, text: string) => void
 	readonly compact: () => void
 	readonly interrupt: () => void
+	readonly stop: () => void
 	readonly notify: (notice: string) => void
 	readonly scope: Scope.Closeable
 }
@@ -87,6 +91,13 @@ export const runTui = (
 				}),
 			catch: (error) => new TuiRendererError({ message: String(error) }),
 		})
+		const [themeId, setThemeId] = createSignal<ThemeId>('tactical')
+		const [toggles, setToggles] = createSignal<FxToggles>({ ...ALL_FX_ON, vignette: 'light' })
+		const selectTheme = (id: ThemeId): void => {
+			setCurrentTheme(id)
+			setThemeId(id)
+		}
+		const cycleTheme = (): void => selectTheme(nextThemeId(themeId()))
 		yield* Effect.addFinalizer(() => Effect.sync(() => renderer.destroy()))
 
 		const makeActiveSession = (
@@ -136,6 +147,18 @@ export const runTui = (
 							),
 					)
 				}
+				const stop = (): void => {
+					setNotice('STOP REQUESTED')
+					runActiveFork(
+						session
+							.stop('Requested from command palette')
+							.pipe(
+								Effect.catchCause((cause) =>
+									Effect.sync(() => setNotice(unexpectedActionCauseNotice(cause))),
+								),
+							),
+					)
+				}
 
 				const drain = session.events(replayHead + 1).pipe(
 					Stream.groupedWithin(1024, Duration.millis(16)),
@@ -163,6 +186,7 @@ export const runTui = (
 					submit,
 					compact,
 					interrupt,
+					stop,
 					notify: setNotice,
 				}
 			})
@@ -303,6 +327,10 @@ export const runTui = (
 									onDelete={removeSession}
 									onNew={() => activate(launchSession(launchOptions(options)), true)}
 									onQuit={() => renderer.destroy()}
+									toggles={toggles}
+									setToggles={setToggles}
+									onCycleTheme={cycleTheme}
+									onSelectTheme={selectTheme}
 								/>
 							}
 						>
@@ -319,6 +347,11 @@ export const runTui = (
 									onSubmit={current().submit}
 									onCompact={current().compact}
 									onInterrupt={current().interrupt}
+									onStop={current().stop}
+									toggles={toggles}
+									setToggles={setToggles}
+									onCycleTheme={cycleTheme}
+									onSelectTheme={selectTheme}
 									onNewSession={() => activate(launchSession(launchOptions(options)), true)}
 									onBackToSessions={showPicker}
 									onCopySessionId={() => {

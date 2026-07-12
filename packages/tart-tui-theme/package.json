@@ -9,6 +9,7 @@
 	"exports": {
 		".": "./src/main.tsx",
 		"./tactical": "./src/theme/tactical.ts",
+		"./themes": "./src/theme/index.ts",
 		"./theme-types": "./src/theme/types.ts",
 		"./glow": "./src/hud/GlowEffect.ts",
 		"./postfx": "./src/hud/postfx.ts"

@@ -12,12 +12,12 @@ export * from './types'
 
 /** The `t`-key cycle order: the two shipped themes first, then the experiments. */
 export const THEME_ORDER = [
-	'rapture',
 	'tactical',
+	'wintermute',
 	'neuromancer',
 	'redalert',
 	'covenant',
-	'wintermute',
+	'rapture',
 ] as const satisfies readonly ThemeId[]
 
 export const THEMES: Readonly<Record<ThemeId, Theme>> = {

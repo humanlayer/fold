@@ -1,12 +1,12 @@
 /** @jsxImportSource @opentui/solid */
-import { installPostFx, ALL_FX_ON, nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
-import { tactical } from '@humanlayer/tart-tui-theme/tactical'
+import { ALL_FX_ON, installPostFx, nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
 import { TextAttributes, type KeyEvent, type ScrollBoxRenderable, type TextareaRenderable } from '@opentui/core'
 import { registerManagedTextareaLayer } from '@opentui/keymap/addons/opentui'
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
 import { createEffect, createMemo, createSignal, Index, onCleanup, Show, type Accessor } from 'solid-js'
 
+import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { nextRootInputVerb, normalizeRootInputVerb, rootInputVerbLabel, type RootInputVerb } from './Converse'
 import { containsMarkdown } from './MarkdownDetection'
 import { MarkdownText } from './MarkdownText'
@@ -20,6 +20,7 @@ import {
 	type NavigationState,
 } from './Navigation'
 import { conversationRows, replayIsReady, type ConversationRow, type SessionState } from './SessionState'
+import { theme as tactical } from './ThemeState'
 import { diffHeight, diffsForTool, skillInspection } from './ToolInspect'
 import { TUI_CONTEXT_TITLE, TUI_INSPECT_BADGE, TUI_LIVE_BADGE } from './TuiChrome'
 
@@ -38,6 +39,13 @@ export type TuiAppProps = {
 	readonly onNewSession?: () => void
 	readonly onBackToSessions?: () => void
 	readonly onCopySessionId?: () => void
+	readonly toggles?: Accessor<FxToggles>
+	readonly setToggles?: (update: (current: FxToggles) => FxToggles) => void
+	readonly onCycleTheme?: () => void
+	readonly onSelectTheme?: (
+		theme: 'tactical' | 'wintermute' | 'neuromancer' | 'redalert' | 'covenant' | 'rapture',
+	) => void
+	readonly onStop?: () => void
 }
 
 const statusColor = (status: SessionState['status']): string =>
@@ -388,8 +396,11 @@ const EventIndexRow = (props: { readonly row: Accessor<ConversationRow>; readonl
 export const TuiApp = (props: TuiAppProps) => {
 	const renderer = useRenderer()
 	const dimensions = useTerminalDimensions()
-	const [toggles, setToggles] = createSignal<FxToggles>({ ...ALL_FX_ON, vignette: 'light' })
 	const [draft, setDraft] = createSignal('')
+	const [paletteOpen, setPaletteOpen] = createSignal(false)
+	const [fallbackToggles, setFallbackToggles] = createSignal<FxToggles>({ ...ALL_FX_ON, vignette: 'light' })
+	const toggles = () => props.toggles?.() ?? fallbackToggles()
+	const setToggles = props.setToggles ?? setFallbackToggles
 	const [inputFocused, setInputFocused] = createSignal(props.initialInputFocused === true)
 	const [verb, setVerb] = createSignal<RootInputVerb>('send')
 	const [navigation, setNavigation] = createSignal<NavigationState>(
@@ -426,6 +437,83 @@ export const TuiApp = (props: TuiAppProps) => {
 	const verboseFooter = createMemo(() => dimensions().width >= 120)
 	const verbLabel = createMemo(() => rootInputVerbLabel(verb()))
 	const isCompacting = createMemo(() => props.compacting?.() === true)
+	const paletteCommands = createMemo<ReadonlyArray<TuiCommand>>(() => {
+		const themeCommands: ReadonlyArray<TuiCommand> = (
+			['tactical', 'wintermute', 'neuromancer', 'redalert', 'covenant', 'rapture'] as const
+		).map((id) => ({
+			id: `theme.${id}`,
+			title: id === 'redalert' ? 'Red Alert' : id.charAt(0).toUpperCase() + id.slice(1),
+			category: 'VIEW',
+			run: () => props.onSelectTheme?.(id),
+		}))
+		const commands: Array<TuiCommand> = [
+			{
+				id: 'new',
+				title: 'New session',
+				category: 'NAVIGATE',
+				shortcut: '^N',
+				run: () => props.onNewSession?.(),
+			},
+			{ id: 'resume', title: 'Resume session…', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
+			{ id: 'back', title: 'Return to sessions', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
+			{ id: 'copy', title: 'Copy session ID', category: 'SESSION', run: () => props.onCopySessionId?.() },
+			{
+				id: 'glow',
+				title: `Turn glow ${toggles().glow ? 'off' : 'on'}`,
+				category: 'VIEW',
+				shortcut: 'B',
+				run: () => setToggles((value) => ({ ...value, glow: !value.glow })),
+			},
+			{
+				id: 'scan',
+				title: `Turn scanlines ${toggles().scanlines ? 'off' : 'on'}`,
+				category: 'VIEW',
+				shortcut: 'S',
+				run: () => setToggles((value) => ({ ...value, scanlines: !value.scanlines })),
+			},
+			{
+				id: 'glitch',
+				title: `Turn glitch ${toggles().glitch ? 'off' : 'on'}`,
+				category: 'VIEW',
+				shortcut: 'G',
+				run: () => setToggles((value) => ({ ...value, glitch: !value.glitch })),
+			},
+			{
+				id: 'vignette',
+				title: 'Vignette…',
+				category: 'VIEW',
+				shortcut: 'V',
+				children: (['off', 'light', 'heavy'] as const).map((mode) => ({
+					id: `vignette.${mode}`,
+					title: mode.toUpperCase(),
+					category: 'VIEW',
+					run: () => setToggles((value) => ({ ...value, vignette: mode })),
+				})),
+			},
+			{ id: 'theme', title: 'Switch theme…', category: 'VIEW', shortcut: 'T', children: themeCommands },
+			{
+				id: 'bar',
+				title: `Turn rolling CRT bar ${toggles().rollingBar ? 'off' : 'on'}`,
+				category: 'VIEW',
+				shortcut: 'R',
+				run: () => setToggles((value) => ({ ...value, rollingBar: !value.rollingBar })),
+			},
+			{ id: 'quit', title: 'Quit Tart', category: 'APPLICATION', shortcut: 'Q', run: () => renderer.destroy() },
+		]
+		if (props.state().status === 'RUNNING') {
+			commands.push({ id: 'stop', title: 'Stop gracefully', category: 'SESSION', run: () => props.onStop?.() })
+			commands.push({
+				id: 'interrupt',
+				title: 'Interrupt all',
+				category: 'SESSION',
+				shortcut: '^C',
+				run: props.onInterrupt,
+			})
+		} else if (!isCompacting()) {
+			commands.push({ id: 'compact', title: 'Compact now', category: 'SESSION', run: props.onCompact })
+		}
+		return commands
+	})
 	const paneState = (pane: NavigationState['pane']): 'inactive' | 'selected' | 'focused' => {
 		if (navigation().pane !== pane) return 'inactive'
 		return navigation().level === 'pane' ? 'selected' : 'focused'
@@ -480,6 +568,7 @@ export const TuiApp = (props: TuiAppProps) => {
 
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release') return
+		if (paletteOpen()) return
 		if (key.ctrl && key.name === 'c') {
 			key.preventDefault()
 			props.onInterrupt()
@@ -488,6 +577,11 @@ export const TuiApp = (props: TuiAppProps) => {
 		if (key.ctrl && key.name === 'n') {
 			key.preventDefault()
 			props.onNewSession?.()
+			return
+		}
+		if ((key.ctrl || key.meta) && key.name === 'k') {
+			key.preventDefault()
+			setPaletteOpen(true)
 			return
 		}
 
@@ -611,6 +705,9 @@ export const TuiApp = (props: TuiAppProps) => {
 				return
 			case 'r':
 				setToggles((current) => ({ ...current, rollingBar: !current.rollingBar }))
+				return
+			case 't':
+				props.onCycleTheme?.()
 		}
 	})
 
@@ -833,6 +930,8 @@ export const TuiApp = (props: TuiAppProps) => {
 				<KeyHint keyName="↵" label="FOCUS/SEND" />
 				<KeyHint keyName="ESC" label={navigation().level === 'pane' ? 'SESSIONS' : 'BACK'} />
 				<KeyHint keyName="^N" label="NEW" />
+				<KeyHint keyName="^K" label="COMMANDS" />
+				<KeyHint keyName="T" label="THEME" />
 				<KeyHint keyName="^C" label="INTERRUPT" />
 				<KeyHint keyName="Q" label="QUIT" />
 				<box flexGrow={1} />
@@ -869,6 +968,9 @@ export const TuiApp = (props: TuiAppProps) => {
 					{props.sessionId}
 				</text>
 			</box>
+			<Show when={paletteOpen()}>
+				<CommandPalette commands={paletteCommands()} onClose={() => setPaletteOpen(false)} />
+			</Show>
 		</box>
 	)
 }
