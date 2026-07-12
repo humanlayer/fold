@@ -30,6 +30,7 @@ terminalDescribe('TUI manual compaction', () => {
 		await session.keyboard.type('/compact')
 		await session.keyboard.press('Enter')
 		await session.screen.waitForText('COMPACTING CONTEXT', { timeoutMs: 10_000 })
+		await session.screen.waitForText('SUMMARIZING CONVERSATION', { timeoutMs: 10_000 })
 		const compacting = await session.screen.capture({ settleMs: 0, deadlineMs: 250, allowIncomplete: true })
 		expect(compacting.text).toContain('SUMMARIZING CONVERSATION')
 		expect(compacting.text).not.toContain('ENTER SEND')

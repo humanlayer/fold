@@ -31,9 +31,12 @@ export type TuiAppProps = {
 	readonly profile: string
 	readonly notice: Accessor<string | null>
 	readonly compacting?: Accessor<boolean>
+	readonly initialInputFocused?: boolean
 	readonly onSubmit: (verb: RootInputVerb, text: string) => void
 	readonly onCompact: () => void
 	readonly onInterrupt: () => void
+	readonly onNewSession?: () => void
+	readonly onBackToSessions?: () => void
 	readonly onCopySessionId?: () => void
 }
 
@@ -94,18 +97,30 @@ const toolColor = (toolName: string | null): string => {
 	}
 }
 
+const assistantVisual = (
+	row: ConversationRow,
+): { readonly glyph: string; readonly color: string; readonly dim: boolean } =>
+	row.status === 'partial'
+		? { glyph: '◇', color: tactical.color.inject, dim: true }
+		: { glyph: '◇', color: tactical.color.coreBright, dim: false }
+
 const rowVisual = (row: ConversationRow): { readonly glyph: string; readonly color: string; readonly dim: boolean } => {
 	switch (row.kind) {
 		case 'user':
 			return { glyph: '›', color: tactical.color.grid, dim: false }
 		case 'assistant':
-			return { glyph: '◇', color: tactical.color.coreBright, dim: false }
+			return assistantVisual(row)
 		case 'reasoning':
 			return { glyph: '∴', color: tactical.color.textDim, dim: true }
 		case 'tool-call':
 			return {
-				glyph: toolGlyph(row.toolName),
-				color: row.status === 'error' ? tactical.color.alert : toolColor(row.toolName),
+				glyph: row.status === 'interrupted' ? '⊘' : toolGlyph(row.toolName),
+				color:
+					row.status === 'error'
+						? tactical.color.alert
+						: row.status === 'interrupted'
+							? tactical.color.inject
+							: toolColor(row.toolName),
 				dim: false,
 			}
 		case 'tool-result':
@@ -330,6 +345,7 @@ const EventIndexRow = (props: { readonly row: Accessor<ConversationRow>; readonl
 	const status = createMemo(() => {
 		if (props.row().kind !== 'tool-call') return ''
 		if (props.row().status === 'running') return 'run'
+		if (props.row().status === 'interrupted') return 'intr'
 		if (props.row().status === 'error') return 'err'
 		return 'done'
 	})
@@ -374,9 +390,11 @@ export const TuiApp = (props: TuiAppProps) => {
 	const dimensions = useTerminalDimensions()
 	const [toggles, setToggles] = createSignal<FxToggles>({ ...ALL_FX_ON, vignette: 'light' })
 	const [draft, setDraft] = createSignal('')
-	const [inputFocused, setInputFocused] = createSignal(false)
+	const [inputFocused, setInputFocused] = createSignal(props.initialInputFocused === true)
 	const [verb, setVerb] = createSignal<RootInputVerb>('send')
-	const [navigation, setNavigation] = createSignal<NavigationState>(initialNavigationState)
+	const [navigation, setNavigation] = createSignal<NavigationState>(
+		props.initialInputFocused === true ? { ...initialNavigationState, level: 'input' } : initialNavigationState,
+	)
 	let editor: TextareaRenderable | undefined
 	let eventsScroller: ScrollBoxRenderable | undefined
 	let contextScroller: ScrollBoxRenderable | undefined
@@ -467,6 +485,11 @@ export const TuiApp = (props: TuiAppProps) => {
 			props.onInterrupt()
 			return
 		}
+		if (key.ctrl && key.name === 'n') {
+			key.preventDefault()
+			props.onNewSession?.()
+			return
+		}
 
 		if (inputFocused()) {
 			if (key.name === 'escape') {
@@ -545,6 +568,10 @@ export const TuiApp = (props: TuiAppProps) => {
 		}
 
 		switch (key.name) {
+			case 'escape':
+				key.preventDefault()
+				props.onBackToSessions?.()
+				return
 			case 'q':
 				renderer.destroy()
 				return
@@ -718,7 +745,7 @@ export const TuiApp = (props: TuiAppProps) => {
 								top={0}
 								left={0}
 								width="100%"
-								height={4}
+								height="100%"
 								zIndex={5}
 								paddingLeft={1}
 								flexDirection="column"
@@ -804,7 +831,8 @@ export const TuiApp = (props: TuiAppProps) => {
 			>
 				<KeyHint keyName="H/L" label="PANES" />
 				<KeyHint keyName="↵" label="FOCUS/SEND" />
-				<KeyHint keyName="ESC" label="BACK" />
+				<KeyHint keyName="ESC" label={navigation().level === 'pane' ? 'SESSIONS' : 'BACK'} />
+				<KeyHint keyName="^N" label="NEW" />
 				<KeyHint keyName="^C" label="INTERRUPT" />
 				<KeyHint keyName="Q" label="QUIT" />
 				<box flexGrow={1} />

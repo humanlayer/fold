@@ -276,6 +276,78 @@ describe('TUI session reducer', () => {
 		expect(rows.some(({ text }) => text.includes('tart-cli'))).toBe(false)
 	})
 
+	it('marks flushed assistant text as partial after interruption', () => {
+		const partial = assistant(1)
+		const interrupted = entry({
+			_tag: 'agent-finished',
+			seq: 2,
+			ts: 2,
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			outcome: 'interrupted',
+			resultText: null,
+			reason: 'interrupted by the user',
+		})
+
+		const state = makeSessionStateFromEntries([partial, interrupted], rootAgentId)
+
+		expect(state.status).toBe('STOPPED')
+		expect(conversationRows(state)).toEqual([
+			expect.objectContaining({ kind: 'assistant', label: 'PARTIAL', status: 'partial', text: 'message 1' }),
+		])
+	})
+
+	it('renders synthetic interrupted tool results as interrupted instead of failed', () => {
+		const response = entry({
+			_tag: 'assistant-message',
+			seq: 1,
+			ts: 1,
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			messageId: 'msg_dddddddddddddddddddddddd',
+			message: {
+				role: 'assistant',
+				content: [
+					{
+						type: 'tool-call',
+						id: 'tool_call_bbbbbbbbbbbbbbbbbbbbbbbb',
+						name: 'bash',
+						params: { command: 'sleep 10' },
+						providerExecuted: false,
+					},
+				],
+			},
+			finish: null,
+		})
+		const result = entry({
+			_tag: 'tool-result',
+			seq: 2,
+			ts: 2,
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: 'tool_call_bbbbbbbbbbbbbbbbbbbbbbbb',
+			messageId: 'msg_eeeeeeeeeeeeeeeeeeeeeeee',
+			message: {
+				role: 'tool',
+				content: [
+					{
+						type: 'tool-result',
+						id: 'tool_call_bbbbbbbbbbbbbbbbbbbbbbbb',
+						name: 'bash',
+						isFailure: true,
+						result: '<system-information>The user interrupted the execution of this tool call.</system-information>',
+					},
+				],
+			},
+		})
+
+		expect(conversationRows(makeSessionStateFromEntries([response, result], rootAgentId))).toEqual([
+			expect.objectContaining({ kind: 'tool-call', status: 'interrupted', isFailure: true }),
+		])
+	})
+
 	it('is deterministic for the same initial state and events', () => {
 		const events = [
 			delta('text-delta', 'part', 'one'),

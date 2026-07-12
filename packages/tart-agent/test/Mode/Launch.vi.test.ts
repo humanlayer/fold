@@ -91,7 +91,10 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 
 				const started = entries.find((entry) => entry._tag === 'session_started')
 				expect(started?._tag).toBe('session_started')
-				if (started?._tag === 'session_started') expect(started.cwd).toBe(workspace)
+				if (started?._tag === 'session_started') {
+					expect(started.cwd).toBe(workspace)
+					expect(started.meta).toMatchObject({ mode: 'coding', rpi: false, profile: 'default' })
+				}
 
 				// The leading system message carries the mode prompt AND the agentfile project_context.
 				const leading = entries.find(
@@ -135,9 +138,11 @@ it.effect('launchSession with rpi appends the hint block after the mode prompt',
 					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
 				)
 				const leadingJson = JSON.stringify(leading)
+				const started = (yield* session.entries).find((entry) => entry._tag === 'session_started')
 
 				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
 				expect(leadingJson).toContain(RPI_HINT_PROMPT)
+				if (started?._tag === 'session_started') expect(started.meta.rpi).toBe(true)
 				// The hint composes AFTER the mode's own system prompt.
 				expect(leadingJson.indexOf(RPI_HINT_PROMPT)).toBeGreaterThan(leadingJson.indexOf(DEFAULT_CODING_PROMPT))
 			}),

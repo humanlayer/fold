@@ -20,11 +20,12 @@ const renderer = await createCliRenderer({
 })
 const [status, setStatus] = createSignal<'RUNNING' | 'IDLE' | 'STOPPED'>('IDLE')
 const [notice, setNotice] = createSignal<string | null>(null)
+const [model, setModel] = createSignal('unresolved')
 
 await render(
 	() => (
 		<TuiApp
-			state={() => ({ ...makeSessionState(null), status: status() })}
+			state={() => ({ ...makeSessionState(null), status: status(), model: model() })}
 			cwd="/workspace/tart"
 			sessionId="sess_terminal_control"
 			mode="default"
@@ -38,6 +39,14 @@ await render(
 			onInterrupt={() => {
 				setNotice('INTERRUPT REQUESTED')
 				setStatus('STOPPED')
+			}}
+			onNewSession={() => {
+				setNotice('NEW SESSION REQUESTED')
+				setModel('new-session-requested')
+			}}
+			onBackToSessions={() => {
+				setNotice('SESSION LIST REQUESTED')
+				setModel('session-list-requested')
 			}}
 			onCopySessionId={() => setNotice('SESSION ID COPIED')}
 		/>

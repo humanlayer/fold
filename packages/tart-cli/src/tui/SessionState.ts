@@ -25,6 +25,7 @@ export const SessionState = Schema.Struct({
 	seenSeqs: Schema.Array(LogSeq),
 	durableHead: Schema.NullOr(LogSeq),
 	rootContent: Schema.Array(LogEntry),
+	interruptedAssistantSeqs: Schema.Array(LogSeq),
 	transientContent: Schema.Array(TransientContent),
 	replay: ReplayState,
 	status: Schema.Literals(['RUNNING', 'IDLE', 'STOPPED']),
@@ -43,7 +44,7 @@ export const ConversationRow = Schema.Struct({
 	resultText: Schema.NullOr(Schema.String),
 	toolName: Schema.NullOr(Schema.String),
 	toolCallId: Schema.NullOr(Schema.String),
-	status: Schema.Literals(['none', 'running', 'done', 'error']),
+	status: Schema.Literals(['none', 'running', 'done', 'error', 'partial', 'interrupted']),
 	isFailure: Schema.Boolean,
 }).annotate({ identifier: 'TuiConversationRow' })
 export type ConversationRow = typeof ConversationRow.Type
@@ -52,6 +53,7 @@ export const makeSessionState = (durableHead: number | null): SessionState => ({
 	seenSeqs: [],
 	durableHead: null,
 	rootContent: [],
+	interruptedAssistantSeqs: [],
 	transientContent: [],
 	replay: durableHead === null ? { _tag: 'ready', head: null } : { _tag: 'replaying', head: durableHead },
 	status: 'IDLE',
@@ -117,13 +119,34 @@ const reduceLog = (state: SessionState, entry: LogEntry, rootAgentId: AgentId): 
 					Match.orElse(() => ({ status: state.status, model: state.model })),
 				)
 			: { status: state.status, model: state.model }
+	const latestUserSeq = state.rootContent.filter((candidate) => candidate._tag === 'user-message').at(-1)?.seq ?? -1
+	const interruptedAssistantSeqs =
+		entry.agentId === rootAgentId && entry._tag === 'agent-finished' && entry.outcome === 'interrupted'
+			? [
+					...state.interruptedAssistantSeqs,
+					...state.rootContent
+						.filter(
+							(candidate) =>
+								candidate._tag === 'assistant-message' &&
+								candidate.finish === null &&
+								candidate.seq > latestUserSeq,
+						)
+						.slice(-1)
+						.map(({ seq }) => seq),
+				]
+			: state.interruptedAssistantSeqs
 
 	return {
 		...state,
 		seenSeqs,
 		durableHead,
 		rootContent,
-		transientContent: rootEntry && isAssistantMessage(entry) ? [] : state.transientContent,
+		interruptedAssistantSeqs,
+		transientContent:
+			(rootEntry && isAssistantMessage(entry)) ||
+			(entry.agentId === rootAgentId && entry._tag === 'agent-finished')
+				? []
+				: state.transientContent,
 		replay: replayAfter(state.replay, seenSeqs),
 		...projection,
 	}
@@ -225,7 +248,12 @@ const toolResultDetail = (result: unknown): string => {
 
 const sameText = (left: string | null, right: string | null): boolean => left === right
 
-const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
+const interruptedToolResultPrefix = '<system-information>The user interrupted the execution of this tool call.'
+
+const rowsForEntry = (
+	entry: LogEntry,
+	interruptedAssistantSeqs: ReadonlyArray<number>,
+): ReadonlyArray<ConversationRow> =>
 	Match.value(entry).pipe(
 		Match.tags({
 			'user-message': ({ message, messageId, seq }): ReadonlyArray<ConversationRow> => {
@@ -253,6 +281,7 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 						]
 			},
 			'assistant-message': ({ message, messageId, seq }) => {
+				const partial = interruptedAssistantSeqs.includes(seq)
 				if (typeof message.content === 'string') {
 					return message.content.length === 0
 						? []
@@ -261,14 +290,14 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 									key: messageId,
 									seq,
 									kind: 'assistant' as const,
-									label: 'ASSISTANT',
+									label: partial ? 'PARTIAL' : 'ASSISTANT',
 									text: message.content,
 									inputText: null,
 									executedInputText: null,
 									resultText: null,
 									toolName: null,
 									toolCallId: null,
-									status: 'none' as const,
+									status: partial ? ('partial' as const) : ('none' as const),
 									isFailure: false,
 								},
 							]
@@ -284,14 +313,14 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 											key: `${messageId}:text:${index}`,
 											seq,
 											kind: 'assistant',
-											label: 'ASSISTANT',
+											label: partial ? 'PARTIAL' : 'ASSISTANT',
 											text: part.text,
 											inputText: null,
 											executedInputText: null,
 											resultText: null,
 											toolName: null,
 											toolCallId: null,
-											status: 'none' as const,
+											status: partial ? ('partial' as const) : ('none' as const),
 											isFailure: false,
 										},
 									]
@@ -355,7 +384,15 @@ const rowsForEntry = (entry: LogEntry): ReadonlyArray<ConversationRow> =>
 												resultText: toolResultDetail(part.result),
 												toolName: part.name,
 												toolCallId: part.id,
-												status: part.isFailure ? 'error' : 'done',
+												status:
+													part.isFailure &&
+													toolResultDetail(part.result).startsWith(
+														interruptedToolResultPrefix,
+													)
+														? 'interrupted'
+														: part.isFailure
+															? 'error'
+															: 'done',
 												isFailure: part.isFailure,
 											},
 										]
@@ -440,7 +477,7 @@ const collapseToolResults = (rows: ReadonlyArray<ConversationRow>): ReadonlyArra
 }
 
 export const conversationRows = (state: SessionState): ReadonlyArray<ConversationRow> => [
-	...collapseToolResults(state.rootContent.flatMap(rowsForEntry)),
+	...collapseToolResults(state.rootContent.flatMap((entry) => rowsForEntry(entry, state.interruptedAssistantSeqs))),
 	...state.transientContent.map(
 		(content): ConversationRow => ({
 			key: `transient:${content.key}`,

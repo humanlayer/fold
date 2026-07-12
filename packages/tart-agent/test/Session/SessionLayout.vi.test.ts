@@ -5,7 +5,7 @@
  * carries), and discovery lists a project's logs newest-first with the latest ready for
  * `resumeSession`.
  */
-import { writeFileSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
@@ -15,11 +15,14 @@ import { LanguageModel } from 'effect/unstable/ai'
 
 import {
 	latestSessionLog,
+	deleteSession,
 	listSessionLogs,
+	listSessionSummaries,
 	prepareSessionLog,
 	projectSlugFor,
 	sessionLogPathFor,
 	sessionsDirFor,
+	toolOutputSessionDirFor,
 } from '../../src/index'
 import { tempDir } from '../TestHelpers'
 
@@ -86,6 +89,46 @@ it.effect('a prepared log round-trips a session: the filename and session_starte
 	}).pipe(Effect.scoped),
 )
 
+it.effect('session summaries expose first-message titles, turns, and the active model', () =>
+	Effect.gen(function* () {
+		const tartHome = yield* tempDir
+		const cwd = '/session/summaries'
+		const prepared = yield* prepareSessionLog({ cwd, tartHome })
+		const model = customModel({
+			activeModel: {
+				providerId: 'scripted',
+				providerKind: 'openai-compatible',
+				modelId: 'picker-model',
+				role: null,
+				requestedReasoningLevel: 'off',
+				reasoning: { _tag: 'disabled' },
+			},
+			make: LanguageModel.make({
+				generateText: () => Effect.die(new Error('unused')),
+				streamText: () => Stream.empty,
+			}),
+		})
+		const session = yield* startSession({
+			agent: defineAgent({ model }),
+			log: prepared.log,
+			sessionId: prepared.sessionId,
+			cwd,
+		})
+		yield* session.send('  Fix   the flaky picker test  ')
+
+		const summaries = yield* listSessionSummaries({ cwd, tartHome })
+
+		expect(summaries).toHaveLength(1)
+		expect(summaries[0]).toMatchObject({
+			sessionId: prepared.sessionId,
+			title: 'Fix the flaky picker test',
+			turns: 1,
+			providerId: 'scripted',
+			modelId: 'picker-model',
+		})
+	}).pipe(Effect.scoped),
+)
+
 it.effect("discovery lists a project's logs newest-first and ignores foreign files", () =>
 	Effect.gen(function* () {
 		const tartHome = yield* tempDir
@@ -116,5 +159,28 @@ it.effect("discovery lists a project's logs newest-first and ignores foreign fil
 
 		// Ids parse back as branded SessionIds.
 		expect(SessionId.make(listed[0]?.sessionId ?? '')).toBe(newer.sessionId)
+	}).pipe(Effect.scoped),
+)
+
+it.effect('deleting a session removes its event log and full tool-output directory', () =>
+	Effect.gen(function* () {
+		const tartHome = yield* tempDir
+		const cwd = '/delete/me'
+		const prepared = yield* prepareSessionLog({ cwd, tartHome })
+		writeFileSync(prepared.path, '')
+		const outputDirectory = toolOutputSessionDirFor({ sessionId: prepared.sessionId, tartHome })
+		mkdirSync(outputDirectory, { recursive: true })
+		writeFileSync(join(outputDirectory, 'tool_call_test.txt'), 'full paginated output')
+
+		expect(yield* deleteSession(prepared.sessionId, { cwd, tartHome })).toEqual({
+			deleted: true,
+			outputRemoved: true,
+		})
+		expect(existsSync(prepared.path)).toBe(false)
+		expect(existsSync(outputDirectory)).toBe(false)
+		expect(yield* deleteSession(prepared.sessionId, { cwd, tartHome })).toEqual({
+			deleted: false,
+			outputRemoved: true,
+		})
 	}).pipe(Effect.scoped),
 )

@@ -388,6 +388,11 @@ export const launchSession = (
 			log: prepared.log,
 			cwd,
 			sessionId: prepared.sessionId,
+			meta: {
+				mode: mode.name,
+				rpi: opts.rpi === true || mode.rpiByDefault === true,
+				profile: opts.profile ?? 'default',
+			},
 			profiles: sessionProfilesFor(models),
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),

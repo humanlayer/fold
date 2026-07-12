@@ -10,12 +10,13 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { SessionId } from '@humanlayer/tart-core'
-import type { TartEventLog } from '@humanlayer/tart-core'
-import { Effect, Option, Schema } from 'effect'
+import { SessionId, usageInputTotal } from '@humanlayer/tart-core'
+import type { ActiveModel, LogEntry, TartEventLog } from '@humanlayer/tart-core'
+import { Effect, Exit, Option, Schema, Stream } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
 
 /** Options shared by the layout helpers. */
 export type SessionLayoutOptions = {
@@ -33,6 +34,19 @@ export type SessionLogRef = {
 	readonly path: string
 	/** Last-modified time of the log file, for newest-first ordering. */
 	readonly mtimeMs: number
+}
+
+/** Lightweight metadata used by session pickers without resuming the agent runtime. */
+export type SessionSummary = SessionLogRef & {
+	readonly title: string
+	readonly turns: number
+	readonly providerId: string | null
+	readonly modelId: string | null
+	readonly model: ActiveModel | null
+	readonly contextTokens: number | null
+	readonly mode: string | null
+	readonly rpi: boolean
+	readonly profile: string | null
 }
 
 const decodeSessionId = Schema.decodeUnknownOption(SessionId)
@@ -101,6 +115,88 @@ export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<R
 		}
 
 		return refs.sort((left, right) => right.mtimeMs - left.mtimeMs)
+	})
+
+const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message' }>): string => {
+	const content = entry.message.content
+	return typeof content === 'string'
+		? content
+		: content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+}
+
+const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): SessionSummary => {
+	const rootEntries = entries.filter((entry) => entry.parentAgentId === null)
+	const userEntries = rootEntries.filter((entry) => entry._tag === 'user-message')
+	const title =
+		userEntries[0] === undefined ? 'Untitled session' : userMessageText(userEntries[0]).replace(/\s+/g, ' ').trim()
+	const modelEntry = rootEntries.findLast((entry) => entry._tag === 'agent_started' || entry._tag === 'model-change')
+	const model = modelEntry?._tag === 'agent_started' || modelEntry?._tag === 'model-change' ? modelEntry.model : null
+	const latestUsage = rootEntries.findLast((entry) => entry._tag === 'assistant-message' && entry.finish !== null)
+	const started = rootEntries.find((entry) => entry._tag === 'session_started')
+	const meta = started?._tag === 'session_started' ? started.meta : {}
+
+	return {
+		...ref,
+		title: title.length === 0 ? 'Untitled session' : title,
+		turns: userEntries.length,
+		providerId: model?.providerId ?? null,
+		modelId: model?.modelId ?? null,
+		model,
+		contextTokens:
+			latestUsage?._tag === 'assistant-message' && latestUsage.finish !== null
+				? usageInputTotal(latestUsage.finish.usage)
+				: null,
+		mode: typeof meta.mode === 'string' ? meta.mode : null,
+		rpi: meta.rpi === true,
+		profile: typeof meta.profile === 'string' ? meta.profile : null,
+	}
+}
+
+const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | null> => {
+	const descriptor = jsonlEventLog(ref.path)
+	if (descriptor._tag !== 'source') return Effect.succeed(null)
+
+	return Effect.exit(
+		Effect.scoped(
+			descriptor.make.pipe(
+				Effect.flatMap((eventLog) => Stream.runCollect(eventLog.entries())),
+				Effect.map((entries) => sessionSummary(ref, Array.from(entries))),
+			),
+		),
+	).pipe(Effect.map((exit) => (Exit.isSuccess(exit) ? exit.value : null)))
+}
+
+/** Inspect valid logs for this project, newest first; corrupt logs are omitted independently. */
+export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Effect<ReadonlyArray<SessionSummary>> =>
+	listSessionLogs(options).pipe(
+		Effect.flatMap((refs) => Effect.forEach(refs, loadSessionSummary, { concurrency: 8 })),
+		Effect.map((summaries) => summaries.filter((summary): summary is SessionSummary => summary !== null)),
+	)
+
+export type DeleteSessionResult = {
+	readonly deleted: boolean
+	readonly outputRemoved: boolean
+}
+
+/** Delete one project's session log and all full tool-output files owned by that session. */
+export const deleteSession = (
+	sessionId: SessionId,
+	options?: SessionLayoutOptions,
+): Effect.Effect<DeleteSessionResult> =>
+	Effect.gen(function* () {
+		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const logPath = sessionLogPathFor(sessionId, options)
+		const exists = yield* fs.exists(logPath).pipe(Effect.orDie)
+		if (!exists) return { deleted: false, outputRemoved: true }
+
+		const tartHome = options?.tartHome ?? join(homedir(), '.tart')
+		const outputDirectory = toolOutputSessionDirFor({ sessionId, tartHome })
+		const outputExists = yield* fs.exists(outputDirectory).pipe(Effect.orDie)
+		yield* fs.remove(logPath).pipe(Effect.orDie)
+		if (!outputExists) return { deleted: true, outputRemoved: true }
+
+		const outputRemoval = yield* Effect.exit(fs.remove(outputDirectory, { recursive: true }))
+		return { deleted: true, outputRemoved: Exit.isSuccess(outputRemoval) }
 	})
 
 /** The newest session log for this project, or null when none exist ("resume latest" - D5). */

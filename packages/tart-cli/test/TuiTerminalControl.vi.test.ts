@@ -74,6 +74,23 @@ terminalDescribe('TUI terminal behavior', () => {
 		await session.screen.waitForText('CONTEXT · [LIVE] · root', { timeoutMs: 10_000 })
 	}, 60_000)
 
+	it('distinguishes partial assistant output and interrupted tools', async () => {
+		await using session = await terminal.launch({
+			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiInterruptedFixture.tsx'],
+			cwd: import.meta.dirname.replace(/\/test$/, ''),
+			host: 'opentui',
+			viewport: { cols: 140, rows: 44 },
+			record: 'on-failure',
+		})
+
+		await session.screen.waitForText('This response stopped midway', { timeoutMs: 10_000 })
+		const frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(frame.text).toContain('partial')
+		expect(frame.text).toContain('⊘ bash')
+		expect(frame.text).toContain('intr')
+		expect(frame.text).not.toContain('bash  sleep 10  run')
+	}, 30_000)
+
 	it('renders the tactical shell, converses from the root input, and exits cleanly', async () => {
 		await using session = await terminal.launch({
 			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiAppFixture.tsx'],
@@ -93,6 +110,13 @@ terminalDescribe('TUI terminal behavior', () => {
 		expect(initial.text).toContain('SEND')
 		expect(initial.text).toContain('EVENTS · [SELECTED]')
 		expect(initial.text).toContain('TAB TO FOCUS')
+		expect(initial.text).toContain('^N NEW')
+		expect(initial.text).toContain('ESC SESSIONS')
+
+		await session.keyboard.press('Control+N')
+		await session.screen.waitForText('new-session-requested', { timeoutMs: 10_000 })
+		await session.keyboard.press('Escape')
+		await session.screen.waitForText('session-list-requested', { timeoutMs: 10_000 })
 
 		await session.keyboard.press('Tab')
 		await session.screen.waitForText('MESSAGE ROOT', { timeoutMs: 10_000 })

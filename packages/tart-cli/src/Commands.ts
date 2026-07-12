@@ -399,10 +399,14 @@ const tui = Command.make('tui', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const options = yield* sessionOptionsFromFlags(input)
+			const catalog = yield* loadModelCatalog({
+				tartHome: options.tartHome ?? defaultTartHome(),
+				env: (name) => process.env[name],
+			})
 			const prompt = optionValue(input.prompt)
 			yield* Effect.promise(() => import('@opentui/solid/preload'))
 			const module = yield* Effect.promise(() => import('./tui/Shell'))
-			yield* module.runTui({ ...options, ...(prompt === undefined ? {} : { prompt }) }).pipe(
+			yield* module.runTui({ ...options, catalog, ...(prompt === undefined ? {} : { prompt }) }).pipe(
 				Effect.catchTags({
 					TuiRequiresTtyError: () =>
 						printFailure(
