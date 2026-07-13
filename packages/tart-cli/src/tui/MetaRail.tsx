@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { Index, type JSX } from 'solid-js'
+import { createEffect, createSignal, Index, onCleanup, type JSX } from 'solid-js'
 
 import { accent, accentPalette, accentTrack } from './AccentPalette'
 import type { metaCounts } from './Subagents'
@@ -76,20 +76,57 @@ const MetricRow = (props: {
 	readonly count: number
 	readonly max: number
 	readonly color: string
-}) => (
-	<box flexDirection="row" height={1} flexShrink={0} gap={1}>
-		<text fg={props.color} width={2} wrapMode="none">
-			{props.glyph ?? ''}
-		</text>
-		<text fg={props.color} width={12} wrapMode="none">
-			{props.label.slice(0, 12)}
-		</text>
-		<Bar value={props.count} max={props.max} color={props.color} />
-		<text fg={props.color} width={3} wrapMode="none">
-			{String(props.count).padStart(3)}
-		</text>
-	</box>
-)
+}) => {
+	const [displayedCount, setDisplayedCount] = createSignal(props.count)
+	const [displayedMax, setDisplayedMax] = createSignal(props.max)
+	let previousCount = props.count
+	let previousMax = props.max
+	let timer: ReturnType<typeof setInterval> | undefined
+
+	createEffect(() => {
+		const targetCount = props.count
+		const targetMax = props.max
+		if (targetCount === previousCount && targetMax === previousMax) return
+		if (timer !== undefined) clearInterval(timer)
+
+		const startCount = displayedCount()
+		const startMax = displayedMax()
+		const frames = 8
+		let frame = 0
+		timer = setInterval(() => {
+			frame += 1
+			const progress = 1 - Math.pow(1 - frame / frames, 3)
+			setDisplayedCount(startCount + (targetCount - startCount) * progress)
+			setDisplayedMax(startMax + (targetMax - startMax) * progress)
+			if (frame >= frames) {
+				clearInterval(timer)
+				timer = undefined
+				setDisplayedCount(targetCount)
+				setDisplayedMax(targetMax)
+			}
+		}, 35)
+		previousCount = targetCount
+		previousMax = targetMax
+	})
+	onCleanup(() => {
+		if (timer !== undefined) clearInterval(timer)
+	})
+
+	return (
+		<box flexDirection="row" height={1} flexShrink={0} gap={1}>
+			<text fg={props.color} width={2} wrapMode="none">
+				{props.glyph ?? ''}
+			</text>
+			<text fg={props.color} width={12} wrapMode="none">
+				{props.label.slice(0, 12)}
+			</text>
+			<Bar value={displayedCount()} max={displayedMax()} color={props.color} />
+			<text fg={props.color} width={3} wrapMode="none">
+				{String(Math.round(displayedCount())).padStart(3)}
+			</text>
+		</box>
+	)
+}
 
 export const MetaRail = (props: { readonly meta: Meta }) => {
 	const maxAgentType = () => Math.max(1, ...props.meta.agentTypes.map((item) => item[1]))

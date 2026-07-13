@@ -62,7 +62,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	const [draft, setDraft] = createSignal('')
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
 	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
-	const [railTab, setRailTab] = createSignal<'subagents' | 'meta' | 'skills'>('subagents')
+	const [railTab, setRailTab] = createSignal<'subagents' | 'meta' | 'skills'>('meta')
 	const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(props.initialSelectedAgentId ?? null)
 	const [targetDraft, setTargetDraft] = createSignal('')
 	const [targetFocused, setTargetFocused] = createSignal(false)
