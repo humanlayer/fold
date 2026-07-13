@@ -67,7 +67,7 @@ terminalDescribe('TUI terminal behavior', () => {
 		await session.screen.waitForText('EVENTS · [SELECTED]', { timeoutMs: 10_000 })
 		await session.keyboard.press('Enter')
 		await session.screen.waitForText('EVENTS · [FOCUSED]', { timeoutMs: 10_000 })
-		await session.keyboard.press('Tab')
+		await session.keyboard.press('Enter')
 		await session.screen.waitForText('MESSAGE ROOT', { timeoutMs: 10_000 })
 		await session.keyboard.type('follow live again')
 		await session.keyboard.press('Enter')
@@ -90,6 +90,36 @@ terminalDescribe('TUI terminal behavior', () => {
 		expect(frame.text).toContain('intr')
 		expect(frame.text).not.toContain('bash  sleep 10  run')
 	}, 30_000)
+
+	it('reviews and navigates a deterministic changes snapshot', async () => {
+		await using session = await terminal.launch({
+			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiAppFixture.tsx'],
+			cwd: import.meta.dirname.replace(/\/test$/, ''),
+			host: 'opentui',
+			viewport: { cols: 140, rows: 44 },
+			record: 'on-failure',
+		})
+
+		await session.screen.waitForText('WAITING FOR ROOT-AGENT OUTPUT', { timeoutMs: 10_000 })
+		await session.keyboard.press('Tab')
+		await session.screen.waitForText('CHANGES · [SELECTED]', { timeoutMs: 10_000 })
+		await session.screen.waitForText('notes file.md', { timeoutMs: 10_000 })
+		let frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(frame.text).toContain('STAGED')
+		expect(frame.text).toContain('UNTRACKED')
+		expect(frame.text).toContain('CONTEXT · [INSPECT] · git · 2 files')
+
+		await session.keyboard.press('Enter')
+		await session.keyboard.type('j')
+		await session.screen.waitForText('notes file.md · SELECTED', { timeoutMs: 10_000 })
+		await session.keyboard.type('e')
+		await session.screen.waitForText('FULL FILE', { timeoutMs: 10_000 })
+
+		await session.keyboard.press('Escape')
+		await session.screen.waitForText('CHANGES · [SELECTED]', { timeoutMs: 10_000 })
+		await session.keyboard.type('q')
+		expect(await session.waitForExit({ timeoutMs: 5_000 })).toMatchObject({ reason: 'exited', exit: { code: 0 } })
+	}, 45_000)
 
 	it('focuses a subagent and targets its steer and interrupt actions', async () => {
 		await using session = await terminal.launch({
@@ -133,7 +163,7 @@ terminalDescribe('TUI terminal behavior', () => {
 		expect(initial.text).toContain('V VIGNETTE:LIGHT')
 		expect(initial.text).toContain('SEND')
 		expect(initial.text).toContain('EVENTS · [SELECTED]')
-		expect(initial.text).toContain('TAB TO FOCUS')
+		expect(initial.text).toContain('ENTER TO FOCUS')
 		expect(initial.text).toContain('^N NEW')
 		expect(initial.text).toContain('ESC SESSIONS')
 
@@ -142,7 +172,9 @@ terminalDescribe('TUI terminal behavior', () => {
 		await session.keyboard.press('Escape')
 		await session.screen.waitForText('session-list-requested', { timeoutMs: 10_000 })
 
-		await session.keyboard.press('Tab')
+		await session.keyboard.press('Enter')
+		await session.screen.waitForText('EVENTS · [FOCUSED]', { timeoutMs: 10_000 })
+		await session.keyboard.press('Enter')
 		await session.screen.waitForText('MESSAGE ROOT', { timeoutMs: 10_000 })
 		await session.keyboard.type('b')
 		const focusedHotkey = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
@@ -171,7 +203,7 @@ terminalDescribe('TUI terminal behavior', () => {
 		await session.keyboard.press('Tab')
 		await session.screen.waitForText('[INTERRUPT+SEND]', { timeoutMs: 10_000 })
 		await session.keyboard.press('Escape')
-		await session.screen.waitForText('TAB TO FOCUS', { timeoutMs: 10_000 })
+		await session.screen.waitForText('ENTER TO FOCUS', { timeoutMs: 10_000 })
 		await session.keyboard.press('Escape')
 		await session.screen.waitForText('EVENTS · [SELECTED]', { timeoutMs: 10_000 })
 

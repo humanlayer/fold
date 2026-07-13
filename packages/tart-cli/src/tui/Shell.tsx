@@ -24,6 +24,7 @@ import { createStore, reconcile } from 'solid-js/store'
 import type { CliSessionOptions } from '../Run'
 import { TuiApp } from './App'
 import { executeRootInputAction, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
+import { loadGitSnapshot, type GitSnapshot } from './GitChanges'
 import { SessionPicker } from './SessionPicker'
 import { makeSessionStateFromEntries, reduceSessionEvents, type SessionState } from './SessionState'
 import { setCurrentTheme } from './ThemeState'
@@ -98,6 +99,15 @@ export const runTui = (
 			catch: (error) => new TuiRendererError({ message: String(error) }),
 		})
 		const [themeId, setThemeId] = createSignal<ThemeId>('tactical')
+		const [gitSnapshot, setGitSnapshot] = createSignal<GitSnapshot>({ _tag: 'ready', files: [] })
+		const refreshGit = (): void => {
+			setGitSnapshot({ _tag: 'loading', message: 'REFRESHING GIT SNAPSHOT' })
+			runFork(
+				loadGitSnapshot(currentCwd()).pipe(
+					Effect.tap((snapshot) => Effect.sync(() => setGitSnapshot(snapshot))),
+				),
+			)
+		}
 		const [toggles, setToggles] = createSignal<FxToggles>({
 			...ALL_FX_ON,
 			glow: false,
@@ -420,6 +430,8 @@ export const runTui = (
 									targetNotice={current().targetNotice}
 									compacting={current().compacting}
 									initialInputFocused={current().initialInputFocused}
+									gitSnapshot={gitSnapshot}
+									onRefreshGit={refreshGit}
 									onSubmit={current().submit}
 									onCompact={current().compact}
 									onInterrupt={current().interrupt}

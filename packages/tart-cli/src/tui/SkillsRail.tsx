@@ -4,6 +4,7 @@ import { createEffect, Index } from 'solid-js'
 
 import type { SkillView } from './Subagents'
 import { theme } from './ThemeState'
+import { tuiScrollbarOptions } from './TuiChrome'
 
 export const SkillsRail = (props: {
 	readonly skills: ReadonlyArray<SkillView>
@@ -17,7 +18,12 @@ export const SkillsRail = (props: {
 		if (props.focused && skill !== undefined) scroller?.scrollChildIntoView(`skill:${skill.name}`)
 	})
 	return (
-		<scrollbox ref={(value: ScrollBoxRenderable) => (scroller = value)} flexGrow={1} scrollY>
+		<scrollbox
+			ref={(value: ScrollBoxRenderable) => (scroller = value)}
+			flexGrow={1}
+			scrollY
+			scrollbarOptions={tuiScrollbarOptions()}
+		>
 			<box flexDirection="column" paddingX={1}>
 				<box height={1} flexDirection="row">
 					<text fg={theme.color.textFaint} wrapMode="none">{`${props.skills.length} AVAILABLE`}</text>

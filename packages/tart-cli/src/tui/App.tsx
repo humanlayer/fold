@@ -5,12 +5,13 @@ import { TextAttributes, type KeyEvent, type ScrollBoxRenderable, type TextareaR
 import { registerManagedTextareaLayer } from '@opentui/keymap/addons/opentui'
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
-import { createEffect, createMemo, createSignal, Index, onCleanup, Show, type Accessor } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show, type Accessor } from 'solid-js'
 
 import { ActivityIndicator, type ActivityState } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { nextRootInputVerb, normalizeRootInputVerb, rootInputVerbLabel, type RootInputVerb } from './Converse'
 import { EventDetail, EventIndexRow, EventRow, rowVisual } from './EventViews'
+import type { GitChangeGroup, GitSnapshot } from './GitChanges'
 import { MetaRail } from './MetaRail'
 import {
 	contextMode,
@@ -26,7 +27,7 @@ import { conversationRows, makeSessionStateFromEntries, replayIsReady, type Sess
 import { SkillsRail } from './SkillsRail'
 import { metaCounts, skillViews, subagentViews } from './Subagents'
 import { theme as tactical } from './ThemeState'
-import { TUI_CONTEXT_TITLE, TUI_INSPECT_BADGE, TUI_LIVE_BADGE } from './TuiChrome'
+import { TUI_CONTEXT_TITLE, TUI_INSPECT_BADGE, TUI_LIVE_BADGE, tuiScrollbarOptions } from './TuiChrome'
 import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
 
 export type TuiAppProps = {
@@ -54,7 +55,17 @@ export type TuiAppProps = {
 	readonly onTargetInterrupt?: (agentId: string) => void
 	readonly onInjectSkill?: (skill: string, agentId: string | null) => void
 	readonly initialSelectedAgentId?: string
+	readonly gitSnapshot?: Accessor<GitSnapshot>
+	readonly onRefreshGit?: () => void
 }
+
+const changeGroups: ReadonlyArray<{ readonly id: GitChangeGroup; readonly label: string }> = [
+	{ id: 'staged', label: 'STAGED' },
+	{ id: 'unstaged', label: 'UNSTAGED' },
+	{ id: 'untracked', label: 'UNTRACKED' },
+]
+
+const diffHeight = (diff: string): number => Math.max(4, diff.split('\n').length + 1)
 
 export const TuiApp = (props: TuiAppProps) => {
 	const renderer = useRenderer()
@@ -63,6 +74,9 @@ export const TuiApp = (props: TuiAppProps) => {
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
 	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
 	const [railTab, setRailTab] = createSignal<'subagents' | 'meta' | 'skills'>('meta')
+	const [leftTab, setLeftTab] = createSignal<'events' | 'changes'>('events')
+	const [selectedChange, setSelectedChange] = createSignal(0)
+	const [expandedChanges, setExpandedChanges] = createSignal<ReadonlySet<string>>(new Set())
 	const [selectedAgentId, setSelectedAgentId] = createSignal<string | null>(props.initialSelectedAgentId ?? null)
 	const [targetDraft, setTargetDraft] = createSignal('')
 	const [targetFocused, setTargetFocused] = createSignal(false)
@@ -79,6 +93,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	let targetEditor: TextareaRenderable | undefined
 	let eventsScroller: ScrollBoxRenderable | undefined
 	let contextScroller: ScrollBoxRenderable | undefined
+	let changesScroller: ScrollBoxRenderable | undefined
 	let pendingG = false
 	const keymap = createDefaultOpenTuiKeymap(renderer)
 	const removeInputKeymap = registerManagedTextareaLayer(keymap, renderer, {
@@ -104,6 +119,16 @@ export const TuiApp = (props: TuiAppProps) => {
 	onCleanup(removeInputKeymap)
 	onCleanup(removeTargetInputKeymap)
 	const rows = createMemo(() => conversationRows(props.state()))
+	const gitSnapshot = createMemo<GitSnapshot>(() => props.gitSnapshot?.() ?? { _tag: 'ready', files: [] })
+	const changes = createMemo(() => {
+		const snapshot = gitSnapshot()
+		return snapshot._tag === 'ready' ? snapshot.files : []
+	})
+	const gitSnapshotMessage = createMemo(() => {
+		const snapshot = gitSnapshot()
+		return snapshot._tag === 'ready' ? '' : snapshot.message
+	})
+	const currentChange = createMemo(() => changes()[selectedChange()])
 	const agents = createMemo(() =>
 		subagentViews(
 			props.state().allEntries,
@@ -129,6 +154,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	}
 	const rowKeys = createMemo(() => rows().map((row) => row.key))
 	const mode = createMemo(() => contextMode(navigation(), rowKeys()))
+	const readerMode = createMemo(() => (leftTab() === 'changes' ? 'inspect' : mode()))
 	const selectedRow = createMemo(() => {
 		const selectedKey = navigation().selectedKey
 		return selectedKey === null ? undefined : rows().find((row) => row.key === selectedKey)
@@ -141,7 +167,9 @@ export const TuiApp = (props: TuiAppProps) => {
 					agent.entries.some((entry) => entry._tag === 'agent_started' && entry.toolCallId === toolCallId),
 				)
 	})
-	const focusedAgent = createMemo(() => selectedAgent() ?? eventSelectedAgent())
+	const focusedAgent = createMemo(() =>
+		leftTab() === 'changes' ? undefined : (selectedAgent() ?? eventSelectedAgent()),
+	)
 	const targetStatus = createMemo<SessionState['status']>(() =>
 		focusedAgent()?.status === 'running' ? 'RUNNING' : 'IDLE',
 	)
@@ -192,6 +220,23 @@ export const TuiApp = (props: TuiAppProps) => {
 			{ id: 'resume', title: 'Resume session…', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
 			{ id: 'back', title: 'Return to sessions', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
 			{ id: 'copy', title: 'Copy session ID', category: 'SESSION', run: () => props.onCopySessionId?.() },
+			{
+				id: 'changes',
+				title: leftTab() === 'changes' ? 'Show events' : 'Show changes',
+				category: 'NAVIGATE',
+				shortcut: 'D',
+				run: () => toggleChanges(),
+			},
+			...(leftTab() === 'changes'
+				? [
+						{
+							id: 'refresh-changes',
+							title: 'Refresh changes',
+							category: 'VIEW' as const,
+							run: () => props.onRefreshGit?.(),
+						},
+					]
+				: []),
 			...fx.slice(0, 4),
 			{ id: 'theme', title: 'Switch theme…', category: 'VIEW', shortcut: 'T', children: themes },
 			fx[4],
@@ -235,12 +280,26 @@ export const TuiApp = (props: TuiAppProps) => {
 		return `${prefix}${fittedLabel}${suffix}`
 	}
 	const contextSubject = createMemo(() => {
+		if (leftTab() === 'changes') return `git · ${changes().length} files`
 		const selected = selectedRow()
 		if (focusedAgent() !== undefined) return `${focusedAgent()!.type} · ${focusedAgent()!.description}`
 		if (mode() === 'live' || selected === undefined) return 'root'
 		const visual = rowVisual(selected)
 		return `${selected.seq ?? 'live'} ${visual.glyph} ${selected.label.toLowerCase()}`
 	})
+	const toggleChanges = (): void => {
+		setLeftTab((current) => {
+			const next = current === 'events' ? 'changes' : 'events'
+			if (next === 'changes') {
+				setSelectedAgentId(null)
+				setInputFocused(false)
+				editor?.blur()
+				props.onRefreshGit?.()
+			}
+			return next
+		})
+		setNavigation((current) => ({ ...current, pane: 'events', level: 'pane' }))
+	}
 	const submitDraft = (): void => {
 		const text = (editor?.plainText ?? draft()).trim()
 		if (text.length === 0) return
@@ -267,6 +326,17 @@ export const TuiApp = (props: TuiAppProps) => {
 	createEffect(() => {
 		const selectedKey = navigation().selectedKey ?? rows().at(-1)?.key
 		if (selectedKey !== undefined) eventsScroller?.scrollChildIntoView(`event:${selectedKey}`)
+	})
+	createEffect(() => {
+		const files = changes()
+		setSelectedChange((current) => Math.max(0, Math.min(files.length - 1, current)))
+	})
+	createEffect(() => {
+		const change = currentChange()
+		if (leftTab() === 'changes' && change !== undefined) {
+			changesScroller?.scrollChildIntoView(`change:${change.key}`)
+			contextScroller?.scrollChildIntoView(`diff:${change.key}`)
+		}
 	})
 
 	createEffect(() => {
@@ -353,8 +423,7 @@ export const TuiApp = (props: TuiAppProps) => {
 			}
 			if (key.name === 'tab' && navigation().pane === 'events') {
 				key.preventDefault()
-				setInputFocused(true)
-				setNavigation((current) => ({ ...current, level: 'input' }))
+				toggleChanges()
 				return
 			}
 			if (key.name === 'tab' && navigation().pane === 'subagents') {
@@ -365,7 +434,7 @@ export const TuiApp = (props: TuiAppProps) => {
 			if (
 				navigation().pane === 'context' &&
 				focusedAgent() !== undefined &&
-				(key.name === 'tab' || key.name === 'enter' || key.name === 'return')
+				(key.name === 'enter' || key.name === 'return')
 			) {
 				key.preventDefault()
 				setTargetFocused(true)
@@ -373,6 +442,45 @@ export const TuiApp = (props: TuiAppProps) => {
 				return
 			}
 			if (navigation().pane === 'events') {
+				if (leftTab() === 'events' && (key.name === 'enter' || key.name === 'return')) {
+					key.preventDefault()
+					setInputFocused(true)
+					setNavigation((current) => ({ ...current, level: 'input' }))
+					editor?.focus()
+					return
+				}
+				if (leftTab() === 'changes') {
+					if (key.name === 'j' || key.name === 'down' || key.name === 'k' || key.name === 'up') {
+						key.preventDefault()
+						const delta = key.name === 'j' || key.name === 'down' ? 1 : -1
+						setSelectedChange((current) => Math.max(0, Math.min(changes().length - 1, current + delta)))
+						return
+					}
+					if (key.name === 'G' || (key.name === 'g' && key.shift)) {
+						key.preventDefault()
+						setSelectedChange(Math.max(0, changes().length - 1))
+						return
+					}
+					if (key.name === 'g') {
+						key.preventDefault()
+						if (pendingG) setSelectedChange(0)
+						pendingG = !pendingG
+						return
+					}
+					if (key.name === 'e') {
+						key.preventDefault()
+						const change = currentChange()
+						if (change !== undefined) {
+							setExpandedChanges((current) => {
+								const next = new Set(current)
+								if (next.has(change.key)) next.delete(change.key)
+								else next.add(change.key)
+								return next
+							})
+						}
+						return
+					}
+				}
 				if (key.name === 'j' || key.name === 'down') {
 					key.preventDefault()
 					setNavigation((current) => moveSelection(current, rowKeys(), 1))
@@ -475,15 +583,10 @@ export const TuiApp = (props: TuiAppProps) => {
 			case 'tab':
 				if (navigation().pane === 'events') {
 					key.preventDefault()
-					setInputFocused(true)
-					setNavigation((current) => ({ ...current, level: 'input' }))
+					toggleChanges()
 				} else if (navigation().pane === 'subagents') {
 					key.preventDefault()
 					nextRailTab()
-				} else if (focusedAgent() !== undefined) {
-					key.preventDefault()
-					setTargetFocused(true)
-					targetEditor?.focus()
 				}
 				return
 			case 'enter':
@@ -518,6 +621,9 @@ export const TuiApp = (props: TuiAppProps) => {
 				return
 			case 't':
 				props.onCycleTheme?.()
+				return
+			case 'd':
+				toggleChanges()
 		}
 	})
 
@@ -576,101 +682,200 @@ export const TuiApp = (props: TuiAppProps) => {
 								: tactical.chrome.panelStyle
 					}
 					borderColor={paneBorderColor('events')}
-					title={paneTitle('events', 'EVENTS')}
+					title={paneTitle('events', leftTab().toUpperCase())}
 					titleColor={paneTitleColor('events')}
 					backgroundColor={tactical.color.panel}
 				>
+					<box height={1} flexShrink={0} flexDirection="row" gap={2} paddingLeft={1}>
+						<text
+							fg={leftTab() === 'events' ? tactical.color.coreBright : tactical.color.textDim}
+							onMouseDown={() => leftTab() === 'changes' && toggleChanges()}
+						>
+							EVENTS
+						</text>
+						<text
+							fg={leftTab() === 'changes' ? tactical.color.coreBright : tactical.color.textDim}
+							onMouseDown={() => leftTab() === 'events' && toggleChanges()}
+						>
+							CHANGES
+						</text>
+					</box>
 					<scrollbox
 						ref={(renderable) => {
 							eventsScroller = renderable
+							changesScroller = renderable
 						}}
 						flexGrow={1}
 						scrollY
+						scrollbarOptions={tuiScrollbarOptions()}
 					>
-						<Index each={rows()} fallback={<text fg={tactical.color.textFaint}> WAITING FOR EVENTS</text>}>
-							{(row) => (
-								<EventIndexRow
-									row={row}
-									selected={() =>
-										navigation().selectedKey === row().key ||
-										(mode() === 'live' && row().key === rows().at(-1)?.key)
-									}
-								/>
-							)}
-						</Index>
+						<Show
+							when={leftTab() === 'events'}
+							fallback={
+								<Show
+									when={gitSnapshot()._tag === 'ready'}
+									fallback={<text fg={tactical.color.alert}>{` ${gitSnapshotMessage()}`}</text>}
+								>
+									<Show
+										when={changes().length > 0}
+										fallback={<text fg={tactical.color.textFaint}> WORKTREE CLEAN</text>}
+									>
+										<For each={changeGroups}>
+											{(group) => (
+												<Show when={changes().some((change) => change.group === group.id)}>
+													<text
+														fg={tactical.color.grid}
+														attributes={TextAttributes.BOLD}
+													>{` ${group.label}`}</text>
+													<For each={changes().filter((change) => change.group === group.id)}>
+														{(change) => (
+															<box
+																id={`change:${change.key}`}
+																height={1}
+																flexDirection="row"
+																paddingLeft={1}
+																onMouseDown={() =>
+																	setSelectedChange(
+																		changes().findIndex(
+																			(item) => item.key === change.key,
+																		),
+																	)
+																}
+															>
+																<text
+																	width={2}
+																	fg={
+																		currentChange()?.key === change.key
+																			? tactical.color.coreBright
+																			: tactical.color.textDim
+																	}
+																>
+																	{currentChange()?.key === change.key ? '▸' : ' '}
+																</text>
+																<text width={3} fg={tactical.color.grid}>
+																	{change.status}
+																</text>
+																<text
+																	flexGrow={1}
+																	truncate
+																	fg={
+																		currentChange()?.key === change.key
+																			? tactical.color.coreBright
+																			: tactical.color.text
+																	}
+																>
+																	{change.path}
+																</text>
+																<text fg={tactical.color.grid} wrapMode="none">
+																	{`+${change.additions}`}
+																</text>
+																<text fg={tactical.color.alert} wrapMode="none">
+																	{`-${change.deletions}`}
+																</text>
+															</box>
+														)}
+													</For>
+												</Show>
+											)}
+										</For>
+									</Show>
+								</Show>
+							}
+						>
+							<Index
+								each={rows()}
+								fallback={<text fg={tactical.color.textFaint}> WAITING FOR EVENTS</text>}
+							>
+								{(row) => (
+									<EventIndexRow
+										row={row}
+										selected={() =>
+											navigation().selectedKey === row().key ||
+											(mode() === 'live' && row().key === rows().at(-1)?.key)
+										}
+									/>
+								)}
+							</Index>
+						</Show>
 					</scrollbox>
-					<box
-						flexDirection="column"
-						height={5}
-						flexShrink={0}
-						paddingLeft={1}
-						paddingRight={1}
-						border={['top']}
-						borderStyle={inputFocused() ? tactical.chrome.frameStyle : tactical.chrome.panelStyle}
-						borderColor={inputFocused() ? tactical.color.coreBright : tactical.chrome.border}
-						backgroundColor={inputFocused() ? tactical.color.raised : tactical.color.panel}
-					>
-						<box flexDirection="row" height={3} flexShrink={0} gap={1} alignItems="flex-start">
-							<text wrapMode="none">
-								<span style={{ fg: tactical.color.grid }}>›</span>
-								<span style={{ fg: tactical.color.text }}> [</span>
-								<span style={{ fg: tactical.color.coreBright }}>{verbLabel()}</span>
-								<span style={{ fg: tactical.color.text }}>] </span>
-							</text>
-							<textarea
-								ref={(renderable) => {
-									editor = renderable
-								}}
-								flexGrow={1}
-								height={2}
-								focused={inputFocused()}
-								initialValue={draft()}
-								placeholder={inputFocused() ? 'MESSAGE ROOT' : 'TAB TO FOCUS'}
-								placeholderColor={tactical.color.grid}
-								textColor={tactical.color.text}
-								focusedTextColor={tactical.color.coreBright}
-								backgroundColor={tactical.color.panel}
-								focusedBackgroundColor={tactical.color.raised}
-								cursorColor={tactical.color.core}
-								cursorStyle={{ style: 'line', blinking: true }}
-								onSubmit={submitDraft}
-								onContentChange={setDraft}
-							/>
-						</box>
-						<box flexDirection="row" height={1} flexShrink={0}>
-							<text
-								fg={props.notice() === null ? tactical.color.grid : tactical.color.coreBright}
-								wrapMode="none"
-							>
-								{props.notice() ?? ''}
-							</text>
-							<box flexGrow={1} />
-							<text fg={tactical.color.textDim} wrapMode="none">
-								{inputFocused() ? 'ENTER SEND · SHIFT+ENTER NEWLINE · TAB TYPE' : 'TAB INPUT'}
-							</text>
-						</box>
-						<Show when={isCompacting()}>
-							<box
-								position="absolute"
-								top={0}
-								left={0}
-								width="100%"
-								height="100%"
-								zIndex={5}
-								paddingLeft={1}
-								flexDirection="column"
-								justifyContent="center"
-								backgroundColor={tactical.color.raised}
-							>
-								<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
-									⧗ COMPACTING CONTEXT
+					<Show when={leftTab() === 'events'}>
+						<box
+							flexDirection="column"
+							height={5}
+							flexShrink={0}
+							paddingLeft={1}
+							paddingRight={1}
+							border={['top']}
+							borderStyle={inputFocused() ? tactical.chrome.frameStyle : tactical.chrome.panelStyle}
+							borderColor={inputFocused() ? tactical.color.coreBright : tactical.chrome.border}
+							backgroundColor={inputFocused() ? tactical.color.raised : tactical.color.panel}
+						>
+							<box flexDirection="row" height={3} flexShrink={0} gap={1} alignItems="flex-start">
+								<text wrapMode="none">
+									<span style={{ fg: tactical.color.grid }}>›</span>
+									<span style={{ fg: tactical.color.text }}> [</span>
+									<span style={{ fg: tactical.color.coreBright }}>{verbLabel()}</span>
+									<span style={{ fg: tactical.color.text }}>] </span>
 								</text>
+								<textarea
+									ref={(renderable) => {
+										editor = renderable
+									}}
+									flexGrow={1}
+									height={2}
+									focused={inputFocused()}
+									initialValue={draft()}
+									placeholder={inputFocused() ? 'MESSAGE ROOT' : 'ENTER TO FOCUS'}
+									placeholderColor={tactical.color.grid}
+									textColor={tactical.color.text}
+									focusedTextColor={tactical.color.coreBright}
+									backgroundColor={tactical.color.panel}
+									focusedBackgroundColor={tactical.color.raised}
+									cursorColor={tactical.color.core}
+									cursorStyle={{ style: 'line', blinking: true }}
+									onSubmit={submitDraft}
+									onContentChange={setDraft}
+								/>
+							</box>
+							<box flexDirection="row" height={1} flexShrink={0}>
+								<text
+									fg={props.notice() === null ? tactical.color.grid : tactical.color.coreBright}
+									wrapMode="none"
+								>
+									{props.notice() ?? ''}
+								</text>
+								<box flexGrow={1} />
 								<text fg={tactical.color.textDim} wrapMode="none">
-									SUMMARIZING CONVERSATION
+									{inputFocused() ? 'ENTER SEND · SHIFT+ENTER NEWLINE · TAB TYPE' : 'ENTER INPUT'}
 								</text>
 							</box>
-						</Show>
-					</box>
+							<Show when={isCompacting()}>
+								<box
+									position="absolute"
+									top={0}
+									left={0}
+									width="100%"
+									height="100%"
+									zIndex={5}
+									paddingLeft={1}
+									flexDirection="column"
+									justifyContent="center"
+									backgroundColor={tactical.color.raised}
+								>
+									<text
+										fg={tactical.color.coreBright}
+										attributes={TextAttributes.BOLD}
+										wrapMode="none"
+									>
+										⧗ COMPACTING CONTEXT
+									</text>
+									<text fg={tactical.color.textDim} wrapMode="none">
+										SUMMARIZING CONVERSATION
+									</text>
+								</box>
+							</Show>
+						</box>
+					</Show>
 				</box>
 				<box
 					flexGrow={1}
@@ -686,7 +891,7 @@ export const TuiApp = (props: TuiAppProps) => {
 					borderColor={paneBorderColor('context')}
 					title={paneTitle(
 						'context',
-						`${TUI_CONTEXT_TITLE.trim()} · [${mode() === 'live' ? TUI_LIVE_BADGE : TUI_INSPECT_BADGE}] · ${contextSubject()}`,
+						`${TUI_CONTEXT_TITLE.trim()} · [${readerMode() === 'live' ? TUI_LIVE_BADGE : TUI_INSPECT_BADGE}] · ${contextSubject()}`,
 						contextPaneWidth() - 8,
 					)}
 					titleColor={paneTitleColor('context')}
@@ -698,37 +903,82 @@ export const TuiApp = (props: TuiAppProps) => {
 						}}
 						flexGrow={1}
 						scrollY
-						stickyScroll={mode() === 'live'}
+						stickyScroll={readerMode() === 'live'}
 						stickyStart="bottom"
-						scrollbarOptions={{
-							showArrows: false,
-							trackOptions: {
-								backgroundColor: tactical.color.textFaint,
-								foregroundColor: tactical.color.gridDim,
-							},
-						}}
+						scrollbarOptions={tuiScrollbarOptions()}
 					>
-						<Index
-							each={visibleContextRows()}
+						<Show
+							when={leftTab() === 'events'}
 							fallback={
-								<box paddingLeft={1}>
-									<text fg={tactical.color.textFaint}>
-										{replayIsReady(props.state().replay)
-											? 'WAITING FOR ROOT-AGENT OUTPUT'
-											: 'LOADING CONVERSATION HISTORY'}
-									</text>
-								</box>
+								<Show
+									when={gitSnapshot()._tag === 'ready'}
+									fallback={<text fg={tactical.color.alert}>{gitSnapshotMessage()}</text>}
+								>
+									<For each={changes()}>
+										{(change) => {
+											const displayedDiff = () =>
+												expandedChanges().has(change.key) ? change.expandedDiff : change.diff
+											return (
+												<box
+													id={`diff:${change.key}`}
+													flexDirection="column"
+													flexShrink={0}
+													paddingX={1}
+													paddingTop={1}
+												>
+													<text
+														fg={
+															currentChange()?.key === change.key
+																? tactical.color.coreBright
+																: tactical.color.grid
+														}
+														attributes={TextAttributes.BOLD}
+														wrapMode="none"
+													>
+														{`-- ${change.path}${currentChange()?.key === change.key ? ' · SELECTED' : ''} · ${change.group.toUpperCase()}${expandedChanges().has(change.key) ? ' · FULL FILE' : ''} --`}
+													</text>
+													<diff
+														diff={displayedDiff()}
+														view="unified"
+														width="100%"
+														height={diffHeight(displayedDiff())}
+														flexShrink={0}
+														wrapMode="word"
+														showLineNumbers
+														fg={tactical.color.text}
+														addedSignColor={tactical.color.grid}
+														removedSignColor={tactical.color.alert}
+														lineNumberFg={tactical.color.textDim}
+													/>
+												</box>
+											)
+										}}
+									</For>
+								</Show>
 							}
 						>
-							{(row) => (
-								<Show
-									when={focusedAgent() === undefined && mode() === 'inspect'}
-									fallback={<EventRow row={row} />}
-								>
-									<EventDetail row={row} />
-								</Show>
-							)}
-						</Index>
+							<Index
+								each={visibleContextRows()}
+								fallback={
+									<box paddingLeft={1}>
+										<text fg={tactical.color.textFaint}>
+											{replayIsReady(props.state().replay)
+												? 'WAITING FOR ROOT-AGENT OUTPUT'
+												: 'LOADING CONVERSATION HISTORY'}
+										</text>
+									</box>
+								}
+							>
+								{(row) => (
+									<Show
+										when={focusedAgent() === undefined && mode() === 'inspect'}
+										fallback={<EventRow row={row} />}
+									>
+										<EventDetail row={row} />
+									</Show>
+								)}
+							</Index>
+						</Show>
 					</scrollbox>
 					<Show when={focusedAgent()}>
 						<box
@@ -759,7 +1009,7 @@ export const TuiApp = (props: TuiAppProps) => {
 								ref={(value: TextareaRenderable) => (targetEditor = value)}
 								height={2}
 								focused={targetFocused()}
-								placeholder={targetFocused() ? 'MESSAGE SUBAGENT' : 'TAB OR ENTER TO FOCUS'}
+								placeholder={targetFocused() ? 'MESSAGE SUBAGENT' : 'ENTER TO FOCUS'}
 								initialValue={targetDraft()}
 								onContentChange={() => setTargetDraft(targetEditor?.plainText ?? '')}
 								placeholderColor={tactical.color.grid}
@@ -849,7 +1099,7 @@ export const TuiApp = (props: TuiAppProps) => {
 							)
 						}
 					>
-						<scrollbox flexGrow={1} scrollY>
+						<scrollbox flexGrow={1} scrollY scrollbarOptions={tuiScrollbarOptions()}>
 							<Index each={agents()} fallback={<text fg={tactical.color.textFaint}> NO SUBAGENTS</text>}>
 								{(agent) => (
 									<box

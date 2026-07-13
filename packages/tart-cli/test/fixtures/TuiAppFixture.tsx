@@ -128,6 +128,34 @@ await render(
 			sessionId="sess_terminal_control"
 			mode="default"
 			profile="default"
+			gitSnapshot={() => ({
+				_tag: 'ready',
+				files: [
+					{
+						key: 'staged:src/staged.ts',
+						group: 'staged',
+						status: 'M',
+						path: 'src/staged.ts',
+						additions: 1,
+						deletions: 1,
+						diff: 'diff --git a/src/staged.ts b/src/staged.ts\n--- a/src/staged.ts\n+++ b/src/staged.ts\n@@ -1 +1 @@\n-old\n+new',
+						expandedDiff:
+							'diff --git a/src/staged.ts b/src/staged.ts\n--- a/src/staged.ts\n+++ b/src/staged.ts\n@@ -1,2 +1,2 @@\n-old\n+new\n context',
+					},
+					{
+						key: 'untracked:notes file.md',
+						group: 'untracked',
+						status: '??',
+						path: 'notes file.md',
+						additions: 1,
+						deletions: 0,
+						diff: 'diff --git a/notes file.md b/notes file.md\n--- /dev/null\n+++ b/notes file.md\n@@ -0,0 +1 @@\n+fixture note',
+						expandedDiff:
+							'diff --git a/notes file.md b/notes file.md\n--- /dev/null\n+++ b/notes file.md\n@@ -0,0 +1 @@\n+fixture note',
+					},
+				],
+			})}
+			onRefreshGit={() => setNotice('CHANGES REFRESHED')}
 			{...(process.env.TART_TUI_SUBAGENT_FIXTURE === '1' ? { initialSelectedAgentId: 'agent_researcher' } : {})}
 			notice={notice}
 			targetNotice={targetNotice}

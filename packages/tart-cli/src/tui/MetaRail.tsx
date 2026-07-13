@@ -4,6 +4,7 @@ import { createEffect, createSignal, Index, onCleanup, type JSX } from 'solid-js
 import { accent, accentPalette, accentTrack } from './AccentPalette'
 import type { metaCounts } from './Subagents'
 import { theme } from './ThemeState'
+import { tuiScrollbarOptions } from './TuiChrome'
 
 type Meta = ReturnType<typeof metaCounts>
 
@@ -132,7 +133,7 @@ export const MetaRail = (props: { readonly meta: Meta }) => {
 	const maxAgentType = () => Math.max(1, ...props.meta.agentTypes.map((item) => item[1]))
 	const maxTool = () => Math.max(1, ...props.meta.toolCalls.map((item) => item[1]))
 	return (
-		<scrollbox flexGrow={1} scrollY>
+		<scrollbox flexGrow={1} scrollY scrollbarOptions={tuiScrollbarOptions()}>
 			<Panel title="STATUS">
 				<box flexDirection="row" height={1} gap={1}>
 					<text fg={theme.color.textFaint} width={5} wrapMode="none">
