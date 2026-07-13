@@ -181,7 +181,8 @@ export const SessionPicker = (props: SessionPickerProps) => {
 				</box>
 				<box flexGrow={1} />
 				<text wrapMode="none">
-					<span style={{ fg: tactical.color.textDim }}>{`${props.mode} · ${props.profile} · `}</span>
+					<span style={{ fg: tactical.color.coreBright }}>{tactical.name}</span>
+					<span style={{ fg: tactical.color.textDim }}> · </span>
 					<span style={{ fg: tactical.color.grid }}>{`${props.sessions().length} sessions`}</span>
 				</text>
 			</box>

@@ -7,6 +7,7 @@ import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
 import { createEffect, createMemo, createSignal, For, Index, onCleanup, Show, type Accessor } from 'solid-js'
 
+import { agentTypeAccent } from './AccentPalette'
 import { ActivityIndicator, type ActivityState } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { nextRootInputVerb, normalizeRootInputVerb, rootInputVerbLabel, type RootInputVerb } from './Converse'
@@ -1106,21 +1107,25 @@ export const TuiApp = (props: TuiAppProps) => {
 										paddingLeft={1}
 										height={2}
 										flexDirection="column"
+										backgroundColor={
+											selectedAgentId() === agent().agentId
+												? tactical.color.raised
+												: tactical.color.panel
+										}
 										onMouseDown={() => setSelectedAgentId(agent().agentId)}
 									>
 										<box height={1} flexDirection="row" gap={1}>
-											<text width={2} fg={tactical.color.coreBright} wrapMode="none">
-												{selectedAgentId() === agent().agentId ? '▸' : ' '}
+											<text width={2} fg={agentTypeAccent(agent().type)} wrapMode="none">
+												{selectedAgentId() === agent().agentId ? '▸' : '▌'}
 											</text>
 											<text
 												flexGrow={1}
 												wrapMode="none"
 												truncate
-												fg={
-													selectedAgentId() === agent().agentId
-														? tactical.color.coreBright
-														: tactical.color.text
-												}
+												fg={agentTypeAccent(agent().type)}
+												{...(selectedAgentId() === agent().agentId
+													? { attributes: TextAttributes.BOLD }
+													: {})}
 											>
 												{agent().type}
 											</text>

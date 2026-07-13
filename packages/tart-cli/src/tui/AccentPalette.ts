@@ -18,3 +18,15 @@ export const accentPalette: ReadonlyArray<string> = [
 ]
 
 export const accentTrack = '#3f3f46'
+
+export const agentTypeAccent = (name: string): string => {
+	const normalized = name.toLowerCase()
+	if (normalized.includes('locator')) return accent.blue
+	if (normalized.includes('analy')) return accent.cyan
+	if (normalized.includes('implement')) return accent.green
+	if (normalized.includes('research')) return accent.purple
+	if (normalized.includes('review')) return accent.yellow
+	if (normalized.includes('web')) return accent.orange
+	const hash = [...normalized].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
+	return accentPalette[hash % accentPalette.length]!
+}

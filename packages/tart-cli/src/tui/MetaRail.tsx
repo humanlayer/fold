@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { createEffect, createSignal, Index, onCleanup, type JSX } from 'solid-js'
 
-import { accent, accentPalette, accentTrack } from './AccentPalette'
+import { accent, accentPalette, accentTrack, agentTypeAccent } from './AccentPalette'
 import type { metaCounts } from './Subagents'
 import { theme } from './ThemeState'
 import { tuiScrollbarOptions } from './TuiChrome'
@@ -26,16 +26,6 @@ const colorForTool = (name: string): string => {
 	if (name === 'write') return accent.purple
 	if (name === 'skill') return accent.yellow
 	const hash = [...name].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
-	return accentPalette[hash % accentPalette.length]!
-}
-
-const agentTypeColor = (name: string): string => {
-	const normalized = name.toLowerCase()
-	if (normalized.includes('locator')) return accent.blue
-	if (normalized.includes('analy')) return accent.cyan
-	if (normalized.includes('implement')) return accent.green
-	if (normalized.includes('research')) return accent.purple
-	const hash = [...normalized].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
 	return accentPalette[hash % accentPalette.length]!
 }
 
@@ -188,7 +178,7 @@ export const MetaRail = (props: { readonly meta: Meta }) => {
 							label={item()[0]}
 							count={item()[1]}
 							max={maxAgentType()}
-							color={agentTypeColor(item()[0])}
+							color={agentTypeAccent(item()[0])}
 						/>
 					)}
 				</Index>
