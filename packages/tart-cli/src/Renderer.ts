@@ -409,6 +409,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			case 'session_started':
 			case 'system-message':
 			case 'tool_state':
+			case 'session_title':
 				return Effect.void
 
 			case 'agent_started':

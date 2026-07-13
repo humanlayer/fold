@@ -77,6 +77,7 @@ const isRootContent = Match.type<LogEntry>().pipe(
 		'thinking-change': () => false,
 		'tools-change': () => false,
 		'agent-finished': () => false,
+		session_title: () => false,
 	}),
 	Match.exhaustive,
 )

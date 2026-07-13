@@ -405,6 +405,7 @@ export const TuiApp = (props: TuiAppProps) => {
 			if (key.name === 'escape') {
 				key.preventDefault()
 				setInputFocused(false)
+				editor?.blur()
 				setNavigation((current) => ({ ...current, pane: 'events', level: 'content' }))
 				return
 			}
@@ -835,7 +836,7 @@ export const TuiApp = (props: TuiAppProps) => {
 									cursorColor={tactical.color.core}
 									cursorStyle={{ style: 'line', blinking: true }}
 									onSubmit={submitDraft}
-									onContentChange={setDraft}
+									onContentChange={() => setDraft(editor?.plainText ?? '')}
 								/>
 							</box>
 							<box flexDirection="row" height={1} flexShrink={0}>

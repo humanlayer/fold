@@ -555,6 +555,30 @@ export const AgentFinishedLogEntry = Schema.TaggedStruct('agent-finished', {
 	.annotate({ identifier: 'AgentFinishedLogEntry' })
 export type AgentFinishedLogEntry = typeof AgentFinishedLogEntry.Type
 
+/** A generated, human-readable session title. Session-scoped and additive for v1 log compatibility. */
+export const SessionTitleLogEntryInput = Schema.TaggedStruct('session_title', {
+	agentId: Schema.Null,
+	parentAgentId: Schema.Null,
+	toolCallId: Schema.Null,
+	title: Schema.String,
+	generatedThroughSeq: Schema.optional(LogSeq),
+	rootUserTurns: Schema.optional(Schema.Number),
+}).annotate({ identifier: 'SessionTitleLogEntryInput' })
+export type SessionTitleLogEntryInput = typeof SessionTitleLogEntryInput.Type
+
+/** Stored session title. The latest entry is the session's authoritative title. */
+export const SessionTitleLogEntry = Schema.TaggedStruct('session_title', {
+	seq: LogSeq,
+	ts: EpochMillis,
+	agentId: Schema.Null,
+	parentAgentId: Schema.Null,
+	toolCallId: Schema.Null,
+	title: Schema.String,
+	generatedThroughSeq: Schema.optional(LogSeq),
+	rootUserTurns: Schema.optional(Schema.Number),
+}).annotate({ identifier: 'SessionTitleLogEntry' })
+export type SessionTitleLogEntry = typeof SessionTitleLogEntry.Type
+
 /** Input for a durable error note in the log. */
 export const ErrorLogEntryInput = Schema.TaggedStruct('error', {
 	agentId: Schema.NullOr(AgentId),
@@ -593,6 +617,7 @@ export const LogEntryInput = Schema.Union([
 	ThinkingChangeLogEntryInput,
 	ToolsChangeLogEntryInput,
 	AgentFinishedLogEntryInput,
+	SessionTitleLogEntryInput,
 	ErrorLogEntryInput,
 ]).annotate({ identifier: 'LogEntryInput', discriminator: '_tag' })
 export type LogEntryInput = typeof LogEntryInput.Type
@@ -611,6 +636,7 @@ export const LogEntry = Schema.Union([
 	ThinkingChangeLogEntry,
 	ToolsChangeLogEntry,
 	AgentFinishedLogEntry,
+	SessionTitleLogEntry,
 	ErrorLogEntry,
 ]).annotate({ identifier: 'LogEntry', discriminator: '_tag' })
 export type LogEntry = typeof LogEntry.Type

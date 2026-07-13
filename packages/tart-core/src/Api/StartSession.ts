@@ -234,6 +234,11 @@ export type TartSession = {
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<TartEvent>
 	/** Snapshot of all durable log entries appended so far. */
 	readonly entries: Effect.Effect<ReadonlyArray<LogEntry>>
+	/** Append a generated title. The latest session_title row is authoritative. */
+	readonly setTitle: (
+		title: string,
+		provenance?: { readonly generatedThroughSeq?: LogSeq; readonly rootUserTurns?: number },
+	) => Effect.Effect<void>
 }
 
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
@@ -808,6 +813,17 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
 	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.
 	const setProfile = (role: ProfileRole, model: TartModel): Effect.Effect<void> => profiles.set(role, model)
+	const setTitle: TartSession['setTitle'] = (title, provenance) =>
+		graph.eventLog
+			.append({
+				_tag: 'session_title',
+				agentId: null,
+				parentAgentId: null,
+				toolCallId: null,
+				title,
+				...provenance,
+			})
+			.pipe(Effect.asVoid, Effect.orDie)
 
 	return {
 		sessionId: identity.sessionId,
@@ -822,6 +838,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		setProfile,
 		events: (fromSeq?: LogSeq) => session.events(fromSeq),
 		entries: collectEntries,
+		setTitle,
 	}
 }
 

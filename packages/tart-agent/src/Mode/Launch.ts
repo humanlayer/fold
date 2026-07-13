@@ -34,7 +34,7 @@ import {
 	type TartSession,
 	type TartTool,
 } from '@humanlayer/tart-core'
-import { Effect, Schema, type Scope } from 'effect'
+import { Effect, Schema, Semaphore, type Scope } from 'effect'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
@@ -49,7 +49,14 @@ import {
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
 import { makeOutputStore, type OutputStoreService } from '../OutputStore/OutputStore'
-import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
+import {
+	latestSessionLog,
+	prepareSessionLog,
+	refreshSessionSummaryIndex,
+	sessionLogById,
+	type SessionLogRef,
+} from '../Session/SessionLayout'
+import { generateSessionTitle } from '../Session/TitleGenerator'
 import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
 import { defaultCodingMode, type TartMode } from './Mode'
 import { modeForName } from './ModeName'
@@ -340,6 +347,55 @@ const sessionProfilesFor = (models: ModeModels): SessionProfiles => ({
 	orchestrator: models.orchestrator,
 })
 
+const withGeneratedTitles = (
+	session: TartSession,
+	model: TartModel,
+	options: { readonly cwd: string; readonly tartHome?: string },
+): Effect.Effect<TartSession> =>
+	Semaphore.make(1).pipe(
+		Effect.map((titleLock) => ({
+			...session,
+			send: (text, target) =>
+				session.send(text, target).pipe(
+					Effect.tap(() => {
+						if (target?.agentId !== undefined && target.agentId !== session.rootAgentId) return Effect.void
+						return titleLock.withPermit(
+							Effect.exit(
+								session.entries.pipe(
+									Effect.flatMap((entries) => {
+										const rootUsers = entries.filter(
+											(entry) =>
+												entry._tag === 'user-message' && entry.agentId === session.rootAgentId,
+										)
+										const lastTitle = entries.findLast((entry) => entry._tag === 'session_title')
+										const generatedTurns = lastTitle?.rootUserTurns ?? 0
+										if (rootUsers.length <= generatedTurns) return Effect.void
+										return generateSessionTitle(entries, session.rootAgentId, model).pipe(
+											Effect.flatMap((title) => {
+												const generatedThroughSeq = entries.at(-1)?.seq
+												return session
+													.setTitle(title, {
+														...(generatedThroughSeq === undefined
+															? {}
+															: { generatedThroughSeq }),
+														rootUserTurns: rootUsers.length,
+													})
+													.pipe(
+														Effect.andThen(
+															refreshSessionSummaryIndex(session.sessionId, options),
+														),
+													)
+											}),
+										)
+									}),
+								),
+							).pipe(Effect.asVoid),
+						)
+					}),
+				),
+		})),
+	)
+
 const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<TartConfig | null, LaunchModelError> => {
 	if (options.config !== undefined) return Effect.succeed(options.config)
 	if (options.model !== undefined) return Effect.succeed(null)
@@ -383,7 +439,7 @@ export const launchSession = (
 		yield* outputStore.sweep
 		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config, outputStore)
 
-		return yield* startSession({
+		const session = yield* startSession({
 			agent,
 			log: prepared.log,
 			cwd,
@@ -397,6 +453,10 @@ export const launchSession = (
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
 			...(opts.steering === undefined ? {} : { steering: opts.steering }),
+		})
+		return yield* withGeneratedTitles(session, models.fast, {
+			cwd,
+			...(opts.tartHome === undefined ? {} : { tartHome: opts.tartHome }),
 		})
 	})
 
@@ -418,13 +478,17 @@ const resumeFromLog = (
 		yield* outputStore.sweep
 		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config, outputStore)
 
-		return yield* resumeSession({
+		const session = yield* resumeSession({
 			agent,
 			log: jsonlEventLog(log.path),
 			profiles: sessionProfilesFor(models),
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
 			...(options.steering === undefined ? {} : { steering: options.steering }),
+		})
+		return yield* withGeneratedTitles(session, models.fast, {
+			cwd,
+			...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
 		})
 	})
 

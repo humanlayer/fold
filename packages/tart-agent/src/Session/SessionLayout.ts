@@ -34,6 +34,7 @@ export type SessionLogRef = {
 	readonly path: string
 	/** Last-modified time of the log file, for newest-first ordering. */
 	readonly mtimeMs: number
+	readonly size?: number
 }
 
 /** Lightweight metadata used by session pickers without resuming the agent runtime. */
@@ -69,6 +70,80 @@ export const sessionsDirFor = (options?: SessionLayoutOptions): string =>
 /** The log path for one session id under the project's sessions directory. */
 export const sessionLogPathFor = (sessionId: SessionId, options?: SessionLayoutOptions): string =>
 	join(sessionsDirFor(options), `${sessionId}.jsonl`)
+
+type SessionIndexRecord =
+	| {
+			readonly _tag: 'summary'
+			readonly sourceMtimeMs: number
+			readonly sourceSize: number
+			readonly summary: SessionSummary
+	  }
+	| { readonly _tag: 'deleted'; readonly sessionId: SessionId; readonly ts: number }
+
+const appendSessionIndexRecord = (record: SessionIndexRecord, options?: SessionLayoutOptions): Effect.Effect<void> => {
+	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+	const directory = sessionsDirFor(options)
+	return fs.makeDirectory(directory, { recursive: true }).pipe(
+		Effect.andThen(
+			fs.writeFileString(join(directory, 'index.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a' }),
+		),
+		Effect.catch(() => Effect.void),
+	)
+}
+
+const sessionIdFromIndexRecord = (record: SessionIndexRecord): SessionId =>
+	record._tag === 'summary' ? record.summary.sessionId : record.sessionId
+
+const decodeIndexRecord = (value: unknown): SessionIndexRecord | null => {
+	if (typeof value !== 'object' || value === null || !('_tag' in value)) return null
+	if (value._tag === 'deleted' && 'sessionId' in value && 'ts' in value) {
+		const sessionId = decodeSessionId(value.sessionId)
+		return Option.isSome(sessionId) && typeof value.ts === 'number'
+			? { _tag: 'deleted', sessionId: sessionId.value, ts: value.ts }
+			: null
+	}
+	if (value._tag !== 'summary' || !('sourceMtimeMs' in value) || !('sourceSize' in value) || !('summary' in value))
+		return null
+	const summary = value.summary
+	if (
+		typeof value.sourceMtimeMs !== 'number' ||
+		typeof value.sourceSize !== 'number' ||
+		typeof summary !== 'object' ||
+		summary === null
+	)
+		return null
+	if (!('sessionId' in summary) || !('title' in summary) || !('path' in summary) || !('mtimeMs' in summary))
+		return null
+	const sessionId = decodeSessionId(summary.sessionId)
+	if (Option.isNone(sessionId) || typeof summary.title !== 'string' || typeof summary.path !== 'string') return null
+	if (typeof summary.mtimeMs !== 'number' || !('status' in summary) || !('turns' in summary)) return null
+	return {
+		_tag: 'summary',
+		sourceMtimeMs: value.sourceMtimeMs,
+		sourceSize: value.sourceSize,
+		summary: summary as SessionSummary,
+	}
+}
+
+const loadSessionIndex = (options?: SessionLayoutOptions): Effect.Effect<Map<SessionId, SessionIndexRecord>> => {
+	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+	return fs.readFileString(join(sessionsDirFor(options), 'index.jsonl')).pipe(
+		Effect.map((contents) => {
+			const latest = new Map<SessionId, SessionIndexRecord>()
+			for (const line of contents.split('\n')) {
+				if (line.trim().length === 0) continue
+				try {
+					const record = decodeIndexRecord(JSON.parse(line))
+					if (record !== null) latest.set(sessionIdFromIndexRecord(record), record)
+				} catch {
+					// A partial/corrupt cache row is independently recoverable from the source log.
+				}
+			}
+			return latest
+		}),
+		Effect.catch(() => Effect.succeed(new Map<SessionId, SessionIndexRecord>())),
+	)
+}
 
 /**
  * Mint a session id and prepare its log location: the directory exists, the path is derived from the
@@ -112,6 +187,7 @@ export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<R
 				sessionId: decoded.value,
 				path,
 				mtimeMs: Option.match(info.mtime, { onNone: () => 0, onSome: (mtime) => mtime.getTime() }),
+				size: Number(info.size),
 			})
 		}
 
@@ -126,17 +202,28 @@ const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message
 }
 
 const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): SessionSummary => {
-	const rootEntries = entries.filter((entry) => entry.parentAgentId === null)
+	const started = entries.find((entry) => entry._tag === 'session_started')
+	const rootAgentId = started?._tag === 'session_started' ? started.rootAgentId : null
+	const rootEntries = entries.filter(
+		(entry) =>
+			entry._tag === 'session_started' ||
+			entry._tag === 'session_title' ||
+			(rootAgentId === null ? entry.parentAgentId === null : entry.agentId === rootAgentId),
+	)
 	const userEntries = rootEntries.filter((entry) => entry._tag === 'user-message')
+	const generatedTitle = rootEntries.findLast((entry) => entry._tag === 'session_title')
 	const title =
-		userEntries[0] === undefined ? 'Untitled session' : userMessageText(userEntries[0]).replace(/\s+/g, ' ').trim()
+		generatedTitle?._tag === 'session_title'
+			? generatedTitle.title
+			: userEntries[0] === undefined
+				? 'Untitled session'
+				: userMessageText(userEntries[0]).replace(/\s+/g, ' ').trim()
 	const modelEntry = rootEntries.findLast((entry) => entry._tag === 'agent_started' || entry._tag === 'model-change')
 	const model = modelEntry?._tag === 'agent_started' || modelEntry?._tag === 'model-change' ? modelEntry.model : null
 	const latestUsage = rootEntries.findLast((entry) => entry._tag === 'assistant-message' && entry.finish !== null)
-	const started = rootEntries.find((entry) => entry._tag === 'session_started')
 	const meta = started?._tag === 'session_started' ? started.meta : {}
 	const lastFinished = rootEntries.findLast((entry) => entry._tag === 'agent-finished')
-	const latestRootEntry = rootEntries.at(-1)
+	const latestRootEntry = rootEntries.findLast((entry) => entry._tag !== 'session_title')
 	const status: SessionSummary['status'] =
 		lastFinished === undefined || (latestRootEntry !== undefined && latestRootEntry.seq > lastFinished.seq)
 			? latestRootEntry?._tag === 'system-message' || latestRootEntry?._tag === 'agent_started'
@@ -180,12 +267,37 @@ const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | 
 	).pipe(Effect.map((exit) => (Exit.isSuccess(exit) ? exit.value : null)))
 }
 
-/** Inspect valid logs for this project, newest first; corrupt logs are omitted independently. */
+/** Read the one-file picker cache, rebuilding only stale/missing records from authoritative logs. */
 export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Effect<ReadonlyArray<SessionSummary>> =>
-	listSessionLogs(options).pipe(
-		Effect.flatMap((refs) => Effect.forEach(refs, loadSessionSummary, { concurrency: 8 })),
-		Effect.map((summaries) => summaries.filter((summary): summary is SessionSummary => summary !== null)),
-	)
+	Effect.gen(function* () {
+		const refs = yield* listSessionLogs(options)
+		const index = yield* loadSessionIndex(options)
+		const summaries = yield* Effect.forEach(
+			refs,
+			(ref) => {
+				const cached = index.get(ref.sessionId)
+				if (
+					cached?._tag === 'summary' &&
+					cached.sourceMtimeMs === ref.mtimeMs &&
+					cached.sourceSize === (ref.size ?? 0)
+				) {
+					return Effect.succeed({ ...cached.summary, path: ref.path, mtimeMs: ref.mtimeMs })
+				}
+				return loadSessionSummary(ref).pipe(
+					Effect.tap((summary) =>
+						summary === null
+							? Effect.void
+							: appendSessionIndexRecord(
+									{ _tag: 'summary', sourceMtimeMs: ref.mtimeMs, sourceSize: ref.size ?? 0, summary },
+									options,
+								),
+					),
+				)
+			},
+			{ concurrency: 8 },
+		)
+		return summaries.filter((summary): summary is SessionSummary => summary !== null)
+	})
 
 export type DeleteSessionResult = {
 	readonly deleted: boolean
@@ -207,6 +319,7 @@ export const deleteSession = (
 		const outputDirectory = toolOutputSessionDirFor({ sessionId, tartHome })
 		const outputExists = yield* fs.exists(outputDirectory).pipe(Effect.orDie)
 		yield* fs.remove(logPath).pipe(Effect.orDie)
+		yield* appendSessionIndexRecord({ _tag: 'deleted', sessionId, ts: Date.now() }, options)
 		if (!outputExists) return { deleted: true, outputRemoved: true }
 
 		const outputRemoval = yield* Effect.exit(fs.remove(outputDirectory, { recursive: true }))
@@ -233,5 +346,29 @@ export const sessionLogById = (
 			sessionId,
 			path,
 			mtimeMs: Option.match(info.mtime, { onNone: () => 0, onSome: (mtime) => mtime.getTime() }),
+			size: Number(info.size),
 		}
 	})
+
+/** Rebuild and append one authoritative summary after session metadata changes. */
+export const refreshSessionSummaryIndex = (sessionId: SessionId, options?: SessionLayoutOptions): Effect.Effect<void> =>
+	sessionLogById(sessionId, options).pipe(
+		Effect.flatMap((ref) => {
+			if (ref === null) return Effect.void
+			return loadSessionSummary(ref).pipe(
+				Effect.flatMap((summary) =>
+					summary === null
+						? Effect.void
+						: appendSessionIndexRecord(
+								{
+									_tag: 'summary',
+									sourceMtimeMs: ref.mtimeMs,
+									sourceSize: ref.size ?? 0,
+									summary,
+								},
+								options,
+							),
+				),
+			)
+		}),
+	)

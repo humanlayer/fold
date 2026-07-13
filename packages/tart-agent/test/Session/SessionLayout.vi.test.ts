@@ -5,7 +5,7 @@
  * carries), and discovery lists a project's logs newest-first with the latest ready for
  * `resumeSession`.
  */
-import { existsSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
@@ -115,18 +115,110 @@ it.effect('session summaries expose first-message titles, turns, and the active 
 			cwd,
 		})
 		yield* session.send('  Fix   the flaky picker test  ')
+		yield* session.setTitle('Repair Flaky Picker')
 
 		const summaries = yield* listSessionSummaries({ cwd, tartHome })
 
 		expect(summaries).toHaveLength(1)
 		expect(summaries[0]).toMatchObject({
 			sessionId: prepared.sessionId,
-			title: 'Fix the flaky picker test',
+			title: 'Repair Flaky Picker',
 			status: 'ready',
 			turns: 1,
 			providerId: 'scripted',
 			modelId: 'picker-model',
 		})
+	}).pipe(Effect.scoped),
+)
+
+it.effect('session summary index is a full fast path and latest valid record wins', () =>
+	Effect.gen(function* () {
+		const tartHome = yield* tempDir
+		const cwd = '/summary/cache-fast-path'
+		const prepared = yield* prepareSessionLog({ cwd, tartHome })
+		const model = customModel({
+			activeModel: {
+				providerId: 'stub',
+				providerKind: 'openai-compatible',
+				modelId: 'picker',
+				role: null,
+				requestedReasoningLevel: 'off',
+				reasoning: { _tag: 'disabled' },
+			},
+			make: LanguageModel.make({ generateText: () => Effect.die('unused'), streamText: () => Stream.empty }),
+		})
+		const session = yield* startSession({
+			agent: defineAgent({ model }),
+			log: prepared.log,
+			sessionId: prepared.sessionId,
+			cwd,
+		})
+		yield* session.send('Cache picker summaries')
+		const [built] = yield* listSessionSummaries({ cwd, tartHome })
+		if (built === undefined) throw new Error('expected summary')
+
+		const indexPath = join(sessionsDirFor({ cwd, tartHome }), 'index.jsonl')
+		const cached = JSON.parse(readFileSync(indexPath, 'utf8').trim())
+		appendFileSync(
+			indexPath,
+			`${JSON.stringify({ ...cached, summary: { ...cached.summary, title: 'Latest Wins' } })}\n`,
+		)
+		const mtime = statSync(prepared.path).mtime
+		const source = readFileSync(prepared.path, 'utf8')
+		writeFileSync(prepared.path, 'x'.repeat(source.length))
+		utimesSync(prepared.path, mtime, mtime)
+
+		const [fast] = yield* listSessionSummaries({ cwd, tartHome })
+		expect(fast?.title).toBe('Latest Wins')
+		expect(fast?.turns).toBe(1)
+	}).pipe(Effect.scoped),
+)
+
+it.effect('missing, corrupt, and stale summary records rebuild only their source logs', () =>
+	Effect.gen(function* () {
+		const tartHome = yield* tempDir
+		const cwd = '/summary/cache-recovery'
+		const prepared = yield* prepareSessionLog({ cwd, tartHome })
+		const model = customModel({
+			activeModel: {
+				providerId: 'stub',
+				providerKind: 'openai-compatible',
+				modelId: 'picker',
+				role: null,
+				requestedReasoningLevel: 'off',
+				reasoning: { _tag: 'disabled' },
+			},
+			make: LanguageModel.make({ generateText: () => Effect.die('unused'), streamText: () => Stream.empty }),
+		})
+		const session = yield* startSession({
+			agent: defineAgent({ model }),
+			log: prepared.log,
+			sessionId: prepared.sessionId,
+			cwd,
+		})
+		yield* session.send('Original title')
+		const indexPath = join(sessionsDirFor({ cwd, tartHome }), 'index.jsonl')
+		writeFileSync(indexPath, '{corrupt cache row\n')
+		expect((yield* listSessionSummaries({ cwd, tartHome }))[0]?.title).toBe('Original title')
+
+		yield* session.setTitle('Fresh From Authoritative Log')
+		expect((yield* listSessionSummaries({ cwd, tartHome }))[0]?.title).toBe('Fresh From Authoritative Log')
+		expect(readFileSync(indexPath, 'utf8')).toContain('Fresh From Authoritative Log')
+	}).pipe(Effect.scoped),
+)
+
+it.effect('deletion never returns cached summaries and appends a tombstone', () =>
+	Effect.gen(function* () {
+		const tartHome = yield* tempDir
+		const cwd = '/summary/cache-delete'
+		const prepared = yield* prepareSessionLog({ cwd, tartHome })
+		writeFileSync(prepared.path, '')
+		yield* listSessionSummaries({ cwd, tartHome })
+		yield* deleteSession(prepared.sessionId, { cwd, tartHome })
+		expect(yield* listSessionSummaries({ cwd, tartHome })).toEqual([])
+		expect(readFileSync(join(sessionsDirFor({ cwd, tartHome }), 'index.jsonl'), 'utf8')).toContain(
+			'"_tag":"deleted"',
+		)
 	}).pipe(Effect.scoped),
 )
 
