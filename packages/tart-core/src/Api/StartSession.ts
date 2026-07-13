@@ -28,6 +28,7 @@
  * send.
  */
 import { Cause, Context, Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Semaphore, Stream } from 'effect'
+import { Prompt } from 'effect/unstable/ai'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { TartEvent } from '../AgentEvents/AgentEventsService'
@@ -41,8 +42,15 @@ import { compactionServiceFor } from '../Compaction/CompactionLayer'
 import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLog } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
-import type { AgentFinishedLogEntry, CompactionLogEntry, LogEntry, LogSeq } from '../EventLog/Schemas'
-import { layerLiveIdFactory, type AgentId, type SessionId } from '../Ids'
+import type {
+	AgentFinishedLogEntry,
+	AssistantMessageLogEntry,
+	CompactionLogEntry,
+	LogEntry,
+	LogSeq,
+	ToolResultLogEntry,
+} from '../EventLog/Schemas'
+import { Ids, layerLiveIdFactory, type AgentId, type IdsService, type SessionId } from '../Ids'
 import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
 import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { runtimeForAgent } from '../Projection/Projection'
@@ -151,6 +159,11 @@ export type AgentTargetOptions = {
 	readonly agentId?: AgentId | string
 }
 
+export type InjectedSkillEntries = {
+	readonly call: AssistantMessageLogEntry
+	readonly result: ToolResultLogEntry
+}
+
 /**
  * A running tart session: one durable log, one root agent, already started (or adopted). Every method
  * is safe to call without further wiring; root runs and `switchModel` are serialized against each
@@ -176,6 +189,12 @@ export type TartSession = {
 	 * user-message exactly at that point (D8). Steering an idle agent fails with AgentNotRunningError.
 	 */
 	readonly steer: (text: string, options?: AgentTargetOptions) => Effect.Effect<void, AgentNotRunningError>
+	/** Append a matched synthetic skill tool call/result pair to the target agent's durable context. */
+	readonly injectSkill: (
+		name: string,
+		content: string,
+		options?: AgentTargetOptions,
+	) => Effect.Effect<InjectedSkillEntries, SubagentNotFoundError>
 	/**
 	 * Request a session-wide graceful stop (D9): every running agent finishes its in-flight tool batch,
 	 * appends the results, and ends its run with `agent-finished{stopped}` - no further model calls.
@@ -237,6 +256,7 @@ type SessionGraph = {
 	readonly agent: AgentDefinition
 	readonly session: SessionService
 	readonly eventLog: EventLogService
+	readonly ids: IdsService
 	readonly controls: SessionControlsService
 	readonly systemPromptService: SystemPromptService
 	readonly subagentsEngine: SubagentsService
@@ -472,6 +492,7 @@ const assembleSessionGraph = (options: {
 			agent,
 			session: Context.get(sessionContext, Session),
 			eventLog: Context.get(sessionServices, EventLog),
+			ids: Context.get(sessionServices, Ids),
 			controls: Context.get(sessionServices, SessionControls),
 			systemPromptService: Context.get(sessionServices, SystemPrompt),
 			subagentsEngine,
@@ -488,7 +509,7 @@ const assembleSessionGraph = (options: {
 
 /** Build the public handle over one assembled, started-or-adopted session. */
 const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartSession => {
-	const { session, eventLog, controls, subagentsEngine, configRef, profiles } = graph
+	const { session, eventLog, ids, controls, subagentsEngine, configRef, profiles } = graph
 	const rootAgentId = identity.rootAgentId
 
 	const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
@@ -662,6 +683,70 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 					Effect.flatMap((target) => controls.steer(target, text)),
 				)
 
+	const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
+	const encodeToolMessage = Schema.encodeUnknownSync(Prompt.ToolMessage)
+	const injectSkill = (
+		name: string,
+		content: string,
+		options?: AgentTargetOptions,
+	): Effect.Effect<InjectedSkillEntries, SubagentNotFoundError> =>
+		Effect.gen(function* () {
+			const target = options?.agentId === undefined ? rootAgentId : yield* resolveTarget(options.agentId)
+			const toolCallId = yield* ids.makeToolCallId
+			const call = yield* eventLog
+				.append({
+					_tag: 'assistant-message',
+					agentId: target,
+					parentAgentId: null,
+					toolCallId: null,
+					messageId: yield* ids.makeMessageId,
+					message: encodeAssistantMessage(
+						Prompt.assistantMessage({
+							content: [
+								Prompt.toolCallPart({
+									id: toolCallId,
+									name: 'skill',
+									params: { name },
+									providerExecuted: false,
+								}),
+							],
+						}),
+					),
+					finish: null,
+				})
+				.pipe(Effect.orDie)
+			if (call._tag !== 'assistant-message') {
+				return yield* Effect.die(new Error(`EventLog returned ${call._tag} while injecting skill call`))
+			}
+
+			const result = yield* eventLog
+				.append({
+					_tag: 'tool-result',
+					agentId: target,
+					parentAgentId: null,
+					toolCallId,
+					messageId: yield* ids.makeMessageId,
+					message: encodeToolMessage(
+						Prompt.toolMessage({
+							content: [
+								Prompt.toolResultPart({
+									id: toolCallId,
+									name: 'skill',
+									result: { content },
+									isFailure: false,
+								}),
+							],
+						}),
+					),
+					executedInput: { name },
+				})
+				.pipe(Effect.orDie)
+			if (result._tag !== 'tool-result') {
+				return yield* Effect.die(new Error(`EventLog returned ${result._tag} while injecting skill result`))
+			}
+			return { call, result }
+		})
+
 	const stop = (reason?: string): Effect.Effect<void> =>
 		controls.requestSessionStop(reason ?? 'the user requested a stop')
 
@@ -729,6 +814,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): TartS
 		rootAgentId,
 		send,
 		steer,
+		injectSkill,
 		stop,
 		interrupt,
 		switchModel,

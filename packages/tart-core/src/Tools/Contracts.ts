@@ -248,8 +248,8 @@ export const skillToolContract = {
 // --- subagent ---------------------------------------------------------------------------------------
 
 const SubagentParameters = Schema.Struct({
-	description: Schema.String.annotate({
-		description: 'A short (3-5 word) description of the task, used for progress display.',
+	description: Schema.optionalKey(Schema.String).annotate({
+		description: 'Short (5-10 word) description of the subagent task.',
 	}),
 	prompt: Schema.String.annotate({
 		description:

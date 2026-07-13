@@ -312,7 +312,7 @@ export const EventIndexRow = (props: {
 			paddingRight={0}
 			backgroundColor={props.selected() ? tactical.color.raised : tactical.color.panel}
 		>
-			<box width={18} flexShrink={0}>
+			<box width={17} flexShrink={0}>
 				<text wrapMode="none">
 					<span style={{ fg: tactical.color.coreBright }}>{props.selected() ? '▸' : ' '}</span>
 					<span style={{ fg: tactical.color.textFaint }}>{sequence()}</span>
@@ -324,7 +324,7 @@ export const EventIndexRow = (props: {
 			<text fg={props.selected() ? tactical.color.text : tactical.color.textDim} flexGrow={1} wrapMode="none">
 				{summary()}
 			</text>
-			<text fg={visual().color} width={5} wrapMode="none">
+			<text fg={visual().color} width={6} paddingLeft={1} wrapMode="none">
 				{status()}
 			</text>
 		</box>

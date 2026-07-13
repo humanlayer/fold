@@ -7,7 +7,9 @@ import { TextAttributes, type KeyEvent } from '@opentui/core'
 import { useKeyboard, useTerminalDimensions } from '@opentui/solid'
 import { createEffect, createMemo, createSignal, Index, Show, type Accessor } from 'solid-js'
 
+import { ActivityIndicator } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
+import { NewSessionModal } from './NewSessionModal'
 import { relativeSessionTime, shortSessionId } from './SessionPickerState'
 import { theme as tactical } from './ThemeState'
 import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
@@ -21,7 +23,7 @@ export type SessionPickerProps = {
 	readonly opening: Accessor<boolean>
 	readonly onOpen: (sessionId: SessionId) => void
 	readonly onDelete: (sessionId: SessionId) => void
-	readonly onNew: () => void
+	readonly onNew: (cwd: string) => void
 	readonly onQuit: () => void
 	readonly toggles?: Accessor<FxToggles>
 	readonly setToggles?: (update: (current: FxToggles) => FxToggles) => void
@@ -36,6 +38,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 	const [selected, setSelected] = createSignal(0)
 	const [deleteTarget, setDeleteTarget] = createSignal<SessionPickerRow | null>(null)
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
+	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
 	const { toggles, setToggles } = createFxControls(props.toggles, props.setToggles)
 	const itemCount = createMemo(() => props.sessions().length + 1)
 	const showModeProfile = createMemo(() => dimensions().width >= 105)
@@ -55,14 +58,20 @@ export const SessionPicker = (props: SessionPickerProps) => {
 	const activate = (): void => {
 		if (props.opening()) return
 		const session = props.sessions()[selected()]
-		if (session === undefined) props.onNew()
+		if (session === undefined) setNewSessionOpen(true)
 		else props.onOpen(session.sessionId)
 	}
 	const paletteCommands = createMemo<ReadonlyArray<TuiCommand>>(() => {
 		const themes = themeCommands(props.onSelectTheme)
 		const fx = fxCommands({ toggles, setToggles })
 		const commands: Array<TuiCommand> = [
-			{ id: 'new', title: 'New session', category: 'NAVIGATE', shortcut: '^N', run: props.onNew },
+			{
+				id: 'new',
+				title: 'New session',
+				category: 'NAVIGATE',
+				shortcut: '^N',
+				run: () => setNewSessionOpen(true),
+			},
 			{ id: 'open', title: 'Open selected session', category: 'NAVIGATE', run: activate },
 			...fx.slice(0, 4),
 			{ id: 'theme', title: 'Switch theme…', category: 'VIEW', shortcut: 'T', children: themes },
@@ -83,7 +92,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release' || props.opening()) return
-		if (paletteOpen()) return
+		if (paletteOpen() || newSessionOpen()) return
 		const target = deleteTarget()
 		if (target !== null) {
 			key.preventDefault()
@@ -97,7 +106,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 		}
 		if (key.ctrl && key.name === 'n') {
 			key.preventDefault()
-			props.onNew()
+			setNewSessionOpen(true)
 			return
 		}
 		if ((key.ctrl || key.meta) && key.name === 'k') {
@@ -193,6 +202,9 @@ export const SessionPicker = (props: SessionPickerProps) => {
 						<text fg={tactical.color.textFaint} width={13} wrapMode="none">
 							SESSION
 						</text>
+						<text fg={tactical.color.textFaint} width={12} wrapMode="none">
+							STATE
+						</text>
 						<text fg={tactical.color.textFaint} flexGrow={1} wrapMode="none">
 							TITLE
 						</text>
@@ -236,6 +248,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 								<text fg={tactical.color.grid} width={13} wrapMode="none">
 									{shortSessionId(session().sessionId)}
 								</text>
+								<ActivityIndicator state={session().status} width={12} />
 								<text
 									fg={selected() === index ? tactical.color.text : tactical.color.textDim}
 									flexGrow={1}
@@ -333,6 +346,16 @@ export const SessionPicker = (props: SessionPickerProps) => {
 			</Show>
 			<Show when={paletteOpen()}>
 				<CommandPalette commands={paletteCommands()} onClose={() => setPaletteOpen(false)} />
+			</Show>
+			<Show when={newSessionOpen()}>
+				<NewSessionModal
+					cwd={props.cwd}
+					onClose={() => setNewSessionOpen(false)}
+					onSubmit={(cwd) => {
+						setNewSessionOpen(false)
+						props.onNew(cwd)
+					}}
+				/>
 			</Show>
 		</box>
 	)

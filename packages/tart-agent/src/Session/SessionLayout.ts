@@ -39,6 +39,7 @@ export type SessionLogRef = {
 /** Lightweight metadata used by session pickers without resuming the agent runtime. */
 export type SessionSummary = SessionLogRef & {
 	readonly title: string
+	readonly status: 'ready' | 'running' | 'stopped' | 'error'
 	readonly turns: number
 	readonly providerId: string | null
 	readonly modelId: string | null
@@ -134,10 +135,23 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 	const latestUsage = rootEntries.findLast((entry) => entry._tag === 'assistant-message' && entry.finish !== null)
 	const started = rootEntries.find((entry) => entry._tag === 'session_started')
 	const meta = started?._tag === 'session_started' ? started.meta : {}
+	const lastFinished = rootEntries.findLast((entry) => entry._tag === 'agent-finished')
+	const latestRootEntry = rootEntries.at(-1)
+	const status: SessionSummary['status'] =
+		lastFinished === undefined || (latestRootEntry !== undefined && latestRootEntry.seq > lastFinished.seq)
+			? latestRootEntry?._tag === 'system-message' || latestRootEntry?._tag === 'agent_started'
+				? 'ready'
+				: 'running'
+			: lastFinished.outcome === 'completed'
+				? 'ready'
+				: lastFinished.outcome === 'error'
+					? 'error'
+					: 'stopped'
 
 	return {
 		...ref,
 		title: title.length === 0 ? 'Untitled session' : title,
+		status,
 		turns: userEntries.length,
 		providerId: model?.providerId ?? null,
 		modelId: model?.modelId ?? null,

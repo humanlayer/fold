@@ -25,6 +25,7 @@ export const SessionState = Schema.Struct({
 	seenSeqs: Schema.Array(LogSeq),
 	durableHead: Schema.NullOr(LogSeq),
 	rootContent: Schema.Array(LogEntry),
+	allEntries: Schema.Array(LogEntry),
 	interruptedAssistantSeqs: Schema.Array(LogSeq),
 	transientContent: Schema.Array(TransientContent),
 	replay: ReplayState,
@@ -53,6 +54,7 @@ export const makeSessionState = (durableHead: number | null): SessionState => ({
 	seenSeqs: [],
 	durableHead: null,
 	rootContent: [],
+	allEntries: [],
 	interruptedAssistantSeqs: [],
 	transientContent: [],
 	replay: durableHead === null ? { _tag: 'ready', head: null } : { _tag: 'replaying', head: durableHead },
@@ -99,6 +101,7 @@ const reduceLog = (state: SessionState, entry: LogEntry, rootAgentId: AgentId): 
 
 	const durableHead = Math.max(state.durableHead ?? entry.seq, entry.seq)
 	const seenSeqs = [...state.seenSeqs, entry.seq]
+	const allEntries = [...state.allEntries, entry].sort((left, right) => left.seq - right.seq)
 	const rootEntry = entry.agentId === rootAgentId && isRootContent(entry)
 	const rootContent = rootEntry
 		? [...state.rootContent, entry].sort((left, right) => left.seq - right.seq)
@@ -139,6 +142,7 @@ const reduceLog = (state: SessionState, entry: LogEntry, rootAgentId: AgentId): 
 	return {
 		...state,
 		seenSeqs,
+		allEntries,
 		durableHead,
 		rootContent,
 		interruptedAssistantSeqs,

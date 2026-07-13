@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import {
 	launchSession,
+	makeDiskSkillSource,
 	deleteSession,
 	listSessionSummaries,
 	modeForName,
@@ -11,6 +12,7 @@ import {
 	type SessionToResumeNotFoundError,
 } from '@humanlayer/tart-agent'
 import { lookupCatalogEntry, type SessionId, type TartSession } from '@humanlayer/tart-core'
+import { renderSkillContent } from '@humanlayer/tart-core'
 import { ALL_FX_ON, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
 import { nextThemeId, type ThemeId } from '@humanlayer/tart-tui-theme/themes'
 import { createCliRenderer } from '@opentui/core'
@@ -60,13 +62,17 @@ type ActiveTuiSession = {
 	readonly session: TartSession
 	readonly state: Accessor<SessionState>
 	readonly notice: Accessor<string | null>
+	readonly targetNotice: Accessor<{ readonly agentId: string; readonly text: string } | null>
 	readonly compacting: Accessor<boolean>
 	readonly initialInputFocused: boolean
 	readonly submit: (verb: RootInputVerb, text: string) => void
 	readonly compact: () => void
 	readonly interrupt: () => void
 	readonly stop: () => void
-	readonly notify: (notice: string) => void
+	readonly targetSubmit: (agentId: string, text: string, verb: RootInputVerb) => void
+	readonly targetInterrupt: (agentId: string) => void
+	readonly notify: (notice: string | null) => void
+	readonly notifyTarget: (notice: { readonly agentId: string; readonly text: string } | null) => void
 	readonly scope: Scope.Closeable
 }
 
@@ -92,7 +98,12 @@ export const runTui = (
 			catch: (error) => new TuiRendererError({ message: String(error) }),
 		})
 		const [themeId, setThemeId] = createSignal<ThemeId>('tactical')
-		const [toggles, setToggles] = createSignal<FxToggles>({ ...ALL_FX_ON, vignette: 'light' })
+		const [toggles, setToggles] = createSignal<FxToggles>({
+			...ALL_FX_ON,
+			glow: false,
+			scanlines: false,
+			vignette: 'off',
+		})
 		const selectTheme = (id: ThemeId): void => {
 			setCurrentTheme(id)
 			setThemeId(id)
@@ -114,6 +125,10 @@ export const runTui = (
 				const replayHead = replay.at(-1)?.seq ?? -1
 				const [state, setState] = createStore(makeSessionStateFromEntries(replay, session.rootAgentId))
 				const [notice, setNotice] = createSignal<string | null>(null)
+				const [targetNotice, setTargetNotice] = createSignal<{
+					readonly agentId: string
+					readonly text: string
+				} | null>(null)
 				const [compacting, setCompacting] = createSignal(false)
 				const submit = (verb: RootInputVerb, text: string): void => {
 					setNotice(null)
@@ -159,6 +174,51 @@ export const runTui = (
 							),
 					)
 				}
+				const targetSubmit = (agentId: string, text: string, verb: RootInputVerb): void => {
+					setNotice(null)
+					setTargetNotice({
+						agentId,
+						text: verb === 'send' ? 'RESUMING SUBAGENT' : 'SUBAGENT MESSAGE QUEUED',
+					})
+					runActiveFork(
+						(verb === 'steer'
+							? session
+									.steer(text, { agentId: agentId as never })
+									.pipe(
+										Effect.catchTag('AgentNotRunningError', () =>
+											session.send(text, { agentId: agentId as never }),
+										),
+									)
+							: verb === 'interrupt-send'
+								? session
+										.interrupt({ agentId: agentId as never })
+										.pipe(Effect.andThen(session.send(text, { agentId: agentId as never })))
+								: session.send(text, { agentId: agentId as never })
+						).pipe(
+							Effect.tap(() => Effect.sync(() => setTargetNotice({ agentId, text: 'SUBAGENT READY' }))),
+							Effect.catchCause((cause) =>
+								Effect.sync(() =>
+									setTargetNotice({ agentId, text: unexpectedActionCauseNotice(cause) }),
+								),
+							),
+						),
+					)
+				}
+				const targetInterrupt = (agentId: string): void => {
+					setNotice(null)
+					setTargetNotice({ agentId, text: 'SUBAGENT INTERRUPT REQUESTED' })
+					runActiveFork(
+						session
+							.interrupt({ agentId: agentId as never })
+							.pipe(
+								Effect.catchCause((cause) =>
+									Effect.sync(() =>
+										setTargetNotice({ agentId, text: unexpectedActionCauseNotice(cause) }),
+									),
+								),
+							),
+					)
+				}
 
 				const drain = session.events(replayHead + 1).pipe(
 					Stream.groupedWithin(1024, Duration.millis(16)),
@@ -181,13 +241,17 @@ export const runTui = (
 					session,
 					state: () => state,
 					notice,
+					targetNotice,
 					compacting,
 					initialInputFocused,
 					submit,
 					compact,
 					interrupt,
 					stop,
+					targetSubmit,
+					targetInterrupt,
 					notify: setNotice,
+					notifyTarget: setTargetNotice,
 				}
 			})
 
@@ -216,6 +280,7 @@ export const runTui = (
 		const [summaries, setSummaries] = createSignal(initialSummaries)
 		const [pickerNotice, setPickerNotice] = createSignal<string | null>(null)
 		const [opening, setOpening] = createSignal(false)
+		const [currentCwd, setCurrentCwd] = createSignal(options.cwd)
 
 		const acquireActive = (
 			effect: Effect.Effect<TartSession, TuiSessionError, Scope.Scope>,
@@ -261,6 +326,7 @@ export const runTui = (
 		const activate = (
 			effect: Effect.Effect<TartSession, TuiSessionError, Scope.Scope>,
 			focusInput: boolean,
+			cwd = currentCwd(),
 		): void => {
 			if (opening()) return
 			setOpening(true)
@@ -269,7 +335,14 @@ export const runTui = (
 				closeCurrent().pipe(
 					Effect.tap(() => Effect.sync(() => setActive(null))),
 					Effect.andThen(acquireActive(effect, focusInput)),
-					Effect.tap((next) => Effect.sync(() => setActive(next))),
+					Effect.tap((next) =>
+						Effect.sync(() =>
+							batch(() => {
+								setActive(next)
+								setCurrentCwd(cwd)
+							}),
+						),
+					),
 					Effect.catchCause((cause) => Effect.sync(() => setPickerNotice(Cause.pretty(cause)))),
 					Effect.ensuring(Effect.sync(() => setOpening(false))),
 				),
@@ -315,7 +388,7 @@ export const runTui = (
 							when={active()}
 							fallback={
 								<SessionPicker
-									cwd={options.cwd}
+									cwd={currentCwd()}
 									mode={mode}
 									profile={options.profile ?? 'default'}
 									sessions={summaries}
@@ -325,7 +398,9 @@ export const runTui = (
 										activate(resumeSessionById(sessionId, launchOptions(options)), false)
 									}
 									onDelete={removeSession}
-									onNew={() => activate(launchSession(launchOptions(options)), true)}
+									onNew={(cwd) =>
+										activate(launchSession({ ...launchOptions(options), cwd }), true, cwd)
+									}
 									onQuit={() => renderer.destroy()}
 									toggles={toggles}
 									setToggles={setToggles}
@@ -337,22 +412,63 @@ export const runTui = (
 							{(current: Accessor<ActiveTuiSession>) => (
 								<TuiApp
 									state={current().state}
-									cwd={options.cwd}
+									cwd={currentCwd()}
 									sessionId={current().session.sessionId}
 									mode={mode}
 									profile={options.profile ?? 'default'}
 									notice={current().notice}
+									targetNotice={current().targetNotice}
 									compacting={current().compacting}
 									initialInputFocused={current().initialInputFocused}
 									onSubmit={current().submit}
 									onCompact={current().compact}
 									onInterrupt={current().interrupt}
 									onStop={current().stop}
+									onTargetSubmit={current().targetSubmit}
+									onTargetInterrupt={current().targetInterrupt}
+									onInjectSkill={(name, agentId) => {
+										if (agentId === null) {
+											current().notifyTarget(null)
+											current().notify(`INJECTING SKILL · ${name}`)
+										} else {
+											current().notify(null)
+											current().notifyTarget({ agentId, text: `INJECTING SKILL · ${name}` })
+										}
+										runFork(
+											Effect.gen(function* () {
+												const source = yield* makeDiskSkillSource({ cwd: currentCwd() })
+												const skill = yield* source.load(name)
+												yield* current().session.injectSkill(
+													name,
+													renderSkillContent(skill),
+													agentId === null ? undefined : { agentId },
+												)
+												yield* Effect.sync(() => {
+													if (agentId === null) current().notify(`SKILL INJECTED · ${name}`)
+													else
+														current().notifyTarget({
+															agentId,
+															text: `SKILL INJECTED · ${name}`,
+														})
+												})
+											}).pipe(
+												Effect.catchCause((cause) =>
+													Effect.sync(() => {
+														const text = Cause.pretty(cause)
+														if (agentId === null) current().notify(text)
+														else current().notifyTarget({ agentId, text })
+													}),
+												),
+											),
+										)
+									}}
 									toggles={toggles}
 									setToggles={setToggles}
 									onCycleTheme={cycleTheme}
 									onSelectTheme={selectTheme}
-									onNewSession={() => activate(launchSession(launchOptions(options)), true)}
+									onNewSession={(cwd) =>
+										activate(launchSession({ ...launchOptions(options), cwd }), true, cwd)
+									}
 									onBackToSessions={showPicker}
 									onCopySessionId={() => {
 										const copied = renderer.copyToClipboardOSC52(current().session.sessionId)

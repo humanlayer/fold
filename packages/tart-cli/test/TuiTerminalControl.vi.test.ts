@@ -91,6 +91,30 @@ terminalDescribe('TUI terminal behavior', () => {
 		expect(frame.text).not.toContain('bash  sleep 10  run')
 	}, 30_000)
 
+	it('focuses a subagent and targets its steer and interrupt actions', async () => {
+		await using session = await terminal.launch({
+			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiAppFixture.tsx'],
+			cwd: import.meta.dirname.replace(/\/test$/, ''),
+			host: 'opentui',
+			viewport: { cols: 140, rows: 44 },
+			record: 'on-failure',
+			env: { TART_TUI_SUBAGENT_FIXTURE: '1' },
+		})
+
+		await session.screen.waitForText('researcher', { timeoutMs: 10_000 })
+		await session.screen.waitForText('▸ ● researcher', { timeoutMs: 10_000 })
+		await session.keyboard.type('ll')
+		await session.keyboard.press('Tab')
+		await session.screen.waitForText('AGENT TYPES', { timeoutMs: 10_000 })
+		await session.screen.waitForText('TOOL CALLS', { timeoutMs: 10_000 })
+		const meta = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(meta.text).toContain('STATUS')
+		expect(meta.text).toContain('CTX')
+		expect(meta.text).toContain('COST')
+		await session.keyboard.press('Control+C')
+		await session.screen.waitForText('target-interrupted', { timeoutMs: 10_000 })
+	}, 30_000)
+
 	it('renders the tactical shell, converses from the root input, and exits cleanly', async () => {
 		await using session = await terminal.launch({
 			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiAppFixture.tsx'],
@@ -136,16 +160,16 @@ terminalDescribe('TUI terminal behavior', () => {
 		await session.keyboard.type('two')
 		await session.screen.waitForText('two', { timeoutMs: 10_000 })
 		await session.keyboard.press('Enter')
-		await session.screen.waitForText('SEND RECEIVED', { timeoutMs: 10_000 })
+		await session.screen.waitForText('SEND RECEI', { timeoutMs: 10_000 })
 		await session.screen.waitForText('[STEER]', { timeoutMs: 10_000 })
 		const steering = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
 		expect(steering.text).toContain('[STEER]')
 
 		await session.keyboard.type('guide the running turn')
 		await session.keyboard.press('Enter')
-		await session.screen.waitForText('STEER RECEIVED', { timeoutMs: 10_000 })
+		await session.screen.waitForText('STEER RECEI', { timeoutMs: 10_000 })
 		await session.keyboard.press('Tab')
-		await session.screen.waitForText('INTERRUPT+SEND', { timeoutMs: 10_000 })
+		await session.screen.waitForText('[INTERRUPT+SEND]', { timeoutMs: 10_000 })
 		await session.keyboard.press('Escape')
 		await session.screen.waitForText('TAB TO FOCUS', { timeoutMs: 10_000 })
 		await session.keyboard.press('Escape')

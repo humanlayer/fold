@@ -109,6 +109,38 @@ it.effect('runs a tool-free agent with defaults (memory log, no tools, no failur
 	}).pipe(Effect.scoped),
 )
 
+it.effect('injects a skill as a linked synthetic tool call and result without a user message', () =>
+	Effect.gen(function* () {
+		const { model } = yield* scriptedModel(gptActiveModel, [])
+		const session = yield* startSession({ agent: defineAgent({ model }) })
+
+		const injected = yield* session.injectSkill('terminal-control', '<skill>terminal instructions</skill>')
+		const entries = yield* session.entries
+		const callPart =
+			typeof injected.call.message.content === 'string' ? undefined : injected.call.message.content[0]
+		const resultPart = injected.result.message.content[0]
+		if (callPart?.type !== 'tool-call') throw new Error('expected injected skill tool call')
+		if (resultPart?.type !== 'tool-result') throw new Error('expected injected skill tool result')
+
+		expect(entries.some((entry) => entry._tag === 'user-message')).toBe(false)
+		expect(callPart).toMatchObject({
+			type: 'tool-call',
+			name: 'skill',
+			params: { name: 'terminal-control' },
+		})
+		expect(resultPart).toMatchObject({
+			type: 'tool-result',
+			name: 'skill',
+			result: { content: '<skill>terminal instructions</skill>' },
+			isFailure: false,
+		})
+		expect(callPart.id).toBe(injected.result.toolCallId)
+		expect(resultPart.id).toBe(injected.result.toolCallId)
+		expect(injected.call.agentId).toBe(session.rootAgentId)
+		expect(injected.result.agentId).toBe(session.rootAgentId)
+	}).pipe(Effect.scoped),
+)
+
 // ── Ambient tool services and the merged event stream ───────────────────────
 
 const ProgressState = defineToolState({

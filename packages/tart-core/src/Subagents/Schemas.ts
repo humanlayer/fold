@@ -43,6 +43,9 @@ export type SubagentResult = typeof SubagentResult.Type
 /** Dispatch a fresh subagent of a registered type. */
 export const DispatchSubagentCommand = Schema.TaggedStruct('dispatch', {
 	agent: Schema.String,
+	description: Schema.optionalKey(Schema.String).annotate({
+		description: 'Short (5-10 word) description of the subagent task',
+	}),
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'DispatchSubagentCommand' })
@@ -58,6 +61,9 @@ export type ResumeSubagentCommand = typeof ResumeSubagentCommand.Type
 
 /** Fork the dispatching agent: a clone of its context, config, and toolset. */
 export const ForkSubagentCommand = Schema.TaggedStruct('fork', {
+	description: Schema.optionalKey(Schema.String).annotate({
+		description: 'Short (5-10 word) description of the subagent task',
+	}),
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
 }).annotate({ identifier: 'ForkSubagentCommand' })
@@ -75,6 +81,7 @@ const decodeAgentIdRef = Schema.decodeUnknownEffect(AgentIdRef)
 
 /** The subagent tool's flat wire parameters, as decoded by Effect AI against the tool contract. */
 export type SubagentToolWireParameters = {
+	readonly description?: string
 	readonly prompt: string
 	readonly skill?: string
 	readonly agent?: string
@@ -106,10 +113,21 @@ export const parseSubagentCommand = (
 		}
 
 		if (params.agent !== undefined) {
-			return { _tag: 'dispatch', agent: params.agent, prompt: params.prompt, skill } as const
+			return {
+				_tag: 'dispatch',
+				agent: params.agent,
+				...(params.description === undefined ? {} : { description: params.description }),
+				prompt: params.prompt,
+				skill,
+			} as const
 		}
 		if (params.fork === true) {
-			return { _tag: 'fork', prompt: params.prompt, skill } as const
+			return {
+				_tag: 'fork',
+				...(params.description === undefined ? {} : { description: params.description }),
+				prompt: params.prompt,
+				skill,
+			} as const
 		}
 
 		const agentId = yield* decodeAgentIdRef(params.agent_id).pipe(

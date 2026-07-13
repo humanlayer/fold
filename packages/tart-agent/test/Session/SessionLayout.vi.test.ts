@@ -122,6 +122,7 @@ it.effect('session summaries expose first-message titles, turns, and the active 
 		expect(summaries[0]).toMatchObject({
 			sessionId: prepared.sessionId,
 			title: 'Fix the flaky picker test',
+			status: 'ready',
 			turns: 1,
 			providerId: 'scripted',
 			modelId: 'picker-model',

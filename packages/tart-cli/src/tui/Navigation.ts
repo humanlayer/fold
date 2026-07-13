@@ -1,4 +1,4 @@
-export type Pane = 'events' | 'context'
+export type Pane = 'events' | 'context' | 'subagents'
 
 export type NavigationLevel = 'pane' | 'content' | 'input'
 
