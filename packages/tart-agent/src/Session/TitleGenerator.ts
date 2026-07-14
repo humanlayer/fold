@@ -1,17 +1,22 @@
 import type { LogEntry, TartModel } from '@humanlayer/tart-core'
 import { languageModelLayerFor } from '@humanlayer/tart-core'
-import { Effect, Schema } from 'effect'
+import { Effect, Match, Schema } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
 const TitleResult = Schema.Struct({ title: Schema.String })
 const MAX_TRANSCRIPT_CHARS = 12_000
 
-const messageText = (entry: LogEntry): string => {
-	if (entry._tag !== 'user-message' && entry._tag !== 'assistant-message') return ''
-	return typeof entry.message.content === 'string'
+type MessageEntry = Extract<LogEntry, { readonly _tag: 'user-message' | 'assistant-message' }>
+
+const isMessageEntry = (entry: LogEntry): entry is MessageEntry =>
+	entry._tag === 'user-message' || entry._tag === 'assistant-message'
+
+const extractMessageText = (entry: MessageEntry): string =>
+	typeof entry.message.content === 'string'
 		? entry.message.content
 		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-}
+
+const messageText = (entry: LogEntry): string => (isMessageEntry(entry) ? extractMessageText(entry) : '')
 
 /** Normalize model output to a single, safe title of at most six words. */
 export const normalizeSessionTitle = (title: string): string =>

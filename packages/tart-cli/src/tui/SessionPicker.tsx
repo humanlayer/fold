@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import type { SessionSummary } from '@humanlayer/tart-agent'
+import type { ModelConfiguration, SessionSummary } from '@humanlayer/tart-agent'
 import type { SessionId } from '@humanlayer/tart-core'
 import { nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/tart-tui-theme/themes'
@@ -10,6 +10,9 @@ import { createEffect, createMemo, createSignal, Index, Show, type Accessor } fr
 import { ActivityIndicator } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { NewSessionModal } from './NewSessionModal'
+import type { NewSessionRequest } from './NewSessionModal'
+import type { ProviderAuthAction, ProviderAuthUpdate } from './ProviderAuth'
+import { ProviderConfigModal } from './ProviderConfigModal'
 import { relativeSessionTime, shortSessionId } from './SessionPickerState'
 import { theme as tactical } from './ThemeState'
 import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
@@ -18,12 +21,20 @@ export type SessionPickerProps = {
 	readonly cwd: string
 	readonly mode: string
 	readonly profile: string
+	readonly configuration?: ModelConfiguration
 	readonly sessions: Accessor<ReadonlyArray<SessionPickerRow>>
 	readonly notice: Accessor<string | null>
 	readonly opening: Accessor<boolean>
 	readonly onOpen: (sessionId: SessionId) => void
 	readonly onDelete: (sessionId: SessionId) => void
-	readonly onNew: (cwd: string) => void
+	readonly onNew: (request: NewSessionRequest) => void
+	readonly configExists?: boolean
+	readonly onProviderAuth?: (
+		provider: string,
+		action: ProviderAuthAction,
+		update: (state: ProviderAuthUpdate) => void,
+	) => void
+	readonly onInitializeConfig?: (update: (state: ProviderAuthUpdate) => void) => void
 	readonly onQuit: () => void
 	readonly toggles?: Accessor<FxToggles>
 	readonly setToggles?: (update: (current: FxToggles) => FxToggles) => void
@@ -39,6 +50,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 	const [deleteTarget, setDeleteTarget] = createSignal<SessionPickerRow | null>(null)
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
 	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
+	const [providersOpen, setProvidersOpen] = createSignal(false)
 	const { toggles, setToggles } = createFxControls(props.toggles, props.setToggles)
 	const itemCount = createMemo(() => props.sessions().length + 1)
 	const showModeProfile = createMemo(() => dimensions().width >= 105)
@@ -73,6 +85,31 @@ export const SessionPicker = (props: SessionPickerProps) => {
 				run: () => setNewSessionOpen(true),
 			},
 			{ id: 'open', title: 'Open selected session', category: 'NAVIGATE', run: activate },
+			{
+				id: 'models',
+				title: 'Configure models, modes, and providers...',
+				category: 'APPLICATION',
+				children: [
+					{
+						id: 'select-model',
+						title: 'New session with model or profile...',
+						category: 'NAVIGATE',
+						run: () => setNewSessionOpen(true),
+					},
+					{
+						id: 'modes-info',
+						title: 'New session with default or rlm mode...',
+						category: 'APPLICATION',
+						run: () => setNewSessionOpen(true),
+					},
+					{
+						id: 'providers-info',
+						title: 'Providers / Auth...',
+						category: 'APPLICATION',
+						run: () => setProvidersOpen(true),
+					},
+				],
+			},
 			...fx.slice(0, 4),
 			{ id: 'theme', title: 'Switch theme…', category: 'VIEW', shortcut: 'T', children: themes },
 			fx[4],
@@ -92,7 +129,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release' || props.opening()) return
-		if (paletteOpen() || newSessionOpen()) return
+		if (paletteOpen() || newSessionOpen() || providersOpen()) return
 		const target = deleteTarget()
 		if (target !== null) {
 			key.preventDefault()
@@ -351,11 +388,23 @@ export const SessionPicker = (props: SessionPickerProps) => {
 			<Show when={newSessionOpen()}>
 				<NewSessionModal
 					cwd={props.cwd}
+					configuration={props.configuration ?? { profiles: [], providers: [] }}
 					onClose={() => setNewSessionOpen(false)}
-					onSubmit={(cwd) => {
+					onSubmit={(request) => {
 						setNewSessionOpen(false)
-						props.onNew(cwd)
+						props.onNew(request)
 					}}
+				/>
+			</Show>
+			<Show
+				when={providersOpen() && props.onProviderAuth !== undefined && props.onInitializeConfig !== undefined}
+			>
+				<ProviderConfigModal
+					configuration={props.configuration ?? { profiles: [], providers: [] }}
+					configExists={props.configExists === true}
+					onClose={() => setProvidersOpen(false)}
+					onAuth={(provider, action, update) => props.onProviderAuth?.(provider, action, update)}
+					onInitialize={(update) => props.onInitializeConfig?.(update)}
 				/>
 			</Show>
 		</box>

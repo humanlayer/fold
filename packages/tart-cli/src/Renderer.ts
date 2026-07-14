@@ -18,7 +18,7 @@ import {
 	type UsageEncoded,
 } from '@humanlayer/tart-core'
 import type { TartEvent } from '@humanlayer/tart-core'
-import { Effect } from 'effect'
+import { Effect, Match } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
 
@@ -163,16 +163,13 @@ const activeModelName = (model: ActiveModel): string => {
 	return `${model.providerId}/${model.modelId} (${model.providerKind}${role})`
 }
 
-const credentialText = (ansi: AnsiPalette, credential: CredentialSummary): string => {
-	switch (credential._tag) {
-		case 'found':
-			return `${ansi.green('found')} ${credential.detail}`
-		case 'missing':
-			return `${ansi.red('not found')} ${credential.detail}`
-		case 'unknown':
-			return `${ansi.yellow('unknown')} ${credential.detail}`
-	}
-}
+const credentialText = (ansi: AnsiPalette, credential: CredentialSummary): string =>
+	Match.value(credential).pipe(
+		Match.tag('found', ({ detail }) => `${ansi.green('found')} ${detail}`),
+		Match.tag('missing', ({ detail }) => `${ansi.red('not found')} ${detail}`),
+		Match.tag('unknown', ({ detail }) => `${ansi.yellow('unknown')} ${detail}`),
+		Match.exhaustive,
+	)
 
 const shortModelId = (modelId: string): string => modelId.split('/').at(-1) ?? modelId
 
@@ -270,18 +267,14 @@ const resumeCommand = (
 	return `tart ${flags.join(' ')}`
 }
 
-const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome']): ((text: string) => string) => {
-	switch (outcome) {
-		case 'completed':
-			return ansi.green
-		case 'stopped':
-			return ansi.yellow
-		case 'interrupted':
-			return ansi.yellow
-		case 'error':
-			return ansi.red
-	}
-}
+const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome']): ((text: string) => string) =>
+	Match.value(outcome).pipe(
+		Match.when('completed', () => ansi.green),
+		Match.when('stopped', () => ansi.yellow),
+		Match.when('interrupted', () => ansi.yellow),
+		Match.when('error', () => ansi.red),
+		Match.exhaustive,
+	)
 
 /** Create the CLI's colored renderer for durable log rows plus live deltas. */
 export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer => {

@@ -1,15 +1,23 @@
-import { readdirSync, statSync } from 'node:fs'
 /** @jsxImportSource @opentui/solid */
+import { readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 
+import type { ModelConfiguration, ProfileModeName } from '@humanlayer/tart-agent'
 import { TextAttributes, type KeyEvent, type TextareaRenderable } from '@opentui/core'
 import { registerManagedTextareaLayer } from '@opentui/keymap/addons/opentui'
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui'
 import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
-import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
+import { createMemo, createSignal, For, onCleanup, onMount, Show, type Accessor } from 'solid-js'
 
+import { ModelSelectionModal } from './ModelSelectionModal'
 import { theme } from './ThemeState'
+import { prepareTuiKeyboard } from './TuiKeymap'
+
+export type NewSessionRequest = { readonly cwd: string } & (
+	| { readonly _tag: 'profile'; readonly profile: string }
+	| { readonly _tag: 'direct'; readonly provider: string; readonly model: string; readonly mode: ProfileModeName }
+)
 
 const expandHome = (value: string): string =>
 	value === '~' ? homedir() : value.startsWith('~/') ? join(homedir(), value.slice(2)) : value
@@ -23,7 +31,7 @@ const directorySuggestions = (value: string, cwd: string): ReadonlyArray<string>
 	try {
 		return readdirSync(parent, { withFileTypes: true })
 			.filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(prefix))
-			.sort((a, b) => a.name.localeCompare(b.name))
+			.sort((left, right) => left.name.localeCompare(right.name))
 			.slice(0, 8)
 			.map((entry) => join(parent, entry.name))
 	} catch {
@@ -31,7 +39,7 @@ const directorySuggestions = (value: string, cwd: string): ReadonlyArray<string>
 	}
 }
 
-export const NewSessionModal = (props: {
+const DirectorySelectionModal = (props: {
 	readonly cwd: string
 	readonly onSubmit: (cwd: string) => void
 	readonly onClose: () => void
@@ -44,20 +52,21 @@ export const NewSessionModal = (props: {
 	const [error, setError] = createSignal<string | null>(null)
 	let editor: TextareaRenderable | undefined
 	const suggestions = createMemo(() => directorySuggestions(value(), props.cwd))
-	const move = (offset: number) => {
+	const move = (offset: number): void => {
 		setSuggestionFocused(true)
 		setSelected((current) => Math.max(0, Math.min(suggestions().length - 1, current + offset)))
 	}
-	const complete = () => {
+	const complete = (): void => {
 		const suggestion = suggestions()[selected()]
 		if (suggestion === undefined) return
-		setValue(`${suggestion}/`)
+		const completed = `${suggestion}/`
+		setValue(completed)
 		setSuggestionFocused(false)
 		setSelected(0)
-		editor?.setText(`${suggestion}/`)
+		editor?.setText(completed)
 		editor?.focus()
 	}
-	const submit = () => {
+	const submit = (): void => {
 		const selectedPath = suggestionFocused() ? suggestions()[selected()] : undefined
 		const candidate = normalize(
 			selectedPath ?? resolve(props.cwd, expandHome((editor?.plainText ?? value()).trim())),
@@ -68,16 +77,19 @@ export const NewSessionModal = (props: {
 			setError('Enter an existing directory')
 			return
 		}
+		editor?.blur()
 		props.onSubmit(candidate)
 	}
+
+	prepareTuiKeyboard(renderer)
 	const keymap = createDefaultOpenTuiKeymap(renderer)
 	const removeInputKeymap = registerManagedTextareaLayer(keymap, renderer, {
 		enabled: () => renderer.currentFocusedEditor === editor,
 		bindings: [
+			{ key: 'return', cmd: 'input.submit' },
 			{ key: 'up', cmd: () => move(-1) },
 			{ key: 'down', cmd: () => move(1) },
 			{ key: 'tab', cmd: complete },
-			{ key: 'return', cmd: submit },
 			{ key: 'escape', cmd: props.onClose },
 		],
 	})
@@ -87,7 +99,7 @@ export const NewSessionModal = (props: {
 		if (editor !== undefined) editor.cursorOffset = value().length
 	})
 	useKeyboard((key: KeyEvent) => {
-		if (key.eventType === 'release') return
+		if (key.eventType === 'release' || renderer.currentFocusedEditor === editor) return
 		if (key.name === 'escape') props.onClose()
 		else if (key.name === 'up') move(-1)
 		else if (key.name === 'down') move(1)
@@ -96,6 +108,7 @@ export const NewSessionModal = (props: {
 		else return
 		key.preventDefault()
 	})
+
 	const width = createMemo(() => Math.min(82, dimensions().width - 4))
 	return (
 		<box
@@ -112,12 +125,15 @@ export const NewSessionModal = (props: {
 			backgroundColor={theme.color.panel}
 			padding={1}
 		>
-			<text fg={theme.color.coreBright} attributes={TextAttributes.BOLD}>
+			<text height={1} flexShrink={0} fg={theme.color.coreBright} attributes={TextAttributes.BOLD}>
 				NEW SESSION
 			</text>
-			<text fg={theme.color.textDim}>Working directory</text>
+			<text height={1} flexShrink={0} fg={theme.color.textDim}>
+				Working directory
+			</text>
 			<textarea
 				ref={(input: TextareaRenderable) => (editor = input)}
+				focused
 				initialValue={value()}
 				onContentChange={() => {
 					setValue(editor?.plainText ?? '')
@@ -125,6 +141,7 @@ export const NewSessionModal = (props: {
 					setSuggestionFocused(false)
 					setError(null)
 				}}
+				onSubmit={submit}
 				height={1}
 				backgroundColor={theme.color.raised}
 				focusedBackgroundColor={theme.color.raised}
@@ -136,15 +153,52 @@ export const NewSessionModal = (props: {
 			<box height={1} />
 			<For each={suggestions()}>
 				{(path, index) => (
-					<text
-						fg={selected() === index() ? theme.color.coreBright : theme.color.textDim}
-					>{`${selected() === index() ? '▸ ' : '  '}${path}/`}</text>
+					<text fg={selected() === index() ? theme.color.coreBright : theme.color.textDim}>
+						{`${selected() === index() ? '▸ ' : '  '}${path}/`}
+					</text>
 				)}
 			</For>
 			<box flexGrow={1} />
-			<text fg={error() === null ? theme.color.textDim : theme.color.alert}>
-				{error() ?? '↑↓ select · Tab complete · ⏎ create · ⎋ cancel'}
+			<text height={1} flexShrink={0} fg={error() === null ? theme.color.textDim : theme.color.alert}>
+				{error() ?? '↑↓ select · Tab complete · ⏎ continue · ⎋ cancel'}
 			</text>
 		</box>
+	)
+}
+
+export const NewSessionModal = (props: {
+	readonly cwd: string
+	readonly configuration: ModelConfiguration
+	readonly onSubmit: (request: NewSessionRequest) => void
+	readonly onClose: () => void
+}) => {
+	const [selectedCwd, setSelectedCwd] = createSignal<string | null>(null)
+	return (
+		<Show
+			when={selectedCwd()}
+			fallback={<DirectorySelectionModal cwd={props.cwd} onSubmit={setSelectedCwd} onClose={props.onClose} />}
+		>
+			{(cwd: Accessor<string>) => (
+				<ModelSelectionModal
+					configuration={props.configuration}
+					context="new-session"
+					title={`NEW SESSION · ${cwd()}`}
+					onClose={() => setSelectedCwd(null)}
+					onSubmit={(selection) => {
+						if (selection._tag === 'profile') {
+							props.onSubmit({ _tag: 'profile', profile: selection.profile, cwd: cwd() })
+						} else if (selection.mode !== undefined) {
+							props.onSubmit({
+								_tag: 'direct',
+								provider: selection.provider,
+								model: selection.model,
+								mode: selection.mode,
+								cwd: cwd(),
+							})
+						}
+					}}
+				/>
+			)}
+		</Show>
 	)
 }

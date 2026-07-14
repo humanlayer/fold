@@ -6,6 +6,7 @@ import { useKeyboard, useRenderer, useTerminalDimensions } from '@opentui/solid'
 import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
 
 import { theme } from './ThemeState'
+import { prepareTuiKeyboard } from './TuiKeymap'
 
 export type TuiCommand = {
 	readonly id: string
@@ -24,12 +25,13 @@ export const CommandPalette = (props: {
 	const renderer = useRenderer()
 	const [query, setQuery] = createSignal('')
 	const [selected, setSelected] = createSignal(0)
-	const [page, setPage] = createSignal<ReadonlyArray<TuiCommand> | null>(null)
+	const [pages, setPages] = createSignal<ReadonlyArray<TuiCommand>>([])
 	let editor: TextareaRenderable | undefined
+	prepareTuiKeyboard(renderer)
 	const keymap = createDefaultOpenTuiKeymap(renderer)
 	const matches = createMemo(() => {
 		const value = query().trim().toLowerCase()
-		const commands = page() ?? props.commands
+		const commands = pages().at(-1)?.children ?? props.commands
 		if (value.length === 0) return commands
 		const titleMatches = commands.filter((command) => command.title.toLowerCase().includes(value))
 		const titleIds = new Set(titleMatches.map((command) => command.id))
@@ -44,7 +46,7 @@ export const CommandPalette = (props: {
 		const command = matches()[selected()]
 		if (command === undefined) return
 		if (command.children !== undefined) {
-			setPage(command.children)
+			setPages((current) => [...current, command])
 			setQuery('')
 			setSelected(0)
 			editor?.setText('')
@@ -55,9 +57,9 @@ export const CommandPalette = (props: {
 		command.run?.()
 	}
 	const back = () => {
-		if (page() === null) props.onClose()
+		if (pages().length === 0) props.onClose()
 		else {
-			setPage(null)
+			setPages((current) => current.slice(0, -1))
 			setQuery('')
 			setSelected(0)
 			editor?.setText('')
@@ -125,6 +127,13 @@ export const CommandPalette = (props: {
 					textColor={theme.color.text}
 				/>
 			</box>
+			<text fg={theme.color.textDim}>
+				{pages().length === 0
+					? 'Commands'
+					: `Commands › ${pages()
+							.map((page) => page.title)
+							.join(' › ')}`}
+			</text>
 			<box height={1} />
 			<box flexDirection="column" flexGrow={1}>
 				<For each={matches()}>

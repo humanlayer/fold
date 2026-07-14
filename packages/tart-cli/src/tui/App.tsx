@@ -1,3 +1,4 @@
+import type { ModelConfiguration } from '@humanlayer/tart-agent'
 /** @jsxImportSource @opentui/solid */
 import { installPostFx, nextVignetteMode, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/tart-tui-theme/themes'
@@ -14,6 +15,7 @@ import { nextRootInputVerb, normalizeRootInputVerb, rootInputVerbLabel, type Roo
 import { EventDetail, EventIndexRow, EventRow, rowVisual } from './EventViews'
 import type { GitChangeGroup, GitSnapshot } from './GitChanges'
 import { MetaRail } from './MetaRail'
+import { ModelSelectionModal, type ModelSelectionRequest } from './ModelSelectionModal'
 import {
 	contextMode,
 	followLive,
@@ -24,12 +26,16 @@ import {
 	type NavigationState,
 } from './Navigation'
 import { NewSessionModal } from './NewSessionModal'
+import type { NewSessionRequest } from './NewSessionModal'
+import type { ProviderAuthAction, ProviderAuthUpdate } from './ProviderAuth'
+import { ProviderConfigModal } from './ProviderConfigModal'
 import { conversationRows, makeSessionStateFromEntries, replayIsReady, type SessionState } from './SessionState'
 import { SkillsRail } from './SkillsRail'
 import { metaCounts, skillViews, subagentViews } from './Subagents'
 import { theme as tactical } from './ThemeState'
 import { TUI_CONTEXT_TITLE, TUI_INSPECT_BADGE, TUI_LIVE_BADGE, tuiScrollbarOptions } from './TuiChrome'
 import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
+import { prepareTuiKeyboard } from './TuiKeymap'
 
 export type TuiAppProps = {
 	readonly state: Accessor<SessionState>
@@ -37,6 +43,7 @@ export type TuiAppProps = {
 	readonly sessionId: string
 	readonly mode: string
 	readonly profile: string
+	readonly configuration?: ModelConfiguration
 	readonly notice: Accessor<string | null>
 	readonly targetNotice?: Accessor<{ readonly agentId: string; readonly text: string } | null>
 	readonly compacting?: Accessor<boolean>
@@ -44,7 +51,15 @@ export type TuiAppProps = {
 	readonly onSubmit: (verb: RootInputVerb, text: string) => void
 	readonly onCompact: () => void
 	readonly onInterrupt: () => void
-	readonly onNewSession?: (cwd: string) => void
+	readonly onNewSession?: (request: NewSessionRequest) => void
+	readonly onConfigureModels?: (selection: ModelSelectionRequest) => void
+	readonly configExists?: boolean
+	readonly onProviderAuth?: (
+		provider: string,
+		action: ProviderAuthAction,
+		update: (state: ProviderAuthUpdate) => void,
+	) => void
+	readonly onInitializeConfig?: (update: (state: ProviderAuthUpdate) => void) => void
 	readonly onBackToSessions?: () => void
 	readonly onCopySessionId?: () => void
 	readonly toggles?: Accessor<FxToggles>
@@ -74,6 +89,8 @@ export const TuiApp = (props: TuiAppProps) => {
 	const [draft, setDraft] = createSignal('')
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
 	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
+	const [modelsOpen, setModelsOpen] = createSignal(false)
+	const [providersOpen, setProvidersOpen] = createSignal(false)
 	const [railTab, setRailTab] = createSignal<'subagents' | 'meta' | 'skills'>('meta')
 	const [leftTab, setLeftTab] = createSignal<'events' | 'changes'>('events')
 	const [selectedChange, setSelectedChange] = createSignal(0)
@@ -96,6 +113,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	let contextScroller: ScrollBoxRenderable | undefined
 	let changesScroller: ScrollBoxRenderable | undefined
 	let pendingG = false
+	prepareTuiKeyboard(renderer)
 	const keymap = createDefaultOpenTuiKeymap(renderer)
 	const removeInputKeymap = registerManagedTextareaLayer(keymap, renderer, {
 		enabled: () => inputFocused() && renderer.currentFocusedEditor === editor,
@@ -221,6 +239,31 @@ export const TuiApp = (props: TuiAppProps) => {
 			{ id: 'resume', title: 'Resume session…', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
 			{ id: 'back', title: 'Return to sessions', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
 			{ id: 'copy', title: 'Copy session ID', category: 'SESSION', run: () => props.onCopySessionId?.() },
+			{
+				id: 'models',
+				title: 'Configure models, modes, and providers...',
+				category: 'APPLICATION',
+				children: [
+					{
+						id: 'select-model',
+						title: 'Select model or profile...',
+						category: 'SESSION',
+						run: () => setModelsOpen(true),
+					},
+					{
+						id: 'modes-info',
+						title: 'New session with default or rlm mode...',
+						category: 'APPLICATION',
+						run: () => setNewSessionOpen(true),
+					},
+					{
+						id: 'providers-info',
+						title: 'Providers / Auth...',
+						category: 'APPLICATION',
+						run: () => setProvidersOpen(true),
+					},
+				],
+			},
 			{
 				id: 'changes',
 				title: leftTab() === 'changes' ? 'Show events' : 'Show changes',
@@ -348,7 +391,7 @@ export const TuiApp = (props: TuiAppProps) => {
 
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release') return
-		if (paletteOpen() || newSessionOpen()) return
+		if (paletteOpen() || newSessionOpen() || modelsOpen() || providersOpen()) return
 		if (confirmSkill() !== null) {
 			key.preventDefault()
 			if (key.name === 'y') {
@@ -1201,11 +1244,34 @@ export const TuiApp = (props: TuiAppProps) => {
 			<Show when={newSessionOpen()}>
 				<NewSessionModal
 					cwd={props.cwd}
+					configuration={props.configuration ?? { profiles: [], providers: [] }}
 					onClose={() => setNewSessionOpen(false)}
-					onSubmit={(cwd) => {
+					onSubmit={(request) => {
 						setNewSessionOpen(false)
-						props.onNewSession?.(cwd)
+						props.onNewSession?.(request)
 					}}
+				/>
+			</Show>
+			<Show when={modelsOpen()}>
+				<ModelSelectionModal
+					configuration={props.configuration ?? { profiles: [], providers: [] }}
+					context="active"
+					onClose={() => setModelsOpen(false)}
+					onSubmit={(selection) => {
+						setModelsOpen(false)
+						props.onConfigureModels?.(selection)
+					}}
+				/>
+			</Show>
+			<Show
+				when={providersOpen() && props.onProviderAuth !== undefined && props.onInitializeConfig !== undefined}
+			>
+				<ProviderConfigModal
+					configuration={props.configuration ?? { profiles: [], providers: [] }}
+					configExists={props.configExists === true}
+					onClose={() => setProvidersOpen(false)}
+					onAuth={(provider, action, update) => props.onProviderAuth?.(provider, action, update)}
+					onInitialize={(update) => props.onInitializeConfig?.(update)}
 				/>
 			</Show>
 			<Show when={confirmSkill()}>

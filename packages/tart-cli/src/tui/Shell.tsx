@@ -1,7 +1,13 @@
 /** @jsxImportSource @opentui/solid */
 import {
 	launchSession,
+	describeModelConfiguration,
+	loadTartConfigOrNull,
+	resolveConfiguredModelSelection,
+	type ModelConfiguration,
+	type TartConfig,
 	makeDiskSkillSource,
+	configInit,
 	deleteSession,
 	listSessionSummaries,
 	modeForName,
@@ -11,13 +17,15 @@ import {
 	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
 } from '@humanlayer/tart-agent'
+import { makeCodexAuth, makeCodexAuthStore } from '@humanlayer/tart-codex'
 import { lookupCatalogEntry, type SessionId, type TartSession } from '@humanlayer/tart-core'
 import { renderSkillContent } from '@humanlayer/tart-core'
 import { ALL_FX_ON, type FxToggles } from '@humanlayer/tart-tui-theme/postfx'
 import { nextThemeId, type ThemeId } from '@humanlayer/tart-tui-theme/themes'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
-import { Cause, Deferred, Duration, Effect, Exit, Match, Schema, Scope, Stream } from 'effect'
+import { Cause, Clock, Deferred, Duration, Effect, Exit, Match, Option, Schema, Scope, Stream } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 import { batch, createSignal, Show, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 
@@ -25,6 +33,11 @@ import type { CliSessionOptions } from '../Run'
 import { TuiApp } from './App'
 import { executeRootInputAction, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
 import { loadGitSnapshot, type GitSnapshot } from './GitChanges'
+import { requestToLaunchOptions } from './LaunchRequests'
+import { configuredSelection, type ModelSelectionRequest } from './ModelSelectionModal'
+import type { NewSessionRequest } from './NewSessionModal'
+import { openUrlInBrowser } from './OpenUrl'
+import { codexAuthStoreOptions, type ProviderAuthAction, type ProviderAuthUpdate } from './ProviderAuth'
 import { SessionPicker } from './SessionPicker'
 import { makeSessionStateFromEntries, reduceSessionEvents, type SessionState } from './SessionState'
 import { setCurrentTheme } from './ThemeState'
@@ -42,8 +55,11 @@ const launchOptions = (options: TuiOptions) => ({
 	...(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
 	...(options.mode === undefined ? {} : { mode: modeForName(options.mode) }),
 	...(options.rpi === true ? { rpi: true } : {}),
-	...(options.profile === undefined ? {} : { profile: options.profile }),
-	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
+	...(options.modelSelection !== undefined
+		? { modelSelection: options.modelSelection }
+		: options.profile === undefined
+			? {}
+			: { profile: options.profile }),
 	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
 	...(options.catalog === undefined ? {} : { catalog: options.catalog }),
 })
@@ -86,6 +102,19 @@ export const runTui = (
 		const parentScope = yield* Scope.Scope
 		const context = yield* Effect.context<Scope.Scope>()
 		const runFork = Effect.runForkWith(context)
+		const configExit = yield* Effect.exit(
+			loadTartConfigOrNull(options.tartHome === undefined ? {} : { tartHome: options.tartHome }),
+		)
+		const config: TartConfig | null = Exit.isSuccess(configExit) ? configExit.value : null
+		const configuration: ModelConfiguration =
+			config === null
+				? { profiles: [], providers: [] }
+				: describeModelConfiguration(config, options.catalog ?? [])
+		const configNotice = Exit.isFailure(configExit)
+			? `CONFIGURATION ERROR · ${Cause.pretty(configExit.cause)}`
+			: config === null
+				? 'NO MODEL CONFIGURATION · RUN `tart config init`, THEN EDIT ~/.tart/config.jsonc'
+				: null
 
 		const renderer = yield* Effect.tryPromise({
 			try: () =>
@@ -117,6 +146,67 @@ export const runTui = (
 		const selectTheme = (id: ThemeId): void => {
 			setCurrentTheme(id)
 			setThemeId(id)
+		}
+		const updateAuth = (
+			provider: string,
+			action: ProviderAuthAction,
+			update: (state: ProviderAuthUpdate) => void,
+		): void => {
+			const store = makeCodexAuthStore(codexAuthStoreOptions(provider, options.tartHome))
+			const operation = Effect.gen(function* () {
+				if (action === 'status') {
+					update({ _tag: 'working', message: 'Checking stored credential...' })
+					const token = yield* store.load
+					if (Option.isNone(token)) return update({ _tag: 'success', message: 'No Codex credential stored.' })
+					const now = yield* Clock.currentTimeMillis
+					return update({
+						_tag: 'success',
+						message: `Codex credential is ${token.value.isExpired(now) ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+					})
+				}
+				const auth = yield* makeCodexAuth({
+					store,
+					onBrowserUrl: (url) =>
+						openUrlInBrowser(url).pipe(
+							Effect.tap((opened) => Effect.sync(() => update({ _tag: 'browser', url, opened }))),
+							Effect.asVoid,
+						),
+					onDeviceCode: (prompt) =>
+						Effect.sync(() => update({ _tag: 'device', url: prompt.verifyUrl, code: prompt.userCode })),
+				}).pipe(Effect.provide(FetchHttpClient.layer))
+				if (action === 'logout') {
+					update({ _tag: 'working', message: 'Removing stored credential...' })
+					yield* auth.logout
+					return update({ _tag: 'success', message: 'Codex credential removed.' })
+				}
+				update({ _tag: 'working', message: `Starting ${action} login...` })
+				yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
+				update({ _tag: 'success', message: 'Codex authentication saved successfully.' })
+			}).pipe(
+				Effect.catchCause((cause) =>
+					Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
+				),
+			)
+			runFork(operation)
+		}
+		const initializeConfig = (update: (state: ProviderAuthUpdate) => void): void => {
+			update({ _tag: 'working', message: 'Initializing Tart configuration...' })
+			runFork(
+				configInit(options.tartHome === undefined ? {} : { tartHome: options.tartHome }).pipe(
+					Effect.tap(() =>
+						Effect.sync(() =>
+							update({
+								_tag: 'success',
+								message:
+									'Configuration initialized. Restart Tart to load config.jsonc and exported credentials.',
+							}),
+						),
+					),
+					Effect.catchCause((cause) =>
+						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
+					),
+				),
+			)
 		}
 		const cycleTheme = (): void => selectTheme(nextThemeId(themeId()))
 		yield* Effect.addFinalizer(() => Effect.sync(() => renderer.destroy()))
@@ -288,9 +378,11 @@ export const runTui = (
 		const pickerFirst = options.resume === undefined && options.prompt === undefined
 		const initialSummaries = pickerFirst ? yield* summariesEffect : []
 		const [summaries, setSummaries] = createSignal(initialSummaries)
-		const [pickerNotice, setPickerNotice] = createSignal<string | null>(null)
+		const [pickerNotice, setPickerNotice] = createSignal<string | null>(configNotice)
 		const [opening, setOpening] = createSignal(false)
 		const [currentCwd, setCurrentCwd] = createSignal(options.cwd)
+		const [currentProfile, setCurrentProfile] = createSignal(options.profile ?? 'default')
+		const [currentMode, setCurrentMode] = createSignal(options.mode ?? 'default')
 
 		const acquireActive = (
 			effect: Effect.Effect<TartSession, TuiSessionError, Scope.Scope>,
@@ -392,15 +484,19 @@ export const runTui = (
 		yield* Effect.tryPromise({
 			try: () =>
 				render(() => {
-					const mode = `${options.mode ?? 'default'}${options.rpi === true ? '+rpi' : ''}`
+					const mode = () => `${currentMode()}${options.rpi === true ? '+rpi' : ''}`
 					return (
 						<Show
 							when={active()}
 							fallback={
 								<SessionPicker
 									cwd={currentCwd()}
-									mode={mode}
-									profile={options.profile ?? 'default'}
+									mode={mode()}
+									profile={currentProfile()}
+									configuration={configuration}
+									configExists={config !== null}
+									onProviderAuth={updateAuth}
+									onInitializeConfig={initializeConfig}
 									sessions={summaries}
 									notice={pickerNotice}
 									opening={opening}
@@ -408,9 +504,12 @@ export const runTui = (
 										activate(resumeSessionById(sessionId, launchOptions(options)), false)
 									}
 									onDelete={removeSession}
-									onNew={(cwd) =>
-										activate(launchSession({ ...launchOptions(options), cwd }), true, cwd)
-									}
+									onNew={(request) => {
+										const next = requestToLaunchOptions(options, request)
+										setCurrentProfile(request._tag === 'profile' ? request.profile : 'direct')
+										if (request._tag === 'direct') setCurrentMode(request.mode)
+										activate(launchSession(launchOptions(next)), true, request.cwd)
+									}}
 									onQuit={() => renderer.destroy()}
 									toggles={toggles}
 									setToggles={setToggles}
@@ -424,8 +523,12 @@ export const runTui = (
 									state={current().state}
 									cwd={currentCwd()}
 									sessionId={current().session.sessionId}
-									mode={mode}
-									profile={options.profile ?? 'default'}
+									mode={mode()}
+									profile={currentProfile()}
+									configuration={configuration}
+									configExists={config !== null}
+									onProviderAuth={updateAuth}
+									onInitializeConfig={initializeConfig}
 									notice={current().notice}
 									targetNotice={current().targetNotice}
 									compacting={current().compacting}
@@ -478,9 +581,51 @@ export const runTui = (
 									setToggles={setToggles}
 									onCycleTheme={cycleTheme}
 									onSelectTheme={selectTheme}
-									onNewSession={(cwd) =>
-										activate(launchSession({ ...launchOptions(options), cwd }), true, cwd)
-									}
+									onNewSession={(request) => {
+										const next = requestToLaunchOptions(options, request)
+										setCurrentProfile(request._tag === 'profile' ? request.profile : 'direct')
+										if (request._tag === 'direct') setCurrentMode(request.mode)
+										activate(launchSession(launchOptions(next)), true, request.cwd)
+									}}
+									onConfigureModels={(selection: ModelSelectionRequest) => {
+										if (config === null) {
+											current().notify(configNotice)
+											return
+										}
+										current().notify('APPLYING MODEL CONFIGURATION')
+										runFork(
+											resolveConfiguredModelSelection(
+												config,
+												configuredSelection(selection),
+												currentMode() === 'rlm' ? 'rlm' : 'default',
+											).pipe(
+												Effect.flatMap((models) =>
+													selection._tag === 'profile'
+														? Effect.all([
+																current().session.switchModel(models.root),
+																current().session.setProfile('smart', models.smart),
+																current().session.setProfile('fast', models.fast),
+																current().session.setProfile(
+																	'orchestrator',
+																	models.orchestrator,
+																),
+															])
+														: current().session.switchModel(models.root),
+												),
+												Effect.tap(() =>
+													Effect.sync(() => {
+														if (selection._tag === 'profile')
+															setCurrentProfile(selection.profile)
+														else setCurrentProfile('direct')
+														current().notify('MODEL CONFIGURATION APPLIED')
+													}),
+												),
+												Effect.catchCause((cause) =>
+													Effect.sync(() => current().notify(Cause.pretty(cause))),
+												),
+											),
+										)
+									}}
 									onBackToSessions={showPicker}
 									onCopySessionId={() => {
 										const copied = renderer.copyToClipboardOSC52(current().session.sessionId)
