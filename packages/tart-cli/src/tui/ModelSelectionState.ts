@@ -1,4 +1,4 @@
-import type { ModelConfiguration, ProfileModeName } from '@humanlayer/tart-agent'
+import type { ConfiguredModelSelection, ModelConfiguration, ProfileModeName } from '@humanlayer/tart-agent'
 
 export type ModelSelectionContext = 'active' | 'new-session'
 export type ModelSelectionRequest =
@@ -11,6 +11,9 @@ export type ModelPickerState =
 	| { readonly _tag: 'model'; readonly provider: string }
 	| { readonly _tag: 'mode'; readonly provider: string; readonly model: string }
 export type ModelPickerChoice = { readonly id: string; readonly label: string; readonly detail: string }
+
+export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection =>
+	request._tag === 'profile' ? request : { _tag: 'direct', provider: request.provider, model: request.model }
 
 export const initialModelPickerState = (): ModelPickerState => ({ _tag: 'kind' })
 export const modelPickerChoices = (
@@ -65,7 +68,12 @@ export const advanceModelPicker = (
 				? { _tag: 'mode', provider: state.provider, model: choice }
 				: { _tag: 'direct', provider: state.provider, model: choice }
 		case 'mode':
-			return { _tag: 'direct', provider: state.provider, model: state.model, mode: choice as ProfileModeName }
+			return {
+				_tag: 'direct',
+				provider: state.provider,
+				model: state.model,
+				mode: choice === 'rlm' ? 'rlm' : 'default',
+			}
 	}
 }
 export const retreatModelPicker = (state: ModelPickerState): ModelPickerState | null => {

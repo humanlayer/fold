@@ -29,7 +29,7 @@ export const SessionState = Schema.Struct({
 	interruptedAssistantSeqs: Schema.Array(LogSeq),
 	transientContent: Schema.Array(TransientContent),
 	replay: ReplayState,
-	status: Schema.Literals(['RUNNING', 'IDLE', 'STOPPED']),
+	status: Schema.Literals(['RUNNING', 'IDLE', 'STOPPED', 'ERROR']),
 	model: Schema.String,
 }).annotate({ identifier: 'TuiSessionState' })
 export type SessionState = typeof SessionState.Type
@@ -88,7 +88,7 @@ const isAssistantMessage = Match.type<LogEntry>().pipe(
 )
 
 const statusAfterFinish = (outcome: AgentFinishedOutcome): SessionState['status'] =>
-	outcome === 'completed' ? 'IDLE' : 'STOPPED'
+	outcome === 'completed' ? 'IDLE' : outcome === 'error' ? 'ERROR' : 'STOPPED'
 
 const replayAfter = (replay: ReplayState, seenSeqs: ReadonlyArray<number>): ReplayState =>
 	Match.value(replay).pipe(

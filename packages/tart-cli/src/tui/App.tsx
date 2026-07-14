@@ -216,9 +216,11 @@ export const TuiApp = (props: TuiAppProps) => {
 			? 'compacting'
 			: props.state().status === 'RUNNING' || meta().running > 0
 				? 'running'
-				: props.state().status === 'STOPPED'
-					? 'stopped'
-					: 'ready',
+				: props.state().status === 'ERROR'
+					? 'error'
+					: props.state().status === 'STOPPED'
+						? 'stopped'
+						: 'ready',
 	)
 	const runningCount = createMemo(() => meta().running + (props.state().status === 'RUNNING' ? 1 : 0))
 	const sessionActivityLabel = createMemo(() => {

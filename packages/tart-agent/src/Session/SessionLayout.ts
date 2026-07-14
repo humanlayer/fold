@@ -84,7 +84,7 @@ const SessionSummarySchema = Schema.Struct({
 	mtimeMs: Schema.Number,
 	size: Schema.optional(Schema.Number),
 	title: Schema.String,
-	status: Schema.Literal('ready', 'running', 'stopped', 'error'),
+	status: Schema.Literals(['ready', 'running', 'stopped', 'error']),
 	turns: Schema.Number,
 	providerId: Schema.NullOr(Schema.String),
 	modelId: Schema.NullOr(Schema.String),
@@ -297,7 +297,10 @@ const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | 
 	)
 
 /** Check if a cached record is still valid for the given session log ref. */
-const isCacheHit = (cached: SessionIndexRecord | undefined, ref: SessionLogRef): cached is typeof SummaryIndexRecord.Type =>
+const isCacheHit = (
+	cached: SessionIndexRecord | undefined,
+	ref: SessionLogRef,
+): cached is typeof SummaryIndexRecord.Type =>
 	cached !== undefined &&
 	cached._tag === 'summary' &&
 	cached.sourceMtimeMs === ref.mtimeMs &&
@@ -310,10 +313,27 @@ export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Eff
 		const index = yield* loadSessionIndex(options)
 		const summaries = yield* Effect.forEach(
 			refs,
-			(ref) => {
+			(ref): Effect.Effect<SessionSummary | null> => {
 				const cached = index.get(ref.sessionId)
 				if (isCacheHit(cached, ref)) {
-					return Effect.succeed({ ...cached.summary, path: ref.path, mtimeMs: ref.mtimeMs })
+					// Explicitly construct to ensure size conforms to SessionLogRef's optional semantics.
+					const summary = cached.summary
+					return Effect.succeed({
+						sessionId: summary.sessionId,
+						path: ref.path,
+						mtimeMs: ref.mtimeMs,
+						...(ref.size === undefined ? {} : { size: ref.size }),
+						title: summary.title,
+						status: summary.status,
+						turns: summary.turns,
+						providerId: summary.providerId,
+						modelId: summary.modelId,
+						model: summary.model,
+						contextTokens: summary.contextTokens,
+						mode: summary.mode,
+						rpi: summary.rpi,
+						profile: summary.profile,
+					})
 				}
 				return loadSessionSummary(ref).pipe(
 					Effect.tap((summary) =>

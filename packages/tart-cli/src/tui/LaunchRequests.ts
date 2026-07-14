@@ -1,5 +1,5 @@
 import type { NewSessionRequest } from './NewSessionModal'
-import type { TuiOptions } from './Shell'
+import type { TuiOptions } from './TuiSessionOptions'
 
 /** Build a fresh launch request without carrying process-level model, profile, or mode choices across sessions. */
 export const requestToLaunchOptions = (options: TuiOptions, request: NewSessionRequest): TuiOptions => {

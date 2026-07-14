@@ -157,6 +157,24 @@ describe('TUI session reducer', () => {
 		expect(reduceSessionEvent(running, { kind: 'log', entry: completed }, rootAgentId).status).toBe('IDLE')
 	})
 
+	it('keeps root errors distinct from user-requested stops', () => {
+		const failed = entry({
+			_tag: 'agent-finished',
+			seq: 0,
+			ts: 0,
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			outcome: 'error',
+			resultText: null,
+			reason: 'provider failed',
+		})
+
+		expect(reduceSessionEvent(makeSessionState(null), { kind: 'log', entry: failed }, rootAgentId).status).toBe(
+			'ERROR',
+		)
+	})
+
 	it('accumulates live text and reasoning independently under stable part keys', () => {
 		const state = reduceSessionEvents(
 			makeSessionState(null),

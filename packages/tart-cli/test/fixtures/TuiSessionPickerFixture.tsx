@@ -61,9 +61,10 @@ const [sessions, setSessions] = createSignal(initialSessions)
 await render(
 	() => (
 		<SessionPicker
-			cwd="/workspace/tart"
+			cwd={process.cwd()}
 			mode="rlm+rpi"
 			profile="ultracodex"
+			configuration={{ profiles: [{ name: 'default', mode: null }], providers: [] }}
 			sessions={sessions}
 			notice={notice}
 			opening={() => false}

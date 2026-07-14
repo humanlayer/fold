@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import type { ConfiguredModelSelection, ModelConfiguration } from '@humanlayer/tart-agent'
+import type { ModelConfiguration } from '@humanlayer/tart-agent'
 import { TextAttributes, type KeyEvent, type ScrollBoxRenderable } from '@opentui/core'
 import { useKeyboard, useTerminalDimensions } from '@opentui/solid'
 import { createEffect, createMemo, createSignal, For } from 'solid-js'
@@ -125,6 +125,3 @@ export const ModelSelectionModal = (props: {
 		</box>
 	)
 }
-
-export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection =>
-	request._tag === 'profile' ? request : { _tag: 'direct', provider: request.provider, model: request.model }
