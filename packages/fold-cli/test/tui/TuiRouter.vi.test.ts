@@ -35,4 +35,27 @@ describe('TuiRouter', () => {
 		expect(router.showSession(pending, sessionId('late'))).toBe(false)
 		expect(router.route()).toEqual({ _tag: 'picker' })
 	})
+
+	it('returns from providers to the exact originating route', () => {
+		const router = makeTuiRouter({ _tag: 'picker' })
+		const pending = router.beginSessionActivation()
+		router.showProviders()
+		expect(router.route()).toEqual({ _tag: 'providers', returnTo: { _tag: 'picker' } })
+		expect(router.showSession(pending, sessionId('late'))).toBe(false)
+		expect(router.backFromProviders()).toBe(true)
+		expect(router.route()).toEqual({ _tag: 'picker' })
+
+		const selected = sessionId('origin')
+		const activation = router.beginSessionActivation()
+		router.showSession(activation, selected)
+		router.showProviders()
+		expect(router.route()).toEqual({
+			_tag: 'providers',
+			returnTo: { _tag: 'session', sessionId: selected },
+		})
+		router.showProviders()
+		expect(router.backFromProviders()).toBe(true)
+		expect(router.route()).toEqual({ _tag: 'session', sessionId: selected })
+		expect(router.backFromProviders()).toBe(false)
+	})
 })

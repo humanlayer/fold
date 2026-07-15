@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import type { ConfigureProviderInput, ModelConfiguration, SessionSummary } from '@humanlayer/fold-agent'
+import type { ModelConfiguration, SessionSummary } from '@humanlayer/fold-agent'
 import type { SessionId } from '@humanlayer/fold-core'
 import { nextVignetteMode, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/fold-tui-theme/themes'
@@ -11,8 +11,6 @@ import { ActivityIndicator } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { NewSessionModal } from './NewSessionModal'
 import type { NewSessionRequest } from './NewSessionModal'
-import type { ProviderAuthAction, ProviderAuthUpdate } from './ProviderAuth'
-import { ProviderConfigModal } from './ProviderConfigModal'
 import { relativeSessionTime, shortSessionId } from './SessionPickerState'
 import { theme as tactical } from './ThemeState'
 import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
@@ -28,14 +26,7 @@ export type SessionPickerProps = {
 	readonly onOpen: (sessionId: SessionId) => void
 	readonly onDelete: (sessionId: SessionId) => void
 	readonly onNew: (request: NewSessionRequest) => void
-	readonly configExists?: boolean
-	readonly onProviderAuth?: (
-		provider: string,
-		action: ProviderAuthAction,
-		update: (state: ProviderAuthUpdate) => void,
-	) => void
-	readonly onInitializeConfig?: (update: (state: ProviderAuthUpdate) => void) => void
-	readonly onConfigureProvider?: (input: ConfigureProviderInput, update: (state: ProviderAuthUpdate) => void) => void
+	readonly onOpenProviders?: () => void
 	readonly onQuit: () => void
 	readonly toggles?: Accessor<FxToggles>
 	readonly setToggles?: (update: (current: FxToggles) => FxToggles) => void
@@ -51,7 +42,6 @@ export const SessionPicker = (props: SessionPickerProps) => {
 	const [deleteTarget, setDeleteTarget] = createSignal<SessionPickerRow | null>(null)
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
 	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
-	const [providersOpen, setProvidersOpen] = createSignal(false)
 	let pendingG = false
 	const { toggles, setToggles } = createFxControls(props.toggles, props.setToggles)
 	const itemCount = createMemo(() => props.sessions().length + 1)
@@ -91,7 +81,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 				id: 'providers-info',
 				title: 'Providers / Auth...',
 				category: 'APPLICATION',
-				run: () => setProvidersOpen(true),
+				run: () => props.onOpenProviders?.(),
 			},
 			{
 				id: 'models',
@@ -131,7 +121,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release' || props.opening()) return
-		if (paletteOpen() || newSessionOpen() || providersOpen()) return
+		if (paletteOpen() || newSessionOpen()) return
 		const target = deleteTarget()
 		if (target !== null) {
 			key.preventDefault()
@@ -410,18 +400,6 @@ export const SessionPicker = (props: SessionPickerProps) => {
 						setNewSessionOpen(false)
 						props.onNew(request)
 					}}
-				/>
-			</Show>
-			<Show
-				when={providersOpen() && props.onProviderAuth !== undefined && props.onInitializeConfig !== undefined}
-			>
-				<ProviderConfigModal
-					configuration={props.configuration ?? { profiles: [], providers: [] }}
-					configExists={props.configExists === true}
-					onClose={() => setProvidersOpen(false)}
-					onAuth={(provider, action, update) => props.onProviderAuth?.(provider, action, update)}
-					onInitialize={(update) => props.onInitializeConfig?.(update)}
-					onConfigure={(input, update) => props.onConfigureProvider?.(input, update)}
 				/>
 			</Show>
 		</box>

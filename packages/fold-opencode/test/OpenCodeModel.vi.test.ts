@@ -65,6 +65,10 @@ describe('openCodeModel', () => {
 			apiUrl: 'https://remote.example/v1',
 			protocol: 'responses',
 		})
+		expect(resolveOpenCodeModelConfig(providers, DEFAULT_OPENCODE_MODEL_ID, OPENCODE_ZEN_API_URL)).toMatchObject({
+			apiUrl: 'https://remote.example/v1',
+			protocol: 'responses',
+		})
 		expect(
 			resolveOpenCodeModelConfig(providers, DEFAULT_OPENCODE_MODEL_ID, 'https://override.example/v1'),
 		).toMatchObject({ apiUrl: 'https://override.example/v1', protocol: 'responses' })

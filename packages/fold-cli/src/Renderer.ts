@@ -264,7 +264,7 @@ const resumeCommand = (
 			flags.push(`--reasoning ${shellQuote(model.requestedReasoningLevel)}`)
 	}
 
-	return `fold ${flags.join(' ')}`
+	return `foldcode ${flags.join(' ')}`
 }
 
 const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome']): ((text: string) => string) =>

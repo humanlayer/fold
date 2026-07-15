@@ -4,6 +4,7 @@ export type SubagentStatus = 'running' | 'done' | 'error' | 'stopped' | 'interru
 
 export type SubagentView = {
 	readonly agentId: AgentId
+	readonly calledAt: number
 	readonly type: string
 	readonly description: string
 	readonly prompt: string
@@ -43,35 +44,51 @@ export const subagentViews = (entries: ReadonlyArray<LogEntry>, rootAgentId: Age
 	const starts = entries.filter(
 		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.agentId !== rootAgentId,
 	)
-	return starts.map((start) => {
-		const own = entries.filter((entry) => entry.agentId === start.agentId)
-		const finish = own.filter((entry) => entry._tag === 'agent-finished').at(-1)
-		const continuing = own.some(
-			(entry) => entry._tag === 'user-message' && (finish === undefined || entry.seq > finish.seq),
-		)
-		const details = dispatchDetails(entries, start.toolCallId)
-		return {
-			agentId: start.agentId,
-			type: start.agentType ?? (start.mode === 'fork' ? 'fork' : 'subagent'),
-			description: details?.description || 'delegated task',
-			prompt: details?.prompt ?? '',
-			status:
-				continuing || finish === undefined
-					? 'running'
-					: finish.outcome === 'completed'
-						? 'done'
-						: finish.outcome,
-			turns: own.filter((entry) => entry._tag === 'assistant-message').length,
-			tools: own.reduce(
-				(count, entry) =>
-					entry._tag === 'assistant-message' && typeof entry.message.content !== 'string'
-						? count + entry.message.content.filter((part) => part.type === 'tool-call').length
-						: count,
-				0,
-			),
-			entries: own,
-		}
-	})
+	return starts
+		.toSorted((left, right) => left.seq - right.seq)
+		.map((start) => {
+			const own = entries.filter((entry) => entry.agentId === start.agentId)
+			const finish = own.filter((entry) => entry._tag === 'agent-finished').at(-1)
+			const continuing = own.some(
+				(entry) => entry._tag === 'user-message' && (finish === undefined || entry.seq > finish.seq),
+			)
+			const details = dispatchDetails(entries, start.toolCallId)
+			return {
+				agentId: start.agentId,
+				calledAt: start.ts,
+				type: start.agentType ?? (start.mode === 'fork' ? 'fork' : 'subagent'),
+				description: details?.description || 'delegated task',
+				prompt: details?.prompt ?? '',
+				status:
+					continuing || finish === undefined
+						? 'running'
+						: finish.outcome === 'completed'
+							? 'done'
+							: finish.outcome,
+				turns: own.filter((entry) => entry._tag === 'assistant-message').length,
+				tools: own.reduce(
+					(count, entry) =>
+						entry._tag === 'assistant-message' && typeof entry.message.content !== 'string'
+							? count + entry.message.content.filter((part) => part.type === 'tool-call').length
+							: count,
+					0,
+				),
+				entries: own,
+			}
+		})
+}
+
+export const relativeSubagentTime = (calledAt: number, now = Date.now()): string => {
+	const minutes = Math.floor(Math.max(0, now - calledAt) / 60_000)
+	if (minutes < 1) return 'now'
+	if (minutes < 60) return `${minutes}m`
+	const hours = Math.floor(minutes / 60)
+	if (hours < 24) return `${hours}h`
+	const days = Math.floor(hours / 24)
+	if (days < 30) return `${days}d`
+	const months = Math.floor(days / 30)
+	if (months < 12) return `${months}mo`
+	return `${Math.floor(months / 12)}y`
 }
 
 export const metaCounts = (entries: ReadonlyArray<LogEntry>, agents: ReadonlyArray<SubagentView>) => {

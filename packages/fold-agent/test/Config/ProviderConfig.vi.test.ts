@@ -88,6 +88,57 @@ it.effect('updates a provider, retaining configured models when no new model is 
 	),
 )
 
+it.effect('stores an API key environment variable name without resolving or persisting its value', () =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const directory = yield* tempDir
+			const path = join(directory, 'config.jsonc')
+			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
+
+			const updated = yield* configureProvider(
+				{
+					name: 'openrouter',
+					kind: 'openai-compat',
+					baseUrl: 'https://openrouter.ai/api/v1',
+					apiKeyEnv: 'OPENROUTER_API_KEY',
+					model: 'anthropic/claude-sonnet-4',
+				},
+				{ path },
+			)
+
+			expect(updated.providers.openrouter).toEqual({
+				kind: 'openai-compat',
+				baseUrl: 'https://openrouter.ai/api/v1',
+				apiKeyEnv: 'OPENROUTER_API_KEY',
+				configuredModels: ['anthropic/claude-sonnet-4'],
+			})
+		}),
+	),
+)
+
+it.effect('rejects supplying both inline and environment API key sources', () =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const directory = yield* tempDir
+			const path = join(directory, 'config.jsonc')
+			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
+
+			const error = yield* configureProvider(
+				{
+					name: 'ambiguous',
+					kind: 'anthropic',
+					baseUrl: 'https://api.anthropic.com',
+					apiKey: 'secret',
+					apiKeyEnv: 'ANTHROPIC_API_KEY',
+				},
+				{ path },
+			).pipe(Effect.flip)
+
+			expect(error._tag).toBe('ProviderConfigurationValidationError')
+		}),
+	),
+)
+
 it.effect('adds OAuth profiles without an API key and supplies their default model', () =>
 	Effect.scoped(
 		Effect.gen(function* () {

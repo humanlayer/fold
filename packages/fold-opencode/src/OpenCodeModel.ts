@@ -54,19 +54,22 @@ export const resolveOpenCodeModelConfig = (
 	model: string,
 	apiUrlOverride?: string,
 ): OpenCodeResolvedModel => {
+	// The public Zen URL is the fallback, not a routing override. Console's model catalog points
+	// authenticated users at the correct inference gateway for their account.
+	const override = apiUrlOverride === OPENCODE_ZEN_API_URL ? undefined : apiUrlOverride
 	for (const provider of Object.values(providers ?? {})) {
 		const configured = provider.models?.[model]
 		if (configured === undefined) continue
 		const packageName = configured.provider?.npm ?? provider.npm
 		return {
-			apiUrl: apiUrlOverride ?? configured.provider?.api ?? provider.api ?? OPENCODE_ZEN_API_URL,
+			apiUrl: override ?? configured.provider?.api ?? provider.api ?? OPENCODE_ZEN_API_URL,
 			model: configured.id ?? model,
 			packageName,
 			protocol: protocolForPackage(packageName, model),
 		}
 	}
 	return {
-		apiUrl: apiUrlOverride ?? OPENCODE_ZEN_API_URL,
+		apiUrl: override ?? OPENCODE_ZEN_API_URL,
 		model,
 		packageName: undefined,
 		protocol: protocolForPackage(undefined, model),

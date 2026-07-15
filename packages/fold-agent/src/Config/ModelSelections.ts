@@ -78,6 +78,17 @@ export const describeModelConfiguration = (
 					: provider.kind === 'xai'
 						? [DEFAULT_XAI_MODEL_ID]
 						: []
+		const models =
+			provider.kind === 'xai'
+				? [DEFAULT_XAI_MODEL_ID]
+				: [
+						...new Set([
+							...defaultModels,
+							...(provider.configuredModels ?? []),
+							...configured,
+							...catalogModels,
+						]),
+					].sort()
 		return {
 			name,
 			kind: provider.kind,
@@ -89,9 +100,7 @@ export const describeModelConfiguration = (
 					: provider.apiKeyEnv === undefined
 						? provider.apiKey !== undefined && provider.apiKey.length > 0
 						: Boolean(env(provider.apiKeyEnv)),
-			models: [
-				...new Set([...defaultModels, ...(provider.configuredModels ?? []), ...configured, ...catalogModels]),
-			].sort(),
+			models,
 		}
 	}),
 })

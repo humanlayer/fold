@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
 	configInit,
 	configPathFor,
+	configureProvider,
 	defaultFoldHome,
 	ensureManagedBinaries,
 	listSessionLogs,
@@ -15,6 +16,7 @@ import {
 	type ManagedBinaryStatus,
 	type ModelSelection,
 	type NoSessionToResumeError,
+	type ConfigureProviderError,
 	type SessionToResumeNotFoundError,
 	type FoldModeName,
 } from '@humanlayer/fold-agent'
@@ -342,7 +344,7 @@ export const sessionOptionsFromFlags = (
 		}
 	})
 
-const run = Command.make('fold', commonFlags, (input) =>
+const run = Command.make('foldcode', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const flagOptions = yield* sessionOptionsFromFlags(input)
@@ -374,9 +376,12 @@ const run = Command.make('fold', commonFlags, (input) =>
 ).pipe(
 	Command.withDescription('Run the fold headless coding agent'),
 	Command.withExamples([
-		{ command: 'fold --prompt "fix the lint failure"', description: 'Run one CI-friendly prompt' },
-		{ command: 'fold --resume latest', description: 'Resume the newest session in this project' },
-		{ command: 'fold --resume sess_abc123 --model claude-sonnet-4-5', description: 'Resume by id in this project' },
+		{ command: 'foldcode --prompt "fix the lint failure"', description: 'Run one CI-friendly prompt' },
+		{ command: 'foldcode --resume latest', description: 'Resume the newest session in this project' },
+		{
+			command: 'foldcode --resume sess_abc123 --model claude-sonnet-4-5',
+			description: 'Resume by id in this project',
+		},
 	]),
 )
 
@@ -440,7 +445,7 @@ const tui = Command.make('tui', commonFlags, (input) =>
 				Effect.catchTags({
 					TuiRequiresTtyError: () =>
 						printFailure(
-							'fold tui requires an interactive TTY; use fold --prompt "..." --output json instead',
+							'foldcode tui requires an interactive TTY; use foldcode --prompt "..." --output json instead',
 						),
 					TuiRendererError: (error: { readonly message: string }) =>
 						printFailure(`could not start the TUI: ${error.message}`),
@@ -453,6 +458,60 @@ const tui = Command.make('tui', commonFlags, (input) =>
 const config = Command.make('config').pipe(
 	Command.withDescription('Manage fold configuration'),
 	Command.withSubcommands([
+		Command.make('provider').pipe(
+			Command.withDescription('Add or update provider connections'),
+			Command.withSubcommands([
+				Command.make(
+					'add',
+					{
+						name: Flag.string('name').pipe(
+							Flag.withDescription('Provider profile name used by --provider'),
+						),
+						kind: Flag.choice('kind', ['anthropic', 'openai-compat'] as const).pipe(
+							Flag.withDescription('Compatible API protocol'),
+						),
+						baseUrl: Flag.string('base-url').pipe(Flag.withDescription('Provider API base URL')),
+						apiKey: optionalString(
+							'api-key',
+							'Inline API key (visible in process arguments; prefer --api-key-env)',
+						),
+						apiKeyEnv: optionalString('api-key-env', 'Environment variable name containing the API key'),
+						model: optionalString('model', 'Optional model ID to expose in the TUI model picker'),
+						foldHome: commonFlags.foldHome,
+					},
+					(input) =>
+						Effect.gen(function* () {
+							const apiKey = optionValue(input.apiKey)
+							const apiKeyEnv = optionValue(input.apiKeyEnv)
+							const model = optionValue(input.model)
+							const foldHome = optionValue(input.foldHome)
+							yield* configureProvider(
+								{
+									name: input.name,
+									kind: input.kind,
+									baseUrl: input.baseUrl,
+									...(apiKey === undefined ? {} : { apiKey }),
+									...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
+									...(model === undefined ? {} : { model }),
+								},
+								foldHome === undefined ? {} : { foldHome },
+							)
+							yield* Console.log(
+								`Saved provider "${input.name}" in ${configPathFor(foldHome === undefined ? {} : { foldHome })}`,
+							)
+						}),
+				).pipe(
+					Command.withDescription('Add or replace an Anthropic/OpenAI-compatible URL and credential'),
+					Command.withExamples([
+						{
+							command:
+								'foldcode config provider add --name openrouter --kind openai-compat --base-url https://openrouter.ai/api/v1 --api-key-env OPENROUTER_API_KEY --model anthropic/claude-sonnet-4',
+							description: 'Add an OpenAI-compatible provider using an environment variable',
+						},
+					]),
+				),
+			]),
+		),
 		Command.make('init', { foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
 				const foldHome = optionValue(input.foldHome)
@@ -533,7 +592,7 @@ const openCodeCommands = Command.make('opencode').pipe(
 		).pipe(Command.withDescription('Authenticate OpenCode using its device flow')),
 		Command.make('browser', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			printFailure(
-				`OpenCode does not support browser OAuth for provider "${providerId(input.provider, 'opencode')}"; use fold auth opencode device`,
+				`OpenCode does not support browser OAuth for provider "${providerId(input.provider, 'opencode')}"; use foldcode auth opencode device`,
 			),
 		).pipe(Command.withDescription('Report that OpenCode browser authentication is unsupported')),
 		Command.make('status', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
@@ -543,7 +602,9 @@ const openCodeCommands = Command.make('opencode').pipe(
 				)
 				const token = yield* store.load
 				if (Option.isNone(token)) {
-					yield* Console.log(`No OpenCode credential found in ${store.path}. Run fold auth opencode login.`)
+					yield* Console.log(
+						`No OpenCode credential found in ${store.path}. Run foldcode auth opencode login.`,
+					)
 					return
 				}
 				const now = yield* Clock.currentTimeMillis
@@ -642,7 +703,7 @@ const xaiCommands = Command.make('xai').pipe(
 				)
 				const token = yield* store.load
 				if (Option.isNone(token)) {
-					yield* Console.log(`No xAI credential found in ${store.path}. Run fold auth xai login.`)
+					yield* Console.log(`No xAI credential found in ${store.path}. Run foldcode auth xai login.`)
 					return
 				}
 				const now = yield* Clock.currentTimeMillis
@@ -770,7 +831,7 @@ const auth = Command.make('auth').pipe(
 							const token = yield* store.load
 							if (Option.isNone(token)) {
 								yield* Console.log(
-									`No Codex credential found in ${store.path}. Run fold auth codex login.`,
+									`No Codex credential found in ${store.path}. Run foldcode auth codex login.`,
 								)
 								return
 							}
@@ -782,7 +843,7 @@ const auth = Command.make('auth').pipe(
 									token.value.accountId === undefined ? '' : ` for account ${token.value.accountId}`
 								} in ${store.path} (expires ${expiryText(token.value.expires)})${
 									token.value.isExpired(now)
-										? '; run fold auth codex status --refresh to refresh now, or fold auth codex login to reauthenticate'
+										? '; run foldcode auth codex status --refresh to refresh now, or foldcode auth codex login to reauthenticate'
 										: ''
 								}`,
 							)
@@ -816,6 +877,7 @@ type CliCommandError =
 	| CodexAuthError
 	| OpenCodeAuthError
 	| XaiAuthError
+	| ConfigureProviderError
 	| LaunchModelError
 	| NoSessionToResumeError
 	| SessionToResumeNotFoundError
@@ -839,7 +901,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 				printFailure(`invalid --resume value "${error.value}"; pass "latest" or an exact sess_... id`),
 			ConfigFileNotFoundError: (error) =>
 				printFailure(
-					`config not found at ${error.path}; run fold config init or configure ~/.fold/config.jsonc`,
+					`config not found at ${error.path}; run foldcode config init or configure ~/.fold/config.jsonc`,
 				),
 			ConfigParseError: (error) =>
 				printFailure(`could not parse config${error.path === null ? '' : ` ${error.path}`}: ${error.message}`),
@@ -856,6 +918,9 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			CodexAuthError: (error) => printFailure(error.message),
 			OpenCodeAuthError: (error) => printFailure(error.message),
 			XaiAuthError: (error) => printFailure(error.message),
+			ProviderConfigurationValidationError: (error) => printFailure(error.message),
+			ProviderConfigurationKindError: (error) => printFailure(error.message),
+			ProviderConfigurationWriteError: (error) => printFailure(error.message),
 		}),
 	)
 

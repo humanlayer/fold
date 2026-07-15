@@ -1,4 +1,4 @@
-import type { ConfigureProviderInput, ModelConfiguration } from '@humanlayer/fold-agent'
+import type { ModelConfiguration } from '@humanlayer/fold-agent'
 /** @jsxImportSource @opentui/solid */
 import { installPostFx, nextVignetteMode, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/fold-tui-theme/themes'
@@ -27,11 +27,9 @@ import {
 } from './Navigation'
 import { NewSessionModal } from './NewSessionModal'
 import type { NewSessionRequest } from './NewSessionModal'
-import type { ProviderAuthAction, ProviderAuthUpdate } from './ProviderAuth'
-import { ProviderConfigModal } from './ProviderConfigModal'
 import { conversationRows, makeSessionStateFromEntries, replayIsReady, type SessionState } from './SessionState'
 import { SkillsRail } from './SkillsRail'
-import { metaCounts, skillViews, subagentViews } from './Subagents'
+import { metaCounts, relativeSubagentTime, skillViews, subagentViews } from './Subagents'
 import { theme as tactical } from './ThemeState'
 import { TUI_CONTEXT_TITLE, TUI_INSPECT_BADGE, TUI_LIVE_BADGE, tuiScrollbarOptions } from './TuiChrome'
 import { createFxControls, FxFooter, fxCommands, KeyHint, themeCommands } from './TuiControls'
@@ -54,14 +52,7 @@ export type TuiAppProps = {
 	readonly onInterrupt: () => void
 	readonly onNewSession?: (request: NewSessionRequest) => void
 	readonly onConfigureModels?: (selection: ModelSelectionRequest) => void
-	readonly configExists?: boolean
-	readonly onProviderAuth?: (
-		provider: string,
-		action: ProviderAuthAction,
-		update: (state: ProviderAuthUpdate) => void,
-	) => void
-	readonly onInitializeConfig?: (update: (state: ProviderAuthUpdate) => void) => void
-	readonly onConfigureProvider?: (input: ConfigureProviderInput, update: (state: ProviderAuthUpdate) => void) => void
+	readonly onOpenProviders?: () => void
 	readonly onBackToSessions?: () => void
 	readonly onCopySessionId?: () => void
 	readonly toggles?: Accessor<FxToggles>
@@ -94,7 +85,6 @@ export const TuiApp = (props: TuiAppProps) => {
 	const [paletteOpen, setPaletteOpen] = createSignal(false)
 	const [newSessionOpen, setNewSessionOpen] = createSignal(false)
 	const [modelsOpen, setModelsOpen] = createSignal(false)
-	const [providersOpen, setProvidersOpen] = createSignal(false)
 	const [railTab, setRailTab] = createSignal<'subagents' | 'meta' | 'skills'>('meta')
 	const [leftTab, setLeftTab] = createSignal<'events' | 'changes'>('events')
 	const [selectedChange, setSelectedChange] = createSignal(0)
@@ -108,6 +98,8 @@ export const TuiApp = (props: TuiAppProps) => {
 	const { toggles, setToggles } = createFxControls(props.toggles, props.setToggles)
 	const [inputFocused, setInputFocused] = createSignal(props.initialInputFocused === true)
 	const [verb, setVerb] = createSignal<RootInputVerb>('send')
+	const [now, setNow] = createSignal(Date.now())
+	const relativeTimeTimer = setInterval(() => setNow(Date.now()), 30_000)
 	const [navigation, setNavigation] = createSignal<NavigationState>(
 		props.initialInputFocused === true ? { ...initialNavigationState, level: 'input' } : initialNavigationState,
 	)
@@ -142,6 +134,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	})
 	onCleanup(removeInputKeymap)
 	onCleanup(removeTargetInputKeymap)
+	onCleanup(() => clearInterval(relativeTimeTimer))
 	const rows = createMemo(() => conversationRows(props.state()))
 	const gitSnapshot = createMemo<GitSnapshot>(() => props.gitSnapshot?.() ?? { _tag: 'ready', files: [] })
 	const changes = createMemo(() => {
@@ -260,7 +253,7 @@ export const TuiApp = (props: TuiAppProps) => {
 				id: 'providers-info',
 				title: 'Providers / Auth...',
 				category: 'APPLICATION',
-				run: () => setProvidersOpen(true),
+				run: () => props.onOpenProviders?.(),
 			},
 			{
 				id: 'models',
@@ -538,7 +531,7 @@ export const TuiApp = (props: TuiAppProps) => {
 
 	useKeyboard((key: KeyEvent) => {
 		if (key.eventType === 'release') return
-		if (paletteOpen() || newSessionOpen() || modelsOpen() || providersOpen()) return
+		if (paletteOpen() || newSessionOpen() || modelsOpen()) return
 		if (confirmSkill() !== null) {
 			key.preventDefault()
 			if (key.name === 'y') {
@@ -1225,6 +1218,9 @@ export const TuiApp = (props: TuiAppProps) => {
 											>
 												{agent().type}
 											</text>
+											<text width={4} fg={tactical.color.textFaint} wrapMode="none">
+												{relativeSubagentTime(agent().calledAt, now())}
+											</text>
 											<ActivityIndicator
 												state={
 													agent().status === 'running'
@@ -1314,18 +1310,6 @@ export const TuiApp = (props: TuiAppProps) => {
 						setModelsOpen(false)
 						props.onConfigureModels?.(selection)
 					}}
-				/>
-			</Show>
-			<Show
-				when={providersOpen() && props.onProviderAuth !== undefined && props.onInitializeConfig !== undefined}
-			>
-				<ProviderConfigModal
-					configuration={props.configuration ?? { profiles: [], providers: [] }}
-					configExists={props.configExists === true}
-					onClose={() => setProvidersOpen(false)}
-					onAuth={(provider, action, update) => props.onProviderAuth?.(provider, action, update)}
-					onInitialize={(update) => props.onInitializeConfig?.(update)}
-					onConfigure={(input, update) => props.onConfigureProvider?.(input, update)}
 				/>
 			</Show>
 			<Show when={confirmSkill()}>

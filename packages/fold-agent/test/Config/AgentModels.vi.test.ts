@@ -68,7 +68,7 @@ it.effect('resolves OpenCode and xAI OAuth providers with their defaults and no 
 		const openCode = yield* models.resolve('smart')
 		const xai = yield* models.resolve('fast')
 		expect(openCode.activeModel).toMatchObject({ providerId: 'zen', modelId: 'gpt-5.6-sol', role: 'smart' })
-		expect(xai.activeModel).toMatchObject({ providerId: 'grok', modelId: 'grok-4', role: 'fast' })
+		expect(xai.activeModel).toMatchObject({ providerId: 'grok', modelId: 'grok-4.5', role: 'fast' })
 	}),
 )
 

@@ -1,6 +1,5 @@
 /** @jsxImportSource @opentui/solid */
 import {
-	bootstrapFoldHome,
 	configureProvider,
 	configInit,
 	defaultFoldHome,
@@ -21,7 +20,7 @@ import { nextThemeId, type ThemeId } from '@humanlayer/fold-tui-theme/themes'
 import { makeXaiAuth, makeXaiAuthStore } from '@humanlayer/fold-xai'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
-import { Cause, Clock, Deferred, Effect, Exit, Option, Schema, Scope } from 'effect'
+import { Cause, Clock, Deferred, Effect, Option, Schema, Scope } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js'
 
@@ -34,10 +33,13 @@ import {
 	openCodeAuthStoreOptions,
 	xaiAuthStoreOptions,
 	type ProviderAuthAction,
+	type ProviderAuthTarget,
 	type ProviderAuthUpdate,
 } from './ProviderAuth'
+import { ProviderConfigPage } from './ProviderConfigPage'
 import { SessionPicker } from './SessionPicker'
 import { setCurrentTheme } from './ThemeState'
+import { bootstrapTuiConfig } from './TuiConfigBootstrap'
 import { makeTuiRouter } from './TuiRouter'
 import type { TuiOptions } from './TuiSessionOptions'
 import { makeTuiSessionWorkspace, type TuiInitialSessionError } from './TuiSessionWorkspace'
@@ -56,11 +58,10 @@ export const runTui = (
 		if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return yield* new TuiRequiresTtyError()
 		const quit = yield* Deferred.make<void>()
 		const runFork = Effect.runForkWith(yield* Effect.context<Scope.Scope>())
-		// Bootstrap before config loading. User-owned config and auth files are only created when absent;
-		// generated schema and guide files are refreshed to match this Fold version.
-		yield* bootstrapFoldHome(options.foldHome === undefined ? {} : { foldHome: options.foldHome }).pipe(
-			Effect.catchCause(() => Effect.void),
-		)
+		const configOptions = options.foldHome === undefined ? {} : { foldHome: options.foldHome }
+		// Bootstrap before config loading. A failed bootstrap is visible in the TUI and must not be
+		// mistaken for a successful load with no config.
+		const bootstrapped = yield* bootstrapTuiConfig(configOptions)
 		// Downloads should not delay the first frame, but remain scoped to the TUI lifetime.
 		yield* Effect.forkScoped(
 			ensureManagedBinaries({
@@ -69,19 +70,12 @@ export const runTui = (
 				suppressWarnings: true,
 			}).pipe(Effect.asVoid),
 		)
-		const configExit = yield* Effect.exit(
-			loadFoldConfigOrNull(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
-		)
-		const initialConfig: FoldConfig | null = Exit.isSuccess(configExit) ? configExit.value : null
+		const initialConfig = bootstrapped.config
 		const initialConfiguration: ModelConfiguration =
 			initialConfig === null
 				? { profiles: [], providers: [] }
 				: describeModelConfiguration(initialConfig, options.catalog ?? [])
-		const configNotice = Exit.isFailure(configExit)
-			? `CONFIGURATION ERROR · ${Cause.pretty(configExit.cause)}`
-			: initialConfig === null
-				? 'NO MODEL CONFIGURATION · RUN `fold config init`, THEN EDIT ~/.fold/config.jsonc'
-				: null
+		const configNotice = bootstrapped.notice
 		const renderer = yield* Effect.tryPromise({
 			try: () =>
 				createCliRenderer({
@@ -126,40 +120,82 @@ export const runTui = (
 			)
 		}
 		const updateAuth = (
-			provider: string,
+			target: ProviderAuthTarget,
 			action: ProviderAuthAction,
 			update: (state: ProviderAuthUpdate) => void,
 		): void => {
-			const providerKind = configuration().providers.find((candidate) => candidate.name === provider)?.kind
+			const provider = target.name
+			const providerKind = target.kind
 			runFork(
 				Effect.gen(function* () {
+					const configured = configuration().providers.some(
+						(candidate) => candidate.name === provider && candidate.kind === providerKind,
+					)
+					if (
+						!configured &&
+						target.configuration !== undefined &&
+						(action === 'browser' || action === 'device')
+					) {
+						update({
+							_tag: 'working',
+							message: `Adding ${provider} with its standard OAuth configuration...`,
+						})
+						const updated = yield* config() === null
+							? configInit(configOptions).pipe(
+									Effect.andThen(configureProvider(target.configuration, configOptions)),
+								)
+							: configureProvider(target.configuration, configOptions)
+						setConfig(updated)
+						setConfiguration(describeModelConfiguration(updated, options.catalog ?? []))
+					}
 					if (providerKind === 'opencode') {
 						const store = makeOpenCodeAuthStore(openCodeAuthStoreOptions(provider, options.foldHome))
 						if (action === 'status') {
 							update({ _tag: 'working', message: 'Checking stored OpenCode credential...' })
 							const token = yield* store.load
 							if (Option.isNone(token))
-								return update({ _tag: 'success', message: 'No OpenCode credential stored.' })
+								return update({
+									_tag: 'success',
+									message: 'No OpenCode credential stored.',
+									authStatus: 'logged-out',
+								})
 							const now = yield* Clock.currentTimeMillis
+							const expired = token.value.isExpired(now)
 							return update({
 								_tag: 'success',
-								message: `OpenCode credential is ${token.value.isExpired(now) ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+								message: `OpenCode credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+								authStatus: expired ? 'expired' : 'logged-in',
 							})
 						}
 						const auth = yield* makeOpenCodeAuth({
 							store,
 							onDeviceCode: (prompt) =>
-								Effect.sync(() => update({ _tag: 'device', url: prompt.url, code: prompt.userCode })),
+								openUrlInBrowser(prompt.url).pipe(
+									Effect.tap((opened) =>
+										Effect.sync(() =>
+											update({ _tag: 'device', url: prompt.url, code: prompt.userCode, opened }),
+										),
+									),
+									Effect.asVoid,
+								),
 						}).pipe(Effect.provide(FetchHttpClient.layer))
 						if (action === 'logout') {
 							yield* auth.logout
-							return update({ _tag: 'success', message: 'OpenCode credential removed.' })
+							return update({
+								_tag: 'success',
+								message: 'OpenCode credential removed.',
+								authStatus: 'logged-out',
+							})
 						}
 						if (action === 'browser')
 							return update({ _tag: 'failure', message: 'OpenCode supports device login only. Press D.' })
 						update({ _tag: 'working', message: 'Starting OpenCode device login...' })
 						yield* auth.authenticateDevice
-						return update({ _tag: 'success', message: 'OpenCode authentication saved successfully.' })
+						return update({
+							_tag: 'success',
+							message: 'OpenCode authentication saved successfully.',
+							authStatus: 'logged-in',
+						})
 					}
 					if (providerKind === 'xai') {
 						const store = makeXaiAuthStore(xaiAuthStoreOptions(provider, options.foldHome))
@@ -167,11 +203,17 @@ export const runTui = (
 							update({ _tag: 'working', message: 'Checking stored xAI credential...' })
 							const token = yield* store.load
 							if (Option.isNone(token))
-								return update({ _tag: 'success', message: 'No xAI credential stored.' })
+								return update({
+									_tag: 'success',
+									message: 'No xAI credential stored.',
+									authStatus: 'logged-out',
+								})
 							const now = yield* Clock.currentTimeMillis
+							const expired = token.value.isExpired(now)
 							return update({
 								_tag: 'success',
-								message: `xAI credential is ${token.value.isExpired(now) ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+								message: `xAI credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+								authStatus: expired ? 'expired' : 'logged-in',
 							})
 						}
 						const auth = yield* makeXaiAuth({
@@ -182,28 +224,52 @@ export const runTui = (
 									Effect.asVoid,
 								),
 							onDeviceCode: (prompt) =>
-								Effect.sync(() =>
-									update({ _tag: 'device', url: prompt.verificationUri, code: prompt.userCode }),
+								openUrlInBrowser(prompt.browserUrl).pipe(
+									Effect.tap((opened) =>
+										Effect.sync(() =>
+											update({
+												_tag: 'device',
+												url: prompt.browserUrl,
+												code: prompt.userCode,
+												opened,
+											}),
+										),
+									),
+									Effect.asVoid,
 								),
 						}).pipe(Effect.provide(FetchHttpClient.layer))
 						if (action === 'logout') {
 							yield* auth.logout
-							return update({ _tag: 'success', message: 'xAI credential removed.' })
+							return update({
+								_tag: 'success',
+								message: 'xAI credential removed.',
+								authStatus: 'logged-out',
+							})
 						}
 						update({ _tag: 'working', message: `Starting xAI ${action} login...` })
 						yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
-						return update({ _tag: 'success', message: 'xAI authentication saved successfully.' })
+						return update({
+							_tag: 'success',
+							message: 'xAI authentication saved successfully.',
+							authStatus: 'logged-in',
+						})
 					}
 					const store = makeCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome))
 					if (action === 'status') {
 						update({ _tag: 'working', message: 'Checking stored credential...' })
 						const token = yield* store.load
 						if (Option.isNone(token))
-							return update({ _tag: 'success', message: 'No Codex credential stored.' })
+							return update({
+								_tag: 'success',
+								message: 'No Codex credential stored.',
+								authStatus: 'logged-out',
+							})
 						const now = yield* Clock.currentTimeMillis
+						const expired = token.value.isExpired(now)
 						return update({
 							_tag: 'success',
-							message: `Codex credential is ${token.value.isExpired(now) ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+							message: `Codex credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+							authStatus: expired ? 'expired' : 'logged-in',
 						})
 					}
 					const auth = yield* makeCodexAuth({
@@ -214,16 +280,36 @@ export const runTui = (
 								Effect.asVoid,
 							),
 						onDeviceCode: (prompt) =>
-							Effect.sync(() => update({ _tag: 'device', url: prompt.verifyUrl, code: prompt.userCode })),
+							openUrlInBrowser(prompt.verifyUrl).pipe(
+								Effect.tap((opened) =>
+									Effect.sync(() =>
+										update({
+											_tag: 'device',
+											url: prompt.verifyUrl,
+											code: prompt.userCode,
+											opened,
+										}),
+									),
+								),
+								Effect.asVoid,
+							),
 					}).pipe(Effect.provide(FetchHttpClient.layer))
 					if (action === 'logout') {
 						update({ _tag: 'working', message: 'Removing stored credential...' })
 						yield* auth.logout
-						return update({ _tag: 'success', message: 'Codex credential removed.' })
+						return update({
+							_tag: 'success',
+							message: 'Codex credential removed.',
+							authStatus: 'logged-out',
+						})
 					}
 					update({ _tag: 'working', message: `Starting ${action} login...` })
 					yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
-					update({ _tag: 'success', message: 'Codex authentication saved successfully.' })
+					update({
+						_tag: 'success',
+						message: 'Codex authentication saved successfully.',
+						authStatus: 'logged-in',
+					})
 				}).pipe(
 					Effect.catchCause((cause) =>
 						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
@@ -262,7 +348,10 @@ export const runTui = (
 		): void => {
 			update({ _tag: 'working', message: 'Saving provider to mode-0600 config...' })
 			runFork(
-				configureProvider(input, options.foldHome === undefined ? {} : { foldHome: options.foldHome }).pipe(
+				(config() === null
+					? configInit(configOptions).pipe(Effect.andThen(configureProvider(input, configOptions)))
+					: configureProvider(input, configOptions)
+				).pipe(
 					Effect.tap((updated) =>
 						Effect.sync(() => {
 							setConfig(updated)
@@ -353,91 +442,100 @@ export const runTui = (
 					})
 					return (
 						<Show
-							when={active()}
+							when={router.route()._tag === 'providers'}
 							fallback={
-								<SessionPicker
-									cwd={workspace.currentCwd()}
-									mode={mode()}
-									profile={workspace.currentProfile()}
-									configuration={configuration()}
-									configExists={config() !== null}
-									onProviderAuth={updateAuth}
-									onInitializeConfig={initializeConfig}
-									onConfigureProvider={updateProvider}
-									sessions={workspace.sessions}
-									notice={workspace.notice}
-									opening={workspace.opening}
-									onOpen={(id) => activate(workspace.open(id), false)}
-									onDelete={remove}
-									onNew={(request) => activate(workspace.create(request), true)}
-									onQuit={() => renderer.destroy()}
-									toggles={toggles}
-									setToggles={setToggles}
-									onCycleTheme={cycleTheme}
-									onSelectTheme={selectTheme}
-								/>
+								<Show
+									when={active()}
+									fallback={
+										<SessionPicker
+											cwd={workspace.currentCwd()}
+											mode={mode()}
+											profile={workspace.currentProfile()}
+											configuration={configuration()}
+											onOpenProviders={router.showProviders}
+											sessions={workspace.sessions}
+											notice={workspace.notice}
+											opening={workspace.opening}
+											onOpen={(id) => activate(workspace.open(id), false)}
+											onDelete={remove}
+											onNew={(request) => activate(workspace.create(request), true)}
+											onQuit={() => renderer.destroy()}
+											toggles={toggles}
+											setToggles={setToggles}
+											onCycleTheme={cycleTheme}
+											onSelectTheme={selectTheme}
+										/>
+									}
+								>
+									{(current: Accessor<HostedTuiSession>) => (
+										<TuiApp
+											state={current().state}
+											cwd={current().cwd}
+											sessionId={current().sessionId}
+											mode={`${current().mode()}${options.rpi === true ? '+rpi' : ''}`}
+											profile={current().profile()}
+											configuration={configuration()}
+											onOpenProviders={router.showProviders}
+											notice={current().notice}
+											targetNotice={current().targetNotice}
+											compacting={current().compacting}
+											initialInputFocused={focusInputOnActivation()}
+											gitSnapshot={gitSnapshot}
+											viewedPatchHashes={() => viewedChanges()[current().sessionId] ?? {}}
+											onViewChange={(change) => {
+												setViewedChanges((all) => ({
+													...all,
+													[current().sessionId]: markChangeViewed(
+														all[current().sessionId] ?? {},
+														change,
+													),
+												}))
+												const layoutOptions =
+													options.foldHome === undefined
+														? { cwd: current().cwd }
+														: { cwd: current().cwd, foldHome: options.foldHome }
+												runFork(
+													saveViewedPatchHash(
+														current().sessionId,
+														change.key,
+														change.patchHash,
+														layoutOptions,
+													),
+												)
+											}}
+											onRefreshGit={() => refreshGit(current().cwd)}
+											onSubmit={current().submit}
+											onCompact={current().compact}
+											onInterrupt={current().interrupt}
+											onStop={current().stop}
+											onTargetSubmit={current().targetSubmit}
+											onTargetInterrupt={current().targetInterrupt}
+											onInjectSkill={current().injectSkill}
+											toggles={toggles}
+											setToggles={setToggles}
+											onCycleTheme={cycleTheme}
+											onSelectTheme={selectTheme}
+											onNewSession={(request) => activate(workspace.create(request), true)}
+											onConfigureModels={current().configureModels}
+											onBackToSessions={router.showPicker}
+											onCopySessionId={() => {
+												const copied = renderer.copyToClipboardOSC52(current().sessionId)
+												current().notify(copied ? 'SESSION ID COPIED' : 'CLIPBOARD UNAVAILABLE')
+											}}
+										/>
+									)}
+								</Show>
 							}
 						>
-							{(current: Accessor<HostedTuiSession>) => (
-								<TuiApp
-									state={current().state}
-									cwd={current().cwd}
-									sessionId={current().sessionId}
-									mode={`${current().mode()}${options.rpi === true ? '+rpi' : ''}`}
-									profile={current().profile()}
-									configuration={configuration()}
-									configExists={config() !== null}
-									onProviderAuth={updateAuth}
-									onInitializeConfig={initializeConfig}
-									onConfigureProvider={updateProvider}
-									notice={current().notice}
-									targetNotice={current().targetNotice}
-									compacting={current().compacting}
-									initialInputFocused={focusInputOnActivation()}
-									gitSnapshot={gitSnapshot}
-									viewedPatchHashes={() => viewedChanges()[current().sessionId] ?? {}}
-									onViewChange={(change) => {
-										setViewedChanges((all) => ({
-											...all,
-											[current().sessionId]: markChangeViewed(
-												all[current().sessionId] ?? {},
-												change,
-											),
-										}))
-										const layoutOptions =
-											options.foldHome === undefined
-												? { cwd: current().cwd }
-												: { cwd: current().cwd, foldHome: options.foldHome }
-										runFork(
-											saveViewedPatchHash(
-												current().sessionId,
-												change.key,
-												change.patchHash,
-												layoutOptions,
-											),
-										)
-									}}
-									onRefreshGit={() => refreshGit(current().cwd)}
-									onSubmit={current().submit}
-									onCompact={current().compact}
-									onInterrupt={current().interrupt}
-									onStop={current().stop}
-									onTargetSubmit={current().targetSubmit}
-									onTargetInterrupt={current().targetInterrupt}
-									onInjectSkill={current().injectSkill}
-									toggles={toggles}
-									setToggles={setToggles}
-									onCycleTheme={cycleTheme}
-									onSelectTheme={selectTheme}
-									onNewSession={(request) => activate(workspace.create(request), true)}
-									onConfigureModels={current().configureModels}
-									onBackToSessions={router.showPicker}
-									onCopySessionId={() => {
-										const copied = renderer.copyToClipboardOSC52(current().sessionId)
-										current().notify(copied ? 'SESSION ID COPIED' : 'CLIPBOARD UNAVAILABLE')
-									}}
-								/>
-							)}
+							<ProviderConfigPage
+								configuration={configuration()}
+								configExists={config() !== null}
+								onClose={router.backFromProviders}
+								onAuth={updateAuth}
+								onInitialize={initializeConfig}
+								onConfigure={updateProvider}
+								onCopyUrl={(url) => renderer.copyToClipboardOSC52(url)}
+							/>
 						</Show>
 					)
 				}, renderer),

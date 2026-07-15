@@ -39,6 +39,6 @@ describe('provider auth configuration', () => {
 	it('produces secret-free credential view labels', () => {
 		expect(providerCredentialLabel(true)).toBe('PRESENT')
 		expect(providerCredentialLabel(false)).toBe('MISSING')
-		expect(providerCredentialLabel(null)).toBe('AUTH STATUS AVAILABLE')
+		expect(providerCredentialLabel(null)).toBe('NOT CHECKED')
 	})
 })

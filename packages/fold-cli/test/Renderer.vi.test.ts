@@ -70,7 +70,9 @@ it.effect('renders the session id in the header and finish line', () =>
 		expect(output).toContain(sessionId)
 		expect(output).toContain(`session=${sessionId}`)
 		expect(output).toContain(`agent=${agentId}`)
-		expect(output).toContain(`resume fold --resume ${sessionId} --provider openai --model gpt-test --role smart`)
+		expect(output).toContain(
+			`resume foldcode --resume ${sessionId} --provider openai --model gpt-test --role smart`,
+		)
 		expect(output).toContain('model openai/gpt-test')
 		expect(output).toContain('credential found')
 		expect(output).toContain('done text')
@@ -201,7 +203,7 @@ it.effect('renders profile-based resume command when the session used --profile'
 
 		const output = chunks.join('')
 		expect(output).toContain(`profile ultracodex`)
-		expect(output).toContain(`resume fold --resume ${sessionId} --profile ultracodex --mode rlm --rpi`)
+		expect(output).toContain(`resume foldcode --resume ${sessionId} --profile ultracodex --mode rlm --rpi`)
 		expect(output).not.toContain('--provider codex')
 		expect(output).not.toContain('--model gpt-5.2-sol')
 	}),

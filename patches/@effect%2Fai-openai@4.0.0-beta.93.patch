@@ -1044,6 +1044,63 @@ index a781507962f184c416f5a7dd4f2644b1df787e9c..4f21414f8c0913034391cc5b0bac4196
      summary: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Literals(["auto", "concise", "detailed"])),
      generate_summary: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Literals(["auto", "concise", "detailed"]))
    })),
+diff --git a/dist/internal/errors.js b/dist/internal/errors.js
+index 937e4ac46ceff5ebba2ff09d199a10480593fe33..aa34339612ab7be4cbd362746e2e5a66c31a8322 100644
+--- a/dist/internal/errors.js
++++ b/dist/internal/errors.js
+@@ -19,6 +19,10 @@ export const OpenAiErrorBody = /*#__PURE__*/Schema.Struct({
+     code: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.NullOr(Schema.String))
+   })
+ });
++const XaiErrorBody = /*#__PURE__*/Schema.Struct({
++  error: Schema.String,
++  code: /*#__PURE__*/Schema.optional(Schema.String)
++});
+ // =============================================================================
+ // Error Mappers
+ // =============================================================================
+@@ -122,17 +126,20 @@ const mapStatusCodeError = /*#__PURE__*/Effect.fnUntraced(function* (error, meth
+     json = undefined;
+   }
+   const decoded = Schema.decodeUnknownOption(OpenAiErrorBody)(json);
++  const xaiDecoded = Schema.decodeUnknownOption(XaiErrorBody)(json);
++  const message = Option.isSome(decoded) ? decoded.value.error.message : Option.isSome(xaiDecoded) ? xaiDecoded.value.error : undefined;
++  const errorCode = Option.isSome(decoded) ? decoded.value.error.code ?? null : Option.isSome(xaiDecoded) ? xaiDecoded.value.code ?? null : null;
+   const reason = mapStatusCodeToReason({
+     status,
+     headers,
+-    message: Option.isSome(decoded) ? decoded.value.error.message : undefined,
++    message,
+     http: buildHttpContext({
+       request,
+       response,
+       body
+     }),
+     metadata: {
+-      errorCode: Option.isSome(decoded) ? decoded.value.error.code ?? null : null,
++      errorCode,
+       errorType: Option.isSome(decoded) ? decoded.value.error.type ?? null : null,
+       requestId: requestId ?? null
+     }
+@@ -272,10 +279,17 @@ export const mapStatusCodeToReason = ({
+         },
+         http
+       });
++    case 402:
++      return new AiError.QuotaExhaustedError({
++        metadata: {
++          openai: metadata
++        },
++        http
++      });
+     case 429:
+       {
+         // Best-effort detection: OpenAI returns insufficient_quota for billing/quota issues
+-        if (metadata.errorCode === "insufficient_quota" || metadata.errorType === "insufficient_quota") {
++        if (metadata.errorCode === "insufficient_quota" || metadata.errorType === "insufficient_quota" || metadata.errorType === "billing_insufficient_balance") {
+           return new AiError.QuotaExhaustedError({
+             metadata: {
+               openai: metadata
 diff --git a/src/Generated.ts b/src/Generated.ts
 index d7189bf5d36e9314fbdb89be72514e9e065f78b0..0c5bd11d16272836fc08eb605edd8bf80f08119e 100644
 --- a/src/Generated.ts
@@ -1091,3 +1148,66 @@ index b93188db66e8c1765483c88efc8d84b280a9c8b5..19072c3c9a8eff643c46a9d6dbc8f6da
  
      summary: Schema.optional(Schema.Literals(["auto", "concise", "detailed"])),
      generate_summary: Schema.optional(Schema.Literals(["auto", "concise", "detailed"]))
+diff --git a/src/internal/errors.ts b/src/internal/errors.ts
+index a1be0c9633cd4d4cd84781752adff7ae3bbfdc94..10e9778de3e5775e349891e76744abc80a29d80b 100644
+--- a/src/internal/errors.ts
++++ b/src/internal/errors.ts
+@@ -27,6 +27,11 @@ export const OpenAiErrorBody = Schema.Struct({
+   })
+ })
+ 
++const XaiErrorBody = Schema.Struct({
++  error: Schema.String,
++  code: Schema.optional(Schema.String)
++})
++
+ // =============================================================================
+ // Error Mappers
+ // =============================================================================
+@@ -135,14 +140,25 @@ const mapStatusCodeError = Effect.fnUntraced(function*(
+     json = undefined
+   }
+   const decoded = Schema.decodeUnknownOption(OpenAiErrorBody)(json)
++  const xaiDecoded = Schema.decodeUnknownOption(XaiErrorBody)(json)
++  const message = Option.isSome(decoded)
++    ? decoded.value.error.message
++    : Option.isSome(xaiDecoded)
++    ? xaiDecoded.value.error
++    : undefined
++  const errorCode = Option.isSome(decoded)
++    ? decoded.value.error.code ?? null
++    : Option.isSome(xaiDecoded)
++    ? xaiDecoded.value.code ?? null
++    : null
+ 
+   const reason = mapStatusCodeToReason({
+     status,
+     headers,
+-    message: Option.isSome(decoded) ? decoded.value.error.message : undefined,
++    message,
+     http: buildHttpContext({ request, response, body }),
+     metadata: {
+-      errorCode: Option.isSome(decoded) ? decoded.value.error.code ?? null : null,
++      errorCode,
+       errorType: Option.isSome(decoded) ? decoded.value.error.type ?? null : null,
+       requestId: requestId ?? null
+     }
+@@ -309,11 +325,17 @@ export const mapStatusCodeToReason = ({ status, headers, message, metadata, http
+         metadata: { openai: metadata },
+         http
+       })
++    case 402:
++      return new AiError.QuotaExhaustedError({
++        metadata: { openai: metadata },
++        http
++      })
+     case 429: {
+       // Best-effort detection: OpenAI returns insufficient_quota for billing/quota issues
+       if (
+         metadata.errorCode === "insufficient_quota" ||
+-        metadata.errorType === "insufficient_quota"
++        metadata.errorType === "insufficient_quota" ||
++        metadata.errorType === "billing_insufficient_balance"
+       ) {
+         return new AiError.QuotaExhaustedError({
+           metadata: { openai: metadata },

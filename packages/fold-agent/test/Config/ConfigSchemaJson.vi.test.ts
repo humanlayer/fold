@@ -9,6 +9,7 @@ import { Effect, JsonSchema } from 'effect'
 
 import {
 	configInit,
+	describeModelConfiguration,
 	parseFoldConfig,
 	starterConfigJsonc,
 	foldConfigJsonSchema,
@@ -73,6 +74,26 @@ it.effect('configInit writes the schema and a starter config, then never clobber
 		expect(first.createdAuth).toBe(true)
 		expect(first.authPath).toBe('/home/user/.fold/auth.json')
 		expect(yield* memoryFileFor(fs, first.authPath)).toBe('{}\n')
+		const freshConfig = yield* parseFoldConfig((yield* memoryFileFor(fs, first.configPath)) ?? '')
+		expect(Object.keys(freshConfig.providers).sort()).toEqual(['anthropic', 'codex', 'openai', 'opencode', 'xai'])
+		expect(Object.keys(freshConfig.profiles ?? {}).sort()).toEqual(['powerclaude', 'ultraclaude', 'ultracodex'])
+		for (const name of ['codex', 'opencode', 'xai'] as const) {
+			expect(freshConfig.providers[name]).not.toHaveProperty('apiKey')
+			expect(freshConfig.providers[name]).not.toHaveProperty('apiKeyEnv')
+		}
+		const described = describeModelConfiguration(freshConfig, [], () => undefined)
+		expect(described.providers.map(({ name }) => name).sort()).toEqual([
+			'anthropic',
+			'codex',
+			'openai',
+			'opencode',
+			'xai',
+		])
+		expect(
+			described.providers
+				.filter(({ kind }) => kind === 'codex' || kind === 'opencode' || kind === 'xai')
+				.every(({ credentialPresent }) => credentialPresent === null),
+		).toBe(true)
 
 		const schemaFile = yield* memoryFileFor(fs, first.schemaPath)
 		expect(schemaFile).not.toBeNull()

@@ -1,6 +1,6 @@
 /**
  * This file owns `<foldHome>/FOLD_INFO.md` - the generated, version-matched guide to configuring and
- * using fold. It is written by `fold config init` and refreshed before every session open,
+ * using fold. It is written by `foldcode config init` and refreshed before every session open,
  * and every session's leading prompt carries its path (Mode/Launch `foldInfoBlock`), so the agent can
  * read it to answer configuration questions and edit `config.jsonc` on the user's behalf.
  *
@@ -35,7 +35,7 @@ bootstraps the whole layout: it creates \`~/.fold\` if needed, writes the starte
 exists (never overwriting yours), creates an EMPTY \`auth.json\` (mode 0600 - credential-less until
 an OAuth provider login runs or your \`apiKeyEnv\` variables are exported), and refreshes the
 generated \`config.schema.json\` + this guide so both always match the installed fold.
-\`fold config init\` runs the same bootstrap explicitly; \`fold config validate\` decodes and
+\`foldcode config init\` runs the same bootstrap explicitly; \`foldcode config validate\` decodes and
 cross-checks the file. Unknown top-level keys are rejected.
 
 ## Providers
@@ -46,9 +46,9 @@ Named connections under \`providers\`; roles and profiles reference these keys.
 "providers": {
   "anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
   "openai":    { "kind": "openai-compat", "apiKeyEnv": "OPENAI_API_KEY", "configuredModels": [] }, // baseUrl optional
-  "codex":     { "kind": "codex" },    // OAuth: fold auth codex login
-  "opencode":  { "kind": "opencode" }, // OAuth: fold auth opencode login
-  "xai":       { "kind": "xai" }       // OAuth: fold auth xai login
+  "codex":     { "kind": "codex" },    // OAuth: foldcode auth codex login
+  "opencode":  { "kind": "opencode" }, // OAuth: foldcode auth opencode login
+  "xai":       { "kind": "xai" }       // OAuth: foldcode auth xai login
 }
 \`\`\`
 
@@ -56,7 +56,7 @@ Named connections under \`providers\`; roles and profiles reference these keys.
 - \`configuredModels\`: optional model ids to add to the model picker for private/custom endpoints;
   this does not alter any role binding.
 - Prefer \`apiKeyEnv\` over inline \`apiKey\`. Codex, OpenCode, and xAI authenticate via stored OAuth
-  (\`fold auth <provider> login|status|logout\`).
+  (\`foldcode auth <provider> login|status|logout\`).
 - OpenCode reads the authenticated Console provider config at model construction so Zen models use the
   endpoint and protocol advertised by OpenCode. The picker always includes \`grok-build-0.1\` (OpenAI-compatible
   chat completions) even when the local catalog does not yet contain it. A provider \`baseUrl\` overrides
@@ -74,7 +74,7 @@ is optional and falls back to \`smart\`.
 | \`orchestrator\` | the RLM mode's primary agent |
 
 Each binding is \`{ "provider": <key>, "model"?: <id>, "reasoning"?: <level> }\`. Omitting \`model\`
-uses the provider kind's default: codex/opencode → \`gpt-5.6-sol\`, xai → \`grok-4\`, and
+uses the provider kind's default: codex/opencode → \`gpt-5.6-sol\`, xai → \`grok-4.5\`, and
 anthropic → \`claude-opus-4-8\`
 (openai-compat requires an explicit model). \`reasoning\` is one of \`off · minimal · low · medium ·
 high · xhigh · max\` and is validated against the model catalog - a level the model does not support
@@ -113,7 +113,7 @@ three RLM presets in the starter config (RLM always includes the RPI specialist 
 }
 \`\`\`
 
-\`fold --profile ultraclaude\` therefore runs the RLM orchestrator on claude-fable-5 at max reasoning,
+\`foldcode --profile ultraclaude\` therefore runs the RLM orchestrator on claude-fable-5 at max reasoning,
 with opus-4-8/sonnet-5 (both max) behind the smart/fast roles. Model-override flags
 (\`--role/--provider/--model/--reasoning\`) apply on top of the selected profile's roles.
 
@@ -140,16 +140,16 @@ pattern-finder, implementation-reviewer, web-search-researcher) = \`fast\`.
 
 \`\`\`
 fold                             # interactive session (default mode, smart role)
-fold --prompt "..."              # one-shot run; exit codes 0/130/1
-fold --profile ultracodex        # profile's roles + its pinned mode (rlm)
-fold --mode rlm --rpi            # explicit mode + RPI roster
-fold --role fast --reasoning off # primary on the fast role, reasoning off
-fold --provider codex            # kind change drops the stale model -> gpt-5.6-sol default
-fold --resume latest|sess_*      # resume (config re-resolves; drift writes a durable transition)
-fold sessions                    # list this project's session logs
-fold config init|validate        # starter config + schema | validate
-fold auth codex|opencode|xai login|status|logout
-fold bin status|install          # managed binaries: rg, fd, ast-grep
+foldcode --prompt "..."              # one-shot run; exit codes 0/130/1
+foldcode --profile ultracodex        # profile's roles + its pinned mode (rlm)
+foldcode --mode rlm --rpi            # explicit mode + RPI roster
+foldcode --role fast --reasoning off # primary on the fast role, reasoning off
+foldcode --provider codex            # kind change drops the stale model -> gpt-5.6-sol default
+foldcode --resume latest|sess_*      # resume (config re-resolves; drift writes a durable transition)
+foldcode sessions                    # list this project's session logs
+foldcode config init|validate        # starter config + schema | validate
+foldcode auth codex|opencode|xai login|status|logout
+foldcode bin status|install          # managed binaries: rg, fd, ast-grep
 \`\`\`
 
 Interactive commands: plain text sends (or steers the running root agent); \`/steer <agent_id> <text>\`
@@ -162,7 +162,7 @@ and \`/send <agent_id> <text>\` target subagents (4+ id characters from the outp
 |---|---|
 | \`~/.fold/config.jsonc\` | your configuration (with generated \`config.schema.json\` and \`FOLD_INFO.md\` beside it) |
 | \`~/.fold/sessions/<project-slug>/<sess_id>.jsonl\` | one durable event log per session, grouped per project |
-| \`~/.fold/auth.json\` | provider-keyed OAuth credentials (codex/opencode/xai), mode 0600; fill via \`fold auth <provider> login\` |
+| \`~/.fold/auth.json\` | provider-keyed OAuth credentials (codex/opencode/xai), mode 0600; fill via \`foldcode auth <provider> login\` |
 | \`~/.fold/bin/\` | managed binaries (rg, fd, ast-grep); prepended to every bash command's PATH |
 | \`~/.fold/cache/\` | model-catalog cache (\`models-dev.json\`, 24h TTL) |
 | \`~/.fold/skills/\` | global skills (one \`SKILL.md\` directory per skill), scanned with the repo/cwd \`.agents/skills\` |
@@ -176,7 +176,7 @@ sessions sit in their own directory and \`--resume latest\` means "newest for TH
 A session IS its log: one append-only JSONL file (one JSON event per line). Everything else - the
 messages sent to the model, per-tool state, token usage, the subagent registry - is a projection
 folded over that log, so resuming a session is just replaying the file (\`--resume latest\` or
-\`--resume sess_...\`; \`fold sessions\` prints ids, timestamps, and paths, and the session header
+\`--resume sess_...\`; \`foldcode sessions\` prints ids, timestamps, and paths, and the session header
 prints the exact log path). Nothing derived is stored; if it happened, it is on disk (write-through).
 
 Every entry carries the same envelope, then a type-specific payload:

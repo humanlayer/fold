@@ -54,7 +54,7 @@ export const RoleBinding = Schema.Struct({
 	model: Schema.optionalKey(
 		Schema.String.annotate({
 			description:
-				'Provider model id; defaults: codex/opencode → gpt-5.6-sol, xai → grok-4, anthropic → claude-opus-4-8; required for openai-compat',
+				'Provider model id; defaults: codex/opencode → gpt-5.6-sol, xai → grok-4.5, anthropic → claude-opus-4-8; required for openai-compat',
 		}),
 	),
 	/** Reasoning level for this role's requests. Defaults to `off` when omitted. */

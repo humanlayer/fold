@@ -27,6 +27,7 @@ export type ConfigureProviderInput = {
 	readonly kind: ProviderKind
 	readonly baseUrl: string
 	readonly apiKey?: string
+	readonly apiKeyEnv?: string
 	readonly model?: string
 }
 
@@ -123,12 +124,20 @@ export const configureProvider = (
 		const name = yield* required(input.name, 'name')
 		const baseUrl = yield* validBaseUrl(input.baseUrl)
 		const oauth = input.kind === 'codex' || input.kind === 'opencode' || input.kind === 'xai'
-		if (oauth && input.apiKey !== undefined && input.apiKey.trim() !== '')
+		const hasApiKey = input.apiKey !== undefined && input.apiKey.trim() !== ''
+		const hasApiKeyEnv = input.apiKeyEnv !== undefined && input.apiKeyEnv.trim() !== ''
+		if (oauth && (hasApiKey || hasApiKeyEnv))
 			return yield* new ProviderConfigurationKindError({
 				kind: input.kind,
-				message: `${input.kind} credentials are OAuth-managed; an API key must not be supplied`,
+				message: `${input.kind} credentials are OAuth-managed; API key options must not be supplied`,
 			})
-		const apiKey = oauth ? undefined : yield* required(input.apiKey ?? '', 'apiKey')
+		if (!oauth && hasApiKey === hasApiKeyEnv)
+			return yield* new ProviderConfigurationValidationError({
+				field: 'apiKey',
+				message: 'supply exactly one of apiKey or apiKeyEnv',
+			})
+		const apiKey = !oauth && hasApiKey ? yield* required(input.apiKey ?? '', 'apiKey') : undefined
+		const apiKeyEnv = !oauth && hasApiKeyEnv ? yield* required(input.apiKeyEnv ?? '', 'apiKeyEnv') : undefined
 		const defaultModel =
 			input.kind === 'codex'
 				? DEFAULT_CODEX_MODEL_ID
@@ -145,6 +154,7 @@ export const configureProvider = (
 			kind: input.kind,
 			baseUrl,
 			...(apiKey === undefined ? {} : { apiKey }),
+			...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
 			...(configuredModels.length === 0 ? {} : { configuredModels }),
 		}
 		const updated: FoldConfig = { ...config, providers: { ...config.providers, [name]: provider } }

@@ -11,7 +11,7 @@ import type { XaiAuthStore } from './AuthStore'
 import { makeXaiAuth, withXaiAuth } from './XaiAuth'
 
 export const XAI_API_URL = 'https://api.x.ai/v1'
-export const DEFAULT_XAI_MODEL_ID = 'grok-4'
+export const DEFAULT_XAI_MODEL_ID = 'grok-4.5'
 
 export type XaiModelOptions = {
 	readonly model?: string
