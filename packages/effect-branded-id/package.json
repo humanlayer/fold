@@ -20,7 +20,7 @@
 	},
 	"devDependencies": {
 		"@effect/vitest": "catalog:",
-		"@humanlayer/tart-vitest-config": "workspace:*",
+		"@humanlayer/fold-vitest-config": "workspace:*",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

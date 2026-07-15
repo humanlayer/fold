@@ -1,4 +1,4 @@
-# tart
+# fold
 
 Bun monorepo. Packages live in `packages/*` and run TypeScript directly (no build step).
 

@@ -1,0 +1,138 @@
+import { expect, it } from '@effect/vitest'
+import type { ModelCatalogEntry } from '@humanlayer/fold-core'
+import { Effect } from 'effect'
+
+import { describeModelConfiguration, parseFoldConfig, resolveConfiguredModelSelection } from '../../src/index'
+
+const configText = `{
+	"providers": {
+		"claude": { "kind": "anthropic", "apiKey": "super-secret" },
+		"codex": { "kind": "codex" }
+	},
+	"roles": {
+		"smart": { "provider": "claude", "model": "default-smart" },
+		"fast": { "provider": "codex", "model": "default-fast" }
+	},
+	"profiles": {
+		"named": {
+			"smart": { "provider": "codex", "model": "profile-smart" },
+			"fast": { "provider": "codex", "model": "profile-fast" },
+			"orchestrator": { "provider": "codex", "model": "profile-orchestrator" },
+			"mode": "rlm"
+		}
+	}
+}`
+
+const catalog: ReadonlyArray<ModelCatalogEntry> = [
+	{
+		providerId: 'codex',
+		modelId: 'catalog-only',
+		name: null,
+		contextWindow: 100_000,
+		maxInputTokens: null,
+		maxOutputTokens: 10_000,
+		reasoning: true,
+		reasoningEfforts: null,
+		vision: false,
+		toolCall: true,
+		pricing: null,
+	},
+]
+
+const catalogEntry = (providerId: string, modelId: string): ModelCatalogEntry => ({
+	...catalog[0]!,
+	providerId,
+	modelId,
+})
+
+it.effect('resolves default and named profiles', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(configText)
+		const defaultModels = yield* resolveConfiguredModelSelection(config, { _tag: 'profile', profile: 'default' })
+		const namedModels = yield* resolveConfiguredModelSelection(config, { _tag: 'profile', profile: 'named' })
+		const namedInCurrentRlmMode = yield* resolveConfiguredModelSelection(
+			config,
+			{ _tag: 'profile', profile: 'named' },
+			'rlm',
+		)
+
+		expect(defaultModels.root.activeModel.modelId).toBe('default-smart')
+		expect(defaultModels.fast.activeModel.modelId).toBe('default-fast')
+		expect(namedModels.smart.activeModel.modelId).toBe('profile-smart')
+		expect(namedModels.fast.activeModel.modelId).toBe('profile-fast')
+		expect(namedInCurrentRlmMode.root.activeModel.modelId).toBe('profile-orchestrator')
+		expect(namedInCurrentRlmMode.smart.activeModel.modelId).toBe('profile-smart')
+	}),
+)
+
+it.effect('applies a direct choice to the mode root role', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(configText)
+		const direct = { _tag: 'direct' as const, provider: 'codex', model: 'chosen' }
+		const normal = yield* resolveConfiguredModelSelection(config, direct)
+		const rlm = yield* resolveConfiguredModelSelection(config, direct, 'rlm')
+
+		expect(normal.root.activeModel.modelId).toBe('chosen')
+		expect(normal.root.activeModel.role).toBe('smart')
+		expect(normal.smart.activeModel.modelId).toBe('chosen')
+		expect(rlm.root.activeModel.modelId).toBe('chosen')
+		expect(rlm.root.activeModel.role).toBe('orchestrator')
+		expect(rlm.smart.activeModel.modelId).toBe('default-smart')
+	}),
+)
+
+it.effect('rejects an unknown profile', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(configText)
+		const error = yield* resolveConfiguredModelSelection(config, { _tag: 'profile', profile: 'missing' }).pipe(
+			Effect.flip,
+		)
+		expect(error.message).toContain('unknown model profile "missing"')
+	}),
+)
+
+it.effect('describes profiles, credentials, and merged model candidates without secrets', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(configText)
+		const description = describeModelConfiguration(config, catalog)
+
+		expect(description.profiles).toContainEqual({ name: 'named', mode: 'rlm' })
+		expect(description.providers.find(({ name }) => name === 'claude')?.credentialPresent).toBe(true)
+		expect(description.providers.find(({ name }) => name === 'codex')?.models).toEqual([
+			'catalog-only',
+			'default-fast',
+			'profile-fast',
+			'profile-orchestrator',
+			'profile-smart',
+		])
+		expect(JSON.stringify(description)).not.toContain('super-secret')
+		expect(description).not.toHaveProperty('config')
+	}),
+)
+
+it.effect('maps catalog provider ids through configured provider aliases', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": {
+				"claude-alias": { "kind": "anthropic", "apiKey": "x" },
+				"codex-alias": { "kind": "codex" },
+				"proxy": { "kind": "openai-compat", "baseUrl": "https://example.test", "apiKey": "x" }
+			},
+			"roles": {
+				"smart": { "provider": "claude-alias", "model": "claude" },
+				"fast": { "provider": "proxy", "model": "gpt" }
+			}
+		}`)
+		const description = describeModelConfiguration(config, [
+			catalogEntry('anthropic', 'anthropic-catalog'),
+			catalogEntry('openai', 'openai-catalog'),
+			catalogEntry('proxy', 'proxy-catalog'),
+		])
+
+		expect(description.providers.find(({ name }) => name === 'claude-alias')?.models).toContain('anthropic-catalog')
+		expect(description.providers.find(({ name }) => name === 'codex-alias')?.models).toContain('openai-catalog')
+		expect(description.providers.find(({ name }) => name === 'proxy')?.models).toEqual(
+			expect.arrayContaining(['openai-catalog', 'proxy-catalog']),
+		)
+	}),
+)

@@ -9,7 +9,7 @@ import { defineConfig } from 'vitest/config'
  *
  * Usage in a package's `vitest.config.ts`:
  * ```ts
- * import { base } from "@humanlayer/tart-vitest-config"
+ * import { base } from "@humanlayer/fold-vitest-config"
  * import { defineConfig, mergeConfig } from "vitest/config"
  *
  * export default mergeConfig(base, defineConfig({ ... }))

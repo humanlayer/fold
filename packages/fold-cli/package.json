@@ -1,0 +1,40 @@
+{
+	"name": "@humanlayer/fold-cli",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"module": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"bin": {
+		"foldcode": "./src/cli.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun vitest run",
+		"test:tui": "FOLD_TUI_TERMINAL_TEST=1 bun vitest run test/TuiModelSelectionTerminalControl.vi.test.ts && FOLD_TUI_TERMINAL_TEST=1 bun vitest run test/TuiSessionPickerTerminalControl.vi.test.ts && FOLD_TUI_TERMINAL_TEST=1 bun vitest run test/TuiCompactionTerminalControl.vi.test.ts && FOLD_TUI_TERMINAL_TEST=1 bun vitest run test/TuiToolInspectTerminalControl.vi.test.ts && FOLD_TUI_TERMINAL_TEST=1 bun vitest run test/TuiTerminalControl.vi.test.ts",
+		"test:watch": "bun vitest"
+	},
+	"dependencies": {
+		"@opentui/core": "catalog:",
+		"@opentui/keymap": "catalog:",
+		"@opentui/solid": "catalog:",
+		"@effect/platform-node": "catalog:",
+		"@humanlayer/fold-agent": "workspace:*",
+		"@humanlayer/fold-codex": "workspace:*",
+		"@humanlayer/fold-core": "workspace:*",
+		"@humanlayer/fold-tui-theme": "workspace:*",
+		"effect": "catalog:",
+		"solid-js": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:",
+		"@humanlayer/fold-vitest-config": "workspace:*",
+		"@kitlangton/terminal-control": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}
