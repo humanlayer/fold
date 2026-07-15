@@ -1,4 +1,4 @@
-import type { ModelConfiguration } from '@humanlayer/fold-agent'
+import type { ConfigureProviderInput, ModelConfiguration } from '@humanlayer/fold-agent'
 /** @jsxImportSource @opentui/solid */
 import { installPostFx, nextVignetteMode, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/fold-tui-theme/themes'
@@ -13,7 +13,6 @@ import { ActivityIndicator, type ActivityState } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
 import { nextRootInputVerb, normalizeRootInputVerb, rootInputVerbLabel, type RootInputVerb } from './Converse'
 import { EventDetail, EventIndexRow, EventRow, rowVisual } from './EventViews'
-import { FoldTitle } from './FoldTitle'
 import type { GitChange, GitChangeGroup, GitSnapshot } from './GitChanges'
 import { MetaRail } from './MetaRail'
 import { ModelSelectionModal, type ModelSelectionRequest } from './ModelSelectionModal'
@@ -62,6 +61,7 @@ export type TuiAppProps = {
 		update: (state: ProviderAuthUpdate) => void,
 	) => void
 	readonly onInitializeConfig?: (update: (state: ProviderAuthUpdate) => void) => void
+	readonly onConfigureProvider?: (input: ConfigureProviderInput, update: (state: ProviderAuthUpdate) => void) => void
 	readonly onBackToSessions?: () => void
 	readonly onCopySessionId?: () => void
 	readonly toggles?: Accessor<FxToggles>
@@ -257,27 +257,27 @@ export const TuiApp = (props: TuiAppProps) => {
 			{ id: 'back', title: 'Return to sessions', category: 'NAVIGATE', run: () => props.onBackToSessions?.() },
 			{ id: 'copy', title: 'Copy session ID', category: 'SESSION', run: () => props.onCopySessionId?.() },
 			{
+				id: 'providers-info',
+				title: 'Providers / Auth...',
+				category: 'APPLICATION',
+				run: () => setProvidersOpen(true),
+			},
+			{
 				id: 'models',
 				title: 'Configure models, modes, and providers...',
 				category: 'APPLICATION',
 				children: [
 					{
 						id: 'select-model',
-						title: 'Select model or profile...',
+						title: 'Switch model, profile, or mode...',
 						category: 'SESSION',
 						run: () => setModelsOpen(true),
 					},
 					{
 						id: 'modes-info',
-						title: 'New session with default or rlm mode...',
+						title: 'Switch current mode via model selection...',
 						category: 'APPLICATION',
 						run: () => setNewSessionOpen(true),
-					},
-					{
-						id: 'providers-info',
-						title: 'Providers / Auth...',
-						category: 'APPLICATION',
-						run: () => setProvidersOpen(true),
 					},
 				],
 			},
@@ -717,7 +717,7 @@ export const TuiApp = (props: TuiAppProps) => {
 				borderStyle={tactical.chrome.frameStyle}
 				borderColor={tactical.chrome.border}
 			>
-				<FoldTitle color={tactical.color} />
+				<ascii_font text="FOLD" font="tiny" color={tactical.color.core} />
 				<box flexDirection="column" justifyContent="center">
 					<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
 						{tactical.name}
@@ -1325,6 +1325,7 @@ export const TuiApp = (props: TuiAppProps) => {
 					onClose={() => setProvidersOpen(false)}
 					onAuth={(provider, action, update) => props.onProviderAuth?.(provider, action, update)}
 					onInitialize={(update) => props.onInitializeConfig?.(update)}
+					onConfigure={(input, update) => props.onConfigureProvider?.(input, update)}
 				/>
 			</Show>
 			<Show when={confirmSkill()}>

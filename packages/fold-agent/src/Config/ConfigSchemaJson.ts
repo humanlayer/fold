@@ -44,7 +44,7 @@ export const starterConfigJsonc = (): string =>
 
 	// Provider connection profiles. Prefer apiKeyEnv (reads the key from an env var) over inline apiKey.
 	// configuredModels exposes private/custom model ids in the interactive model picker without changing roles.
-	// The codex kind needs no key here - it uses ~/.fold/auth.json (run \`fold auth codex login\`).
+	// OAuth kinds need no key here; use \`fold auth codex|opencode|xai login\`.
 	"providers": {
 		"anthropic": {
 			"kind": "anthropic",
@@ -57,12 +57,18 @@ export const starterConfigJsonc = (): string =>
 		},
 		"codex": {
 			"kind": "codex"
+		},
+		"opencode": {
+			"kind": "opencode"
+		},
+		"xai": {
+			"kind": "xai"
 		}
 	},
 
 	// Model roles bound to a provider (+ optional model). "smart" and "fast" are required;
 	// "orchestrator" is optional and falls back to "smart". Omitting "model" uses the provider
-	// kind's default: codex → gpt-5.6-sol, anthropic → claude-opus-4-8 (openai-compat requires one).
+	// defaults: codex/opencode → gpt-5.6-sol, xai → grok-4, anthropic → claude-opus-4-8.
 	"roles": {
 		// Default primary model for new sessions.
 		"smart": { "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "medium" },

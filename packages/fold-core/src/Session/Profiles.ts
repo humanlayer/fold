@@ -48,6 +48,8 @@ export type ProfilesService = {
 	readonly resolve: (role: ProfileRole) => Effect.Effect<FoldModel>
 	/** Rebind one role; every subsequent dispatch/resume of a role-bound type sees the new model. */
 	readonly set: (role: ProfileRole, model: FoldModel) => Effect.Effect<void>
+	/** Atomically replace the complete role map at a session configuration commit boundary. */
+	readonly replace: (profiles: SessionProfiles) => Effect.Effect<void>
 	/** The current bindings, as plain data. */
 	readonly snapshot: Effect.Effect<SessionProfiles>
 }
@@ -83,5 +85,5 @@ export const makeProfiles = (initial: SessionProfiles): Effect.Effect<ProfilesSe
 						: { ...profiles, orchestrator: model },
 			)
 
-		return { resolve, set, snapshot: Ref.get(state) }
+		return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }
 	})

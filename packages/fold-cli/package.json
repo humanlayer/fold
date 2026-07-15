@@ -26,7 +26,9 @@
 		"@humanlayer/fold-agent": "workspace:*",
 		"@humanlayer/fold-codex": "workspace:*",
 		"@humanlayer/fold-core": "workspace:*",
+		"@humanlayer/fold-opencode": "workspace:*",
 		"@humanlayer/fold-tui-theme": "workspace:*",
+		"@humanlayer/fold-xai": "workspace:*",
 		"effect": "catalog:",
 		"solid-js": "catalog:"
 	},

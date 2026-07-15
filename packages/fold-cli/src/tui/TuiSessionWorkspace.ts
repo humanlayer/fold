@@ -65,12 +65,15 @@ export type TuiSessionWorkspace = {
 export const makeTuiSessionWorkspace = (options: {
 	readonly tui: TuiOptions
 	readonly configuration: ModelConfiguration
-	readonly config: FoldConfig | null
+	readonly config: Accessor<FoldConfig | null> | FoldConfig | null
 	readonly configNotice: string | null
 	readonly loadSummariesOnStart: boolean
 }): Effect.Effect<TuiSessionWorkspace, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const parentScope = yield* Scope.Scope
+		const configOption = options.config
+		const currentConfig: Accessor<FoldConfig | null> =
+			typeof configOption === 'function' ? (configOption as Accessor<FoldConfig | null>) : () => configOption
 		const runRoot = Effect.runForkWith(yield* Effect.context<Scope.Scope>())
 		const run = <A, E>(effect: Effect.Effect<A, E>): void => {
 			runRoot(Effect.forkScoped(effect, { startImmediately: true }))
@@ -148,8 +151,11 @@ export const makeTuiSessionWorkspace = (options: {
 					makeHostedTuiSession(value, {
 						metadata,
 						initialInputFocused: focused,
-						config: options.config,
+						config: currentConfig,
 						configNotice: options.configNotice,
+						...(options.tui.foldHome === undefined ? {} : { foldHome: options.tui.foldHome }),
+						...(options.tui.catalog === undefined ? {} : { catalog: options.tui.catalog }),
+						...(options.tui.rpi === true ? { rpi: true } : {}),
 						onDurableSummaryChange: refresh,
 					}),
 				),

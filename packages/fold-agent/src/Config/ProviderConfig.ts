@@ -1,10 +1,13 @@
 /**
- * Focused persistence boundary used by interactive clients to add or update API-key providers.
+ * Focused persistence boundary used by interactive clients to add or update provider profiles.
  * It deliberately does not edit role bindings: an optional model is registered on the provider so
  * it becomes selectable without unexpectedly changing the user's default/profile behavior.
  */
 import { dirname } from 'node:path'
 
+import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
+import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
+import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
 import { Effect, Schema } from 'effect'
 
 import { fileSystemFor } from '../Fs/DefaultFileSystem'
@@ -18,12 +21,12 @@ import {
 	type LoadConfigOptions,
 } from './Load'
 
-/** Values collected by an interactive provider form. API keys are persisted inline in config.jsonc. */
+/** Values collected by an interactive provider form. OAuth providers must omit `apiKey`. */
 export type ConfigureProviderInput = {
 	readonly name: string
 	readonly kind: ProviderKind
 	readonly baseUrl: string
-	readonly apiKey: string
+	readonly apiKey?: string
 	readonly model?: string
 }
 
@@ -33,7 +36,7 @@ export class ProviderConfigurationValidationError extends Schema.TaggedErrorClas
 	{ field: Schema.String, message: Schema.String },
 ) {}
 
-/** Codex credentials are OAuth-managed and cannot be changed through this API. */
+/** The requested provider kind cannot be safely persisted. */
 export class ProviderConfigurationKindError extends Schema.TaggedErrorClass<ProviderConfigurationKindError>()(
 	'ProviderConfigurationKindError',
 	{ kind: Schema.String, message: Schema.String },
@@ -65,7 +68,8 @@ const validBaseUrl = (value: string): Effect.Effect<string, ProviderConfiguratio
 		Effect.flatMap((baseUrl) =>
 			Effect.try({
 				try: () => new URL(baseUrl),
-				catch: () => new ProviderConfigurationValidationError({ field: 'baseUrl', message: 'baseUrl must be a URL' }),
+				catch: () =>
+					new ProviderConfigurationValidationError({ field: 'baseUrl', message: 'baseUrl must be a URL' }),
 			}).pipe(
 				Effect.filterOrFail(
 					(url) => url.protocol === 'http:' || url.protocol === 'https:',
@@ -88,9 +92,7 @@ const writeConfig = (
 	const path = configPathFor(options)
 	const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`
 	const text = `${JSON.stringify(config, null, '\t')}\n`
-	const writeDirect = fs.writeFileString(path, text, { mode: 0o600 }).pipe(
-		Effect.andThen(fs.chmod(path, 0o600)),
-	)
+	const writeDirect = fs.writeFileString(path, text, { mode: 0o600 }).pipe(Effect.andThen(fs.chmod(path, 0o600)))
 
 	return fs.makeDirectory(dirname(path), { recursive: true }).pipe(
 		Effect.andThen(fs.writeFileString(temporaryPath, text, { mode: 0o600 })),
@@ -103,7 +105,8 @@ const writeConfig = (
 			writeDirect.pipe(Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.catch(() => Effect.void)))),
 		),
 		Effect.mapError(
-			(error) => new ProviderConfigurationWriteError({ path, message: `could not write config: ${error.message}` }),
+			(error) =>
+				new ProviderConfigurationWriteError({ path, message: `could not write config: ${error.message}` }),
 		),
 	)
 }
@@ -117,24 +120,31 @@ export const configureProvider = (
 	options?: LoadConfigOptions,
 ): Effect.Effect<FoldConfig, ConfigureProviderError> =>
 	Effect.gen(function* () {
-		if (input.kind === 'codex') {
-			return yield* new ProviderConfigurationKindError({
-				kind: input.kind,
-				message: 'codex providers use OAuth and cannot be configured with an API key',
-			})
-		}
-
 		const name = yield* required(input.name, 'name')
 		const baseUrl = yield* validBaseUrl(input.baseUrl)
-		const apiKey = yield* required(input.apiKey, 'apiKey')
-		const model = input.model === undefined ? undefined : yield* required(input.model, 'model')
+		const oauth = input.kind === 'codex' || input.kind === 'opencode' || input.kind === 'xai'
+		if (oauth && input.apiKey !== undefined && input.apiKey.trim() !== '')
+			return yield* new ProviderConfigurationKindError({
+				kind: input.kind,
+				message: `${input.kind} credentials are OAuth-managed; an API key must not be supplied`,
+			})
+		const apiKey = oauth ? undefined : yield* required(input.apiKey ?? '', 'apiKey')
+		const defaultModel =
+			input.kind === 'codex'
+				? DEFAULT_CODEX_MODEL_ID
+				: input.kind === 'opencode'
+					? DEFAULT_OPENCODE_MODEL_ID
+					: input.kind === 'xai'
+						? DEFAULT_XAI_MODEL_ID
+						: undefined
+		const model = input.model === undefined ? defaultModel : yield* required(input.model, 'model')
 		const config = yield* loadFoldConfig(options)
 		const previousModels = config.providers[name]?.configuredModels ?? []
 		const configuredModels = model === undefined ? previousModels : [...new Set([...previousModels, model])]
 		const provider = {
 			kind: input.kind,
 			baseUrl,
-			apiKey,
+			...(apiKey === undefined ? {} : { apiKey }),
 			...(configuredModels.length === 0 ? {} : { configuredModels }),
 		}
 		const updated: FoldConfig = { ...config, providers: { ...config.providers, [name]: provider } }

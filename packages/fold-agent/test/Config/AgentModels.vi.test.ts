@@ -58,6 +58,20 @@ it.effect('resolves fast (codex) with no key required', () =>
 	}),
 )
 
+it.effect('resolves OpenCode and xAI OAuth providers with their defaults and no API key', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": { "zen": { "kind": "opencode" }, "grok": { "kind": "xai" } },
+			"roles": { "smart": { "provider": "zen" }, "fast": { "provider": "grok" } }
+		}`)
+		const models = agentModelsFromConfig(config, { env: env({}) })
+		const openCode = yield* models.resolve('smart')
+		const xai = yield* models.resolve('fast')
+		expect(openCode.activeModel).toMatchObject({ providerId: 'zen', modelId: 'gpt-5.6-sol', role: 'smart' })
+		expect(xai.activeModel).toMatchObject({ providerId: 'grok', modelId: 'grok-4', role: 'fast' })
+	}),
+)
+
 it.effect('resolves an explicit orchestrator (openai-compat) with inline key + base url', () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(configText)

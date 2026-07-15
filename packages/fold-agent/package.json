@@ -18,6 +18,8 @@
 		"@effect/platform-node": "catalog:",
 		"@humanlayer/fold-codex": "workspace:*",
 		"@humanlayer/fold-core": "workspace:*",
+		"@humanlayer/fold-opencode": "workspace:*",
+		"@humanlayer/fold-xai": "workspace:*",
 		"@silvia-odwyer/photon-node": "catalog:",
 		"effect": "catalog:",
 		"yaml": "catalog:"

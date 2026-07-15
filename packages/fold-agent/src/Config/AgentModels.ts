@@ -16,6 +16,8 @@
 import { codexModel, DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { anthropicModel, DEFAULT_ANTHROPIC_MODEL_ID, lookupCatalogEntry, openaiModel } from '@humanlayer/fold-core'
 import type { ActiveModel, ModelCatalogEntry, ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
+import { DEFAULT_OPENCODE_MODEL_ID, openCodeModel } from '@humanlayer/fold-opencode'
+import { DEFAULT_XAI_MODEL_ID, xaiModel } from '@humanlayer/fold-xai'
 import { Effect, Redacted, Schema } from 'effect'
 
 import { ConfigRole, type ProviderConnection, type RoleBinding, type FoldConfig } from './ConfigSchema'
@@ -108,6 +110,10 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 		switch (provider.kind) {
 			case 'codex':
 				return Effect.succeed(DEFAULT_CODEX_MODEL_ID)
+			case 'opencode':
+				return Effect.succeed(DEFAULT_OPENCODE_MODEL_ID)
+			case 'xai':
+				return Effect.succeed(DEFAULT_XAI_MODEL_ID)
 			case 'anthropic':
 				return Effect.succeed(DEFAULT_ANTHROPIC_MODEL_ID)
 			case 'openai-compat':
@@ -145,6 +151,20 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
 				return withRole(
 					codexModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
+					role,
+				)
+			}
+			if (provider.kind === 'opencode') {
+				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
+				return withRole(
+					openCodeModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
+					role,
+				)
+			}
+			if (provider.kind === 'xai') {
+				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
+				return withRole(
+					xaiModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
 					role,
 				)
 			}

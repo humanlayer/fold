@@ -1,4 +1,6 @@
 import type { ModelCatalogEntry, FoldModel } from '@humanlayer/fold-core'
+import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
+import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
 import { Effect } from 'effect'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
@@ -18,6 +20,7 @@ export type ModelConfiguration = {
 	readonly providers: ReadonlyArray<{
 		readonly name: string
 		readonly kind: FoldConfig['providers'][string]['kind']
+		readonly baseUrl?: string | null
 		readonly apiKeyEnv: string | null
 		readonly credentialPresent: boolean | null
 		readonly models: ReadonlyArray<string>
@@ -56,26 +59,39 @@ export const describeModelConfiguration = (
 		const catalogProviderIds =
 			provider.kind === 'anthropic'
 				? [name, 'anthropic']
-				: provider.kind === 'codex'
+				: provider.kind === 'codex' || provider.kind === 'opencode'
 					? [name, 'openai']
-					: [name, 'openai']
+					: provider.kind === 'xai'
+						? [name, 'xai']
+						: [name, 'openai']
 		const configured = bindings(config)
 			.filter((binding) => binding.provider === name && binding.model !== undefined)
 			.map((binding) => binding.model as string)
 		const catalogModels = catalog
 			.filter((entry) => catalogProviderIds.includes(entry.providerId))
 			.map((entry) => entry.modelId)
+		const defaultModels =
+			provider.kind === 'codex'
+				? [DEFAULT_OPENCODE_MODEL_ID]
+				: provider.kind === 'opencode'
+					? [DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID]
+					: provider.kind === 'xai'
+						? [DEFAULT_XAI_MODEL_ID]
+						: []
 		return {
 			name,
 			kind: provider.kind,
+			baseUrl: provider.baseUrl ?? null,
 			apiKeyEnv: provider.apiKeyEnv ?? null,
 			credentialPresent:
-				provider.kind === 'codex'
+				provider.kind === 'codex' || provider.kind === 'opencode' || provider.kind === 'xai'
 					? null
 					: provider.apiKeyEnv === undefined
 						? provider.apiKey !== undefined && provider.apiKey.length > 0
 						: Boolean(env(provider.apiKeyEnv)),
-			models: [...new Set([...(provider.configuredModels ?? []), ...configured, ...catalogModels])].sort(),
+			models: [
+				...new Set([...defaultModels, ...(provider.configuredModels ?? []), ...configured, ...catalogModels]),
+			].sort(),
 		}
 	}),
 })

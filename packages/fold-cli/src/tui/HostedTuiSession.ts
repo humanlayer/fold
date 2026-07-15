@@ -1,10 +1,11 @@
 import {
 	makeDiskSkillSource,
-	resolveConfiguredModelSelection,
+	modeForName,
+	switchSessionMode,
 	type ProfileModeName,
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
-import { renderSkillContent, type SessionId, type FoldSession } from '@humanlayer/fold-core'
+import { renderSkillContent, type ModelCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
 import { Cause, Duration, Effect, Scope, Stream } from 'effect'
 import { batch, createSignal, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
@@ -46,8 +47,11 @@ export const makeHostedTuiSession = (
 	options: {
 		readonly metadata: HostedTuiSessionMetadata
 		readonly initialInputFocused: boolean
-		readonly config: FoldConfig | null
+		readonly config: Accessor<FoldConfig | null>
 		readonly configNotice: string | null
+		readonly foldHome?: string
+		readonly catalog?: ReadonlyArray<ModelCatalogEntry>
+		readonly rpi?: boolean
 		readonly onDurableSummaryChange: () => void
 	},
 ): Effect.Effect<HostedTuiSession, never, Scope.Scope> =>
@@ -67,6 +71,7 @@ export const makeHostedTuiSession = (
 		} | null>(null)
 		const [compacting, setCompacting] = createSignal(false)
 		const [profile, setProfile] = createSignal(options.metadata.profile)
+		const [mode, setMode] = createSignal(options.metadata.mode)
 		const failNotice = (cause: Cause.Cause<unknown>) => unexpectedActionCauseNotice(cause)
 
 		const submit = (verb: RootInputVerb, text: string): void => {
@@ -162,31 +167,30 @@ export const makeHostedTuiSession = (
 			)
 		}
 		const configureModels = (selection: ModelSelectionRequest): void => {
-			if (options.config === null) {
+			const config = options.config()
+			if (config === null) {
 				setNotice(options.configNotice)
 				return
 			}
 			setNotice('APPLYING MODEL CONFIGURATION')
 			run(
-				resolveConfiguredModelSelection(
-					options.config,
-					configuredSelection(selection),
-					options.metadata.mode === 'rlm' ? 'rlm' : 'default',
-				).pipe(
-					Effect.flatMap((models) =>
-						selection._tag === 'profile'
-							? Effect.all([
-									session.switchModel(models.root),
-									session.setProfile('smart', models.smart),
-									session.setProfile('fast', models.fast),
-									session.setProfile('orchestrator', models.orchestrator),
-								])
-							: session.switchModel(models.root),
-					),
+				switchSessionMode(session, {
+					mode: modeForName(selection.mode ?? mode()),
+					cwd: options.metadata.cwd,
+					config,
+					...(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
+					...(options.catalog === undefined ? {} : { catalog: options.catalog }),
+					...(options.rpi === true ? { rpi: true } : {}),
+					...(selection._tag === 'profile'
+						? { profile: selection.profile }
+						: { modelSelection: { provider: selection.provider, model: selection.model } }),
+					reason: `TUI switch to ${selection.mode ?? mode()} mode`,
+				}).pipe(
 					Effect.tap(() =>
 						Effect.sync(() => {
 							setProfile(selection._tag === 'profile' ? selection.profile : 'direct')
-							setNotice('MODEL CONFIGURATION APPLIED')
+							setMode(selection.mode ?? mode())
+							setNotice('MODEL AND MODE CONFIGURATION APPLIED')
 						}),
 					),
 					Effect.catchCause((cause) => Effect.sync(() => setNotice(Cause.pretty(cause)))),
@@ -230,7 +234,7 @@ export const makeHostedTuiSession = (
 			session,
 			cwd: options.metadata.cwd,
 			profile,
-			mode: () => options.metadata.mode,
+			mode,
 			state: () => state,
 			notice,
 			targetNotice,

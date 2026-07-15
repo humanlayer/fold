@@ -153,6 +153,27 @@ export type LaunchSessionOptions = {
 	readonly name?: string
 }
 
+/** Inputs for switching an existing session to a freshly composed selectable mode. */
+export type SwitchSessionModeOptions = Pick<
+	LaunchSessionOptions,
+	| 'cwd'
+	| 'foldHome'
+	| 'home'
+	| 'env'
+	| 'config'
+	| 'catalog'
+	| 'rpi'
+	| 'profile'
+	| 'modelSelection'
+	| 'model'
+	| 'extraTools'
+> & {
+	/** Target mode. Its prompt, tools, default role, and RPI default are rebuilt exactly as at launch. */
+	readonly mode: FoldMode
+	/** Durable explanation attached to the D17 model-change row. */
+	readonly reason?: string
+}
+
 /** Default runtime guard for product launches: stop repeated identical tool batches without imposing max steps. */
 export const defaultStopConditions: StopConditionConfig = {
 	doomLoop: { enabled: true, repeatedToolCalls: 3 },
@@ -346,6 +367,38 @@ const sessionProfilesFor = (models: ModeModels): SessionProfiles => ({
 	fast: models.fast,
 	orchestrator: models.orchestrator,
 })
+
+/**
+ * Recompose and install a selectable mode on an existing session without replacing its identity or
+ * event log. Model/profile resolution, agentfiles, RPI prompt/roster, fold-info block, and mode tools
+ * use the same helpers as launch/resume. The three role bindings are rebound before the atomic root
+ * epoch switch so newly introduced role-bound subagent types are covered at the switch boundary.
+ */
+export const switchSessionMode = (
+	session: FoldSession,
+	options: SwitchSessionModeOptions,
+): Effect.Effect<void, LaunchModelError> =>
+	Effect.gen(function* () {
+		const { options: profiled } = yield* resolveProfileSelection(options)
+		const mode = options.mode
+		const cwd = profiled.cwd ?? process.cwd()
+		const catalog = yield* catalogFor(profiled)
+		const models = yield* resolveModeModels(profiled, mode, catalog)
+		const config = yield* runtimeConfigFor(profiled)
+		const outputStore = makeOutputStore({
+			sessionId: session.sessionId,
+			...(profiled.foldHome === undefined ? {} : { foldHome: profiled.foldHome }),
+		})
+		yield* outputStore.sweep
+		const agent = yield* buildAgentDefinition(profiled, mode, models, cwd, config, outputStore)
+
+		yield* session.switchModel(models.primary, {
+			...(agent.systemPrompt === undefined ? {} : { systemPrompt: agent.systemPrompt }),
+			...(agent.tools === undefined ? {} : { tools: agent.tools }),
+			reason: options.reason ?? `switch mode to ${mode.name}`,
+			profiles: sessionProfilesFor(models),
+		})
+	})
 
 const withGeneratedTitles = (
 	session: FoldSession,

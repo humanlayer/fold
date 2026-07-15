@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import type { ModelConfiguration, SessionSummary } from '@humanlayer/fold-agent'
+import type { ConfigureProviderInput, ModelConfiguration, SessionSummary } from '@humanlayer/fold-agent'
 import type { SessionId } from '@humanlayer/fold-core'
 import { nextVignetteMode, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/fold-tui-theme/themes'
@@ -9,7 +9,6 @@ import { createEffect, createMemo, createSignal, Index, Show, type Accessor } fr
 
 import { ActivityIndicator } from './ActivityIndicator'
 import { CommandPalette, type TuiCommand } from './CommandPalette'
-import { FoldTitle } from './FoldTitle'
 import { NewSessionModal } from './NewSessionModal'
 import type { NewSessionRequest } from './NewSessionModal'
 import type { ProviderAuthAction, ProviderAuthUpdate } from './ProviderAuth'
@@ -36,6 +35,7 @@ export type SessionPickerProps = {
 		update: (state: ProviderAuthUpdate) => void,
 	) => void
 	readonly onInitializeConfig?: (update: (state: ProviderAuthUpdate) => void) => void
+	readonly onConfigureProvider?: (input: ConfigureProviderInput, update: (state: ProviderAuthUpdate) => void) => void
 	readonly onQuit: () => void
 	readonly toggles?: Accessor<FxToggles>
 	readonly setToggles?: (update: (current: FxToggles) => FxToggles) => void
@@ -88,6 +88,12 @@ export const SessionPicker = (props: SessionPickerProps) => {
 			},
 			{ id: 'open', title: 'Open selected session', category: 'NAVIGATE', run: activate },
 			{
+				id: 'providers-info',
+				title: 'Providers / Auth...',
+				category: 'APPLICATION',
+				run: () => setProvidersOpen(true),
+			},
+			{
 				id: 'models',
 				title: 'Configure models, modes, and providers...',
 				category: 'APPLICATION',
@@ -103,12 +109,6 @@ export const SessionPicker = (props: SessionPickerProps) => {
 						title: 'New session with default or rlm mode...',
 						category: 'APPLICATION',
 						run: () => setNewSessionOpen(true),
-					},
-					{
-						id: 'providers-info',
-						title: 'Providers / Auth...',
-						category: 'APPLICATION',
-						run: () => setProvidersOpen(true),
 					},
 				],
 			},
@@ -222,7 +222,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 				borderStyle={tactical.chrome.frameStyle}
 				borderColor={tactical.chrome.border}
 			>
-				<FoldTitle color={tactical.color} />
+				<ascii_font text="FOLD" font="tiny" color={tactical.color.core} />
 				<box flexDirection="column" justifyContent="center">
 					<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
 						SESSIONS
@@ -421,6 +421,7 @@ export const SessionPicker = (props: SessionPickerProps) => {
 					onClose={() => setProvidersOpen(false)}
 					onAuth={(provider, action, update) => props.onProviderAuth?.(provider, action, update)}
 					onInitialize={(update) => props.onInitializeConfig?.(update)}
+					onConfigure={(input, update) => props.onConfigureProvider?.(input, update)}
 				/>
 			</Show>
 		</box>

@@ -76,6 +76,7 @@ import { StopConditions } from '../StopConditions/StopConditions'
 import { agentIdsFromEntries, resolveAgentIdRef } from '../Subagents/AgentIdRef'
 import { agentRegistryFromDefinitions, collectSubagentDefinitions } from '../Subagents/AgentRegistry'
 import { SubagentNotFoundError } from '../Subagents/Errors'
+import type { SubagentDefinition } from '../Subagents/SubagentDefinition'
 import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
 import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
@@ -147,6 +148,12 @@ export type SwitchModelOptions = {
 	readonly systemPrompt?: string | ReadonlyArray<string>
 	/** Replace the installed tools from this epoch on. */
 	readonly tools?: ReadonlyArray<FoldTool>
+	/**
+	 * Atomically replace the complete role-to-model map in the same commit as this root epoch switch.
+	 * Candidate subagent types are validated against this map; it is published only after the durable
+	 * transition succeeds. Omitted means preserve the current bindings.
+	 */
+	readonly profiles?: SessionProfiles
 }
 
 /**
@@ -267,16 +274,21 @@ type SessionGraph = {
 	readonly subagentsEngine: SubagentsService
 	readonly profiles: ProfilesService
 	readonly configRef: Ref.Ref<SessionAgentConfig>
-	readonly registryHasType: (name: string) => boolean
+	readonly validateSubagentRegistry: (
+		definitions: ReadonlyArray<SubagentDefinition>,
+		profiles: SessionProfiles,
+	) => Effect.Effect<void>
+	readonly extendSubagentRegistry: (definitions: ReadonlyArray<SubagentDefinition>) => void
 	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
 	readonly collectNewSubagentDefinitions: (
 		tools: ReadonlyArray<FoldTool>,
-	) => Effect.Effect<ReadonlyArray<{ readonly name: string }>>
+	) => Effect.Effect<ReadonlyArray<SubagentDefinition>>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
 		tools: ReadonlyArray<FoldTool>,
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
+	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
 	readonly leadingPromptFor: (
 		systemPrompt: string | ReadonlyArray<string> | null,
 		tools: ReadonlyArray<FoldTool>,
@@ -503,11 +515,28 @@ const assembleSessionGraph = (options: {
 			subagentsEngine,
 			profiles: Context.get(sessionServices, Profiles),
 			configRef,
-			registryHasType: (name: string) => registry.resolveAgentType(name) !== null,
+			validateSubagentRegistry: (definitions, candidateProfiles) =>
+				Effect.sync(() => {
+					const bindings = [
+						...registry.entries,
+						...definitions.filter((definition) => registry.resolveAgentType(definition.name) === null),
+					]
+					for (const entry of bindings) {
+						if (typeof entry.model !== 'string') continue
+						if (profileModelFor(candidateProfiles, entry.model) !== undefined) continue
+						throw new Error(
+							`subagent type "${entry.name}" binds model role "${entry.model}", but the session has no covering profile binding`,
+						)
+					}
+				}),
+			extendSubagentRegistry: (definitions) => {
+				registry.extend(definitions)
+			},
 			ensureToolContributions,
 			collectNewSubagentDefinitions: (tools) => collectSubagentDefinitions(tools),
 			provisionRootRuntime,
 			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
+			currentProvisionedRuntime: Ref.get(runtimeRef),
 			leadingPromptFor,
 		}
 	})
@@ -769,6 +798,8 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 		gate.withPermit(
 			Effect.gen(function* () {
 				const current = yield* Ref.get(configRef)
+				const currentProfiles = yield* profiles.snapshot
+				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
 				const next: SessionAgentConfig = {
 					model,
 					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
@@ -776,33 +807,41 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				}
 				yield* validateToolNames(next.tools)
 
-				// A switch may introduce new session-initialized tools (a fresh skillTool): run their
-				// inits now, once per value. New subagent TYPES cannot be introduced mid-session - the
-				// registry is session-fixed (resume/roster integrity) - so any subagentTool in the new
-				// toolset must only reference definitions already registered at session start.
+				// A switch may introduce new session-initialized tools and subagent types. The switch gate
+				// is the sole extension boundary, so dispatch can never observe a partially installed graph.
 				yield* graph.ensureToolContributions(next.tools)
 				const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
-				for (const definition of introduced) {
-					if (!graph.registryHasType(definition.name)) {
-						return yield* Effect.die(
-							new Error(
-								`switchModel cannot introduce new subagent type "${definition.name}": the agent-type registry is fixed at session start`,
-							),
-						)
-					}
-				}
+				yield* Effect.forEach(introduced, (definition) => validateToolNames(definition.tools ?? []), {
+					discard: true,
+				})
+				yield* Effect.forEach(
+					introduced,
+					(definition) => graph.ensureToolContributions(definition.tools ?? []),
+					{
+						discard: true,
+					},
+				)
+				yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
 
 				// Provision against the new toolset before writing the transition, so the durable
 				// tools-change below resolves over the newly installed tools. Nothing can run in
 				// between: root runs wait on the same gate.
-				yield* graph.setProvisionedRuntime(yield* graph.provisionRootRuntime(model, next.tools))
-				yield* session
+				const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
+				const previousRuntime = yield* graph.currentProvisionedRuntime
+				yield* graph.setProvisionedRuntime(nextRuntime)
+				const transition = yield* session
 					.switchModel({
 						model: model.activeModel,
 						systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
 						reason: switchOptions?.reason ?? null,
 					})
-					.pipe(Effect.orDie)
+					.pipe(Effect.orDie, Effect.exit)
+				if (Exit.isFailure(transition)) {
+					yield* graph.setProvisionedRuntime(previousRuntime)
+					return yield* Effect.failCause(transition.cause)
+				}
+				graph.extendSubagentRegistry(introduced)
+				yield* profiles.replace(candidateProfiles)
 				yield* Ref.set(configRef, next)
 			}),
 		)

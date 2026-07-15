@@ -25,6 +25,8 @@ import {
 	type MakeCodexAuthStoreOptions,
 } from '@humanlayer/fold-codex'
 import { SessionId } from '@humanlayer/fold-core'
+import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
+import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
 import { Clock, Console, Effect, Option, Schema } from 'effect'
 import { CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
@@ -192,6 +194,13 @@ const authStorePath = (foldHome: string | undefined): string | undefined =>
 
 const codexProviderId = (provider: Option.Option<string>): string => optionValue(provider) ?? 'codex'
 
+const providerId = (provider: Option.Option<string>, fallback: string): string => optionValue(provider) ?? fallback
+
+const providerAuthStoreOptions = (provider: Option.Option<string>, foldHome: string | undefined, fallback: string) => {
+	const path = authStorePath(foldHome)
+	return { providerId: providerId(provider, fallback), ...(path === undefined ? {} : { path }) }
+}
+
 const codexAuthStoreOptions = (
 	provider: Option.Option<string>,
 	foldHome: string | undefined,
@@ -224,6 +233,27 @@ const openUrlInBrowser = (url: string): Effect.Effect<boolean> =>
 	}).pipe(Effect.catch((opened) => Effect.succeed(opened)))
 
 const expiryText = (expires: number): string => new Date(expires).toISOString()
+
+const printAuthUrl = (input: {
+	readonly heading: string
+	readonly url: string
+	readonly noOpen: boolean
+	readonly waiting: string
+}): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		yield* Console.log(input.heading)
+		if (!input.noOpen && process.stdout.isTTY === true) {
+			const opened = yield* openUrlInBrowser(input.url)
+			yield* Console.log(
+				opened
+					? 'Opened your browser. If it did not appear, copy the URL below.'
+					: 'Could not open your browser automatically; copy the URL below.',
+			)
+		} else {
+			yield* Console.log('Browser auto-open disabled or unavailable; copy the URL below.')
+		}
+		yield* Console.log(`\n${input.url}\n\n${input.waiting}`)
+	})
 
 const modelSelectionFromFlags = (input: {
 	readonly role: Option.Option<'smart' | 'fast' | 'orchestrator'>
@@ -443,9 +473,202 @@ const config = Command.make('config').pipe(
 	]),
 )
 
+type ProviderAuthInput = {
+	readonly provider: Option.Option<string>
+	readonly foldHome: Option.Option<string>
+}
+
+type ProviderLoginInput = ProviderAuthInput & { readonly noOpen: boolean }
+
+const openCodeLogin = (input: ProviderLoginInput) =>
+	Effect.gen(function* () {
+		const foldHome = optionValue(input.foldHome)
+		const store = makeOpenCodeAuthStore(providerAuthStoreOptions(input.provider, foldHome, 'opencode'))
+		const openCodeAuth = yield* makeOpenCodeAuth({
+			store,
+			onDeviceCode: (prompt) =>
+				printAuthUrl({
+					heading: `OpenCode device login\n\nCode: ${prompt.userCode}`,
+					url: prompt.url,
+					noOpen: input.noOpen,
+					waiting: 'Waiting for approval...',
+				}),
+		}).pipe(Effect.provide(FetchHttpClient.layer))
+		yield* Console.log(
+			`Using OpenCode device authentication for provider "${providerId(input.provider, 'opencode')}"`,
+		)
+		const token = yield* openCodeAuth.authenticateDevice
+		const identity = token.metadata
+			? ` for ${token.metadata.email}${token.metadata.orgName === undefined ? '' : ` (${token.metadata.orgName})`}`
+			: ''
+		yield* Console.log(
+			`Saved OpenCode credential${identity} to ${store.path} (expires ${expiryText(token.expires)})`,
+		)
+	})
+
+const openCodeCommands = Command.make('opencode').pipe(
+	Command.withDescription('Manage OpenCode OAuth credentials'),
+	Command.withSubcommands([
+		Command.make(
+			'login',
+			{
+				provider: commonFlags.provider,
+				foldHome: commonFlags.foldHome,
+				noOpen: Flag.boolean('no-open').pipe(
+					Flag.withDescription('Print the device authorization URL without opening it'),
+				),
+			},
+			openCodeLogin,
+		).pipe(Command.withDescription('Authenticate OpenCode using its device flow')),
+		Command.make(
+			'device',
+			{
+				provider: commonFlags.provider,
+				foldHome: commonFlags.foldHome,
+				noOpen: Flag.boolean('no-open').pipe(
+					Flag.withDescription('Print the device authorization URL without opening it'),
+				),
+			},
+			openCodeLogin,
+		).pipe(Command.withDescription('Authenticate OpenCode using its device flow')),
+		Command.make('browser', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
+			printFailure(
+				`OpenCode does not support browser OAuth for provider "${providerId(input.provider, 'opencode')}"; use fold auth opencode device`,
+			),
+		).pipe(Command.withDescription('Report that OpenCode browser authentication is unsupported')),
+		Command.make('status', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
+			Effect.gen(function* () {
+				const store = makeOpenCodeAuthStore(
+					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'opencode'),
+				)
+				const token = yield* store.load
+				if (Option.isNone(token)) {
+					yield* Console.log(`No OpenCode credential found in ${store.path}. Run fold auth opencode login.`)
+					return
+				}
+				const now = yield* Clock.currentTimeMillis
+				const identity = token.value.metadata
+					? ` for ${token.value.metadata.email}${token.value.metadata.orgName === undefined ? '' : ` (${token.value.metadata.orgName})`}`
+					: ''
+				yield* Console.log(
+					`OpenCode credential ${token.value.isExpired(now) ? 'expired' : 'valid'}${identity} in ${store.path} (expires ${expiryText(token.value.expires)})`,
+				)
+			}),
+		).pipe(Command.withDescription('Show the stored OpenCode credential status')),
+		Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
+			Effect.gen(function* () {
+				const store = makeOpenCodeAuthStore(
+					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'opencode'),
+				)
+				const service = yield* makeOpenCodeAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
+				yield* service.logout
+				yield* Console.log(`Removed OpenCode credential from ${store.path}`)
+			}),
+		).pipe(Command.withDescription('Remove the stored OpenCode credential')),
+	]),
+)
+
+const xaiLogin = (flow: ResolvedCodexLoginFlow, input: ProviderLoginInput) =>
+	Effect.gen(function* () {
+		const store = makeXaiAuthStore(providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'))
+		const xaiAuth = yield* makeXaiAuth({
+			store,
+			onDeviceCode: (prompt) =>
+				printAuthUrl({
+					heading: `xAI device login\n\nCode: ${prompt.userCode}`,
+					url: prompt.browserUrl,
+					noOpen: input.noOpen,
+					waiting: 'Waiting for approval...',
+				}),
+			onBrowserUrl: (url) =>
+				printAuthUrl({
+					heading: 'xAI browser login',
+					url,
+					noOpen: input.noOpen,
+					waiting: 'Waiting for browser callback on localhost...',
+				}),
+		}).pipe(Effect.provide(FetchHttpClient.layer))
+		yield* Console.log(`Using xAI ${flow} authentication for provider "${providerId(input.provider, 'xai')}"`)
+		const token = yield* flow === 'browser' ? xaiAuth.authenticateBrowser : xaiAuth.authenticateDevice
+		yield* Console.log(
+			`Saved xAI credential${token.accountId === undefined ? '' : ` for account ${token.accountId}`} to ${store.path} (expires ${expiryText(token.expires)})`,
+		)
+	})
+
+const xaiExplicitLoginCommand = (name: ResolvedCodexLoginFlow) =>
+	Command.make(
+		name,
+		{
+			provider: commonFlags.provider,
+			foldHome: commonFlags.foldHome,
+			noOpen: Flag.boolean('no-open').pipe(
+				Flag.withDescription('Print the authorization URL without opening it'),
+			),
+		},
+		(input) => xaiLogin(name, input),
+	).pipe(Command.withDescription(`Authenticate xAI using the ${name} flow`))
+
+const xaiCommands = Command.make('xai').pipe(
+	Command.withDescription('Manage xAI OAuth credentials'),
+	Command.withSubcommands([
+		Command.make(
+			'login',
+			{
+				provider: commonFlags.provider,
+				foldHome: commonFlags.foldHome,
+				noOpen: Flag.boolean('no-open').pipe(
+					Flag.withDescription('Print the authorization URL without opening it'),
+				),
+			},
+			(input) =>
+				xaiLogin(
+					resolveCodexLoginFlow({
+						flow: undefined,
+						device: false,
+						browser: false,
+						stdinIsTTY: process.stdin.isTTY === true,
+						stdoutIsTTY: process.stdout.isTTY === true,
+						isCi: process.env.CI !== undefined,
+					}),
+					input,
+				),
+		).pipe(Command.withDescription('Authenticate xAI (browser interactively, device in CI/headless environments)')),
+		xaiExplicitLoginCommand('browser'),
+		xaiExplicitLoginCommand('device'),
+		Command.make('status', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
+			Effect.gen(function* () {
+				const store = makeXaiAuthStore(
+					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
+				)
+				const token = yield* store.load
+				if (Option.isNone(token)) {
+					yield* Console.log(`No xAI credential found in ${store.path}. Run fold auth xai login.`)
+					return
+				}
+				const now = yield* Clock.currentTimeMillis
+				yield* Console.log(
+					`xAI credential ${token.value.isExpired(now) ? 'expired' : 'valid'}${token.value.accountId === undefined ? '' : ` for account ${token.value.accountId}`} in ${store.path} (expires ${expiryText(token.value.expires)})`,
+				)
+			}),
+		).pipe(Command.withDescription('Show the stored xAI credential status')),
+		Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
+			Effect.gen(function* () {
+				const store = makeXaiAuthStore(
+					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
+				)
+				const service = yield* makeXaiAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
+				yield* service.logout
+				yield* Console.log(`Removed xAI credential from ${store.path}`)
+			}),
+		).pipe(Command.withDescription('Remove the stored xAI credential')),
+	]),
+)
+
 const auth = Command.make('auth').pipe(
 	Command.withDescription('Manage provider authentication'),
 	Command.withSubcommands([
+		openCodeCommands,
+		xaiCommands,
 		Command.make('codex').pipe(
 			Command.withDescription('Manage Codex OAuth credentials'),
 			Command.withSubcommands([
@@ -591,6 +814,8 @@ const printFailure = (message: string): Effect.Effect<void> =>
 type CliCommandError =
 	| InvalidSessionIdError
 	| CodexAuthError
+	| OpenCodeAuthError
+	| XaiAuthError
 	| LaunchModelError
 	| NoSessionToResumeError
 	| SessionToResumeNotFoundError
@@ -629,6 +854,8 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			SessionToResumeNotFoundError: (error) =>
 				printFailure(`session ${error.sessionId} was not found for ${error.cwd}`),
 			CodexAuthError: (error) => printFailure(error.message),
+			OpenCodeAuthError: (error) => printFailure(error.message),
+			XaiAuthError: (error) => printFailure(error.message),
 		}),
 	)
 

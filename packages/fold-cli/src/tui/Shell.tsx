@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import {
 	bootstrapFoldHome,
+	configureProvider,
 	configInit,
 	defaultFoldHome,
 	describeModelConfiguration,
@@ -14,19 +15,27 @@ import {
 } from '@humanlayer/fold-agent'
 import { makeCodexAuth, makeCodexAuthStore } from '@humanlayer/fold-codex'
 import type { SessionId } from '@humanlayer/fold-core'
+import { makeOpenCodeAuth, makeOpenCodeAuthStore } from '@humanlayer/fold-opencode'
 import { ALL_FX_ON, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import { nextThemeId, type ThemeId } from '@humanlayer/fold-tui-theme/themes'
+import { makeXaiAuth, makeXaiAuthStore } from '@humanlayer/fold-xai'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { Cause, Clock, Deferred, Effect, Exit, Option, Schema, Scope } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
-import { createEffect, createSignal, Show, type Accessor } from 'solid-js'
+import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js'
 
 import { TuiApp } from './App'
 import { loadGitSnapshot, type GitSnapshot } from './GitChanges'
 import type { HostedTuiSession } from './HostedTuiSession'
 import { openUrlInBrowser } from './OpenUrl'
-import { codexAuthStoreOptions, type ProviderAuthAction, type ProviderAuthUpdate } from './ProviderAuth'
+import {
+	codexAuthStoreOptions,
+	openCodeAuthStoreOptions,
+	xaiAuthStoreOptions,
+	type ProviderAuthAction,
+	type ProviderAuthUpdate,
+} from './ProviderAuth'
 import { SessionPicker } from './SessionPicker'
 import { setCurrentTheme } from './ThemeState'
 import { makeTuiRouter } from './TuiRouter'
@@ -63,14 +72,14 @@ export const runTui = (
 		const configExit = yield* Effect.exit(
 			loadFoldConfigOrNull(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
 		)
-		const config: FoldConfig | null = Exit.isSuccess(configExit) ? configExit.value : null
-		const configuration: ModelConfiguration =
-			config === null
+		const initialConfig: FoldConfig | null = Exit.isSuccess(configExit) ? configExit.value : null
+		const initialConfiguration: ModelConfiguration =
+			initialConfig === null
 				? { profiles: [], providers: [] }
-				: describeModelConfiguration(config, options.catalog ?? [])
+				: describeModelConfiguration(initialConfig, options.catalog ?? [])
 		const configNotice = Exit.isFailure(configExit)
 			? `CONFIGURATION ERROR · ${Cause.pretty(configExit.cause)}`
-			: config === null
+			: initialConfig === null
 				? 'NO MODEL CONFIGURATION · RUN `fold config init`, THEN EDIT ~/.fold/config.jsonc'
 				: null
 		const renderer = yield* Effect.tryPromise({
@@ -86,6 +95,9 @@ export const runTui = (
 		})
 		yield* Effect.addFinalizer(() => Effect.sync(() => renderer.destroy()))
 		const [themeId, setThemeId] = createSignal<ThemeId>('tactical')
+		const [config, setConfig] = createSignal<FoldConfig | null>(initialConfig)
+		const [configuration, setConfiguration] = createSignal<ModelConfiguration>(initialConfiguration)
+		const [focusInputOnActivation, setFocusInputOnActivation] = createSignal(false)
 		const [toggles, setToggles] = createSignal<FxToggles>({
 			...ALL_FX_ON,
 			glow: false,
@@ -118,9 +130,71 @@ export const runTui = (
 			action: ProviderAuthAction,
 			update: (state: ProviderAuthUpdate) => void,
 		): void => {
-			const store = makeCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome))
+			const providerKind = configuration().providers.find((candidate) => candidate.name === provider)?.kind
 			runFork(
 				Effect.gen(function* () {
+					if (providerKind === 'opencode') {
+						const store = makeOpenCodeAuthStore(openCodeAuthStoreOptions(provider, options.foldHome))
+						if (action === 'status') {
+							update({ _tag: 'working', message: 'Checking stored OpenCode credential...' })
+							const token = yield* store.load
+							if (Option.isNone(token))
+								return update({ _tag: 'success', message: 'No OpenCode credential stored.' })
+							const now = yield* Clock.currentTimeMillis
+							return update({
+								_tag: 'success',
+								message: `OpenCode credential is ${token.value.isExpired(now) ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+							})
+						}
+						const auth = yield* makeOpenCodeAuth({
+							store,
+							onDeviceCode: (prompt) =>
+								Effect.sync(() => update({ _tag: 'device', url: prompt.url, code: prompt.userCode })),
+						}).pipe(Effect.provide(FetchHttpClient.layer))
+						if (action === 'logout') {
+							yield* auth.logout
+							return update({ _tag: 'success', message: 'OpenCode credential removed.' })
+						}
+						if (action === 'browser')
+							return update({ _tag: 'failure', message: 'OpenCode supports device login only. Press D.' })
+						update({ _tag: 'working', message: 'Starting OpenCode device login...' })
+						yield* auth.authenticateDevice
+						return update({ _tag: 'success', message: 'OpenCode authentication saved successfully.' })
+					}
+					if (providerKind === 'xai') {
+						const store = makeXaiAuthStore(xaiAuthStoreOptions(provider, options.foldHome))
+						if (action === 'status') {
+							update({ _tag: 'working', message: 'Checking stored xAI credential...' })
+							const token = yield* store.load
+							if (Option.isNone(token))
+								return update({ _tag: 'success', message: 'No xAI credential stored.' })
+							const now = yield* Clock.currentTimeMillis
+							return update({
+								_tag: 'success',
+								message: `xAI credential is ${token.value.isExpired(now) ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+							})
+						}
+						const auth = yield* makeXaiAuth({
+							store,
+							onBrowserUrl: (url) =>
+								openUrlInBrowser(url).pipe(
+									Effect.tap((opened) => Effect.sync(() => update({ _tag: 'browser', url, opened }))),
+									Effect.asVoid,
+								),
+							onDeviceCode: (prompt) =>
+								Effect.sync(() =>
+									update({ _tag: 'device', url: prompt.verificationUri, code: prompt.userCode }),
+								),
+						}).pipe(Effect.provide(FetchHttpClient.layer))
+						if (action === 'logout') {
+							yield* auth.logout
+							return update({ _tag: 'success', message: 'xAI credential removed.' })
+						}
+						update({ _tag: 'working', message: `Starting xAI ${action} login...` })
+						yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
+						return update({ _tag: 'success', message: 'xAI authentication saved successfully.' })
+					}
+					const store = makeCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome))
 					if (action === 'status') {
 						update({ _tag: 'working', message: 'Checking stored credential...' })
 						const token = yield* store.load
@@ -161,14 +235,43 @@ export const runTui = (
 			update({ _tag: 'working', message: 'Initializing Fold configuration...' })
 			runFork(
 				configInit(options.foldHome === undefined ? {} : { foldHome: options.foldHome }).pipe(
-					Effect.tap(() =>
-						Effect.sync(() =>
+					Effect.andThen(
+						loadFoldConfigOrNull(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
+					),
+					Effect.tap((loaded) =>
+						Effect.sync(() => {
+							if (loaded !== null) {
+								setConfig(loaded)
+								setConfiguration(describeModelConfiguration(loaded, options.catalog ?? []))
+							}
 							update({
 								_tag: 'success',
-								message:
-									'Configuration initialized. Restart Fold to load config.jsonc and exported credentials.',
-							}),
-						),
+								message: 'Configuration initialized and loaded.',
+							})
+						}),
+					),
+					Effect.catchCause((cause) =>
+						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
+					),
+				),
+			)
+		}
+		const updateProvider = (
+			input: Parameters<typeof configureProvider>[0],
+			update: (state: ProviderAuthUpdate) => void,
+		): void => {
+			update({ _tag: 'working', message: 'Saving provider to mode-0600 config...' })
+			runFork(
+				configureProvider(input, options.foldHome === undefined ? {} : { foldHome: options.foldHome }).pipe(
+					Effect.tap((updated) =>
+						Effect.sync(() => {
+							setConfig(updated)
+							setConfiguration(describeModelConfiguration(updated, options.catalog ?? []))
+							update({
+								_tag: 'success',
+								message: `Provider ${input.name.trim()} saved and available now.`,
+							})
+						}),
 					),
 					Effect.catchCause((cause) =>
 						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
@@ -181,7 +284,7 @@ export const runTui = (
 		const router = makeTuiRouter({ _tag: 'picker' })
 		const workspace = yield* makeTuiSessionWorkspace({
 			tui: options,
-			configuration,
+			configuration: configuration(),
 			config,
 			configNotice,
 			loadSummariesOnStart: pickerFirst,
@@ -195,12 +298,21 @@ export const runTui = (
 			const route = router.route()
 			return route._tag === 'session' ? workspace.get(route.sessionId) : null
 		}
-		const activate = (operation: Option.Option<Effect.Effect<HostedTuiSession, unknown>>): void => {
+		const activate = (
+			operation: Option.Option<Effect.Effect<HostedTuiSession, unknown>>,
+			focusInput: boolean,
+		): void => {
 			if (Option.isNone(operation)) return
 			const token = router.beginSessionActivation()
 			runFork(
 				operation.value.pipe(
-					Effect.tap((hosted) => Effect.sync(() => router.showSession(token, hosted.sessionId))),
+					Effect.tap((hosted) =>
+						Effect.sync(() =>
+							batch(() => {
+								if (router.showSession(token, hosted.sessionId)) setFocusInputOnActivation(focusInput)
+							}),
+						),
+					),
 					Effect.catchCause(() => Effect.void),
 				),
 			)
@@ -247,16 +359,17 @@ export const runTui = (
 									cwd={workspace.currentCwd()}
 									mode={mode()}
 									profile={workspace.currentProfile()}
-									configuration={configuration}
-									configExists={config !== null}
+									configuration={configuration()}
+									configExists={config() !== null}
 									onProviderAuth={updateAuth}
 									onInitializeConfig={initializeConfig}
+									onConfigureProvider={updateProvider}
 									sessions={workspace.sessions}
 									notice={workspace.notice}
 									opening={workspace.opening}
-									onOpen={(id) => activate(workspace.open(id))}
+									onOpen={(id) => activate(workspace.open(id), false)}
 									onDelete={remove}
-									onNew={(request) => activate(workspace.create(request))}
+									onNew={(request) => activate(workspace.create(request), true)}
 									onQuit={() => renderer.destroy()}
 									toggles={toggles}
 									setToggles={setToggles}
@@ -272,14 +385,15 @@ export const runTui = (
 									sessionId={current().sessionId}
 									mode={`${current().mode()}${options.rpi === true ? '+rpi' : ''}`}
 									profile={current().profile()}
-									configuration={configuration}
-									configExists={config !== null}
+									configuration={configuration()}
+									configExists={config() !== null}
 									onProviderAuth={updateAuth}
 									onInitializeConfig={initializeConfig}
+									onConfigureProvider={updateProvider}
 									notice={current().notice}
 									targetNotice={current().targetNotice}
 									compacting={current().compacting}
-									initialInputFocused={current().initialInputFocused}
+									initialInputFocused={focusInputOnActivation()}
 									gitSnapshot={gitSnapshot}
 									viewedPatchHashes={() => viewedChanges()[current().sessionId] ?? {}}
 									onViewChange={(change) => {
@@ -315,7 +429,7 @@ export const runTui = (
 									setToggles={setToggles}
 									onCycleTheme={cycleTheme}
 									onSelectTheme={selectTheme}
-									onNewSession={(request) => activate(workspace.create(request))}
+									onNewSession={(request) => activate(workspace.create(request), true)}
 									onConfigureModels={current().configureModels}
 									onBackToSessions={router.showPicker}
 									onCopySessionId={() => {

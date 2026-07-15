@@ -2,14 +2,17 @@ import type { ConfiguredModelSelection, ModelConfiguration, ProfileModeName } fr
 
 export type ModelSelectionContext = 'active' | 'new-session'
 export type ModelSelectionRequest =
-	| { readonly _tag: 'profile'; readonly profile: string }
+	| { readonly _tag: 'profile'; readonly profile: string; readonly mode?: ProfileModeName }
 	| { readonly _tag: 'direct'; readonly provider: string; readonly model: string; readonly mode?: ProfileModeName }
+type StagedModelSelection =
+	| { readonly _tag: 'profile'; readonly profile: string }
+	| { readonly _tag: 'direct'; readonly provider: string; readonly model: string }
 export type ModelPickerState =
 	| { readonly _tag: 'kind' }
 	| { readonly _tag: 'profile' }
 	| { readonly _tag: 'provider' }
 	| { readonly _tag: 'model'; readonly provider: string }
-	| { readonly _tag: 'mode'; readonly provider: string; readonly model: string }
+	| { readonly _tag: 'mode'; readonly selection: StagedModelSelection }
 export type ModelPickerChoice = { readonly id: string; readonly label: string; readonly detail: string }
 
 export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection =>
@@ -72,18 +75,16 @@ export const advanceModelPicker = (
 		case 'kind':
 			return choice === 'profile' ? { _tag: 'profile' } : { _tag: 'provider' }
 		case 'profile':
-			return { _tag: 'profile', profile: choice }
+			return context === 'active'
+				? { _tag: 'mode', selection: { _tag: 'profile', profile: choice } }
+				: { _tag: 'profile', profile: choice }
 		case 'provider':
 			return { _tag: 'model', provider: choice }
 		case 'model':
-			return context === 'new-session'
-				? { _tag: 'mode', provider: state.provider, model: choice }
-				: { _tag: 'direct', provider: state.provider, model: choice }
+			return { _tag: 'mode', selection: { _tag: 'direct', provider: state.provider, model: choice } }
 		case 'mode':
 			return {
-				_tag: 'direct',
-				provider: state.provider,
-				model: state.model,
+				...state.selection,
 				mode: choice === 'rlm' ? 'rlm' : 'default',
 			}
 	}
@@ -98,6 +99,8 @@ export const retreatModelPicker = (state: ModelPickerState): ModelPickerState | 
 		case 'model':
 			return { _tag: 'provider' }
 		case 'mode':
-			return { _tag: 'model', provider: state.provider }
+			return state.selection._tag === 'profile'
+				? { _tag: 'profile' }
+				: { _tag: 'model', provider: state.selection.provider }
 	}
 }

@@ -101,12 +101,23 @@ it.effect('describes profiles, credentials, and merged model candidates without 
 		expect(description.providers.find(({ name }) => name === 'codex')?.models).toEqual([
 			'catalog-only',
 			'default-fast',
+			'gpt-5.6-sol',
 			'profile-fast',
 			'profile-orchestrator',
 			'profile-smart',
 		])
 		expect(JSON.stringify(description)).not.toContain('super-secret')
 		expect(description).not.toHaveProperty('config')
+	}),
+)
+
+it.effect('always exposes Grok Build for an OpenCode provider without catalog data', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": { "zen": { "kind": "opencode" } },
+			"roles": { "smart": { "provider": "zen" }, "fast": { "provider": "zen" } }
+		}`)
+		expect(describeModelConfiguration(config).providers[0]?.models).toEqual(['gpt-5.6-sol', 'grok-build-0.1'])
 	}),
 )
 
@@ -134,5 +145,23 @@ it.effect('maps catalog provider ids through configured provider aliases', () =>
 		expect(description.providers.find(({ name }) => name === 'proxy')?.models).toEqual(
 			expect.arrayContaining(['openai-catalog', 'proxy-catalog']),
 		)
+	}),
+)
+
+it.effect('provides OAuth defaults when the external catalog is unavailable', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": { "zen": { "kind": "opencode" }, "grok": { "kind": "xai" } },
+			"roles": { "smart": { "provider": "zen" }, "fast": { "provider": "grok" } }
+		}`)
+		const description = describeModelConfiguration(config, [])
+		expect(description.providers.find(({ name }) => name === 'zen')).toMatchObject({
+			credentialPresent: null,
+			models: ['gpt-5.6-sol', 'grok-build-0.1'],
+		})
+		expect(description.providers.find(({ name }) => name === 'grok')).toMatchObject({
+			credentialPresent: null,
+			models: ['grok-4'],
+		})
 	}),
 )

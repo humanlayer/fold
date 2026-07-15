@@ -33,7 +33,7 @@ export const FOLD_INFO_MD: string = `# Fold - configuration and CLI guide
 \`~/.fold/config.jsonc\` (JSONC: comments and trailing commas allowed). Every CLI session start
 bootstraps the whole layout: it creates \`~/.fold\` if needed, writes the starter config when none
 exists (never overwriting yours), creates an EMPTY \`auth.json\` (mode 0600 - credential-less until
-\`fold auth codex login\` runs or your \`apiKeyEnv\` variables are exported), and refreshes the
+an OAuth provider login runs or your \`apiKeyEnv\` variables are exported), and refreshes the
 generated \`config.schema.json\` + this guide so both always match the installed fold.
 \`fold config init\` runs the same bootstrap explicitly; \`fold config validate\` decodes and
 cross-checks the file. Unknown top-level keys are rejected.
@@ -46,15 +46,21 @@ Named connections under \`providers\`; roles and profiles reference these keys.
 "providers": {
   "anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
   "openai":    { "kind": "openai-compat", "apiKeyEnv": "OPENAI_API_KEY", "configuredModels": [] }, // baseUrl optional
-  "codex":     { "kind": "codex" } // no key: uses ~/.fold/auth.json (fold auth codex login)
+  "codex":     { "kind": "codex" },    // OAuth: fold auth codex login
+  "opencode":  { "kind": "opencode" }, // OAuth: fold auth opencode login
+  "xai":       { "kind": "xai" }       // OAuth: fold auth xai login
 }
 \`\`\`
 
-- \`kind\`: \`anthropic\` | \`openai-compat\` | \`codex\`.
+- \`kind\`: \`anthropic\` | \`openai-compat\` | \`codex\` | \`opencode\` | \`xai\`.
 - \`configuredModels\`: optional model ids to add to the model picker for private/custom endpoints;
   this does not alter any role binding.
-- Prefer \`apiKeyEnv\` over inline \`apiKey\`. Codex authenticates via stored OAuth
-  (\`fold auth codex login|status|logout\`).
+- Prefer \`apiKeyEnv\` over inline \`apiKey\`. Codex, OpenCode, and xAI authenticate via stored OAuth
+  (\`fold auth <provider> login|status|logout\`).
+- OpenCode reads the authenticated Console provider config at model construction so Zen models use the
+  endpoint and protocol advertised by OpenCode. The picker always includes \`grok-build-0.1\` (OpenAI-compatible
+  chat completions) even when the local catalog does not yet contain it. A provider \`baseUrl\` overrides
+  the advertised endpoint; the fallback Zen base is \`https://opencode.ai/zen/v1\`.
 
 ## Roles - the default model map
 
@@ -68,7 +74,8 @@ is optional and falls back to \`smart\`.
 | \`orchestrator\` | the RLM mode's primary agent |
 
 Each binding is \`{ "provider": <key>, "model"?: <id>, "reasoning"?: <level> }\`. Omitting \`model\`
-uses the provider kind's default: codex → \`gpt-5.6-sol\`, anthropic → \`claude-opus-4-8\`
+uses the provider kind's default: codex/opencode → \`gpt-5.6-sol\`, xai → \`grok-4\`, and
+anthropic → \`claude-opus-4-8\`
 (openai-compat requires an explicit model). \`reasoning\` is one of \`off · minimal · low · medium ·
 high · xhigh · max\` and is validated against the model catalog - a level the model does not support
 fails the launch naming the supported levels. All roles referenced by a launch resolve eagerly, so
@@ -141,7 +148,7 @@ fold --provider codex            # kind change drops the stale model -> gpt-5.6-
 fold --resume latest|sess_*      # resume (config re-resolves; drift writes a durable transition)
 fold sessions                    # list this project's session logs
 fold config init|validate        # starter config + schema | validate
-fold auth codex login|status|logout
+fold auth codex|opencode|xai login|status|logout
 fold bin status|install          # managed binaries: rg, fd, ast-grep
 \`\`\`
 
@@ -155,7 +162,7 @@ and \`/send <agent_id> <text>\` target subagents (4+ id characters from the outp
 |---|---|
 | \`~/.fold/config.jsonc\` | your configuration (with generated \`config.schema.json\` and \`FOLD_INFO.md\` beside it) |
 | \`~/.fold/sessions/<project-slug>/<sess_id>.jsonl\` | one durable event log per session, grouped per project |
-| \`~/.fold/auth.json\` | OAuth credentials (codex), mode 0600 - created EMPTY on first run; fill via \`fold auth codex login\` |
+| \`~/.fold/auth.json\` | provider-keyed OAuth credentials (codex/opencode/xai), mode 0600; fill via \`fold auth <provider> login\` |
 | \`~/.fold/bin/\` | managed binaries (rg, fd, ast-grep); prepended to every bash command's PATH |
 | \`~/.fold/cache/\` | model-catalog cache (\`models-dev.json\`, 24h TTL) |
 | \`~/.fold/skills/\` | global skills (one \`SKILL.md\` directory per skill), scanned with the repo/cwd \`.agents/skills\` |

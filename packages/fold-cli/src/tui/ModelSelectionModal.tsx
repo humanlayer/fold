@@ -29,7 +29,7 @@ const heading = (state: ModelPickerState): string => {
 		case 'model':
 			return `Model · ${state.provider}`
 		case 'mode':
-			return 'Mode · new session only'
+			return 'Mode'
 	}
 }
 

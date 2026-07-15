@@ -36,6 +36,12 @@ export type AgentRegistry = {
 	readonly resolveAgentType: (name: string) => RegisteredAgentType | null
 	/** Every registered type, in first-reached order from the root's tools. */
 	readonly entries: ReadonlyArray<RegisteredAgentType>
+	/**
+	 * Add definitions discovered at an explicit session switch boundary. Existing names remain bound
+	 * to their original session definition; duplicate names within the incoming graph have already
+	 * been rejected by {@link collectSubagentDefinitions}. Returns the definitions actually added.
+	 */
+	readonly extend: (definitions: ReadonlyArray<SubagentDefinition>) => ReadonlyArray<RegisteredAgentType>
 }
 
 /**
@@ -89,18 +95,36 @@ export const collectSubagentDefinitions = (
 
 /** Build the flat registry over pre-collected (validated, deduped) definitions. */
 export const agentRegistryFromDefinitions = (definitions: ReadonlyArray<SubagentDefinition>): AgentRegistry => {
-	const entries: ReadonlyArray<RegisteredAgentType> = definitions.map((definition) => ({
+	const registeredFrom = (definition: SubagentDefinition): RegisteredAgentType => ({
 		name: definition.name,
 		description: definition.description,
 		systemPrompt: definition.systemPrompt ?? null,
 		tools: definition.tools ?? [],
 		model: definition.model,
 		hooks: definition.hooks ?? {},
-	}))
+	})
+	const entries: Array<RegisteredAgentType> = definitions.map(registeredFrom)
 	const byName = new Map(entries.map((entry) => [entry.name, entry]))
+	const definitionsByName = new Map(definitions.map((definition) => [definition.name, definition]))
 
 	return {
 		resolveAgentType: (name) => byName.get(name) ?? null,
 		entries,
+		extend: (incoming) => {
+			const added: Array<RegisteredAgentType> = []
+			for (const definition of incoming) {
+				const existing = definitionsByName.get(definition.name)
+				// Mode rebuilds intentionally create fresh definition values for types already installed.
+				// Keep the session's original binding; collectSubagentDefinitions has still rejected two
+				// distinct definitions with this name inside the incoming graph itself.
+				if (existing !== undefined) continue
+				const entry = registeredFrom(definition)
+				definitionsByName.set(entry.name, definition)
+				byName.set(entry.name, entry)
+				entries.push(entry)
+				added.push(entry)
+			}
+			return added
+		},
 	}
 }

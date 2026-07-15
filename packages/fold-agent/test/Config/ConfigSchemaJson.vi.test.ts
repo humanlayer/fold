@@ -47,6 +47,8 @@ it.effect('the starter config is valid against the schema (round-trips through t
 			reasoning: 'medium',
 		})
 		expect(config.providers.codex?.kind).toBe('codex')
+		expect(config.providers.opencode?.kind).toBe('opencode')
+		expect(config.providers.xai?.kind).toBe('xai')
 		expect(config.compaction?.enabled).toBe(true)
 		expect(config.stopConditions?.doomLoop?.enabled).toBe(true)
 		expect(config.$schema).toBe('./config.schema.json')

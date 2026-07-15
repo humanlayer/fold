@@ -1,0 +1,6 @@
+The OAuth/device-flow implementation in this package is adapted from OpenCode:
+https://github.com/anomalyco/opencode/blob/dev/packages/core/src/plugin/provider/opencode.ts
+
+Copyright (c) 2025 opencode
+Licensed under the MIT License. A copy of the upstream license is included in
+LICENSE.opencode.

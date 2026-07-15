@@ -27,6 +27,7 @@
 			"solid-js": "1.9.12",
 			"effect": "4.0.0-beta.93",
 			"@effect/ai-openai": "4.0.0-beta.93",
+			"@effect/ai-openai-compat": "4.0.0-beta.93",
 			"@effect/platform-node": "4.0.0-beta.93",
 			"@effect/vitest": "4.0.0-beta.93",
 			"@silvia-odwyer/photon-node": "0.3.4",

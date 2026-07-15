@@ -10,7 +10,7 @@ import { Effect } from 'effect'
 import { defineSubagent } from '../../src/index'
 import { makeDriveSession, subagentStartedEntries } from '../Subagents/DriveHarness'
 import { textTurn } from '../TestLayers/ScriptedLanguageModel'
-import { claudeActiveModel, gptActiveModel, scriptedModel } from './ApiTestHelpers'
+import { claudeActiveModel, echoTool, gptActiveModel, scriptedModel } from './ApiTestHelpers'
 
 it.effect('setProfile rebinds a role for the very next dispatch of the same type', () =>
 	Effect.gen(function* () {
@@ -40,5 +40,35 @@ it.effect('setProfile rebinds a role for the very next dispatch of the same type
 		expect(yield* fastB.scripted.remainingTurns).toBe(0)
 		expect(yield* fastA.scripted.requests).toHaveLength(1)
 		expect(yield* fastB.scripted.requests).toHaveLength(1)
+	}).pipe(Effect.scoped),
+)
+
+it.effect('a failed atomic model switch leaves the complete profiles map unchanged', () =>
+	Effect.gen(function* () {
+		const fastA = yield* scriptedModel({ ...claudeActiveModel, modelId: 'fast-before' }, [
+			textTurn('served by original profile'),
+		])
+		const fastB = yield* scriptedModel({ ...gptActiveModel, modelId: 'fast-candidate' }, [])
+		const replacementRoot = yield* scriptedModel(claudeActiveModel, [])
+		const researcher = defineSubagent({ name: 'researcher', description: 'explores', model: 'fast' })
+		const { session, drive } = yield* makeDriveSession({
+			definitions: [researcher],
+			rootTurns: 1,
+			profiles: { fast: fastA.model },
+		})
+
+		const failed = yield* session
+			.switchModel(replacementRoot.model, {
+				tools: [echoTool, echoTool],
+				profiles: { fast: fastB.model },
+			})
+			.pipe(Effect.exit)
+		expect(failed._tag).toBe('Failure')
+
+		yield* drive({ op: 'dispatch', agent: 'researcher', prompt: 'use preserved profile' })
+		const started = subagentStartedEntries(yield* session.entries)
+		expect(started.at(-1)?.model.modelId).toBe('fast-before')
+		expect(yield* fastA.scripted.requests).toHaveLength(1)
+		expect(yield* fastB.scripted.requests).toHaveLength(0)
 	}).pipe(Effect.scoped),
 )

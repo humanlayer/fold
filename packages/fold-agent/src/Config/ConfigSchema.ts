@@ -17,10 +17,9 @@ import type { AutoCompactConfig as CoreAutoCompactConfig, StopConditionConfig } 
 import { Schema } from 'effect'
 
 /** How a configured provider profile is reached. */
-export const ProviderKind = Schema.Literals(['anthropic', 'openai-compat', 'codex']).annotate({
+export const ProviderKind = Schema.Literals(['anthropic', 'openai-compat', 'codex', 'opencode', 'xai']).annotate({
 	identifier: 'ProviderKind',
-	description:
-		'anthropic (Anthropic-compatible), openai-compat (OpenAI-compatible), or codex (ChatGPT Codex backend)',
+	description: 'anthropic, openai-compat, codex, opencode (OpenCode OAuth), or xai (xAI OAuth)',
 })
 export type ProviderKind = typeof ProviderKind.Type
 
@@ -55,7 +54,7 @@ export const RoleBinding = Schema.Struct({
 	model: Schema.optionalKey(
 		Schema.String.annotate({
 			description:
-				'Provider model id; defaults per provider kind: codex → gpt-5.6-sol, anthropic → claude-opus-4-8; required for openai-compat',
+				'Provider model id; defaults: codex/opencode → gpt-5.6-sol, xai → grok-4, anthropic → claude-opus-4-8; required for openai-compat',
 		}),
 	),
 	/** Reasoning level for this role's requests. Defaults to `off` when omitted. */

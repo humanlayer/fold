@@ -10,8 +10,10 @@ import { Effect, Schema } from 'effect'
 
 import {
 	defineAgent,
+	defineSubagent,
 	defineTool,
 	startSession,
+	subagentTool,
 	type ActiveModel,
 	type AgentStartedLogEntry,
 	type ModelChangeLogEntry,
@@ -250,5 +252,27 @@ it.effect('switchModel rejects duplicate tool names in the replacement toolset a
 
 		expect(exit._tag).toBe('Failure')
 		expect(String(exit)).toContain('duplicate tool names: echo')
+	}).pipe(Effect.scoped),
+)
+
+it.effect('switchModel extends the subagent registry at the switch boundary', () =>
+	Effect.gen(function* () {
+		const first = yield* scriptedModel(gptActiveModel, [textTurn('one')])
+		const second = yield* scriptedModel(claudeActiveModel, [textTurn('two')])
+		const specialistModel = yield* scriptedModel(gptActiveModel, [])
+		const specialist = defineSubagent({
+			name: 'switch-only-specialist',
+			description: 'Only available after the switch.',
+			model: specialistModel.model,
+		})
+
+		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+		yield* session.send('turn one')
+		yield* session.switchModel(second.model, { tools: [subagentTool([specialist])], reason: 'new roster' })
+		yield* session.send('turn two')
+
+		const entries = yield* session.entries
+		expect(entries.find((entry) => entry._tag === 'tools-change')).toMatchObject({ tools: ['subagent'] })
+		expect(entries.find((entry) => entry._tag === 'model-change')).toMatchObject({ reason: 'new roster' })
 	}).pipe(Effect.scoped),
 )

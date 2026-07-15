@@ -84,12 +84,15 @@ describe('model picker state machine', () => {
 		})
 	})
 
-	it('asks for mode only for a new direct session and supports stepwise escape', () => {
+	it('stages direct model then mode and supports stepwise escape', () => {
 		const provider = advanceModelPicker(initialModelPickerState(), 'direct', 'new-session') as ModelPickerState
 		const model = advanceModelPicker(provider, 'claude-alias', 'new-session') as ModelPickerState
 		const mode = advanceModelPicker(model, 'two', 'new-session') as ModelPickerState
 
-		expect(mode).toEqual({ _tag: 'mode', provider: 'claude-alias', model: 'two' })
+		expect(mode).toEqual({
+			_tag: 'mode',
+			selection: { _tag: 'direct', provider: 'claude-alias', model: 'two' },
+		})
 		expect(advanceModelPicker(mode, 'rlm', 'new-session')).toEqual({
 			_tag: 'direct',
 			provider: 'claude-alias',
@@ -101,12 +104,18 @@ describe('model picker state machine', () => {
 		expect(retreatModelPicker({ _tag: 'kind' })).toBeNull()
 	})
 
-	it('finishes active direct selection at model without claiming a mode', () => {
+	it('asks for mode when switching an active direct model', () => {
 		const model = { _tag: 'model' as const, provider: 'claude-alias' }
 		expect(advanceModelPicker(model, 'one', 'active')).toEqual({
-			_tag: 'direct',
-			provider: 'claude-alias',
-			model: 'one',
+			_tag: 'mode',
+			selection: { _tag: 'direct', provider: 'claude-alias', model: 'one' },
+		})
+	})
+
+	it('asks for mode when switching an active profile', () => {
+		expect(advanceModelPicker({ _tag: 'profile' }, 'pinned', 'active')).toEqual({
+			_tag: 'mode',
+			selection: { _tag: 'profile', profile: 'pinned' },
 		})
 	})
 })

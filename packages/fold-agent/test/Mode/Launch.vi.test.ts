@@ -21,6 +21,8 @@ import {
 	resumeLatestSession,
 	resumeSessionById,
 	RPI_HINT_PROMPT,
+	rlmMode,
+	switchSessionMode,
 } from '../../src/index'
 import { tempDir } from '../TestHelpers'
 
@@ -145,6 +147,38 @@ it.effect('launchSession with rpi appends the hint block after the mode prompt',
 				if (started?._tag === 'session_started') expect(started.meta.rpi).toBe(true)
 				// The hint composes AFTER the mode's own system prompt.
 				expect(leadingJson.indexOf(RPI_HINT_PROMPT)).toBeGreaterThan(leadingJson.indexOf(DEFAULT_CODING_PROMPT))
+			}),
+		)
+	}),
+)
+
+it.effect('switchSessionMode preserves identity and writes one recomposed mode epoch', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, foldHome } = workspaceAndHome(root)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({ model: alwaysTextModel('one'), cwd: workspace, foldHome })
+				const sessionId = session.sessionId
+				yield* session.send('before')
+				yield* switchSessionMode(session, {
+					mode: rlmMode,
+					model: alwaysTextModel('two'),
+					cwd: workspace,
+					foldHome,
+					reason: 'select rlm',
+				})
+				yield* session.send('after')
+
+				expect(session.sessionId).toBe(sessionId)
+				const entries = yield* session.entries
+				expect(entries.filter((entry) => entry._tag === 'session_started')).toHaveLength(1)
+				expect(entries.findLast((entry) => entry._tag === 'model-change')).toMatchObject({
+					reason: 'select rlm',
+				})
+				const switchedPrompt = entries.findLast((entry) => entry._tag === 'system-message')
+				expect(JSON.stringify(switchedPrompt)).toContain(RPI_HINT_PROMPT)
 			}),
 		)
 	}),

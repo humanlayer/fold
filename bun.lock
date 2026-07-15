@@ -37,6 +37,8 @@
         "@effect/platform-node": "catalog:",
         "@humanlayer/fold-codex": "workspace:*",
         "@humanlayer/fold-core": "workspace:*",
+        "@humanlayer/fold-opencode": "workspace:*",
+        "@humanlayer/fold-xai": "workspace:*",
         "@silvia-odwyer/photon-node": "catalog:",
         "effect": "catalog:",
         "yaml": "catalog:",
@@ -52,14 +54,16 @@
       "name": "@humanlayer/fold-cli",
       "version": "0.0.0",
       "bin": {
-        "fold": "./src/cli.ts",
+        "foldcode": "./src/cli.ts",
       },
       "dependencies": {
         "@effect/platform-node": "catalog:",
         "@humanlayer/fold-agent": "workspace:*",
         "@humanlayer/fold-codex": "workspace:*",
         "@humanlayer/fold-core": "workspace:*",
+        "@humanlayer/fold-opencode": "workspace:*",
         "@humanlayer/fold-tui-theme": "workspace:*",
+        "@humanlayer/fold-xai": "workspace:*",
         "@opentui/core": "catalog:",
         "@opentui/keymap": "catalog:",
         "@opentui/solid": "catalog:",
@@ -107,6 +111,23 @@
         "vitest": "catalog:",
       },
     },
+    "packages/fold-opencode": {
+      "name": "@humanlayer/fold-opencode",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/ai-openai": "catalog:",
+        "@effect/ai-openai-compat": "catalog:",
+        "@effect/platform-node": "catalog:",
+        "@humanlayer/fold-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/fold-vitest-config": "workspace:*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/fold-tui-theme": {
       "name": "@humanlayer/fold-tui-theme",
       "version": "0.0.0",
@@ -118,6 +139,22 @@
       "devDependencies": {
         "@types/react": "19.2.2",
         "typescript": "catalog:",
+      },
+    },
+    "packages/fold-xai": {
+      "name": "@humanlayer/fold-xai",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/ai-openai": "catalog:",
+        "@effect/platform-node": "catalog:",
+        "@humanlayer/fold-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/fold-vitest-config": "workspace:*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/vitest-config": {
@@ -134,6 +171,7 @@
   "catalog": {
     "@effect/ai-anthropic": "4.0.0-beta.93",
     "@effect/ai-openai": "4.0.0-beta.93",
+    "@effect/ai-openai-compat": "4.0.0-beta.93",
     "@effect/platform-node": "4.0.0-beta.93",
     "@effect/vitest": "4.0.0-beta.93",
     "@kitlangton/terminal-control": "0.3.1",
@@ -215,6 +253,8 @@
 
     "@effect/ai-openai": ["@effect/ai-openai@4.0.0-beta.93", "", { "peerDependencies": { "effect": "^4.0.0-beta.93" } }, "sha512-eN18KCePcWHywaWZ4cdoPgZeuVdRt6HY8QSsBai2vKvquljpnBr/NJ/EsVqzY/hY8OE+g/PNKKzGkaIm3HnfcA=="],
 
+    "@effect/ai-openai-compat": ["@effect/ai-openai-compat@4.0.0-beta.93", "", { "peerDependencies": { "effect": "^4.0.0-beta.93" } }, "sha512-xur/Dq9u1jY2NgeMhpJzTgOC1sujGu+pyM95XSupCtkOYcp4G1N9HhdU0cf52P68pAgLQsjGM/UBTuwThnm6nA=="],
+
     "@effect/language-service": ["@effect/language-service@0.86.2", "", { "bin": { "effect-language-service": "cli.js" } }, "sha512-SaPln+8srOqDJDUwNTDmP5e+IYpEDr9+1epGznnsLqu8xvo6VnxyWARdeLpqvZJlb0Pgy9ca7ppqvvdWbHPXAg=="],
 
     "@effect/platform-node": ["@effect/platform-node@4.0.0-beta.93", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-beta.93", "mime": "^4.1.0", "undici": "^8.2.0" }, "peerDependencies": { "effect": "^4.0.0-beta.93", "ioredis": "^5.7.0" } }, "sha512-QagsCGR0ZOXaCQqS5qGR2mcDng4LiP2bYhiiX1D6UC8cT9vsusVVOHiJWn8CupeDx+yVnPcu81QmA/SDt6GM1w=="],
@@ -239,9 +279,13 @@
 
     "@humanlayer/fold-core": ["@humanlayer/fold-core@workspace:packages/fold-core"],
 
+    "@humanlayer/fold-opencode": ["@humanlayer/fold-opencode@workspace:packages/fold-opencode"],
+
     "@humanlayer/fold-tui-theme": ["@humanlayer/fold-tui-theme@workspace:packages/fold-tui-theme"],
 
     "@humanlayer/fold-vitest-config": ["@humanlayer/fold-vitest-config@workspace:packages/vitest-config"],
+
+    "@humanlayer/fold-xai": ["@humanlayer/fold-xai@workspace:packages/fold-xai"],
 
     "@ioredis/commands": ["@ioredis/commands@1.10.0", "", {}, "sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q=="],
 
