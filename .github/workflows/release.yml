@@ -58,7 +58,12 @@ jobs:
             - run: bun run release:prepare --version "${{ steps.release.outputs.version }}"
             - run: bun run release:validate --version "${{ steps.release.outputs.version }}"
             - name: Publish packages sequentially
-              run: bun run release:publish --version "${{ steps.release.outputs.version }}" --tag "${{ steps.release.outputs.tag }}" --skip "$SKIP_PACKAGES"
+              run: |
+                  args=(--version "${{ steps.release.outputs.version }}" --tag "${{ steps.release.outputs.tag }}")
+                  if [[ -n "$SKIP_PACKAGES" ]]; then
+                      args+=(--skip "$SKIP_PACKAGES")
+                  fi
+                  bun run release:publish "${args[@]}"
               env:
                   SKIP_PACKAGES: ${{ inputs.skip }}
             - name: Create GitHub release
