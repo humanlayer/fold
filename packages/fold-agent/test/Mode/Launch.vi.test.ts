@@ -310,6 +310,47 @@ it.effect('launchSession resolves CLI-style model selection overrides through fo
 	}),
 )
 
+it.effect('a direct Codex launch replaces the complete mixed-provider role map', () =>
+	Effect.gen(function* () {
+		const root = yield* tempDir
+		const { workspace, foldHome } = workspaceAndHome(root)
+		const config = yield* parseFoldConfig(`{
+			"providers": {
+				"anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+				"codex": { "kind": "codex" }
+			},
+			"roles": {
+				"smart": { "provider": "anthropic" },
+				"fast": { "provider": "anthropic" },
+				"orchestrator": { "provider": "anthropic" }
+			}
+		}`)
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const session = yield* launchSession({
+					config,
+					cwd: workspace,
+					foldHome,
+					catalog: [],
+					env: () => undefined,
+					modelSelection: { provider: 'codex', model: 'gpt-5.6-sol' },
+				})
+				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+
+				expect(started?._tag).toBe('agent_started')
+				if (started?._tag === 'agent_started') {
+					expect(started.model).toMatchObject({
+						providerId: 'codex',
+						modelId: 'gpt-5.6-sol',
+						role: 'smart',
+					})
+				}
+			}),
+		)
+	}),
+)
+
 it.effect('launchSession wires session profiles end to end: role-bound roster starts and setProfile works', () =>
 	Effect.gen(function* () {
 		const root = yield* tempDir

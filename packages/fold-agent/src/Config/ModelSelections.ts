@@ -1,4 +1,5 @@
-import type { ModelCatalogEntry, FoldModel } from '@humanlayer/fold-core'
+import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
+import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
 import { Effect } from 'effect'
@@ -120,6 +121,54 @@ const rolesForProfile = (config: FoldConfig, name: string): FoldConfig['roles'] 
 			}
 }
 
+type DirectProviderSelection = {
+	readonly provider: string
+	readonly model?: string
+	readonly reasoning?: RoleBinding['reasoning']
+}
+
+const defaultModelsForProvider = (
+	config: FoldConfig,
+	selection: DirectProviderSelection,
+): Record<ConfigRole, string | undefined> => {
+	const kind = config.providers[selection.provider]?.kind
+	if (kind === 'codex') return { orchestrator: DEFAULT_CODEX_MODEL_ID, smart: 'gpt-5.6-terra', fast: 'gpt-5.6-luna' }
+	if (kind === 'anthropic')
+		return { orchestrator: DEFAULT_ANTHROPIC_MODEL_ID, smart: DEFAULT_ANTHROPIC_MODEL_ID, fast: 'claude-sonnet-5' }
+	if (kind === 'opencode')
+		return {
+			orchestrator: DEFAULT_OPENCODE_MODEL_ID,
+			smart: DEFAULT_OPENCODE_MODEL_ID,
+			fast: DEFAULT_OPENCODE_MODEL_ID,
+		}
+	if (kind === 'xai')
+		return { orchestrator: DEFAULT_XAI_MODEL_ID, smart: DEFAULT_XAI_MODEL_ID, fast: DEFAULT_XAI_MODEL_ID }
+	return { orchestrator: selection.model, smart: selection.model, fast: selection.model }
+}
+
+/** A direct provider choice creates a provider-local role map; named profiles are the mixed-provider path. */
+export const rolesForDirectProviderSelection = (
+	config: FoldConfig,
+	rootRole: ConfigRole,
+	selection: DirectProviderSelection,
+): FoldConfig['roles'] => {
+	const models = defaultModelsForProvider(config, selection)
+	const bindingFor = (role: ConfigRole): RoleBinding => ({
+		provider: selection.provider,
+		...(models[role] === undefined ? {} : { model: models[role] }),
+	})
+	const root: RoleBinding = {
+		...bindingFor(rootRole),
+		...(selection.model === undefined ? {} : { model: selection.model }),
+		...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
+	}
+	return {
+		orchestrator: rootRole === 'orchestrator' ? root : bindingFor('orchestrator'),
+		smart: rootRole === 'smart' ? root : bindingFor('smart'),
+		fast: rootRole === 'fast' ? root : bindingFor('fast'),
+	}
+}
+
 /** Resolve a discriminated UI choice without duplicating provider or credential logic in the caller. */
 export const resolveConfiguredModelSelection = (
 	config: FoldConfig,
@@ -140,12 +189,7 @@ export const resolveConfiguredModelSelection = (
 			}
 			roles = profileRoles
 		} else {
-			const binding: RoleBinding = {
-				provider: selection.provider,
-				model: selection.model,
-				...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
-			}
-			roles = { ...roles, [rootRole]: binding }
+			roles = rolesForDirectProviderSelection(config, rootRole, selection)
 		}
 
 		const resolver = agentModelsFromConfig({ ...config, roles }, options)

@@ -46,6 +46,7 @@ import {
 	type ConfigFileNotFoundError,
 	type ConfigParseError,
 } from '../Config/Load'
+import { rolesForDirectProviderSelection } from '../Config/ModelSelections'
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
 import { makeOutputStore, type OutputStoreService } from '../OutputStore/OutputStore'
@@ -94,13 +95,13 @@ export class SessionToResumeNotFoundError extends Schema.TaggedErrorClass<Sessio
 	},
 ) {}
 
-/** CLI/OpenTUI-facing model selection: start from a config role and optionally override binding fields. */
+/** CLI/OpenTUI-facing model selection: a provider choice uses its role defaults; other fields override one role. */
 export type ModelSelection = {
 	/** Role to resolve. Defaults to the selected mode's role (`smart` for the default coding mode). */
 	readonly role?: ConfigRole
-	/** Provider profile key from `config.providers`; defaults to the selected role's configured provider. */
+	/** Provider profile key from `config.providers`; when set, all session roles use that provider's defaults. */
 	readonly provider?: string
-	/** Provider model id; defaults to the selected role's configured model. */
+	/** Provider model id for the selected root role; other roles retain the selected provider's defaults. */
 	readonly model?: string
 	/** Reasoning level; defaults to the selected role's configured reasoning (or provider default). */
 	readonly reasoning?: ReasoningLevel
@@ -286,13 +287,22 @@ const resolveModeModels = (
 			options.config ??
 			(yield* loadFoldConfig(options.foldHome === undefined ? {} : { foldHome: options.foldHome }))
 		const selectedConfig =
-			selection.provider === undefined && selection.model === undefined && selection.reasoning === undefined
-				? config
-				: withSelectedRoleBinding(
-						config,
-						role,
-						mergeModelSelection(config, roleBindingFor(config, role), selection),
-					)
+			selection.provider !== undefined
+				? {
+						...config,
+						roles: rolesForDirectProviderSelection(config, role, {
+							provider: selection.provider,
+							...(selection.model === undefined ? {} : { model: selection.model }),
+							...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
+						}),
+					}
+				: selection.model === undefined && selection.reasoning === undefined
+					? config
+					: withSelectedRoleBinding(
+							config,
+							role,
+							mergeModelSelection(config, roleBindingFor(config, role), selection),
+						)
 		const models = agentModelsFromConfig(selectedConfig, {
 			...(options.env === undefined ? {} : { env: options.env }),
 			catalog,

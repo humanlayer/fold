@@ -65,7 +65,7 @@ it.effect('resolves default and named profiles', () =>
 	}),
 )
 
-it.effect('applies a direct choice to the mode root role', () =>
+it.effect('applies provider-specific role defaults around the directly selected root model', () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(configText)
 		const direct = { _tag: 'direct' as const, provider: 'codex', model: 'chosen' }
@@ -75,9 +75,61 @@ it.effect('applies a direct choice to the mode root role', () =>
 		expect(normal.root.activeModel.modelId).toBe('chosen')
 		expect(normal.root.activeModel.role).toBe('smart')
 		expect(normal.smart.activeModel.modelId).toBe('chosen')
+		expect(normal.fast.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6-luna' })
+		expect(normal.orchestrator.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6-sol' })
 		expect(rlm.root.activeModel.modelId).toBe('chosen')
 		expect(rlm.root.activeModel.role).toBe('orchestrator')
-		expect(rlm.smart.activeModel.modelId).toBe('default-smart')
+		expect(rlm.smart.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6-terra' })
+		expect(rlm.fast.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6-luna' })
+	}),
+)
+
+it.effect('a direct Codex choice does not resolve unrelated Anthropic role credentials', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": {
+				"anthropic": { "kind": "anthropic", "apiKeyEnv": "ANTHROPIC_API_KEY" },
+				"codex": { "kind": "codex" }
+			},
+			"roles": {
+				"smart": { "provider": "anthropic" },
+				"fast": { "provider": "anthropic" },
+				"orchestrator": { "provider": "anthropic" }
+			}
+		}`)
+
+		const models = yield* resolveConfiguredModelSelection(
+			config,
+			{ _tag: 'direct', provider: 'codex', model: 'gpt-5.6-sol' },
+			'default',
+			{ env: () => undefined },
+		)
+
+		expect(
+			[models.root, models.smart, models.fast, models.orchestrator].every(
+				(model) => model.activeModel.providerId === 'codex',
+			),
+		).toBe(true)
+	}),
+)
+
+it.effect('uses Anthropic defaults for a direct Anthropic choice', () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(configText)
+		const models = yield* resolveConfiguredModelSelection(config, {
+			_tag: 'direct',
+			provider: 'claude',
+			model: 'claude-selected',
+		})
+
+		expect(models.smart.activeModel.modelId).toBe('claude-selected')
+		expect(models.orchestrator.activeModel.modelId).toBe('claude-opus-4-8')
+		expect(models.fast.activeModel.modelId).toBe('claude-sonnet-5')
+		expect(
+			[models.smart, models.fast, models.orchestrator].every(
+				(model) => model.activeModel.providerId === 'claude',
+			),
+		).toBe(true)
 	}),
 )
 
