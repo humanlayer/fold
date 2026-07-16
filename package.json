@@ -6,6 +6,13 @@
 	"type": "module",
 	"packageManager": "bun@1.3.14",
 	"scripts": {
+		"build": "bun run build:packages",
+		"build:packages": "bun run scripts/build/packages.ts",
+		"build:binaries": "bun run scripts/build/binaries.ts",
+		"release:tag-info": "bun run scripts/release/tag-info.ts",
+		"release:prepare": "bun run scripts/release/prepare.ts",
+		"release:validate": "bun run scripts/release/validate-manifest.ts",
+		"release:publish": "bun run scripts/release/publish.ts",
 		"typecheck": "bun run --parallel --if-present --filter './packages/*' typecheck",
 		"test": "bun run --parallel --if-present --filter './packages/*' test",
 		"test:watch": "bun run --parallel --if-present --filter './packages/*' test:watch",

@@ -32,6 +32,56 @@ const fixtureModel = {
 	requestedReasoningLevel: 'off',
 	thinking: { _tag: 'disabled' },
 }
+const overflowSubagentEntries =
+	process.env.FOLD_TUI_OVERFLOW_SUBAGENTS_FIXTURE === '1'
+		? Array.from({ length: 14 }, (_, index) => {
+				const number = index + 1
+				const toolCallId = `tool_overflow_${number}`
+				const agentId = `agent_overflow_${number}`
+				return [
+					{
+						_tag: 'assistant-message',
+						seq: 100 + index * 2,
+						ts: 100 + index * 2,
+						agentId: 'agent_root',
+						parentAgentId: null,
+						toolCallId: null,
+						messageId: `msg_overflow_${number}`,
+						message: {
+							role: 'assistant',
+							content: [
+								{
+									type: 'tool-call',
+									id: toolCallId,
+									name: 'subagent',
+									params: {
+										agent: number % 2 === 0 ? 'researcher' : 'general-purpose',
+										description: `Overflow task ${number}`,
+										prompt: `Inspect overflow task ${number}`,
+									},
+									providerExecuted: false,
+								},
+							],
+						},
+						finish: null,
+					},
+					{
+						_tag: 'agent_started',
+						seq: 101 + index * 2,
+						ts: 101 + index * 2,
+						agentId,
+						parentAgentId: 'agent_root',
+						toolCallId,
+						agentType: number % 2 === 0 ? 'researcher' : 'general-purpose',
+						mode: 'fresh',
+						model: fixtureModel,
+						tools: [],
+						skill: null,
+						fork: null,
+					},
+				]
+			}).flat()
+		: []
 const subagentEntries = [
 	{
 		_tag: 'agent_started',
@@ -146,6 +196,7 @@ const subagentEntries = [
 		skill: null,
 		fork: null,
 	},
+	...overflowSubagentEntries,
 ] as never
 
 await render(

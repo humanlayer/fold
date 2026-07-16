@@ -1,4 +1,5 @@
 import { statSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
@@ -12,7 +13,7 @@ it.effect('adds a provider and model without changing roles, profiles, or policy
 		Effect.gen(function* () {
 			const directory = yield* tempDir
 			const path = join(directory, 'config.jsonc')
-			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
+			yield* Effect.promise(() => writeFile(path, starterConfigJsonc()))
 			const before = yield* loadFoldConfig({ path })
 
 			const updated = yield* configureProvider(
@@ -65,7 +66,7 @@ it.effect('updates a provider, retaining configured models when no new model is 
 				"fast": { "provider": "custom", "model": "existing-model" }
 			}
 		}`
-			yield* Effect.promise(() => Bun.write(path, source))
+			yield* Effect.promise(() => writeFile(path, source))
 
 			const updated = yield* configureProvider(
 				{
@@ -93,7 +94,7 @@ it.effect('stores an API key environment variable name without resolving or pers
 		Effect.gen(function* () {
 			const directory = yield* tempDir
 			const path = join(directory, 'config.jsonc')
-			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
+			yield* Effect.promise(() => writeFile(path, starterConfigJsonc()))
 
 			const updated = yield* configureProvider(
 				{
@@ -121,7 +122,7 @@ it.effect('rejects supplying both inline and environment API key sources', () =>
 		Effect.gen(function* () {
 			const directory = yield* tempDir
 			const path = join(directory, 'config.jsonc')
-			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
+			yield* Effect.promise(() => writeFile(path, starterConfigJsonc()))
 
 			const error = yield* configureProvider(
 				{
@@ -144,7 +145,7 @@ it.effect('adds OAuth profiles without an API key and supplies their default mod
 		Effect.gen(function* () {
 			const directory = yield* tempDir
 			const path = join(directory, 'config.jsonc')
-			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
+			yield* Effect.promise(() => writeFile(path, starterConfigJsonc()))
 			const updated = yield* configureProvider(
 				{ name: 'work-codex', kind: 'codex', baseUrl: 'https://example.test' },
 				{ path },
@@ -164,14 +165,14 @@ it.effect('rejects accidental API keys for OAuth profiles before writing', () =>
 		Effect.gen(function* () {
 			const directory = yield* tempDir
 			const path = join(directory, 'config.jsonc')
-			yield* Effect.promise(() => Bun.write(path, starterConfigJsonc()))
-			const before = yield* Effect.promise(() => Bun.file(path).text())
+			yield* Effect.promise(() => writeFile(path, starterConfigJsonc()))
+			const before = yield* Effect.promise(() => readFile(path, 'utf8'))
 			const error = yield* configureProvider(
 				{ name: 'nope', kind: 'xai', baseUrl: 'https://api.x.ai/v1', apiKey: 'secret' },
 				{ path },
 			).pipe(Effect.flip)
 			expect(error._tag).toBe('ProviderConfigurationKindError')
-			expect(yield* Effect.promise(() => Bun.file(path).text())).toBe(before)
+			expect(yield* Effect.promise(() => readFile(path, 'utf8'))).toBe(before)
 		}),
 	),
 )

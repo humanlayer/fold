@@ -1,0 +1,18 @@
+{
+	"name": "@humanlayer/fold",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"preferUnplugged": true,
+	"bin": {
+		"foldcode": "bin/foldcode.exe"
+	},
+	"files": [
+		"bin",
+		"postinstall.mjs"
+	],
+	"scripts": {
+		"postinstall": "node postinstall.mjs"
+	}
+}

@@ -26,17 +26,18 @@ import {
 	type CodexAuthError,
 	type MakeCodexAuthStoreOptions,
 } from '@humanlayer/fold-codex'
-import { SessionId } from '@humanlayer/fold-core'
+import { SessionId, type ModelCatalogEntry } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
 import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
 import { Clock, Console, Effect, Option, Schema } from 'effect'
 import { CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
-import { makeJsonOutputRenderer, makeOutputRenderer, type JsonOutputMode } from './Renderer'
-import { runPrompt, runReadline, type CliSessionOptions, type ResumeTarget } from './Run'
+import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode } from './Renderer'
+import { runPrompt, type CliSessionOptions, type ResumeTarget } from './Run'
 
-const version = '0.0.0'
+declare const FOLD_VERSION: string
+const version = typeof FOLD_VERSION === 'string' ? FOLD_VERSION : '0.0.0'
 
 const decodeSessionId = Schema.decodeUnknownOption(SessionId)
 
@@ -319,7 +320,7 @@ export const outputModeFromFlags = (input: {
 	return input.outputJson ? 'json-concise' : 'human'
 }
 
-/** Lower the root command's flags into the session options `runPrompt`/`runReadline` consume. */
+/** Lower the root command's flags into session launch options. */
 export const sessionOptionsFromFlags = (
 	input: CommonFlagValues,
 ): Effect.Effect<CliSessionOptions, InvalidSessionIdError> =>
@@ -347,6 +348,13 @@ export const sessionOptionsFromFlags = (
 const run = Command.make('foldcode', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
+			const prompt = optionValue(input.prompt)
+			if (prompt === undefined && typeof Bun === 'undefined') {
+				yield* printFailure(
+					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
+				)
+				return
+			}
 			const flagOptions = yield* sessionOptionsFromFlags(input)
 			// One catalog load per invocation (never fails - degrades to cache/baked data): the launch
 			// consumes it for validation + compaction windows, the renderer for Cost/Context columns.
@@ -356,16 +364,14 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 			})
 			const sessionOptions = { ...flagOptions, catalog }
 			const outputMode = outputModeFromFlags(input)
-			const renderer =
-				outputMode === 'human'
-					? makeOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
-					: makeJsonOutputRenderer({ mode: outputMode })
-			const prompt = optionValue(input.prompt)
-
 			if (prompt === undefined) {
-				yield* runReadline(sessionOptions, renderer)
+				yield* launchTui(sessionOptions, catalog)
 				return
 			}
+			const renderer =
+				outputMode === 'human'
+					? makePromptOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
+					: makeJsonOutputRenderer({ mode: outputMode })
 
 			const finished = yield* runPrompt({ ...sessionOptions, prompt }, renderer)
 			if (finished.outcome === 'completed') return
@@ -374,8 +380,9 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 		}),
 	),
 ).pipe(
-	Command.withDescription('Run the fold headless coding agent'),
+	Command.withDescription('Run the Fold coding agent (TUI by default, or one-shot with --prompt)'),
 	Command.withExamples([
+		{ command: 'foldcode', description: 'Open the full-screen terminal UI' },
 		{ command: 'foldcode --prompt "fix the lint failure"', description: 'Run one CI-friendly prompt' },
 		{ command: 'foldcode --resume latest', description: 'Resume the newest session in this project' },
 		{
@@ -384,6 +391,28 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 		},
 	]),
 )
+
+const launchTui = (options: CliSessionOptions, catalog: ReadonlyArray<ModelCatalogEntry>, prompt?: string) =>
+	Effect.gen(function* () {
+		if (typeof Bun === 'undefined') {
+			yield* printFailure(
+				'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
+			)
+			return
+		}
+		yield* Effect.promise(() => import('@opentui/solid/preload'))
+		const module = yield* Effect.promise(() => import('./tui/Shell'))
+		yield* module.runTui({ ...options, catalog, ...(prompt === undefined ? {} : { prompt }) }).pipe(
+			Effect.catchTags({
+				TuiRequiresTtyError: () =>
+					printFailure(
+						'foldcode tui requires an interactive TTY; use foldcode --prompt "..." --output json instead',
+					),
+				TuiRendererError: (error: { readonly message: string }) =>
+					printFailure(`could not start the TUI: ${error.message}`),
+			}),
+		)
+	})
 
 const binStatusLine = (status: ManagedBinaryStatus): string =>
 	`${status.name}\t${status.resolution}\t${status.path ?? status.detail ?? ''}`
@@ -433,24 +462,19 @@ const sessions = Command.make(
 const tui = Command.make('tui', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
+			if (typeof Bun === 'undefined') {
+				yield* printFailure(
+					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
+				)
+				return
+			}
 			const options = yield* sessionOptionsFromFlags(input)
 			const catalog = yield* loadModelCatalog({
 				foldHome: options.foldHome ?? defaultFoldHome(),
 				env: (name) => process.env[name],
 			})
 			const prompt = optionValue(input.prompt)
-			yield* Effect.promise(() => import('@opentui/solid/preload'))
-			const module = yield* Effect.promise(() => import('./tui/Shell'))
-			yield* module.runTui({ ...options, catalog, ...(prompt === undefined ? {} : { prompt }) }).pipe(
-				Effect.catchTags({
-					TuiRequiresTtyError: () =>
-						printFailure(
-							'foldcode tui requires an interactive TTY; use foldcode --prompt "..." --output json instead',
-						),
-					TuiRendererError: (error: { readonly message: string }) =>
-						printFailure(`could not start the TUI: ${error.message}`),
-				}),
-			)
+			yield* launchTui(options, catalog, prompt)
 		}),
 	),
 ).pipe(Command.withDescription('Run the interactive TACTICAL terminal UI'))

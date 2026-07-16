@@ -1,3 +1,5 @@
+import { readdir, rm } from 'node:fs/promises'
+
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 
@@ -35,8 +37,8 @@ describe('xAI OAuth', () => {
 		}).pipe(
 			Effect.ensuring(
 				Effect.promise(async () => {
-					const files = Array.from(new Bun.Glob('.tmp-xai-auth-*').scanSync(process.cwd()))
-					await Promise.all(files.map((file) => Bun.file(file).delete()))
+					const files = (await readdir(process.cwd())).filter((file) => file.startsWith('.tmp-xai-auth-'))
+					await Promise.all(files.map((file) => rm(file, { force: true })))
 				}),
 			),
 		),

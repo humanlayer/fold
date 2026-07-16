@@ -23,12 +23,12 @@ terminalDescribe('TUI terminal behavior', () => {
 			record: 'on-failure',
 		})
 
-		await session.screen.waitForText('OPTIC FEED // NOMINAL', { timeoutMs: 10_000 })
+		await session.screen.waitForText('/workspace/fold', { timeoutMs: 10_000 })
 		await session.screen.waitForText('themed first item', { timeoutMs: 10_000 })
 		const frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
 		expect(frame.text).toContain('User asks for bold input and code')
 		expect(frame.text).toContain('const userPrompt = true')
-		expect(frame.text).toContain('Thinking with emphasis before answering')
+		expect(frame.text).toContain('Thinking with emphasis before')
 		expect(frame.text).toContain('inlineCode()')
 		expect(frame.text).toContain('themed first item')
 		const bashLine = frame.text.split('\n').find((line) => line.includes('BASH'))
@@ -119,7 +119,6 @@ terminalDescribe('TUI terminal behavior', () => {
 		})
 
 		await session.screen.waitForText('researcher', { timeoutMs: 10_000 })
-		await session.screen.waitForText('▸ ● researcher', { timeoutMs: 10_000 })
 		await session.keyboard.type('ll')
 		await session.keyboard.press('Tab')
 		await session.screen.waitForText('AGENT TYPES', { timeoutMs: 10_000 })
@@ -130,6 +129,31 @@ terminalDescribe('TUI terminal behavior', () => {
 		expect(meta.text).toContain('COST')
 		await session.keyboard.press('Control+C')
 		await session.screen.waitForText('target-interrupted', { timeoutMs: 10_000 })
+	}, 30_000)
+
+	it('scrolls the subagent list to keep keyboard selection visible', async () => {
+		await using session = await terminal.launch({
+			command: ['bun', '--preload', '@opentui/solid/preload', 'test/fixtures/TuiAppFixture.tsx'],
+			cwd: import.meta.dirname.replace(/\/test$/, ''),
+			host: 'opentui',
+			viewport: { cols: 180, rows: 24 },
+			record: 'on-failure',
+			env: { FOLD_TUI_OVERFLOW_SUBAGENTS_FIXTURE: '1' },
+		})
+
+		await session.screen.waitForText('META', { timeoutMs: 10_000 })
+		await session.keyboard.type('ll')
+		await session.keyboard.press('Tab')
+		await session.keyboard.press('Tab')
+		await session.screen.waitForText('SUBAGENTS · [SELECTED]', { timeoutMs: 10_000 })
+		await session.screen.waitForText('Overflow task 1', { timeoutMs: 10_000 })
+		let frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(frame.text).not.toContain('Overflow task 14')
+		await session.keyboard.type('G')
+		await session.screen.waitForText('Overflow task 14', { timeoutMs: 10_000 })
+		frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(frame.text.split('\n').find((line) => line.includes('Overflow task 14'))).toContain('▸')
+		expect(frame.text).toContain('researcher')
 	}, 30_000)
 
 	it('navigates skills while the right pane is selected', async () => {
@@ -187,12 +211,13 @@ terminalDescribe('TUI terminal behavior', () => {
 
 		await session.screen.waitForText('WAITING FOR ROOT-AGENT OUTPUT', { timeoutMs: 10_000 })
 		const initial = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
-		expect(initial.text).toContain('OPTIC FEED // NOMINAL')
-		expect(initial.text).toContain('REPO// /workspace/fold')
+		expect(initial.text).toContain('/workspace/fold')
+		expect(initial.text).not.toContain('OPTIC FEED // NOMINAL')
+		expect(initial.text).not.toContain('REPO//')
 		expect(initial.text).toContain('FX//')
-		expect(initial.text).toContain('B GLOW:ON')
-		expect(initial.text).toContain('F GLITCH:ON')
-		expect(initial.text).toContain('V VIGNETTE:LIGHT')
+		expect(initial.text).toContain('B:ON')
+		expect(initial.text).toContain('F:ON')
+		expect(initial.text).toContain('V:LIGHT')
 		expect(initial.text).toContain('SEND')
 		expect(initial.text).toContain('EVENTS · [SELECTED]')
 		expect(initial.text).toContain('I TO FOCUS')
@@ -210,7 +235,7 @@ terminalDescribe('TUI terminal behavior', () => {
 		const focusedHotkey = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
 		const focusedInputLine = focusedHotkey.text.split('\n').find((line) => line.includes('[SEND]'))
 		expect(focusedInputLine).toContain('b')
-		expect(focusedHotkey.text).toContain('B GLOW:ON')
+		expect(focusedHotkey.text).toContain('B:ON')
 		await session.keyboard.type('uild slice')
 		await session.keyboard.write(shiftEnter)
 		const afterShiftEnter = await session.screen.capture({

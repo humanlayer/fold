@@ -54,6 +54,9 @@ export type JsonRendererOptions = {
 	readonly mode?: JsonOutputMode
 }
 
+export const ASSISTANT_RESPONSE_BEGIN = '--- FOLDCODE ASSISTANT RESPONSE BEGIN ---'
+export const ASSISTANT_RESPONSE_END = '--- FOLDCODE ASSISTANT RESPONSE END ---'
+
 /** One CLI flag to carry into the printed resume command. */
 export type ResumeCommandFlag = { readonly name: string; readonly value?: string }
 
@@ -131,6 +134,31 @@ export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRen
 		renderNote: (message) => stderr(`${message}\n`),
 		renderError: (message) => stderr(`error: ${message}\n`),
 		prompt: Effect.succeed(''),
+	}
+}
+
+/** Keep one-shot human stdout extraction-safe while retaining normal human diagnostics on stderr. */
+export const makePromptOutputRenderer = (options?: RendererOptions): OutputRenderer => {
+	const stdout = options?.stdout ?? defaultStdout
+	const stderr = options?.stderr ?? defaultStderr
+	const human = makeOutputRenderer({ ...options, stdout: stderr, stderr })
+	let framed = false
+
+	return {
+		...human,
+		renderFinish: (entry) =>
+			human.renderFinish(entry).pipe(
+				Effect.andThen(
+					Effect.suspend(() => {
+						if (framed) return Effect.void
+						framed = true
+						const response = entry.resultText ?? ''
+						return stdout(
+							`${ASSISTANT_RESPONSE_BEGIN}\n${response}${response.endsWith('\n') ? '' : '\n'}${ASSISTANT_RESPONSE_END}\n`,
+						)
+					}),
+				),
+			),
 	}
 }
 

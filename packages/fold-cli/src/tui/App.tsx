@@ -108,6 +108,7 @@ export const TuiApp = (props: TuiAppProps) => {
 	let eventsScroller: ScrollBoxRenderable | undefined
 	let contextScroller: ScrollBoxRenderable | undefined
 	let changesScroller: ScrollBoxRenderable | undefined
+	let subagentsScroller: ScrollBoxRenderable | undefined
 	let pendingG = false
 	let observedMutationKey: number | null | undefined
 	prepareTuiKeyboard(renderer)
@@ -212,7 +213,7 @@ export const TuiApp = (props: TuiAppProps) => {
 		const railRatio = dimensions().width < 118 ? 0.26 : 0.28
 		return Math.floor(dimensions().width * (1 - eventRatio - railRatio))
 	})
-	const verboseFooter = createMemo(() => dimensions().width >= 120)
+	const verboseFooter = createMemo(() => dimensions().width >= 160)
 	const verbLabel = createMemo(() => rootInputVerbLabel(verb()))
 	const isCompacting = createMemo(() => props.compacting?.() === true)
 	const sessionActivity = createMemo<ActivityState>(() =>
@@ -488,6 +489,10 @@ export const TuiApp = (props: TuiAppProps) => {
 		if (selectedKey !== undefined) eventsScroller?.scrollChildIntoView(`event:${selectedKey}`)
 	})
 	createEffect(() => {
+		const agentId = selectedAgentId()
+		if (agentId !== null) subagentsScroller?.scrollChildIntoView(`subagent:${agentId}`)
+	})
+	createEffect(() => {
 		const files = changes()
 		setSelectedChange((current) => Math.max(0, Math.min(files.length - 1, current)))
 	})
@@ -711,18 +716,9 @@ export const TuiApp = (props: TuiAppProps) => {
 				borderColor={tactical.chrome.border}
 			>
 				<ascii_font text="FOLD" font="tiny" color={tactical.color.core} />
-				<box flexDirection="column" justifyContent="center">
-					<text fg={tactical.color.coreBright} attributes={TextAttributes.BOLD} wrapMode="none">
-						{tactical.name}
-					</text>
-					<text fg={tactical.color.textDim} wrapMode="none">
-						{tactical.tagline}
-					</text>
-				</box>
-				<box flexGrow={1} justifyContent="center">
-					<text wrapMode="none">
-						<span style={{ fg: tactical.color.textFaint }}>REPO// </span>
-						<span style={{ fg: tactical.color.grid }}>{props.cwd}</span>
+				<box flexGrow={1} justifyContent="flex-start">
+					<text fg={tactical.color.grid} attributes={TextAttributes.BOLD} wrapMode="none" truncate>
+						{props.cwd}
 					</text>
 				</box>
 				<box flexDirection="column" alignItems="flex-end" justifyContent="center">
@@ -1189,10 +1185,16 @@ export const TuiApp = (props: TuiAppProps) => {
 							)
 						}
 					>
-						<scrollbox flexGrow={1} scrollY scrollbarOptions={tuiScrollbarOptions()}>
+						<scrollbox
+							ref={(renderable) => (subagentsScroller = renderable)}
+							flexGrow={1}
+							scrollY
+							scrollbarOptions={tuiScrollbarOptions()}
+						>
 							<Index each={agents()} fallback={<text fg={tactical.color.textFaint}> NO SUBAGENTS</text>}>
 								{(agent) => (
 									<box
+										id={`subagent:${agent().agentId}`}
 										paddingLeft={1}
 										height={2}
 										flexDirection="column"
@@ -1216,7 +1218,7 @@ export const TuiApp = (props: TuiAppProps) => {
 													? { attributes: TextAttributes.BOLD }
 													: {})}
 											>
-												{agent().type}
+												{agent().description}
 											</text>
 											<text width={4} fg={tactical.color.textFaint} wrapMode="none">
 												{relativeSubagentTime(agent().calledAt, now())}
@@ -1238,7 +1240,7 @@ export const TuiApp = (props: TuiAppProps) => {
 											/>
 										</box>
 										<text fg={tactical.color.textDim} paddingLeft={3} wrapMode="none" truncate>
-											{agent().description}
+											{agent().type}
 										</text>
 									</box>
 								)}
@@ -1259,15 +1261,17 @@ export const TuiApp = (props: TuiAppProps) => {
 			>
 				<KeyHint keyName="H/L" label="PANE" />
 				<KeyHint keyName="J/K" label="NAV" />
-				<KeyHint keyName="↵" label="DETAIL" />
-				<KeyHint keyName="I" label="INPUT" />
 				<KeyHint keyName="ESC" label={navigation().level === 'pane' ? 'SESSIONS' : 'BACK'} />
 				<KeyHint keyName="^N" label="NEW" />
 				<KeyHint keyName="^K" label="COMMANDS" />
 				<KeyHint keyName="^C" label="INTRPT" />
 				<KeyHint keyName="Q" label="QUIT" />
+				<KeyHint keyName="T" label="THEME" />
 				<box flexGrow={1} />
 				<FxFooter toggles={toggles()} verbose={verboseFooter()} />
+				<text fg={tactical.color.textFaint} wrapMode="none">
+					{tactical.name}
+				</text>
 			</box>
 			<box
 				position="absolute"

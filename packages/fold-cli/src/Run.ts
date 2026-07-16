@@ -27,7 +27,6 @@ import type {
 } from '@humanlayer/fold-core'
 import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
 
-import { runInteractive } from './Readline'
 import type { CredentialSummary, OutputRenderer, ResumeCommandFlag, SessionHeader } from './Renderer'
 
 /**
@@ -60,9 +59,6 @@ export type CliSessionOptions = {
 export type PromptRunOptions = CliSessionOptions & {
 	readonly prompt: string
 }
-
-/** Options for an interactive readline session. */
-export type InteractiveRunOptions = CliSessionOptions
 
 type OpenedSession = {
 	readonly session: FoldSession
@@ -304,19 +300,4 @@ export const runPrompt = (
 		yield* renderer.renderFinish(finished)
 		yield* Fiber.interrupt(renderFiber)
 		return finished
-	})
-
-/** Open a session and run the temporary readline interface (not the future OpenTUI). */
-export const runReadline = (
-	options: InteractiveRunOptions,
-	renderer: OutputRenderer,
-): Effect.Effect<void, OpenSessionError, Scope.Scope> =>
-	Effect.gen(function* () {
-		yield* bootstrapForRun(options)
-		const opened = yield* openSession(options)
-		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
-		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
-		yield* forkStartupEnsures(options, renderer)
-		yield* runInteractive(opened.session, renderer)
-		yield* Fiber.interrupt(renderFiber)
 	})
