@@ -17,7 +17,7 @@ import { Cause, Duration, Effect, Match, Option, Scope } from 'effect'
 import { createSignal, type Accessor } from 'solid-js'
 
 import { makeHostedTuiSession, type HostedTuiSession, type HostedTuiSessionMetadata } from './HostedTuiSession'
-import { requestToLaunchOptions } from './LaunchRequests'
+import { requestToLaunchOptions, sessionToLaunchOptions } from './LaunchRequests'
 import { makeLiveSessionHost } from './LiveSessionHost'
 import type { NewSessionRequest } from './NewSessionModal'
 import { projectSessionRows, type SessionRow } from './SessionListProjection'
@@ -219,12 +219,13 @@ export const makeTuiSessionWorkspace = (options: {
 				mode: row?.mode === 'rlm' ? 'rlm' : 'default',
 			}
 			cwds.add(metadata.cwd)
+			const resumeOptions = row === undefined ? options.tui : sessionToLaunchOptions(options.tui, row)
 			return reserve(
 				host
 					.open(
 						sessionId,
 						acquire(
-							resumeSessionById(sessionId, launchOptions({ ...options.tui, cwd: metadata.cwd })),
+							resumeSessionById(sessionId, launchOptions({ ...resumeOptions, cwd: metadata.cwd })),
 							metadata,
 							false,
 						),

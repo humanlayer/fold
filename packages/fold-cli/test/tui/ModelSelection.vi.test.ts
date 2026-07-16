@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { requestToLaunchOptions } from '../../src/tui/LaunchRequests'
+import { requestToLaunchOptions, sessionToLaunchOptions } from '../../src/tui/LaunchRequests'
 import {
 	advanceModelPicker,
 	initialModelPickerState,
@@ -58,6 +58,42 @@ describe('new-session launch requests', () => {
 		expect(
 			requestToLaunchOptions(processOptions, { cwd: '/default', _tag: 'profile', profile: 'default' }),
 		).not.toHaveProperty('profile')
+	})
+})
+
+describe('existing-session launch requests', () => {
+	it('resumes a default session with its durable provider model and role', () => {
+		const options = sessionToLaunchOptions(
+			{ cwd: '/work', profile: 'process-profile', modelSelection: { provider: 'old', model: 'old' } },
+			{
+				profile: 'default',
+				mode: 'coding',
+				model: {
+					providerId: 'codex',
+					providerKind: 'codex',
+					modelId: 'gpt-5.6-sol',
+					role: 'smart',
+					requestedReasoningLevel: 'high',
+					reasoning: { _tag: 'effort', effort: 'high', summary: 'auto' },
+				},
+			},
+		)
+
+		expect(options).toMatchObject({
+			mode: 'default',
+			modelSelection: { provider: 'codex', model: 'gpt-5.6-sol', role: 'smart', reasoning: 'high' },
+		})
+		expect(options).not.toHaveProperty('profile')
+	})
+
+	it('resumes a named profile without replacing its mixed-provider roles', () => {
+		const options = sessionToLaunchOptions(
+			{ cwd: '/work', modelSelection: { provider: 'old', model: 'old' } },
+			{ profile: 'mixed', mode: 'rlm', model: null },
+		)
+
+		expect(options).toMatchObject({ profile: 'mixed', mode: 'rlm' })
+		expect(options).not.toHaveProperty('modelSelection')
 	})
 })
 

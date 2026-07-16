@@ -52,6 +52,7 @@ for (const target of selected) {
 		target: 'bun',
 		format: 'esm',
 		minify: true,
+		sourcemap: 'inline',
 		define: {
 			FOLD_VERSION: JSON.stringify(versionArg),
 			OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(bunfs + workerRelative),
