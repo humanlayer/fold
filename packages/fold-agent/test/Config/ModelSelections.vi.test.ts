@@ -39,11 +39,11 @@ const catalog: ReadonlyArray<ModelCatalogEntry> = [
 	},
 ]
 
-const catalogEntry = (providerId: string, modelId: string): ModelCatalogEntry => ({
-	...catalog[0]!,
-	providerId,
-	modelId,
-})
+const catalogEntry = (providerId: string, modelId: string): ModelCatalogEntry => {
+	const entry = catalog[0]
+	if (entry === undefined) throw new Error('Expected catalog fixture')
+	return { ...entry, providerId, modelId }
+}
 
 it.effect('resolves default and named profiles', () =>
 	Effect.gen(function* () {

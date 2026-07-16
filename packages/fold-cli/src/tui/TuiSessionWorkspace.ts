@@ -72,8 +72,8 @@ export const makeTuiSessionWorkspace = (options: {
 	Effect.gen(function* () {
 		const parentScope = yield* Scope.Scope
 		const configOption = options.config
-		const currentConfig: Accessor<FoldConfig | null> =
-			typeof configOption === 'function' ? (configOption as Accessor<FoldConfig | null>) : () => configOption
+		const currentConfig: Accessor<FoldConfig | null> = () =>
+			typeof configOption === 'function' ? configOption() : configOption
 		const runRoot = Effect.runForkWith(yield* Effect.context<Scope.Scope>())
 		const run = <A, E>(effect: Effect.Effect<A, E>): void => {
 			runRoot(Effect.forkScoped(effect, { startImmediately: true }))

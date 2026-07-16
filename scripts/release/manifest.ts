@@ -32,6 +32,6 @@ export const targets = [
 export const targetName = ([os, cpu, variant]: (typeof targets)[number]) =>
 	`@humanlayer/fold-${os}-${cpu}${variant ? `-${variant}` : ''}`
 
-export async function json(path: string) {
-	return Bun.file(path).json() as Promise<Record<string, any>>
+export async function json<T extends object = Record<string, unknown>>(path: string): Promise<T> {
+	return Bun.file(path).json()
 }

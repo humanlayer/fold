@@ -30,6 +30,13 @@
         "vitest": "catalog:",
       },
     },
+    "packages/fold": {
+      "name": "@humanlayer/fold",
+      "version": "0.0.0",
+      "bin": {
+        "foldcode": "bin/foldcode.exe",
+      },
+    },
     "packages/fold-agent": {
       "name": "@humanlayer/fold-agent",
       "version": "0.0.0",
@@ -270,6 +277,8 @@
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
 
     "@humanlayer/effect-branded-id": ["@humanlayer/effect-branded-id@workspace:packages/effect-branded-id"],
+
+    "@humanlayer/fold": ["@humanlayer/fold@workspace:packages/fold"],
 
     "@humanlayer/fold-agent": ["@humanlayer/fold-agent@workspace:packages/fold-agent"],
 

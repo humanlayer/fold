@@ -1,4 +1,5 @@
 import type { ModelConfiguration } from '@humanlayer/fold-agent'
+import { AgentId } from '@humanlayer/fold-core'
 /** @jsxImportSource @opentui/solid */
 import { installPostFx, nextVignetteMode, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import type { ThemeId } from '@humanlayer/fold-tui-theme/themes'
@@ -153,24 +154,16 @@ export const TuiApp = (props: TuiAppProps) => {
 		const change = changes()[next]
 		if (change !== undefined) props.onViewChange?.(change)
 	}
-	const agents = createMemo(() =>
-		subagentViews(
-			props.state().allEntries,
-			props.state().allEntries.find((e) => e._tag === 'session_started')?.rootAgentId ??
-				props.state().allEntries[0]?.agentId!,
-		),
-	)
-	const selectedAgent = createMemo(() => agents().find((agent) => agent.agentId === selectedAgentId()))
-	const agentRows = createMemo(() => {
-		const agent = selectedAgent()
-		return agent === undefined ? [] : conversationRows(makeSessionStateFromEntries(agent.entries, agent.agentId))
-	})
-	const meta = createMemo(() => metaCounts(props.state().allEntries, agents()))
-	const rootAgentId = createMemo(
-		() =>
+	const rootAgentId = createMemo(() => {
+		return (
 			props.state().allEntries.find((entry) => entry._tag === 'session_started')?.rootAgentId ??
-			props.state().allEntries[0]?.agentId!,
-	)
+			props.state().allEntries[0]?.agentId ??
+			AgentId.make('agent_root')
+		)
+	})
+	const agents = createMemo(() => subagentViews(props.state().allEntries, rootAgentId()))
+	const selectedAgent = createMemo(() => agents().find((agent) => agent.agentId === selectedAgentId()))
+	const meta = createMemo(() => metaCounts(props.state().allEntries, agents()))
 	const skillTargetAgent = createMemo(() => selectedAgent())
 	const skills = createMemo(() => skillViews(props.state().allEntries, skillTargetAgent()?.agentId ?? rootAgentId()))
 	const nextRailTab = (): void => {
@@ -337,7 +330,8 @@ export const TuiApp = (props: TuiAppProps) => {
 	const contextSubject = createMemo(() => {
 		if (leftTab() === 'changes') return `git · ${changes().length} files`
 		const selected = selectedRow()
-		if (focusedAgent() !== undefined) return `${focusedAgent()!.type} · ${focusedAgent()!.description}`
+		const agent = focusedAgent()
+		if (agent !== undefined) return `${agent.type} · ${agent.description}`
 		if (mode() === 'live' || selected === undefined) return 'root'
 		const visual = rowVisual(selected)
 		return `${selected.seq ?? 'live'} ${visual.glyph} ${selected.label.toLowerCase()}`
@@ -403,7 +397,8 @@ export const TuiApp = (props: TuiAppProps) => {
 		const current = available.findIndex((agent) => agent.agentId === selectedAgentId())
 		const origin = current < 0 ? (delta === 1 ? -1 : available.length) : current
 		const next = Math.max(0, Math.min(available.length - 1, origin + delta))
-		setSelectedAgentId(available[next]!.agentId)
+		const agent = available[next]
+		if (agent !== undefined) setSelectedAgentId(agent.agentId)
 	}
 	const jumpWithinPane = (target: 'first' | 'last'): void => {
 		if (navigation().pane === 'events') {
@@ -540,7 +535,8 @@ export const TuiApp = (props: TuiAppProps) => {
 		if (confirmSkill() !== null) {
 			key.preventDefault()
 			if (key.name === 'y') {
-				props.onInjectSkill?.(confirmSkill()!, skillTargetAgent()?.agentId ?? null)
+				const skill = confirmSkill()
+				if (skill !== null) props.onInjectSkill?.(skill, skillTargetAgent()?.agentId ?? null)
 				setConfirmSkill(null)
 			} else if (key.name === 'n' || key.name === 'escape') setConfirmSkill(null)
 			return
@@ -550,7 +546,7 @@ export const TuiApp = (props: TuiAppProps) => {
 			const available = agents()
 			if (available.length === 0) return
 			const index = available.findIndex((agent) => agent.agentId === selectedAgentId())
-			setSelectedAgentId(available[(index + 1) % available.length]!.agentId)
+			setSelectedAgentId(available[(index + 1) % available.length]?.agentId ?? null)
 			return
 		}
 		if (key.ctrl && key.name === 'c') {
@@ -634,7 +630,7 @@ export const TuiApp = (props: TuiAppProps) => {
 				const available = agents()
 				if (available.length === 0) return
 				const index = available.findIndex((agent) => agent.agentId === selectedAgentId())
-				setSelectedAgentId(available[(index + 1) % available.length]!.agentId)
+				setSelectedAgentId(available[(index + 1) % available.length]?.agentId ?? null)
 				return
 			}
 			case 'escape':
@@ -1081,11 +1077,14 @@ export const TuiApp = (props: TuiAppProps) => {
 									{`[${targetVerbLabel()}]`}
 								</text>
 								<box flexGrow={1} />
-								<Show when={focusedAgent()!.status === 'running'}>
+								<Show when={focusedAgent()?.status === 'running'}>
 									<text
 										fg={tactical.color.textDim}
 										wrapMode="none"
-										onMouseDown={() => props.onTargetInterrupt?.(focusedAgent()!.agentId)}
+										onMouseDown={() => {
+											const agent = focusedAgent()
+											if (agent !== undefined) props.onTargetInterrupt?.(agent.agentId)
+										}}
 									>
 										^C INTERRUPT
 									</text>
@@ -1108,7 +1107,7 @@ export const TuiApp = (props: TuiAppProps) => {
 								onSubmit={submitTargetDraft}
 							/>
 							<text fg={tactical.color.coreBright} wrapMode="none" truncate>
-								{props.targetNotice?.()?.agentId === focusedAgent()!.agentId
+								{props.targetNotice?.()?.agentId === focusedAgent()?.agentId
 									? props.targetNotice?.()?.text
 									: ''}
 							</text>
@@ -1120,13 +1119,13 @@ export const TuiApp = (props: TuiAppProps) => {
 							right={1}
 							bottom={-1}
 							zIndex={10}
-							width={focusedAgent()!.agentId.length + 2}
+							width={(focusedAgent()?.agentId.length ?? 0) + 2}
 							height={1}
 							justifyContent="center"
 							backgroundColor={tactical.color.panel}
 						>
 							<text fg={tactical.color.coreBright} wrapMode="none">
-								{focusedAgent()!.agentId}
+								{focusedAgent()?.agentId}
 							</text>
 						</box>
 					</Show>
@@ -1336,7 +1335,7 @@ export const TuiApp = (props: TuiAppProps) => {
 					</text>
 					<box height={1} />
 					<text fg={tactical.color.text} wrapMode="none" truncate>
-						{`${confirmSkill()} → ${skillTargetAgent() === undefined ? 'Primary Agent' : `${skillTargetAgent()!.type} Agent`}`}
+						{`${confirmSkill()} → ${skillTargetAgent()?.type ?? 'Primary'} Agent`}
 					</text>
 					<text wrapMode="none" truncate>
 						<span style={{ fg: tactical.color.textDim }}>Description: </span>

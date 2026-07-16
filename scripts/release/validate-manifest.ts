@@ -10,15 +10,25 @@ const manifests = [
 	join(stage, 'packages/fold/package.json'),
 ]
 for (const path of manifests) {
-	const manifest = await json(path)
+	const manifest = await json<{
+		name: string
+		version: string
+		private?: boolean
+		publishConfig?: { access?: string }
+		dependencies?: Record<string, string>
+		peerDependencies?: Record<string, string>
+		optionalDependencies?: Record<string, string>
+		exports?: unknown
+		bin?: Record<string, string>
+	}>(path)
 	if (expectedVersion !== undefined && manifest.version !== expectedVersion)
 		throw new Error(`${manifest.name} is ${manifest.version}, expected ${expectedVersion}`)
 	if (manifest.private) throw new Error(`${manifest.name} is private`)
 	if (manifest.publishConfig?.access !== 'public') throw new Error(`${manifest.name} is not public`)
-	for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
-		for (const [name, range] of Object.entries(manifest[field] ?? {})) {
+	for (const dependencies of [manifest.dependencies, manifest.peerDependencies, manifest.optionalDependencies]) {
+		for (const [name, range] of Object.entries(dependencies ?? {})) {
 			if (String(range).includes('workspace:') || range === 'catalog:')
-				throw new Error(`${manifest.name} has unresolved ${field} ${name}`)
+				throw new Error(`${manifest.name} has unresolved dependency ${name}`)
 			if (name.startsWith('@humanlayer/fold') && range !== manifest.version)
 				throw new Error(`${manifest.name} does not exactly pin ${name}`)
 		}

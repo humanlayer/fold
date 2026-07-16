@@ -3,28 +3,27 @@ import { describe, expect, it } from 'vitest'
 
 import { relativeSubagentTime, skillViews, subagentViews } from '../src/tui/Subagents'
 
-const startedEntry = (agentId: string, seq: number, ts: number): AgentStartedLogEntry =>
-	({
-		_tag: 'agent_started',
-		seq,
-		ts,
-		agentId: AgentId.make(agentId),
-		parentAgentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
-		toolCallId: null,
-		mode: 'fresh',
-		model: {
-			providerId: 'anthropic',
-			providerKind: 'anthropic',
-			modelId: 'fixture-model',
-			role: null,
-			requestedReasoningLevel: 'off',
-			thinking: { _tag: 'disabled' },
-		},
-		tools: [],
-		skill: null,
-		fork: null,
-		agentType: 'researcher',
-	}) as AgentStartedLogEntry
+const startedEntry = (agentId: string, seq: number, ts: number): AgentStartedLogEntry => ({
+	_tag: 'agent_started',
+	seq,
+	ts,
+	agentId: AgentId.make(agentId),
+	parentAgentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
+	toolCallId: null,
+	mode: 'fresh',
+	model: {
+		providerId: 'anthropic',
+		providerKind: 'anthropic',
+		modelId: 'fixture-model',
+		role: null,
+		requestedReasoningLevel: 'off',
+		thinking: { _tag: 'disabled' },
+	},
+	tools: [],
+	skill: null,
+	fork: null,
+	agentType: 'researcher',
+})
 
 describe('subagentViews', () => {
 	it('sorts subagents in call order and retains their call time', () => {

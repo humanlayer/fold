@@ -25,8 +25,8 @@ const colorForTool = (name: string): string => {
 	if (name === 'subagent') return accent.cyan
 	if (name === 'write') return accent.purple
 	if (name === 'skill') return accent.yellow
-	const hash = [...name].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
-	return accentPalette[hash % accentPalette.length]!
+	const hash = Array.from(name).reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
+	return accentPalette[hash % accentPalette.length] ?? accent.cyan
 }
 
 const Panel = (props: { readonly title: string; readonly children: JSX.Element }) => (

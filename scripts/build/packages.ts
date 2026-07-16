@@ -10,12 +10,16 @@ const { default: solidTransformPlugin } = await import(
 
 for (const name of libraries) {
 	const dir = join(root, 'packages', name)
-	const manifest = await json(join(dir, 'package.json'))
-	const exports = Object.values(manifest.exports as Record<string, string | { source?: string }>)
+	const manifest = await json<{
+		name: string
+		exports: Record<string, string | { source?: string }>
+		bin?: Record<string, string>
+	}>(join(dir, 'package.json'))
+	const exports = Object.values(manifest.exports)
 	const entries = exports
 		.map((value) => (typeof value === 'string' ? value : value.source))
-		.filter(Boolean) as string[]
-	for (const entry of Object.values((manifest.bin ?? {}) as Record<string, string>)) {
+		.filter((entry): entry is string => entry !== undefined)
+	for (const entry of Object.values(manifest.bin ?? {})) {
 		const sourceEntry = entry.replace(/^(?:\.\/)?dist\//, './src/').replace(/\.js$/, '.ts')
 		if (!entries.includes(sourceEntry)) entries.push(sourceEntry)
 	}

@@ -27,6 +27,6 @@ export const agentTypeAccent = (name: string): string => {
 	if (normalized.includes('research')) return accent.purple
 	if (normalized.includes('review')) return accent.yellow
 	if (normalized.includes('web')) return accent.orange
-	const hash = [...normalized].reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
-	return accentPalette[hash % accentPalette.length]!
+	const hash = Array.from(normalized).reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 0)
+	return accentPalette[hash % accentPalette.length] ?? accent.cyan
 }

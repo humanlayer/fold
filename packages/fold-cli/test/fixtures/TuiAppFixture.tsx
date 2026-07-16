@@ -1,3 +1,4 @@
+import { AgentId, MessageId, ToolCallId, type LogEntry } from '@humanlayer/fold-core'
 /** @jsxImportSource @opentui/solid */
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
@@ -31,22 +32,25 @@ const fixtureModel = {
 	role: null,
 	requestedReasoningLevel: 'off',
 	thinking: { _tag: 'disabled' },
-}
-const overflowSubagentEntries =
+} as const
+const rootAgentId = AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+const researcherAgentId = AgentId.make('agent_bbbbbbbbbbbbbbbbbbbbbbbb')
+const subagentToolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
+const overflowSubagentEntries: ReadonlyArray<LogEntry> =
 	process.env.FOLD_TUI_OVERFLOW_SUBAGENTS_FIXTURE === '1'
 		? Array.from({ length: 14 }, (_, index) => {
 				const number = index + 1
-				const toolCallId = `tool_overflow_${number}`
-				const agentId = `agent_overflow_${number}`
+				const toolCallId = ToolCallId.make(`tool_call_overflow_${number}`)
+				const agentId = AgentId.make(`agent_overflow_${number}`)
 				return [
 					{
 						_tag: 'assistant-message',
 						seq: 100 + index * 2,
 						ts: 100 + index * 2,
-						agentId: 'agent_root',
+						agentId: rootAgentId,
 						parentAgentId: null,
 						toolCallId: null,
-						messageId: `msg_overflow_${number}`,
+						messageId: MessageId.make(`msg_overflow_${number}`),
 						message: {
 							role: 'assistant',
 							content: [
@@ -70,7 +74,7 @@ const overflowSubagentEntries =
 						seq: 101 + index * 2,
 						ts: 101 + index * 2,
 						agentId,
-						parentAgentId: 'agent_root',
+						parentAgentId: rootAgentId,
 						toolCallId,
 						agentType: number % 2 === 0 ? 'researcher' : 'general-purpose',
 						mode: 'fresh',
@@ -79,15 +83,15 @@ const overflowSubagentEntries =
 						skill: null,
 						fork: null,
 					},
-				]
+				] as const
 			}).flat()
 		: []
-const subagentEntries = [
+const subagentEntries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'agent_started',
 		seq: 0,
 		ts: 0,
-		agentId: 'agent_root',
+		agentId: rootAgentId,
 		parentAgentId: null,
 		toolCallId: null,
 		mode: 'fresh',
@@ -101,29 +105,35 @@ const subagentEntries = [
 		_tag: 'system-message',
 		seq: 2,
 		ts: 2,
-		agentId: 'agent_root',
+		agentId: rootAgentId,
 		parentAgentId: null,
 		toolCallId: null,
+		messageId: MessageId.make('msg_system_root_aaaaaaaaaaaaaaaa'),
+		placement: 'leading',
 		messages: [
-			'<available_skills><skill><name>effect-program-design</name><description>Design Effect programs</description></skill><skill><name>terminal-control</name><description>Drive terminal apps</description></skill></available_skills>',
+			{
+				role: 'system',
+				content:
+					'<available_skills><skill><name>effect-program-design</name><description>Design Effect programs</description></skill><skill><name>terminal-control</name><description>Drive terminal apps</description></skill></available_skills>',
+			},
 		],
 	},
 	...(process.env.FOLD_TUI_EVENT_SUBAGENT_FIXTURE === '1'
-		? [
+		? ([
 				{
 					_tag: 'assistant-message',
 					seq: 6,
 					ts: 6,
-					agentId: 'agent_root',
+					agentId: rootAgentId,
 					parentAgentId: null,
 					toolCallId: null,
-					messageId: 'msg_root_subagent',
+					messageId: MessageId.make('msg_root_subagent_aaaaaaaaaaaa'),
 					message: {
 						role: 'assistant',
 						content: [
 							{
 								type: 'tool-call',
-								id: 'tool_subagent',
+								id: subagentToolCallId,
 								name: 'subagent',
 								params: { agent: 'researcher', prompt: 'Inspect the event-driven target input' },
 								providerExecuted: false,
@@ -132,27 +142,33 @@ const subagentEntries = [
 					},
 					finish: null,
 				},
-			]
+			] as const)
 		: []),
 	{
 		_tag: 'system-message',
 		seq: 3,
 		ts: 3,
-		agentId: 'agent_researcher',
+		agentId: researcherAgentId,
 		parentAgentId: null,
 		toolCallId: null,
+		messageId: MessageId.make('msg_system_researcher_aaaaaaaaaa'),
+		placement: 'leading',
 		messages: [
-			'<available_skills><skill><name>effect-program-design</name><description>Design Effect programs</description></skill><skill><name>terminal-control</name><description>Drive terminal apps</description></skill></available_skills>',
+			{
+				role: 'system',
+				content:
+					'<available_skills><skill><name>effect-program-design</name><description>Design Effect programs</description></skill><skill><name>terminal-control</name><description>Drive terminal apps</description></skill></available_skills>',
+			},
 		],
 	},
 	{
 		_tag: 'assistant-message',
 		seq: 4,
 		ts: 4,
-		agentId: 'agent_researcher',
+		agentId: researcherAgentId,
 		parentAgentId: null,
 		toolCallId: null,
-		messageId: 'msg_researcher_skill',
+		messageId: MessageId.make('msg_researcher_skill_aaaaaaaaaa'),
 		message: {
 			role: 'assistant',
 			content: [
@@ -168,27 +184,27 @@ const subagentEntries = [
 		finish: null,
 	},
 	...(process.env.FOLD_TUI_STOPPED_SUBAGENT_FIXTURE === '1'
-		? [
+		? ([
 				{
 					_tag: 'agent-finished',
 					seq: 5,
 					ts: 5,
-					agentId: 'agent_researcher',
+					agentId: researcherAgentId,
 					parentAgentId: null,
 					toolCallId: null,
 					outcome: 'completed',
 					resultText: 'research complete',
 					reason: null,
 				},
-			]
+			] as const)
 		: []),
 	{
 		_tag: 'agent_started',
 		seq: 1,
 		ts: 1,
-		agentId: 'agent_researcher',
-		parentAgentId: 'agent_root',
-		toolCallId: 'tool_subagent',
+		agentId: researcherAgentId,
+		parentAgentId: rootAgentId,
+		toolCallId: subagentToolCallId,
 		agentType: 'researcher',
 		mode: 'fresh',
 		model: fixtureModel,
@@ -197,14 +213,14 @@ const subagentEntries = [
 		fork: null,
 	},
 	...overflowSubagentEntries,
-] as never
+]
 
 await render(
 	() => (
 		<TuiApp
 			state={() => ({
 				...(process.env.FOLD_TUI_EVENT_SUBAGENT_FIXTURE === '1'
-					? makeSessionStateFromEntries(subagentEntries, 'agent_root' as never)
+					? makeSessionStateFromEntries(subagentEntries, rootAgentId)
 					: makeSessionState(null)),
 				status: status(),
 				model: model(),

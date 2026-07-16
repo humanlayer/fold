@@ -198,6 +198,8 @@ terminalDescribe('TUI terminal behavior', () => {
 		await session.keyboard.type('moo')
 		await session.keyboard.press('Enter')
 		await session.screen.waitForText('TARGET STEER RECEIVED', { timeoutMs: 10_000 })
+		const frame = await session.screen.capture({ settleMs: 100, deadlineMs: 5_000, allowIncomplete: true })
+		expect(frame.text).toContain('TARGET STEER RECEIVED')
 	}, 30_000)
 
 	it('renders the tactical shell, converses from the root input, and exits cleanly', async () => {

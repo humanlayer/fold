@@ -22,6 +22,8 @@ export type SkillView = {
 }
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
+const field = (value: unknown, name: string): unknown =>
+	typeof value === 'object' && value !== null ? Reflect.get(value, name) : undefined
 
 const dispatchDetails = (entries: ReadonlyArray<LogEntry>, toolCallId: string | null) => {
 	if (toolCallId === null) return undefined
@@ -29,10 +31,9 @@ const dispatchDetails = (entries: ReadonlyArray<LogEntry>, toolCallId: string | 
 		if (entry._tag !== 'assistant-message' || typeof entry.message.content === 'string') continue
 		for (const part of entry.message.content) {
 			if (part.type !== 'tool-call' || part.id !== toolCallId || part.name !== 'subagent') continue
-			const params = part.params as Record<string, unknown>
-			const prompt = text(params.prompt) ?? ''
+			const prompt = text(field(part.params, 'prompt')) ?? ''
 			return {
-				description: text(params.description) ?? prompt.replace(/\s+/g, ' ').trim().slice(0, 60),
+				description: text(field(part.params, 'description')) ?? prompt.replace(/\s+/g, ' ').trim().slice(0, 60),
 				prompt,
 			}
 		}
@@ -135,14 +136,15 @@ export const skillViews = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): 
 			for (const match of block.matchAll(
 				/<skill>[\s\S]*?<name>(.*?)<\/name>[\s\S]*?<description>(.*?)<\/description>[\s\S]*?<\/skill>/g,
 			)) {
-				available.set(match[1]!, match[2]!)
+				const [, name, description] = match
+				if (name !== undefined && description !== undefined) available.set(name, description)
 			}
 		}
 		if (entry._tag === 'agent_started' && entry.skill !== null) loaded.add(entry.skill)
 		if (entry._tag !== 'assistant-message' || typeof entry.message.content === 'string') continue
 		for (const part of entry.message.content) {
 			if (part.type !== 'tool-call' || part.name !== 'skill') continue
-			const name = text((part.params as Record<string, unknown>).name)
+			const name = text(field(part.params, 'name'))
 			if (name !== undefined) {
 				available.set(name, available.get(name) ?? '')
 				loaded.add(name)

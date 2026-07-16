@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
-import { createSolidTransformPlugin } from '../../packages/fold-cli/node_modules/@opentui/solid/scripts/solid-plugin.js'
+import { createSolidTransformPlugin } from '../../packages/fold-cli/node_modules/@opentui/solid/scripts/solid-plugin'
 import { json, root, targetName, targets } from '../release/manifest'
 
 const args = new Set(process.argv.slice(2))
@@ -13,7 +13,8 @@ const selected = args.has('--host')
 				(os === 'windows' ? 'win32' : os) === process.platform && cpu === process.arch && variant === '',
 		)
 	: targets
-const catalog = (await json(join(root, 'package.json'))).workspaces.catalog as Record<string, string>
+const { workspaces } = await json<{ workspaces: { catalog: Record<string, string> } }>(join(root, 'package.json'))
+const catalog = workspaces.catalog
 
 if (!args.has('--skip-install')) {
 	const install = Bun.spawn(
@@ -43,7 +44,7 @@ for (const target of selected) {
 	const packageName = targetName(target).replace('@humanlayer/', '')
 	const outdir = join(root, 'dist', packageName, 'bin')
 	await mkdir(outdir, { recursive: true })
-	const bunTarget = `bun-${os === 'windows' ? 'windows' : os}-${cpu}${variant.includes('baseline') ? '-baseline' : ''}${variant.includes('musl') ? '-musl' : ''}`
+	const bunTarget: Bun.CompileTarget = `bun-${os === 'windows' ? 'windows' : os}-${cpu}${variant.includes('baseline') ? '-baseline' : ''}${variant.includes('musl') ? '-musl' : ''}`
 	const bunfs = os === 'windows' ? 'B:/~BUN/root/' : '/$bunfs/root/'
 	const result = await Bun.build({
 		entrypoints: [join(root, 'packages/fold-cli/src/cli.ts'), parserWorker],
@@ -59,7 +60,7 @@ for (const target of selected) {
 				: {}),
 		},
 		compile: {
-			target: bunTarget as any,
+			target: bunTarget,
 			outfile: join(outdir, os === 'windows' ? 'foldcode.exe' : 'foldcode'),
 			autoloadBunfig: false,
 			autoloadDotenv: false,

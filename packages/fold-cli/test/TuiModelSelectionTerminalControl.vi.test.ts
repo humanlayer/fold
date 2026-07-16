@@ -76,5 +76,7 @@ terminalDescribe('TUI staged model selection', () => {
 		await session.keyboard.press('Enter')
 		await session.screen.waitForText('"provider":"fixture-provider"', { timeoutMs: 10_000 })
 		await session.screen.waitForText('"mode":"rlm"', { timeoutMs: 10_000 })
+		const screen = await session.screen.capture({ settleMs: 50, deadlineMs: 2_000, allowIncomplete: true })
+		expect(screen.text).toContain('"mode":"rlm"')
 	}, 30_000)
 })

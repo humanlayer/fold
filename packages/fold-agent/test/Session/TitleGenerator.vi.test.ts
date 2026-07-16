@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { customModel, type LogEntry } from '@humanlayer/fold-core'
+import { AgentId, customModel, MessageId, type LogEntry } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
 import { LanguageModel, Response } from 'effect/unstable/ai'
 
@@ -10,27 +10,40 @@ import {
 	titleTranscript,
 } from '../../src/Session/TitleGenerator'
 
-const root = 'agent_root'
-const entries = [
+const root = AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+const entries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'user-message',
 		seq: 1,
+		ts: 1,
 		agentId: root,
+		parentAgentId: null,
+		toolCallId: null,
+		messageId: MessageId.make('msg_aaaaaaaaaaaaaaaaaaaaaaaa'),
 		message: { role: 'user', content: 'Fix the session title cache' },
 	},
 	{
 		_tag: 'assistant-message',
 		seq: 2,
+		ts: 2,
 		agentId: root,
+		parentAgentId: null,
+		toolCallId: null,
+		messageId: MessageId.make('msg_bbbbbbbbbbbbbbbbbbbbbbbb'),
 		message: { role: 'assistant', content: [{ type: 'text', text: 'I will inspect it.' }] },
+		finish: null,
 	},
 	{
 		_tag: 'user-message',
 		seq: 3,
-		agentId: 'agent_child',
+		ts: 3,
+		agentId: AgentId.make('agent_bbbbbbbbbbbbbbbbbbbbbbbb'),
+		parentAgentId: null,
+		toolCallId: null,
+		messageId: MessageId.make('msg_cccccccccccccccccccccccc'),
 		message: { role: 'user', content: 'secret subagent prompt' },
 	},
-] as unknown as ReadonlyArray<LogEntry>
+]
 
 describe('session title generation inputs', () => {
 	const modelWith = (

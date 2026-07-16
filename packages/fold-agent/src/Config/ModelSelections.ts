@@ -65,8 +65,11 @@ export const describeModelConfiguration = (
 						? [name, 'xai']
 						: [name, 'openai']
 		const configured = bindings(config)
-			.filter((binding) => binding.provider === name && binding.model !== undefined)
-			.map((binding) => binding.model as string)
+			.filter(
+				(binding): binding is typeof binding & { readonly model: string } =>
+					binding.provider === name && binding.model !== undefined,
+			)
+			.map((binding) => binding.model)
 		const catalogModels = catalog
 			.filter((entry) => catalogProviderIds.includes(entry.providerId))
 			.map((entry) => entry.modelId)

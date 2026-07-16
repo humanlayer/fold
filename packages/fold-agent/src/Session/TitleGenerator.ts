@@ -1,6 +1,6 @@
 import type { LogEntry, FoldModel } from '@humanlayer/fold-core'
 import { languageModelLayerFor } from '@humanlayer/fold-core'
-import { Effect, Match, Schema } from 'effect'
+import { Effect, Schema } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
 const TitleResult = Schema.Struct({ title: Schema.String })

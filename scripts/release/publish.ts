@@ -27,7 +27,7 @@ async function alreadyPublished(name: string, version: string) {
 }
 
 for (const dir of dirs) {
-	const manifest = (await Bun.file(join(dir, 'package.json')).json()) as { name: string; version: string }
+	const manifest: { name: string; version: string } = await Bun.file(join(dir, 'package.json')).json()
 	if (manifest.version !== values.version)
 		throw new Error(`${manifest.name} is staged at ${manifest.version}, expected ${values.version}`)
 	if (!values['dry-run'] && (await alreadyPublished(manifest.name, manifest.version))) {
@@ -40,7 +40,7 @@ for (const dir of dirs) {
 		'--access',
 		'public',
 		'--tag',
-		values.tag!,
+		values.tag ?? 'latest',
 		...(values['dry-run'] ? ['--dry-run'] : []),
 	]
 	console.log(`${values['dry-run'] ? 'dry-run' : 'publishing'} ${dir}`)

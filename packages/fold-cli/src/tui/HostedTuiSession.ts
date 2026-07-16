@@ -11,7 +11,7 @@ import { batch, createSignal, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 
 import { executeRootInputAction, unexpectedActionCauseNotice, type RootInputVerb } from './Converse'
-import { configuredSelection, type ModelSelectionRequest } from './ModelSelectionState'
+import { type ModelSelectionRequest } from './ModelSelectionState'
 import { makeSessionStateFromEntries, reduceSessionEvents, type SessionState } from './SessionState'
 
 export type HostedTuiSessionMetadata = {

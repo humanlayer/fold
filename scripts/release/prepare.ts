@@ -7,23 +7,45 @@ import { internal, json, libraries, root, stage, targetName, targets } from './m
 const version = parseArgs({ options: { version: { type: 'string' } } }).values.version
 if (!version?.match(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/))
 	throw new Error('A valid --version is required')
-const rootManifest = await json(join(root, 'package.json'))
-const catalog = rootManifest.workspaces.catalog as Record<string, string>
+type DependencyMap = Record<string, string>
+type ExportValue = string | { source: string }
+type PackageManifest = {
+	[key: string]: unknown
+	name?: string
+	version?: string
+	private?: boolean
+	publishConfig?: Record<string, unknown>
+	dependencies?: DependencyMap
+	peerDependencies?: DependencyMap
+	optionalDependencies?: DependencyMap
+	exports: Record<string, ExportValue>
+	bin?: Record<string, string>
+}
+
+const rootManifest = await json<{ workspaces: { catalog: Record<string, string> } }>(join(root, 'package.json'))
+const catalog = rootManifest.workspaces.catalog
 const repository = { type: 'git', url: 'git+https://github.com/humanlayer/fold.git' }
 await rm(stage, { recursive: true, force: true })
 
-function dependencies(manifest: Record<string, any>) {
+function dependencies(manifest: PackageManifest) {
 	for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
-		for (const [name, range] of Object.entries(manifest[field] ?? {})) {
+		const dependencyMap =
+			field === 'dependencies'
+				? manifest.dependencies
+				: field === 'peerDependencies'
+					? manifest.peerDependencies
+					: manifest.optionalDependencies
+		if (dependencyMap === undefined) continue
+		for (const [name, range] of Object.entries(dependencyMap)) {
 			if (range === 'catalog:')
-				manifest[field][name] =
+				dependencyMap[name] =
 					catalog[name] ??
 					(() => {
 						throw new Error(`Missing catalog entry ${name}`)
 					})()
 			if (typeof range === 'string' && range.startsWith('workspace:')) {
-				if (internal.has(name)) delete manifest[field][name]
-				else manifest[field][name] = version
+				if (internal.has(name)) delete dependencyMap[name]
+				else dependencyMap[name] = version
 			}
 		}
 	}
@@ -32,7 +54,7 @@ function dependencies(manifest: Record<string, any>) {
 for (const packageDir of libraries) {
 	const source = join(root, 'packages', packageDir)
 	const dest = join(stage, 'packages', packageDir)
-	const manifest = structuredClone(await json(join(source, 'package.json')))
+	const manifest = structuredClone(await json<PackageManifest>(join(source, 'package.json')))
 	manifest.version = version
 	manifest.private = false
 	manifest.publishConfig = { ...manifest.publishConfig, access: 'public' }
@@ -44,24 +66,19 @@ for (const packageDir of libraries) {
 	dependencies(manifest)
 	const rewrite = (value: string) => value.replace(/^\.\/src\//, './dist/').replace(/\.(tsx?|jsx?)$/, '.js')
 	const dts = (value: string) => rewrite(value).replace(/\.js$/, '.d.ts')
-	for (const [key, value] of Object.entries(manifest.exports as Record<string, any>)) {
+	const firstExport = Object.values(manifest.exports)[0]
+	const mainSource = typeof firstExport === 'string' ? firstExport : (firstExport?.source ?? './src/index.ts')
+	for (const [key, value] of Object.entries(manifest.exports)) {
 		const sourcePath = typeof value === 'string' ? value : value.source
 		manifest.exports[key] = { types: dts(sourcePath), import: rewrite(sourcePath), default: rewrite(sourcePath) }
 	}
-	const mainSource =
-		typeof Object.values((await json(join(source, 'package.json'))).exports)[0] === 'string'
-			? (Object.values((await json(join(source, 'package.json'))).exports)[0] as string)
-			: './src/index.ts'
 	manifest.module = rewrite(mainSource)
 	manifest.types = dts(mainSource)
-	if (manifest.bin)
-		manifest.bin = Object.fromEntries(
-			Object.entries(manifest.bin as Record<string, string>).map(([name, value]) => [name, rewrite(value)]),
-		)
+	if (manifest.bin !== undefined)
+		manifest.bin = Object.fromEntries(Object.entries(manifest.bin).map(([name, value]) => [name, rewrite(value)]))
 	await mkdir(dest, { recursive: true })
 	await cp(join(source, 'dist'), join(dest, 'dist'), { recursive: true })
-	for (const executable of new Set(Object.values((manifest.bin ?? {}) as Record<string, string>)))
-		await chmod(join(dest, executable), 0o755)
+	for (const executable of new Set(Object.values(manifest.bin ?? {}))) await chmod(join(dest, executable), 0o755)
 	for (const file of ['README.md', 'LICENSE', 'NOTICE', 'LICENSE.opencode', 'ATTRIBUTION.md'])
 		if (await Bun.file(join(source, file)).exists()) await cp(join(source, file), join(dest, file))
 	if (!(await Bun.file(join(dest, 'LICENSE')).exists())) await cp(join(root, 'LICENSE'), join(dest, 'LICENSE'))
@@ -82,7 +99,7 @@ for (const target of targets) {
 	)
 	await cp(join(root, 'LICENSE'), join(dest, 'LICENSE'))
 }
-const platform = await json(join(root, 'packages/fold/package.json'))
+const platform = await json<PackageManifest>(join(root, 'packages/fold/package.json'))
 Object.assign(platform, {
 	version,
 	private: false,

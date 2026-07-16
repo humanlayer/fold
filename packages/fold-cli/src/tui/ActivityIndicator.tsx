@@ -11,7 +11,7 @@ const presentation = (state: ActivityState, frame: number): { readonly glyph: st
 			return { glyph: '◆', color: theme.color.grid }
 		case 'running':
 			return {
-				glyph: ['◐', '◓', '◑', '◒'][frame % 4]!,
+				glyph: ['◐', '◓', '◑', '◒'][frame % 4] ?? '◐',
 				color: frame % 2 === 0 ? theme.color.coreBright : theme.color.core,
 			}
 		case 'compacting':

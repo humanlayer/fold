@@ -22,6 +22,13 @@ const configuration = {
 	],
 }
 
+const requirePickerState = (state: ReturnType<typeof advanceModelPicker>): ModelPickerState => {
+	if (state === null) throw new Error('Expected model picker to advance')
+	if (state._tag === 'direct' || (state._tag === 'profile' && 'profile' in state))
+		throw new Error('Expected an intermediate model picker state')
+	return state
+}
+
 describe('new-session launch requests', () => {
 	it('keeps profile and direct selections exclusive and never leaks process selection', () => {
 		const processOptions = {
@@ -76,7 +83,7 @@ describe('model picker state machine', () => {
 	})
 
 	it('stages profile selection without a mode', () => {
-		const profileStage = advanceModelPicker(initialModelPickerState(), 'profile', 'new-session') as ModelPickerState
+		const profileStage = requirePickerState(advanceModelPicker(initialModelPickerState(), 'profile', 'new-session'))
 		expect(modelPickerChoices(configuration, profileStage)[0]?.detail).toContain('profile-pinned rlm')
 		expect(advanceModelPicker(profileStage, 'pinned', 'new-session')).toEqual({
 			_tag: 'profile',
@@ -85,9 +92,9 @@ describe('model picker state machine', () => {
 	})
 
 	it('stages direct model then mode and supports stepwise escape', () => {
-		const provider = advanceModelPicker(initialModelPickerState(), 'direct', 'new-session') as ModelPickerState
-		const model = advanceModelPicker(provider, 'claude-alias', 'new-session') as ModelPickerState
-		const mode = advanceModelPicker(model, 'two', 'new-session') as ModelPickerState
+		const provider = requirePickerState(advanceModelPicker(initialModelPickerState(), 'direct', 'new-session'))
+		const model = requirePickerState(advanceModelPicker(provider, 'claude-alias', 'new-session'))
+		const mode = requirePickerState(advanceModelPicker(model, 'two', 'new-session'))
 
 		expect(mode).toEqual({
 			_tag: 'mode',
