@@ -26,6 +26,16 @@ Trusted publishing cannot create a package. The first version of every package m
     bun run release:publish --version 0.1.0 --tag latest
     ```
 
+    npm may briefly return `404` for a newly created package even though retrying the publish returns `403` because the version already exists. During that registry propagation window, explicitly skip a version you have verified was published:
+
+    ```bash
+    bun run release:publish --version 0.1.0 --tag latest --skip @humanlayer/effect-branded-id
+    ```
+
+    Repeat `--skip PACKAGE_NAME` for multiple verified packages if necessary. Do not skip a package based only on a failed publish; confirm it appears in the npm organization's package access list first.
+
+    After trusted publishing is configured, a partial release can also be resumed from GitHub Actions. Run the `Release` workflow manually with the same version and npm tag, and provide already-published packages as a comma-separated `skip` value. Manual recovery runs publish packages but do not create a GitHub Release; the normal tag-triggered run creates it after publication completes.
+
 3. On npmjs.com, configure a GitHub Actions trusted publisher for every package. Use repository `humanlayer/fold` and workflow filename `release.yml`.
 
 The trusted publisher must be added to all eight library packages (including `@humanlayer/fold-cli`), all twelve `@humanlayer/fold-*` native packages, and `@humanlayer/fold` (21 packages total). Do not specify a GitHub environment because the release job does not use one.
