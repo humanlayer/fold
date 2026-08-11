@@ -118,7 +118,7 @@ it.effect('a fork compacts history including the parent folded range without tou
 	Effect.gen(function* () {
 		// The fork clones the root, so ONE script drives both agents, in strict causal order:
 		// send 1 root turn, send 2 root turn (fork dispatch), fork turn 1 (huge usage), the fork's
-		// summarization call, fork turn 2 (result), then the root's closing turn.
+		// history and split-turn-prefix summarization calls, fork turn 2 (result), then root close.
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
 			textTurn(`parent knows: the launch code is 4242. ${'k'.repeat(120)}`),
 			toolCallTurn([
@@ -130,6 +130,7 @@ it.effect('a fork compacts history including the parent folded range without tou
 			]),
 			toolCallTurn([{ id: 'fork-call-1', name: 'echo', params: { text: 'z'.repeat(100) } }], hugeUsage),
 			textTurn('## Goal\n- fork summary'),
+			textTurn('fork turn prefix summary'),
 			textTurn('fork result ready'),
 			textTurn('root closing words'),
 		])
@@ -166,15 +167,18 @@ it.effect('a fork compacts history including the parent folded range without tou
 		// The fork's summarization saw the folded parent content - it IS part of what gets summarized.
 		const forkSummarize = JSON.stringify(prompts[3])
 		expect(forkSummarize).toContain('launch code is 4242')
+		const forkPrefixSummarize = JSON.stringify(prompts[4])
+		expect(forkPrefixSummarize).toContain('PREFIX of a turn that was too large to keep')
 
 		// The fork's post-compaction request: summary in place, folded parent content gone.
-		const forkFinal = JSON.stringify(prompts[4])
+		const forkFinal = JSON.stringify(prompts[5])
 		expect(forkFinal).toContain('fork summary')
+		expect(forkFinal).toContain('fork turn prefix summary')
 		expect(forkFinal).not.toContain('launch code is 4242')
 
 		// The parent's next request still carries its full own history: the fork's compaction is
 		// agent-scoped, and global seq keeps the two views coherent over one flat log (D21).
-		const rootClosing = JSON.stringify(prompts[5])
+		const rootClosing = JSON.stringify(prompts[6])
 		expect(rootClosing).toContain('launch code is 4242')
 		expect(rootClosing).not.toContain('<conversation-summary>')
 		expect(messagesForAgent(entries, session.rootAgentId).some((m) => m._tag === 'compaction-summary')).toBe(false)

@@ -7,6 +7,8 @@
  * model - subagents therefore summarize with their own model, D21), and returns the durable entry
  * payload. The session facade provides this service session-wide; the loop owns appends.
  */
+import { AnthropicLanguageModel } from '@effect/ai-anthropic'
+import { OpenAiLanguageModel } from '@effect/ai-openai'
 import { Effect, Stream } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 
@@ -17,11 +19,17 @@ import {
 	defaultContextWindowFor,
 	defaultKeepRecentTokens,
 	defaultReserveTokens,
-	findCompactionCut,
+	findCompactionCutPlan,
 	latestReportedContextTokens,
+	maxOutputTokenBudget,
 	serializeConversation,
 } from './CompactionEngine'
-import { buildCompactionRequestText, compactionInstruction, compactionSystemPrompt } from './CompactionPrompts'
+import {
+	buildCompactionRequestText,
+	compactionInstruction,
+	compactionSystemPrompt,
+	turnPrefixCompactionPrompt,
+} from './CompactionPrompts'
 import {
 	CompactionSummarizeError,
 	noopCompaction,
@@ -71,6 +79,8 @@ const conversationOf = (
 /** Build the live Compaction service for one enabled config. */
 export const makeCompactionService = (config: EnabledAutoCompactConfig): CompactionService => {
 	const reserveTokens = config.reserveTokens ?? defaultReserveTokens
+	const summaryOutputFraction = 0.8
+	const turnPrefixOutputFraction = 0.5
 
 	/**
 	 * Resolve the agent's context window: an explicit `autoCompact.contextWindow` always wins, then
@@ -93,6 +103,47 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 					Effect.map((contextWindow) => compactionUsableTokens({ contextWindow, reserveTokens })),
 				)
 
+	const modelOutputLimitFor = (input: CompactionCheckInput): Effect.Effect<number> =>
+		Effect.gen(function* () {
+			const entry = input.model === null ? null : yield* (yield* ModelCatalog).lookup(input.model)
+			return entry !== null && entry.maxOutputTokens > 0 ? entry.maxOutputTokens : maxOutputTokenBudget
+		})
+
+	const summarize = (
+		input: CompactionPlanInput,
+		requestText: string,
+		outputFraction: number,
+	): Effect.Effect<string, CompactionSummarizeError, LanguageModel.LanguageModel> =>
+		Effect.gen(function* () {
+			const modelOutputLimit = yield* modelOutputLimitFor(input)
+			const maxOutputTokens = Math.min(Math.floor(outputFraction * reserveTokens), modelOutputLimit)
+			const languageModel = yield* LanguageModel.LanguageModel
+			const request = Stream.runCollect(
+				languageModel.streamText({
+					prompt: Prompt.fromMessages([
+						Prompt.systemMessage({ content: compactionSystemPrompt }),
+						Prompt.userMessage({ content: [Prompt.textPart({ text: requestText })] }),
+					]),
+				}),
+			).pipe(
+				input.model?.providerKind === 'anthropic'
+					? AnthropicLanguageModel.withConfigOverride({ max_tokens: maxOutputTokens })
+					: OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
+				Effect.mapError((error) => new CompactionSummarizeError({ message: describeSummarizerError(error) })),
+			)
+			const parts = yield* request
+			const summary = parts
+				.flatMap((part) => (part.type === 'text-delta' ? [part.delta] : []))
+				.join('')
+				.trim()
+
+			if (summary.length === 0) {
+				return yield* new CompactionSummarizeError({ message: 'the summarization call produced no text' })
+			}
+
+			return summary
+		})
+
 	const shouldCompact = Effect.fn('fold.compaction.should_compact')((input: CompactionCheckInput) =>
 		Effect.gen(function* () {
 			const visible = entriesForAgent(input.entries, input.agentId)
@@ -112,22 +163,27 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			// Clamp the kept tail to a fraction of the usable budget so a compaction always frees
 			// meaningful space, even under tiny configured windows.
 			const usable = yield* thresholdFor(input)
-			const keepRecentTokens =
-				input.trigger === 'manual'
-					? 1
-					: Math.min(config.keepRecentTokens ?? defaultKeepRecentTokens, Math.max(1, Math.floor(usable / 4)))
+			const keepRecentTokens = Math.min(
+				config.keepRecentTokens ?? defaultKeepRecentTokens,
+				Math.max(1, Math.floor(usable / 4)),
+			)
 
-			const cut = findCompactionCut(conversation, keepRecentTokens)
-			if (cut <= 0) return null
+			const cut = findCompactionCutPlan(conversation, keepRecentTokens)
+			if (cut.firstKeptIndex <= 0) return null
 
-			const toSummarize = conversation.slice(0, cut)
-			const lastReplaced = toSummarize[toSummarize.length - 1]
+			const historyEnd = cut.isSplitTurn ? cut.turnStartIndex : cut.firstKeptIndex
+			const toSummarize = conversation.slice(0, historyEnd)
+			const turnPrefix = cut.isSplitTurn ? conversation.slice(cut.turnStartIndex, cut.firstKeptIndex) : []
+			const discarded = conversation.slice(0, cut.firstKeptIndex)
+			const lastReplaced = discarded[discarded.length - 1]
 			if (lastReplaced === undefined) return null
 
 			yield* Effect.annotateCurrentSpan({
 				trigger: input.trigger,
-				replacedMessages: toSummarize.length,
-				keptMessages: conversation.length - toSummarize.length,
+				replacedMessages: discarded.length,
+				keptMessages: conversation.length - discarded.length,
+				splitTurn: cut.isSplitTurn,
+				summaryCalls: cut.isSplitTurn ? (toSummarize.length > 0 ? 2 : 1) : 1,
 			})
 
 			const requestText = buildCompactionRequestText({
@@ -137,26 +193,21 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			})
 			const prompt = compactionInstruction({ previousSummary, customPrompt: config.compactionPrompt ?? null })
 
-			const languageModel = yield* LanguageModel.LanguageModel
-			const parts = yield* Stream.runCollect(
-				languageModel.streamText({
-					prompt: Prompt.fromMessages([
-						Prompt.systemMessage({ content: compactionSystemPrompt }),
-						Prompt.userMessage({ content: [Prompt.textPart({ text: requestText })] }),
-					]),
-				}),
-			).pipe(
-				Effect.mapError((error) => new CompactionSummarizeError({ message: describeSummarizerError(error) })),
-			)
-
-			const summary = parts
-				.flatMap((part) => (part.type === 'text-delta' ? [part.delta] : []))
-				.join('')
-				.trim()
-
-			if (summary.length === 0) {
-				return yield* new CompactionSummarizeError({ message: 'the summarization call produced no text' })
-			}
+			const historySummary =
+				toSummarize.length > 0
+					? yield* summarize(input, requestText, summaryOutputFraction)
+					: 'No prior history.'
+			const summary = cut.isSplitTurn
+				? `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${yield* summarize(
+						input,
+						buildCompactionRequestText({
+							conversationText: serializeConversation(turnPrefix),
+							previousSummary: null,
+							customPrompt: turnPrefixCompactionPrompt,
+						}),
+						turnPrefixOutputFraction,
+					)}`
+				: historySummary
 
 			const compactionPlan: CompactionPlan = {
 				prompt,

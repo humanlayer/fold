@@ -89,6 +89,22 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`
 
+/** Instruction for separately summarizing the discarded prefix of an oversized recent turn (pi). */
+export const turnPrefixCompactionPrompt = `This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
+
+Summarize the prefix to provide context for the retained suffix:
+
+## Original Request
+[What did the user ask for in this turn?]
+
+## Early Progress
+- [Key decisions and work done in the prefix]
+
+## Context for Suffix
+- [Information needed to understand the retained recent work]
+
+Be concise. Focus on what's needed to understand the kept suffix.`
+
 /** Inputs for assembling the summarizer's one user message. */
 export type CompactionRequestTextInput = {
 	/** The serialized transcript of the messages being replaced. */

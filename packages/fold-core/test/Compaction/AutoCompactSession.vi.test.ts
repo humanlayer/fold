@@ -107,8 +107,9 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 		// and the replaced history serialized inside <conversation>.
 		const summarizeRequest = JSON.stringify(requests[1]?.prompt)
 		expect(requests[1]?.toolNames).toEqual([])
+		expect(requests[1]?.openAiConfig?.max_output_tokens).toBe(8_192)
 		expect(summarizeRequest).toContain('context summarization assistant')
-		expect(summarizeRequest).toContain('structured context checkpoint summary')
+		expect(summarizeRequest).toContain('PREFIX of a turn that was too large to keep')
 		expect(summarizeRequest).toContain('[User]: use echo with the big payload')
 		expect(summarizeRequest).not.toContain('<archive-access>')
 
@@ -147,7 +148,8 @@ it.effect(
 				textTurn('## Goal\n- sky summary'),
 				// Send 2's real answer is long and huge again - send 3 compacts incrementally.
 				textTurn(`answer two. ${'q'.repeat(120)}`, { inputTokens: 7_200 }),
-				textTurn('## Goal\n- combined summary v2'),
+				textTurn('## Goal\n- combined history v2'),
+				textTurn('second turn prefix context'),
 				textTurn('third answer'),
 			])
 
@@ -167,7 +169,7 @@ it.effect(
 			expect(compactions).toHaveLength(2)
 
 			const requests = yield* scripted.requests
-			expect(requests).toHaveLength(5)
+			expect(requests).toHaveLength(6)
 
 			// First summarization: no previous summary - the initial instruction.
 			const firstSummarize = JSON.stringify(requests[1]?.prompt)
@@ -189,8 +191,13 @@ it.effect(
 
 			// Send 3's request: ONLY the newest summary renders (latest compaction wins); the previously
 			// kept-then-summarized messages are gone; the new kept tail and the new message are present.
-			const thirdSend = JSON.stringify(requests[4]?.prompt)
-			expect(thirdSend).toContain('combined summary v2')
+			const secondPrefixSummarize = JSON.stringify(requests[4]?.prompt)
+			expect(secondPrefixSummarize).toContain('second topic please')
+			expect(secondPrefixSummarize).toContain('PREFIX of a turn that was too large to keep')
+
+			const thirdSend = JSON.stringify(requests[5]?.prompt)
+			expect(thirdSend).toContain('combined history v2')
+			expect(thirdSend).toContain('second turn prefix context')
 			expect(thirdSend).not.toContain('sky summary')
 			expect(thirdSend).not.toContain('second topic please')
 			expect(thirdSend).toContain('answer two.')
@@ -272,7 +279,7 @@ it.effect('compaction is off by default and with enabled: false, even under huge
 it.effect('manual facade compaction delegates through the provisioned root runtime', () =>
 	Effect.gen(function* () {
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
-			textTurn('first answer'),
+			textTurn(`first answer ${'x'.repeat(120)}`),
 			textTurn('## Goal\n- manual compaction summary'),
 		])
 		const session = yield* startSession({
@@ -298,6 +305,40 @@ it.effect('manual facade compaction delegates through the provisioned root runti
 	}).pipe(Effect.scoped),
 )
 
+it.effect('split-turn compaction separately summarizes a coherent discarded prefix and keeps its suffix', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-split', name: 'echo', params: { text: 'prefix payload' } }]),
+			textTurn(`kept suffix ${'z'.repeat(160)}`),
+			textTurn('original request and early tool progress'),
+		])
+		const session = yield* startSession({
+			agent: defineAgent({ model, tools: [echoTool], autoCompact: compactConfig }),
+		})
+
+		yield* session.send('perform the oversized multi-message turn')
+		const compacted = yield* session.compact()
+
+		expect(compacted?.summary).toBe(
+			'No prior history.\n\n---\n\n**Turn Context (split turn):**\n\noriginal request and early tool progress',
+		)
+		const requests = yield* scripted.requests
+		expect(requests).toHaveLength(3)
+		const prefixRequest = JSON.stringify(requests[2]?.prompt)
+		expect(prefixRequest).toContain('perform the oversized multi-message turn')
+		expect(prefixRequest).toContain('echo')
+		expect(prefixRequest).toContain('prefix payload')
+		expect(prefixRequest).toContain('PREFIX of a turn that was too large to keep')
+		expect(prefixRequest).not.toContain('[Assistant]: kept suffix')
+		expect(requests[2]?.openAiConfig?.max_output_tokens).toBe(8_192)
+
+		const projected = messagesForAgent(yield* session.entries, session.rootAgentId)
+		expect(projected.map((message) => message._tag)).toEqual(['compaction-summary', 'assistant-message'])
+		expect(JSON.stringify(projected[1])).toContain('kept suffix')
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped),
+)
+
 it.effect('a configured compactionPrompt replaces the default instruction template', () =>
 	Effect.gen(function* () {
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
@@ -314,7 +355,7 @@ it.effect('a configured compactionPrompt replaces the default instruction templa
 		})
 
 		yield* session.send('start topic')
-		const finished = yield* session.send('next topic')
+		const finished = yield* session.send(`next topic ${'n'.repeat(80)}`)
 		const entries = yield* session.entries
 
 		expect(finished.outcome).toBe('completed')
@@ -425,14 +466,14 @@ it.effect('overflow recovery runs once per run: a second overflow becomes the du
 	}).pipe(Effect.scoped),
 )
 
-/** A catalog row for the scripted model; only the context window matters to compaction. */
-const scriptedCatalogEntry = (contextWindow: number): ModelCatalogEntry => ({
+/** A catalog row for the scripted model with deterministic context and output limits. */
+const scriptedCatalogEntry = (contextWindow: number, maxOutputTokens = 32_000): ModelCatalogEntry => ({
 	providerId: 'scripted-openai',
 	modelId: 'gpt-scripted',
 	name: null,
 	contextWindow,
 	maxInputTokens: null,
-	maxOutputTokens: 32_000,
+	maxOutputTokens,
 	reasoning: false,
 	reasoningEfforts: null,
 	vision: false,
@@ -456,7 +497,7 @@ it.effect('a session-provided catalog supplies the compaction context window (no
 				// usable 6250, and hugeUsage reports 7005).
 				autoCompact: { enabled: true, keepRecentTokens: 10 },
 			}),
-			catalog: [scriptedCatalogEntry(10_000)],
+			catalog: [scriptedCatalogEntry(10_000, 4_000)],
 		})
 
 		yield* session.send('catalog topic one anchor')
@@ -468,7 +509,9 @@ it.effect('a session-provided catalog supplies the compaction context window (no
 		expect(compactionEntries(entries)).toHaveLength(1)
 
 		// The compacted request proves the catalog window drove a real cut.
-		const secondSend = JSON.stringify((yield* scripted.requests)[2]?.prompt)
+		const requests = yield* scripted.requests
+		expect(requests[1]?.openAiConfig?.max_output_tokens).toBe(4_000)
+		const secondSend = JSON.stringify(requests[2]?.prompt)
 		expect(secondSend).toContain('catalog-window summary')
 		expect(secondSend).not.toContain('catalog topic one anchor')
 

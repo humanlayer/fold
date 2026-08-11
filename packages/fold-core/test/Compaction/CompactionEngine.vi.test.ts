@@ -13,6 +13,7 @@ import {
 	defaultContextWindowFor,
 	estimateMessageTokens,
 	findCompactionCut,
+	findCompactionCutPlan,
 	isContextOverflowError,
 	latestReportedContextTokens,
 	serializeConversation,
@@ -204,6 +205,24 @@ it('findCompactionCut never lands on a tool-result: the owning assistant stays w
 	const cut = findCompactionCut(messages, 10)
 	expect(cut).toBe(1)
 	expect(messages[cut]?._tag).toBe('assistant-message')
+})
+
+it('findCompactionCutPlan identifies a split turn without splitting a tool call from its result', () => {
+	const messages = [
+		userMessage(1, 'complete one large turn'),
+		assistantToolCall(2, 'echo', { text: 'x'.repeat(100) }),
+		toolResult(3, { echoed: 'x'.repeat(100) }),
+		assistantText(4, 'recent suffix '.repeat(20)),
+	]
+
+	const cut = findCompactionCutPlan(messages, 10)
+
+	expect(cut).toEqual({ firstKeptIndex: 3, turnStartIndex: 0, isSplitTurn: true })
+	expect(messages.slice(cut.turnStartIndex, cut.firstKeptIndex).map((message) => message._tag)).toEqual([
+		'user-message',
+		'assistant-message',
+		'tool-result',
+	])
 })
 
 it('findCompactionCut returns 0 when no coherent cut exists', () => {

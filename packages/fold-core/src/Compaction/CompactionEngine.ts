@@ -156,6 +156,24 @@ export const estimateMessageTokens = (message: ProjectedMessage): number => {
 const isValidCutMessage = (message: ProjectedMessage): boolean =>
 	message._tag === 'user-message' || message._tag === 'assistant-message'
 
+/** The selected compaction boundary, including split-turn context needed by the summarizer. */
+export type CompactionCut = {
+	/** Index of the first message kept verbatim. */
+	readonly firstKeptIndex: number
+	/** Index of the user message opening the split turn, or -1 when the cut is between turns. */
+	readonly turnStartIndex: number
+	/** Whether discarded messages include the prefix of the turn whose suffix is kept. */
+	readonly isSplitTurn: boolean
+}
+
+const turnStartBefore = (messages: ReadonlyArray<ProjectedMessage>, index: number): number => {
+	for (let candidate = index; candidate >= 0; candidate -= 1) {
+		if (messages[candidate]?._tag === 'user-message') return candidate
+	}
+
+	return -1
+}
+
 /**
  * Choose the compaction cut over an agent's conversation messages: walking back from the newest,
  * keep roughly `keepRecentTokens` of recent context verbatim and summarize everything older. The
@@ -164,8 +182,11 @@ const isValidCutMessage = (message: ProjectedMessage): boolean =>
  * produced it - so the cut slides to the nearest user/assistant boundary (preferring to keep more
  * when none exists at or after the budget boundary). Returns 0 when there is nothing to summarize.
  */
-export const findCompactionCut = (messages: ReadonlyArray<ProjectedMessage>, keepRecentTokens: number): number => {
-	if (messages.length === 0) return 0
+export const findCompactionCutPlan = (
+	messages: ReadonlyArray<ProjectedMessage>,
+	keepRecentTokens: number,
+): CompactionCut => {
+	if (messages.length === 0) return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
 
 	let accumulated = 0
 	let boundary = -1
@@ -181,20 +202,40 @@ export const findCompactionCut = (messages: ReadonlyArray<ProjectedMessage>, kee
 	}
 
 	// The whole conversation fits inside the keep budget: nothing old enough to summarize.
-	if (boundary <= 0) return 0
+	if (boundary <= 0) return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
 
 	for (let index = boundary; index < messages.length; index += 1) {
 		const message = messages[index]
-		if (message !== undefined && isValidCutMessage(message)) return index
+		if (message === undefined || !isValidCutMessage(message)) continue
+
+		const isSplitTurn = message._tag !== 'user-message'
+		const turnStartIndex = isSplitTurn ? turnStartBefore(messages, index) : -1
+		return {
+			firstKeptIndex: index,
+			turnStartIndex,
+			isSplitTurn: isSplitTurn && turnStartIndex >= 0,
+		}
 	}
 
 	for (let index = boundary - 1; index > 0; index -= 1) {
 		const message = messages[index]
-		if (message !== undefined && isValidCutMessage(message)) return index
+		if (message === undefined || !isValidCutMessage(message)) continue
+
+		const isSplitTurn = message._tag !== 'user-message'
+		const turnStartIndex = isSplitTurn ? turnStartBefore(messages, index) : -1
+		return {
+			firstKeptIndex: index,
+			turnStartIndex,
+			isSplitTurn: isSplitTurn && turnStartIndex >= 0,
+		}
 	}
 
-	return 0
+	return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
 }
+
+/** Select only the first kept message index for callers that do not need split-turn metadata. */
+export const findCompactionCut = (messages: ReadonlyArray<ProjectedMessage>, keepRecentTokens: number): number =>
+	findCompactionCutPlan(messages, keepRecentTokens).firstKeptIndex
 
 const serializeUserContent = (content: unknown): string =>
 	contentParts(content)
