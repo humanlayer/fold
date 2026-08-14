@@ -24,7 +24,7 @@ const DeviceToken = Schema.Union([Token, Pending])
 const User = Schema.Struct({ id: Schema.String, email: Schema.String })
 const Org = Schema.Struct({ id: Schema.String, name: Schema.String })
 
-export class OpenCodeAuthError extends Schema.TaggedErrorClass<OpenCodeAuthError>()('OpenCodeAuthError', {
+export class OpenCodeAuthError extends Schema.TaggedError<OpenCodeAuthError>()('OpenCodeAuthError', {
 	reason: Schema.Literals(['NotAuthenticated', 'AuthorizationFailed', 'RefreshFailed', 'StoreFailed']),
 	message: Schema.String,
 	cause: Schema.optional(Schema.Defect()),

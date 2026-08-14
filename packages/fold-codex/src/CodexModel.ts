@@ -110,10 +110,11 @@ type ResponseFold = {
  * response, which also carries `generateText`/`generateObject` on the stock provider for free.
  */
 export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
-	const retrySchedule = Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)).pipe(
-		Schedule.either(Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs))),
-		Schedule.jittered,
-		Schedule.take(options.firstEventTimeoutRetries),
+	const retrySchedule = Schedule.min([
+		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
+		Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs)),
+	]).pipe(Schedule.jittered, (schedule) =>
+		Schedule.max([schedule, Schedule.recurs(options.firstEventTimeoutRetries)]),
 	)
 
 	// One request attempt, bounded by the first-event timeout: a request that gets no response at all
@@ -267,15 +268,17 @@ export const makeCodexLanguageModel = (
 		})
 
 		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
+		const providerEffort =
+			reasoning._tag === 'disabled' ? undefined : reasoning.effort === 'max' ? 'high' : reasoning.effort
 
 		return yield* OpenAiLanguageModel.make({
 			model: options.model ?? DEFAULT_CODEX_MODEL_ID,
 			config: {
 				// The ChatGPT backend does no server-side response storage (clanka parity).
 				store: false,
-				...(reasoning._tag === 'disabled'
+				...(reasoning._tag === 'disabled' || providerEffort === undefined
 					? {}
-					: { reasoning: { effort: reasoning.effort, summary: reasoning.summary } }),
+					: { reasoning: { effort: providerEffort, summary: reasoning.summary } }),
 			},
 		}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
 	})

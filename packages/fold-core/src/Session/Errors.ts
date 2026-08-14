@@ -9,15 +9,12 @@ import { Schema } from 'effect'
 import { SessionId } from '../Ids'
 
 /** Raised when `Session.send` is called before `Session.start`. */
-export class SessionNotStartedError extends Schema.TaggedErrorClass<SessionNotStartedError>()(
-	'SessionNotStartedError',
-	{
-		message: Schema.String,
-	},
-) {}
+export class SessionNotStartedError extends Schema.TaggedError<SessionNotStartedError>()('SessionNotStartedError', {
+	message: Schema.String,
+}) {}
 
 /** Raised when `Session.start` is called on a session that has already been started. */
-export class SessionAlreadyStartedError extends Schema.TaggedErrorClass<SessionAlreadyStartedError>()(
+export class SessionAlreadyStartedError extends Schema.TaggedError<SessionAlreadyStartedError>()(
 	'SessionAlreadyStartedError',
 	{
 		message: Schema.String,
@@ -29,7 +26,7 @@ export class SessionAlreadyStartedError extends Schema.TaggedErrorClass<SessionA
  * Raised when `steer` targets an agent that is not currently running (D8). Steering only reaches a live
  * run; to continue a finished agent, use `send(message, { agentId })` instead.
  */
-export class AgentNotRunningError extends Schema.TaggedErrorClass<AgentNotRunningError>()('AgentNotRunningError', {
+export class AgentNotRunningError extends Schema.TaggedError<AgentNotRunningError>()('AgentNotRunningError', {
 	/** The requested target: a full agent id, or the unresolved reference the caller passed. */
 	agentId: Schema.String,
 	message: Schema.String,

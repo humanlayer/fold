@@ -32,7 +32,7 @@ const DEFAULT_TOKEN_EXPIRY_SECONDS = 3600
 const BROWSER_FLOW_TIMEOUT_MS = 5 * 60 * 1000
 
 /** OAuth flow failure. */
-export class CodexAuthError extends Schema.TaggedErrorClass<CodexAuthError>()('CodexAuthError', {
+export class CodexAuthError extends Schema.TaggedError<CodexAuthError>()('CodexAuthError', {
 	reason: Schema.Literals([
 		'NotAuthenticated',
 		'RefreshFailed',
@@ -185,7 +185,7 @@ export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.
 		HttpClient.filterStatusOk,
 		HttpClient.retryTransient({
 			times: 5,
-			schedule: Schedule.exponential(150).pipe(Schedule.either(Schedule.spaced(5000))),
+			schedule: Schedule.min([Schedule.exponential(150), Schedule.spaced(5000)]),
 		}),
 	)
 

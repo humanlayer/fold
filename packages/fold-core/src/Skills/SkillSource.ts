@@ -10,13 +10,13 @@ import { Context, Effect, Schema } from 'effect'
 import { skillDescriptionProblem, skillNameProblem, type Skill, type SkillMeta } from './Schemas'
 
 /** The requested skill is not in the source. Carries the roster so the model can self-correct. */
-export class SkillNotFoundError extends Schema.TaggedErrorClass<SkillNotFoundError>()('SkillNotFoundError', {
+export class SkillNotFoundError extends Schema.TaggedError<SkillNotFoundError>()('SkillNotFoundError', {
 	name: Schema.String,
 	availableSkills: Schema.Array(Schema.String),
 }) {}
 
 /** The skill source itself failed (disk unreadable, malformed data, ...). */
-export class SkillSourceError extends Schema.TaggedErrorClass<SkillSourceError>()('SkillSourceError', {
+export class SkillSourceError extends Schema.TaggedError<SkillSourceError>()('SkillSourceError', {
 	message: Schema.String,
 	cause: Schema.optional(Schema.Defect()),
 }) {}

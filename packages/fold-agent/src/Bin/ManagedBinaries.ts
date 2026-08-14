@@ -39,17 +39,17 @@ const execTimeoutMillis = 60_000
 export const managedBinDir = (foldHome: string): string => join(foldHome, 'bin')
 
 /** A release-asset download failed: network error, HTTP error status, or timeout. */
-export class BinaryDownloadError extends Schema.TaggedErrorClass<BinaryDownloadError>()('BinaryDownloadError', {
+export class BinaryDownloadError extends Schema.TaggedError<BinaryDownloadError>()('BinaryDownloadError', {
 	message: Schema.String,
 }) {}
 
 /** A helper command (`tar`, `unzip`, `<binary> --version`) could not run or exited non-zero. */
-export class BinaryExecError extends Schema.TaggedErrorClass<BinaryExecError>()('BinaryExecError', {
+export class BinaryExecError extends Schema.TaggedError<BinaryExecError>()('BinaryExecError', {
 	message: Schema.String,
 }) {}
 
 /** A downloaded asset failed verification or did not contain the expected binary. */
-export class BinaryInstallError extends Schema.TaggedErrorClass<BinaryInstallError>()('BinaryInstallError', {
+export class BinaryInstallError extends Schema.TaggedError<BinaryInstallError>()('BinaryInstallError', {
 	message: Schema.String,
 }) {}
 

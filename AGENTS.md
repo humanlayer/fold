@@ -5,11 +5,11 @@ Bun monorepo. Packages live in `packages/*` and run TypeScript directly (no buil
 ## Stack
 
 - **Runtime / package manager:** Bun (`bun@1.3.14`)
-- **Framework:** Effect **v4** (`4.0.0-beta.93`)
+- **Framework:** Effect **v4** (`4.0.0-beta.107`)
 - **Testing:** Vitest + `@effect/vitest`
 - **Lint / format:** oxlint + oxfmt (120 col, no semicolons)
-- **Effect editor tooling:** `@effect/language-service` (TS plugin). `tsc` is patched for
-  build-time Effect diagnostics via the `prepare` script (`effect-language-service patch`).
+- **Effect editor tooling:** `@effect/tsgo` with the `@effect/language-service` TS plugin. `tsc` is patched for
+  build-time Effect diagnostics via the `prepare` script (`effect-tsgo patch --typescript`).
 
 ## Commands
 

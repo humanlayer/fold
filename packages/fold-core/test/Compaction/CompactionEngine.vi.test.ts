@@ -75,7 +75,15 @@ const toolResult = (sourceSeq: number, result: unknown): ProjectedMessage => ({
 	messageId: MessageId.create(),
 	message: encodeTool(
 		Prompt.toolMessage({
-			content: [Prompt.toolResultPart({ id: `call-${sourceSeq}`, name: 'echo', isFailure: false, result })],
+			content: [
+				Prompt.toolResultPart({
+					id: `call-${sourceSeq}`,
+					name: 'echo',
+					isFailure: false,
+					result,
+					providerExecuted: false,
+				}),
+			],
 		}),
 	),
 })

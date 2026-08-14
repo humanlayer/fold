@@ -98,7 +98,7 @@ export interface BrandedIdOptions<Name extends string> {
 /**
  * Error thrown when a branded ID fails validation
  */
-export class BrandedIdError extends Schema.TaggedErrorClass<BrandedIdError>()('BrandedIdError', {
+export class BrandedIdError extends Schema.TaggedError<BrandedIdError>()('BrandedIdError', {
 	input: Schema.String,
 	message: Schema.String,
 }) {}

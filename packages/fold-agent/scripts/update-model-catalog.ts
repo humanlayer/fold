@@ -25,7 +25,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url))
 const targetPath = join(scriptDir, '..', 'src', 'Catalog', 'BakedCatalog.ts')
 
 /** The bake could not read, decode, or normalize a usable snapshot. */
-class CatalogBakeError extends Schema.TaggedErrorClass<CatalogBakeError>()('CatalogBakeError', {
+class CatalogBakeError extends Schema.TaggedError<CatalogBakeError>()('CatalogBakeError', {
 	message: Schema.String,
 }) {}
 

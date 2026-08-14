@@ -62,6 +62,7 @@ const toolMessage = (toolCallId: ToolCallId, index: number): ToolMessageEncoded 
 					name: `tool_${index}`,
 					isFailure: false,
 					result: { index },
+					providerExecuted: false,
 				}),
 			],
 		}),

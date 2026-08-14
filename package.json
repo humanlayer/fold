@@ -20,7 +20,7 @@
 		"lint:fix": "oxlint --type-aware --fix",
 		"format": "oxfmt",
 		"format:check": "oxfmt --check",
-		"prepare": "effect-language-service patch"
+		"prepare": "effect-tsgo patch --typescript"
 	},
 	"workspaces": {
 		"packages": [
@@ -32,23 +32,23 @@
 			"@opentui/keymap": "0.4.3",
 			"@opentui/solid": "0.4.3",
 			"solid-js": "1.9.12",
-			"effect": "4.0.0-beta.93",
-			"@effect/ai-openai": "4.0.0-beta.93",
-			"@effect/ai-openai-compat": "4.0.0-beta.93",
-			"@effect/platform-node": "4.0.0-beta.93",
-			"@effect/vitest": "4.0.0-beta.93",
+			"effect": "4.0.0-beta.107",
+			"@effect/ai-openai": "4.0.0-beta.107",
+			"@effect/ai-openai-compat": "4.0.0-beta.107",
+			"@effect/platform-node": "4.0.0-beta.107",
+			"@effect/vitest": "4.0.0-beta.107",
 			"@silvia-odwyer/photon-node": "0.3.4",
 			"yaml": "2.9.0",
 			"vitest": "4.1.9",
 			"@vitest/coverage-v8": "4.1.9",
-			"typescript": "6.0.3",
+			"typescript": "7.0.2",
 			"@types/bun": "1.3.14",
 			"@types/node": "26.1.0",
-			"@effect/ai-anthropic": "4.0.0-beta.93"
+			"@effect/ai-anthropic": "4.0.0-beta.107"
 		}
 	},
 	"devDependencies": {
-		"@effect/language-service": "0.86.2",
+		"@effect/tsgo": "0.36.4",
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",
 		"@vitest/coverage-v8": "catalog:",
@@ -57,8 +57,5 @@
 		"oxlint-tsgolint": "0.24.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
-	},
-	"patchedDependencies": {
-		"@effect/ai-openai@4.0.0-beta.93": "patches/@effect%2Fai-openai@4.0.0-beta.93.patch"
 	}
 }

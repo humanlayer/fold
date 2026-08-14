@@ -34,7 +34,7 @@ export class CodexTokenData extends Schema.Class<CodexTokenData>('fold/CodexToke
 }
 
 /** Auth store persistence failure (reads never fail - they degrade to absent credentials). */
-export class CodexAuthStoreError extends Schema.TaggedErrorClass<CodexAuthStoreError>()('CodexAuthStoreError', {
+export class CodexAuthStoreError extends Schema.TaggedError<CodexAuthStoreError>()('CodexAuthStoreError', {
 	reason: Schema.Literals(['WriteFailed']),
 	message: Schema.String,
 	cause: Schema.optional(Schema.Defect()),

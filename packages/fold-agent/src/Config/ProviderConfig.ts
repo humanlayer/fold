@@ -32,19 +32,19 @@ export type ConfigureProviderInput = {
 }
 
 /** The provider form contained an empty or invalid value. */
-export class ProviderConfigurationValidationError extends Schema.TaggedErrorClass<ProviderConfigurationValidationError>()(
+export class ProviderConfigurationValidationError extends Schema.TaggedError<ProviderConfigurationValidationError>()(
 	'ProviderConfigurationValidationError',
 	{ field: Schema.String, message: Schema.String },
 ) {}
 
 /** The requested provider kind cannot be safely persisted. */
-export class ProviderConfigurationKindError extends Schema.TaggedErrorClass<ProviderConfigurationKindError>()(
+export class ProviderConfigurationKindError extends Schema.TaggedError<ProviderConfigurationKindError>()(
 	'ProviderConfigurationKindError',
 	{ kind: Schema.String, message: Schema.String },
 ) {}
 
 /** The validated config could not be securely persisted. */
-export class ProviderConfigurationWriteError extends Schema.TaggedErrorClass<ProviderConfigurationWriteError>()(
+export class ProviderConfigurationWriteError extends Schema.TaggedError<ProviderConfigurationWriteError>()(
 	'ProviderConfigurationWriteError',
 	{ path: Schema.String, message: Schema.String },
 ) {}

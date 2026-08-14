@@ -65,7 +65,7 @@ import { RPI_HINT_PROMPT } from './Rpi'
 import type { ModeModels } from './Subagents'
 
 /** A `--profile` name that is not defined under the config's `profiles` map. */
-export class UnknownProfileError extends Schema.TaggedErrorClass<UnknownProfileError>()('UnknownProfileError', {
+export class UnknownProfileError extends Schema.TaggedError<UnknownProfileError>()('UnknownProfileError', {
 	profile: Schema.String,
 	available: Schema.Array(Schema.String),
 }) {}
@@ -79,15 +79,12 @@ export type LaunchModelError =
 	| UnknownProfileError
 
 /** No session log exists for the working directory to resume. */
-export class NoSessionToResumeError extends Schema.TaggedErrorClass<NoSessionToResumeError>()(
-	'NoSessionToResumeError',
-	{
-		cwd: Schema.String,
-	},
-) {}
+export class NoSessionToResumeError extends Schema.TaggedError<NoSessionToResumeError>()('NoSessionToResumeError', {
+	cwd: Schema.String,
+}) {}
 
 /** A requested session id does not exist in the current project's session directory. */
-export class SessionToResumeNotFoundError extends Schema.TaggedErrorClass<SessionToResumeNotFoundError>()(
+export class SessionToResumeNotFoundError extends Schema.TaggedError<SessionToResumeNotFoundError>()(
 	'SessionToResumeNotFoundError',
 	{
 		cwd: Schema.String,

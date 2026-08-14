@@ -12,7 +12,7 @@ import { AgentId } from '../Ids'
  * The requested agent type is not in the dispatching agent's roster (unknown to the session, or known
  * but not granted to this dispatcher - the two are deliberately indistinguishable to the caller).
  */
-export class SubagentTypeNotInRosterError extends Schema.TaggedErrorClass<SubagentTypeNotInRosterError>()(
+export class SubagentTypeNotInRosterError extends Schema.TaggedError<SubagentTypeNotInRosterError>()(
 	'SubagentTypeNotInRosterError',
 	{
 		requested: Schema.String,
@@ -26,7 +26,7 @@ export class SubagentTypeNotInRosterError extends Schema.TaggedErrorClass<Subage
  * it, or - when `candidates` is present - a short reference prefix-matched two or more agents and the
  * caller must provide more characters.
  */
-export class SubagentNotFoundError extends Schema.TaggedErrorClass<SubagentNotFoundError>()('SubagentNotFoundError', {
+export class SubagentNotFoundError extends Schema.TaggedError<SubagentNotFoundError>()('SubagentNotFoundError', {
 	/** The raw reference the caller passed (may not even be a well-formed agent id). */
 	requested: Schema.String,
 	/** Set when the reference was ambiguous: the SHORT ids of every agent it matched. */
@@ -34,7 +34,7 @@ export class SubagentNotFoundError extends Schema.TaggedErrorClass<SubagentNotFo
 }) {}
 
 /** The agent is currently running (or is a running ancestor) and cannot be resumed concurrently. */
-export class SubagentBusyError extends Schema.TaggedErrorClass<SubagentBusyError>()('SubagentBusyError', {
+export class SubagentBusyError extends Schema.TaggedError<SubagentBusyError>()('SubagentBusyError', {
 	agentId: AgentId,
 }) {}
 
@@ -42,7 +42,7 @@ export class SubagentBusyError extends Schema.TaggedErrorClass<SubagentBusyError
  * The subagent tool's wire parameters did not parse into exactly one command (dispatch by `agent`,
  * resume by `agent_id`, or `fork`). Carries the instructive, model-facing explanation.
  */
-export class InvalidSubagentCommandError extends Schema.TaggedErrorClass<InvalidSubagentCommandError>()(
+export class InvalidSubagentCommandError extends Schema.TaggedError<InvalidSubagentCommandError>()(
 	'InvalidSubagentCommandError',
 	{
 		message: Schema.String,

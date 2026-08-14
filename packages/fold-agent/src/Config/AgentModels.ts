@@ -23,7 +23,7 @@ import { Effect, Redacted, Schema } from 'effect'
 import { ConfigRole, type ProviderConnection, type RoleBinding, type FoldConfig } from './ConfigSchema'
 
 /** A role could not be resolved to a runnable model (missing credential env var). */
-export class RoleResolutionError extends Schema.TaggedErrorClass<RoleResolutionError>()('RoleResolutionError', {
+export class RoleResolutionError extends Schema.TaggedError<RoleResolutionError>()('RoleResolutionError', {
 	role: ConfigRole,
 	message: Schema.String,
 }) {}

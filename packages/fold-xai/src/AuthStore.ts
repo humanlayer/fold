@@ -34,7 +34,7 @@ export class XaiTokenData extends Schema.Class<XaiTokenData>('fold/XaiTokenData'
 }
 
 /** Auth store persistence failure (reads never fail - they degrade to absent credentials). */
-export class XaiAuthStoreError extends Schema.TaggedErrorClass<XaiAuthStoreError>()('XaiAuthStoreError', {
+export class XaiAuthStoreError extends Schema.TaggedError<XaiAuthStoreError>()('XaiAuthStoreError', {
 	reason: Schema.Literals(['WriteFailed']),
 	message: Schema.String,
 	cause: Schema.optional(Schema.Defect()),

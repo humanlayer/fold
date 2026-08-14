@@ -18,19 +18,18 @@ import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { FoldConfig } from './ConfigSchema'
 
 /** The config file could not be found at the resolved path. */
-export class ConfigFileNotFoundError extends Schema.TaggedErrorClass<ConfigFileNotFoundError>()(
-	'ConfigFileNotFoundError',
-	{ path: Schema.String },
-) {}
+export class ConfigFileNotFoundError extends Schema.TaggedError<ConfigFileNotFoundError>()('ConfigFileNotFoundError', {
+	path: Schema.String,
+}) {}
 
 /** The config file is not valid JSONC (comment/brace/JSON syntax error). */
-export class ConfigParseError extends Schema.TaggedErrorClass<ConfigParseError>()('ConfigParseError', {
+export class ConfigParseError extends Schema.TaggedError<ConfigParseError>()('ConfigParseError', {
 	path: Schema.NullOr(Schema.String),
 	message: Schema.String,
 }) {}
 
 /** The config parsed as JSON but does not match the `FoldConfig` schema. */
-export class ConfigDecodeError extends Schema.TaggedErrorClass<ConfigDecodeError>()('ConfigDecodeError', {
+export class ConfigDecodeError extends Schema.TaggedError<ConfigDecodeError>()('ConfigDecodeError', {
 	path: Schema.NullOr(Schema.String),
 	message: Schema.String,
 }) {}

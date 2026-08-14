@@ -45,8 +45,8 @@ import type { TuiOptions } from './TuiSessionOptions'
 import { makeTuiSessionWorkspace, type TuiInitialSessionError } from './TuiSessionWorkspace'
 import { markChangeViewed } from './ViewedChanges'
 
-export class TuiRequiresTtyError extends Schema.TaggedErrorClass<TuiRequiresTtyError>()('TuiRequiresTtyError', {}) {}
-export class TuiRendererError extends Schema.TaggedErrorClass<TuiRendererError>()('TuiRendererError', {
+export class TuiRequiresTtyError extends Schema.TaggedError<TuiRequiresTtyError>()('TuiRequiresTtyError', {}) {}
+export class TuiRendererError extends Schema.TaggedError<TuiRendererError>()('TuiRendererError', {
 	message: Schema.String,
 }) {}
 export type { TuiOptions } from './TuiSessionOptions'

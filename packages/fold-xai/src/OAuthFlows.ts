@@ -21,7 +21,7 @@ const DEFAULT_DEVICE_EXPIRY_SECONDS = 300
 const DEFAULT_POLL_SECONDS = 5
 const POLL_MARGIN_MS = 3000
 
-export class XaiAuthError extends Schema.TaggedErrorClass<XaiAuthError>()('XaiAuthError', {
+export class XaiAuthError extends Schema.TaggedError<XaiAuthError>()('XaiAuthError', {
 	reason: Schema.Literals([
 		'NotAuthenticated',
 		'RefreshFailed',
@@ -76,7 +76,7 @@ export const makeXaiIssuerClient = (client: HttpClient.HttpClient): HttpClient.H
 		HttpClient.filterStatusOk,
 		HttpClient.retryTransient({
 			times: 5,
-			schedule: Schedule.exponential(150).pipe(Schedule.either(Schedule.spaced(5000))),
+			schedule: Schedule.min([Schedule.exponential(150), Schedule.spaced(5000)]),
 		}),
 	)
 

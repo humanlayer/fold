@@ -7,7 +7,7 @@ export const EventLogOperation = Schema.Literals(['append', 'entries', 'subscrib
 export type EventLogOperation = typeof EventLogOperation.Type
 
 /** Append input failed schema validation or violated a log invariant. */
-export class EventLogInvalidEntryError extends Schema.TaggedErrorClass<EventLogInvalidEntryError>()(
+export class EventLogInvalidEntryError extends Schema.TaggedError<EventLogInvalidEntryError>()(
 	'EventLogInvalidEntryError',
 	{
 		operation: EventLogOperation,
@@ -17,7 +17,7 @@ export class EventLogInvalidEntryError extends Schema.TaggedErrorClass<EventLogI
 ) {}
 
 /** The backing log store could not be read, written, or subscribed to. */
-export class EventLogUnavailableError extends Schema.TaggedErrorClass<EventLogUnavailableError>()(
+export class EventLogUnavailableError extends Schema.TaggedError<EventLogUnavailableError>()(
 	'EventLogUnavailableError',
 	{
 		operation: EventLogOperation,
@@ -28,7 +28,7 @@ export class EventLogUnavailableError extends Schema.TaggedErrorClass<EventLogUn
 ) {}
 
 /** Persisted log data could not be decoded or is internally inconsistent. */
-export class EventLogCorruptEntryError extends Schema.TaggedErrorClass<EventLogCorruptEntryError>()(
+export class EventLogCorruptEntryError extends Schema.TaggedError<EventLogCorruptEntryError>()(
 	'EventLogCorruptEntryError',
 	{
 		operation: EventLogOperation,

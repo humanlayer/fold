@@ -23,7 +23,7 @@ export const foldPartOptionsKey = 'fold'
 export const providerToolCallIdKey = 'providerToolCallId'
 
 /** A projected message could not be decoded into a live Prompt message. */
-export class PromptDecodeError extends Schema.TaggedErrorClass<PromptDecodeError>()('PromptDecodeError', {
+export class PromptDecodeError extends Schema.TaggedError<PromptDecodeError>()('PromptDecodeError', {
 	sourceSeq: Schema.Number,
 	entryTag: Schema.String,
 	message: Schema.String,

@@ -33,12 +33,12 @@ export const defaultCatalogTtlMs = 24 * 60 * 60 * 1000
 const fetchTimeoutMillis = 10_000
 
 /** The models.dev fetch failed: network error, HTTP error status, non-JSON body, or timeout. */
-export class CatalogFetchError extends Schema.TaggedErrorClass<CatalogFetchError>()('CatalogFetchError', {
+export class CatalogFetchError extends Schema.TaggedError<CatalogFetchError>()('CatalogFetchError', {
 	message: Schema.String,
 }) {}
 
 /** The cache file exists but is not valid JSON. */
-class CatalogCacheParseError extends Schema.TaggedErrorClass<CatalogCacheParseError>()('CatalogCacheParseError', {
+class CatalogCacheParseError extends Schema.TaggedError<CatalogCacheParseError>()('CatalogCacheParseError', {
 	message: Schema.String,
 }) {}
 
