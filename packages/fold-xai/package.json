@@ -15,14 +15,19 @@
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
+		"@humanlayer/fold-core": "workspace:*"
+	},
+	"peerDependencies": {
 		"@effect/ai-openai": "catalog:",
 		"@effect/platform-node": "catalog:",
-		"@humanlayer/fold-core": "workspace:*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@effect/ai-openai": "catalog:",
+		"@effect/platform-node": "catalog:",
 		"@effect/vitest": "catalog:",
 		"@humanlayer/fold-vitest-config": "workspace:*",
+		"effect": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

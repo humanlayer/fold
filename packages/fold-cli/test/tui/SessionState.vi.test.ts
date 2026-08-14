@@ -1,4 +1,4 @@
-import { AgentId, LogEntry, type FoldEvent } from '@humanlayer/fold-core'
+import { AgentId, EventId, LogEntry, type FoldEvent } from '@humanlayer/fold-core'
 import { Schema } from 'effect'
 import { describe, expect, it } from 'vitest'
 
@@ -13,7 +13,8 @@ import {
 const rootAgentId = Schema.decodeUnknownSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
 const childAgentId = Schema.decodeUnknownSync(AgentId)('agent_bbbbbbbbbbbbbbbbbbbbbbbb')
 
-const entry = (input: unknown) => Schema.decodeUnknownSync(LogEntry)(input)
+const entry = (input: Record<string, unknown>) =>
+	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create() })
 const assistant = (seq: number, agentId = rootAgentId) =>
 	entry({
 		_tag: 'assistant-message',

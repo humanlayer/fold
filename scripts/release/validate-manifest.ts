@@ -25,6 +25,17 @@ for (const path of manifests) {
 		throw new Error(`${manifest.name} is ${manifest.version}, expected ${expectedVersion}`)
 	if (manifest.private) throw new Error(`${manifest.name} is private`)
 	if (manifest.publishConfig?.access !== 'public') throw new Error(`${manifest.name} is not public`)
+	for (const name of new Set([
+		...Object.keys(manifest.dependencies ?? {}),
+		...Object.keys(manifest.peerDependencies ?? {}),
+		...Object.keys(manifest.optionalDependencies ?? {}),
+	])) {
+		if (name !== 'effect' && !name.startsWith('@effect/')) continue
+		if (manifest.dependencies?.[name] !== undefined)
+			throw new Error(`${manifest.name} must publish ${name} as a peer dependency`)
+		if (manifest.peerDependencies?.[name] === undefined)
+			throw new Error(`${manifest.name} must declare ${name} as a peer dependency`)
+	}
 	for (const dependencies of [manifest.dependencies, manifest.peerDependencies, manifest.optionalDependencies]) {
 		for (const [name, range] of Object.entries(dependencies ?? {})) {
 			if (String(range).includes('workspace:') || range === 'catalog:')

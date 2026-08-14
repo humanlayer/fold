@@ -15,12 +15,15 @@
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
-		"@paralleldrive/cuid2": "3.3.0",
+		"@paralleldrive/cuid2": "3.3.0"
+	},
+	"peerDependencies": {
 		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@effect/vitest": "catalog:",
 		"@humanlayer/fold-vitest-config": "workspace:*",
+		"effect": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

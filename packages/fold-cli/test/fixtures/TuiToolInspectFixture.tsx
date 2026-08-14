@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { AgentId, LogEntry } from '@humanlayer/fold-core'
+import { AgentId, EventId, LogEntry } from '@humanlayer/fold-core'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { Schema } from 'effect'
@@ -8,6 +8,8 @@ import { TuiApp } from '../../src/tui/App'
 import { makeSessionStateFromEntries } from '../../src/tui/SessionState'
 
 const rootAgentId = Schema.decodeUnknownSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+const entry = (input: Record<string, unknown>) =>
+	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create() })
 const resultMessageIds = [
 	'msg_bbbbbbbbbbbbbbbbbbbbbbbb',
 	'msg_cccccccccccccccccccccccc',
@@ -71,7 +73,7 @@ const calls = [
 ] as const
 
 const entries = [
-	Schema.decodeUnknownSync(LogEntry)({
+	entry({
 		_tag: 'assistant-message',
 		seq: 1,
 		ts: 1,
@@ -95,7 +97,7 @@ const entries = [
 		finish: null,
 	}),
 	...calls.map((call, index) =>
-		Schema.decodeUnknownSync(LogEntry)({
+		entry({
 			_tag: 'tool-result',
 			seq: index + 2,
 			ts: index + 2,

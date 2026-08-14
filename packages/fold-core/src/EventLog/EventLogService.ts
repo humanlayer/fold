@@ -6,7 +6,7 @@ import type { LogEntry, LogEntryInput, LogSeq } from './Schemas.ts'
 
 /** Public EventLog service surface for a single fold session log. */
 export type EventLogService = {
-	/** Append an input entry, assigning the canonical seq and timestamp. */
+	/** Append an input entry, assigning its canonical sequence, event ID, and timestamp. */
 	readonly append: (entry: LogEntryInput) => Effect.Effect<LogEntry, EventLogError>
 
 	/** Replay stored entries from `fromSeq` and then complete. */

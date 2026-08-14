@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { AgentId, LogEntry } from '@humanlayer/fold-core'
+import { AgentId, EventId, LogEntry } from '@humanlayer/fold-core'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { Schema } from 'effect'
@@ -8,7 +8,8 @@ import { TuiApp } from '../../src/tui/App'
 import { makeSessionStateFromEntries } from '../../src/tui/SessionState'
 
 const rootAgentId = Schema.decodeUnknownSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
-const entry = (input: unknown) => Schema.decodeUnknownSync(LogEntry)(input)
+const entry = (input: Record<string, unknown>) =>
+	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create() })
 const entries = [
 	entry({
 		_tag: 'user-message',

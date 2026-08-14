@@ -19,6 +19,7 @@ import {
 	serializeConversation,
 	AgentId,
 	CompactionId,
+	EventId,
 	MessageId,
 	ToolCallId,
 	type AssistantMessageLogEntry,
@@ -93,6 +94,7 @@ const toolResult = (sourceSeq: number, result: unknown): ProjectedMessage => ({
 const assistantEntry = (seq: number, finishUsage: UsageEncoded | null): AssistantMessageLogEntry => ({
 	_tag: 'assistant-message',
 	seq,
+	eventId: EventId.create(),
 	ts: 0,
 	agentId,
 	parentAgentId: null,
@@ -105,6 +107,7 @@ const assistantEntry = (seq: number, finishUsage: UsageEncoded | null): Assistan
 const compactionEntry = (seq: number, replacesThroughSeq: number): CompactionLogEntry => ({
 	_tag: 'compaction',
 	seq,
+	eventId: EventId.create(),
 	ts: 0,
 	agentId,
 	parentAgentId: null,
