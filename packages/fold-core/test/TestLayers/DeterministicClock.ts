@@ -20,6 +20,8 @@ export const layerDeterministicClock = (options: DeterministicClockOptions = {})
 			currentTimeMillisUnsafe: nextMillis,
 			currentTimeNanos: Effect.sync(() => BigInt(nextMillis()) * 1_000_000n),
 			currentTimeNanosUnsafe: () => BigInt(nextMillis()) * 1_000_000n,
+			monotonicTimeNanos: Effect.sync(() => BigInt(nextMillis()) * 1_000_000n),
+			monotonicTimeNanosUnsafe: () => BigInt(nextMillis()) * 1_000_000n,
 			sleep: () => Effect.void,
 		}
 	})

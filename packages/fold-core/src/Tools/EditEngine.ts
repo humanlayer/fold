@@ -15,7 +15,7 @@ export type EditPair = {
 }
 
 /** A model-visible edit failure. `message` strings are pi's, verbatim. */
-export class EditEngineError extends Schema.TaggedErrorClass<EditEngineError>()('EditEngineError', {
+export class EditEngineError extends Schema.TaggedError<EditEngineError>()('EditEngineError', {
 	message: Schema.String,
 }) {}
 

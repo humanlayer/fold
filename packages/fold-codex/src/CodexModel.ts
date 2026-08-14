@@ -110,10 +110,12 @@ type ResponseFold = {
  * response, which also carries `generateText`/`generateObject` on the stock provider for free.
  */
 export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
-	const retrySchedule = Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)).pipe(
-		Schedule.either(Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs))),
-		Schedule.jittered,
-		Schedule.take(options.firstEventTimeoutRetries),
+	// `min` caps the infinite exponential delay; `max` intersects it with the finite retry counter.
+	const retrySchedule = Schedule.min([
+		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
+		Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs)),
+	]).pipe(Schedule.jittered, (schedule) =>
+		Schedule.max([schedule, Schedule.recurs(options.firstEventTimeoutRetries)]),
 	)
 
 	// One request attempt, bounded by the first-event timeout: a request that gets no response at all

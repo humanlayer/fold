@@ -73,7 +73,7 @@ export type CompactionPlan = {
 }
 
 /** The summarization call failed; the loop records a durable error note and continues uncompacted. */
-export class CompactionSummarizeError extends Schema.TaggedErrorClass<CompactionSummarizeError>()(
+export class CompactionSummarizeError extends Schema.TaggedError<CompactionSummarizeError>()(
 	'CompactionSummarizeError',
 	{
 		message: Schema.String,

@@ -45,7 +45,7 @@ const decodeSessionId = Schema.decodeUnknownOption(SessionId)
 export const RESUME_LATEST = 'latest'
 
 /** The user supplied a malformed `sess_*` value to `--resume`. */
-export class InvalidSessionIdError extends Schema.TaggedErrorClass<InvalidSessionIdError>()('InvalidSessionIdError', {
+export class InvalidSessionIdError extends Schema.TaggedError<InvalidSessionIdError>()('InvalidSessionIdError', {
 	value: Schema.String,
 }) {}
 
@@ -916,6 +916,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			MissingArgument: (error) => printFailure(error.message),
 			InvalidValue: (error) => printFailure(error.message),
 			UnknownSubcommand: (error) => printFailure(error.message),
+			UnexpectedArgument: (error) => printFailure(error.message),
 			UserError: (error) => printFailure(error.message),
 			ShowHelp: (error) =>
 				Effect.sync(() => {

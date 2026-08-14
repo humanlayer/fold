@@ -9,24 +9,21 @@
 import { Effect, Schema } from 'effect'
 
 /** The patch text could not be parsed into file operations. */
-export class PatchParseError extends Schema.TaggedErrorClass<PatchParseError>()('PatchParseError', {
+export class PatchParseError extends Schema.TaggedError<PatchParseError>()('PatchParseError', {
 	message: Schema.String,
 }) {}
 
 /** A hunk's context or expected lines were not found in the target file. */
-export class HunkNotFoundError extends Schema.TaggedErrorClass<HunkNotFoundError>()('HunkNotFoundError', {
+export class HunkNotFoundError extends Schema.TaggedError<HunkNotFoundError>()('HunkNotFoundError', {
 	message: Schema.String,
 	path: Schema.String,
 }) {}
 
 /** An update/delete referenced a file the caller could not supply. */
-export class PatchFileNotFoundError extends Schema.TaggedErrorClass<PatchFileNotFoundError>()(
-	'PatchFileNotFoundError',
-	{
-		message: Schema.String,
-		path: Schema.String,
-	},
-) {}
+export class PatchFileNotFoundError extends Schema.TaggedError<PatchFileNotFoundError>()('PatchFileNotFoundError', {
+	message: Schema.String,
+	path: Schema.String,
+}) {}
 
 /** Everything patch application can fail with after parsing. */
 export type PatchApplyError = HunkNotFoundError | PatchFileNotFoundError

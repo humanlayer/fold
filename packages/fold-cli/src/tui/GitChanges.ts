@@ -25,7 +25,7 @@ export type GitSnapshot =
 	| { readonly _tag: 'not-git'; readonly message: string }
 	| { readonly _tag: 'error'; readonly message: string }
 
-export class GitSnapshotError extends Schema.TaggedErrorClass<GitSnapshotError>()('GitSnapshotError', {
+export class GitSnapshotError extends Schema.TaggedError<GitSnapshotError>()('GitSnapshotError', {
 	message: Schema.String,
 }) {}
 

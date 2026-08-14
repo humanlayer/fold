@@ -21,7 +21,7 @@ const targetPath = join(scriptDir, '..', 'src', 'Bin', 'BinaryChecksums.ts')
 const downloadTimeoutMillis = 180_000
 
 /** One pinned asset could not be downloaded, so its digest cannot be regenerated. */
-class ChecksumBakeError extends Schema.TaggedErrorClass<ChecksumBakeError>()('ChecksumBakeError', {
+class ChecksumBakeError extends Schema.TaggedError<ChecksumBakeError>()('ChecksumBakeError', {
 	message: Schema.String,
 }) {}
 

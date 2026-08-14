@@ -95,6 +95,7 @@ const encodedToolResultMessage = (input: {
 						name: input.toolName,
 						result: input.result,
 						isFailure: input.isFailure,
+						providerExecuted: false,
 					}),
 				],
 			}),

@@ -29,13 +29,10 @@ export class OpenCodeTokenData extends Schema.Class<OpenCodeTokenData>('fold/Ope
 	}
 }
 
-export class OpenCodeAuthStoreError extends Schema.TaggedErrorClass<OpenCodeAuthStoreError>()(
-	'OpenCodeAuthStoreError',
-	{
-		message: Schema.String,
-		cause: Schema.optional(Schema.Defect()),
-	},
-) {}
+export class OpenCodeAuthStoreError extends Schema.TaggedError<OpenCodeAuthStoreError>()('OpenCodeAuthStoreError', {
+	message: Schema.String,
+	cause: Schema.optional(Schema.Defect()),
+}) {}
 
 export type OpenCodeAuthStore = {
 	readonly path: string

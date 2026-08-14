@@ -22,7 +22,7 @@ export class OutputStoreRef extends Schema.Class<OutputStoreRef>('fold-agent/Out
 }) {}
 
 /** File-backed OutputStore operation failure. */
-export class OutputStoreError extends Schema.TaggedErrorClass<OutputStoreError>()('OutputStoreError', {
+export class OutputStoreError extends Schema.TaggedError<OutputStoreError>()('OutputStoreError', {
 	operation: Schema.Literals(['prepare', 'append', 'read']),
 	path: Schema.String,
 	message: Schema.String,

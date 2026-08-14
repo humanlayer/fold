@@ -57,7 +57,7 @@ export const ModelsDevModel = Schema.Struct({
 export type ModelsDevModel = typeof ModelsDevModel.Type
 
 /** The models.dev payload is not a provider map at all (wrong endpoint, HTML error page, ...). */
-export class ModelsDevDecodeError extends Schema.TaggedErrorClass<ModelsDevDecodeError>()('ModelsDevDecodeError', {
+export class ModelsDevDecodeError extends Schema.TaggedError<ModelsDevDecodeError>()('ModelsDevDecodeError', {
 	message: Schema.String,
 }) {}
 

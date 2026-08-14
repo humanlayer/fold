@@ -768,6 +768,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 									name: 'skill',
 									result: { content },
 									isFailure: false,
+									providerExecuted: false,
 								}),
 							],
 						}),

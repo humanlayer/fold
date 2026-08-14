@@ -32,7 +32,7 @@ const DEFAULT_TOKEN_EXPIRY_SECONDS = 3600
 const BROWSER_FLOW_TIMEOUT_MS = 5 * 60 * 1000
 
 /** OAuth flow failure. */
-export class CodexAuthError extends Schema.TaggedErrorClass<CodexAuthError>()('CodexAuthError', {
+export class CodexAuthError extends Schema.TaggedError<CodexAuthError>()('CodexAuthError', {
 	reason: Schema.Literals([
 		'NotAuthenticated',
 		'RefreshFailed',
@@ -177,7 +177,7 @@ export const preserveAccountId = (token: CodexTokenData, fallback: string | unde
 
 /**
  * The HttpClient every auth request goes through: issuer-relative URLs, non-2xx as errors, transient
- * failures retried (clanka's schedule - exponential from 150ms capped by a 5s spacing, 5 attempts).
+ * failures retried (clanka's schedule - exponential from 150ms capped at 5s, 5 retries / 6 attempts).
  */
 export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
 	client.pipe(
@@ -185,7 +185,8 @@ export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.
 		HttpClient.filterStatusOk,
 		HttpClient.retryTransient({
 			times: 5,
-			schedule: Schedule.exponential(150).pipe(Schedule.either(Schedule.spaced(5000))),
+			// `min` preserves the removed `either` behavior: use whichever infinite schedule wakes sooner.
+			schedule: Schedule.min([Schedule.exponential(150), Schedule.spaced(5000)]),
 		}),
 	)
 
