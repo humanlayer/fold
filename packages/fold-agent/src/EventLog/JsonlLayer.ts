@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { dirname } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
@@ -7,7 +6,6 @@ import {
 	EventLogCorruptEntryError,
 	EventLogInvalidEntryError,
 	EventLogUnavailableError,
-	EventId,
 	LogEntry as LogEntrySchema,
 	makeStoredLogEntry,
 	type EventLogError,
@@ -19,14 +17,9 @@ import {
 import { Effect, FileSystem, Layer, PubSub, Ref, Schema, Semaphore, Stream, type PlatformError } from 'effect'
 
 const textEncoder = new TextEncoder()
-const StoredLogEntryRecord = Schema.Record(Schema.String, Schema.Unknown)
 
 const entriesFrom = (entries: ReadonlyArray<LogEntry>, fromSeq: LogSeq) =>
 	entries.filter((entry) => entry.seq >= fromSeq)
-
-/** Stable per-log identity for a v1 JSONL row written before event IDs existed. */
-const eventIdForLegacyEntry = (sessionId: string, seq: LogSeq) =>
-	EventId.make(`event_${createHash('sha256').update(`${sessionId}:${seq}`).digest('hex').slice(0, 24)}`)
 
 const unavailableError = (
 	operation: 'append' | 'entries',
@@ -63,11 +56,7 @@ const jsonlLines = (contents: string): ReadonlyArray<string> => {
 	return contents.split('\n')
 }
 
-const decodeJsonlLine = (
-	line: string,
-	lineNumber: number,
-	legacySessionId: string | undefined,
-): Effect.Effect<LogEntry, EventLogCorruptEntryError> =>
+const decodeJsonlLine = (line: string, lineNumber: number): Effect.Effect<LogEntry, EventLogCorruptEntryError> =>
 	Effect.gen(function* () {
 		if (line.length === 0) {
 			return yield* corruptEntryError(lineNumber, `Empty JSONL line at line ${lineNumber}`)
@@ -77,34 +66,12 @@ const decodeJsonlLine = (
 			try: (): unknown => JSON.parse(line),
 			catch: (cause) => corruptEntryError(lineNumber, `Invalid JSON at line ${lineNumber}`, cause),
 		})
-		const record = yield* Schema.decodeUnknownEffect(StoredLogEntryRecord)(parsed).pipe(
+		const entry = yield* Schema.decodeUnknownEffect(LogEntrySchema)(parsed).pipe(
 			Effect.mapError((cause) =>
 				corruptEntryError(lineNumber, `Invalid EventLog entry at line ${lineNumber}`, cause),
 			),
 		)
 		const expectedSeq = lineNumber - 1
-		const hasEventId = Object.hasOwn(record, 'eventId')
-		const sessionId = legacySessionId ?? (typeof record.sessionId === 'string' ? record.sessionId : undefined)
-		let eventId: unknown
-		if (hasEventId) {
-			eventId = record.eventId
-		} else {
-			if (sessionId === undefined) {
-				return yield* corruptEntryError(
-					lineNumber,
-					'Missing eventId on an EventLog entry without a session identity for legacy migration',
-				)
-			}
-			eventId = eventIdForLegacyEntry(sessionId, expectedSeq)
-		}
-		const entry = yield* Schema.decodeUnknownEffect(LogEntrySchema)({
-			...record,
-			eventId,
-		}).pipe(
-			Effect.mapError((cause) =>
-				corruptEntryError(lineNumber, `Invalid EventLog entry at line ${lineNumber}`, cause),
-			),
-		)
 
 		if (entry.seq !== expectedSeq) {
 			return yield* corruptEntryError(
@@ -119,18 +86,7 @@ const decodeJsonlLine = (
 	})
 
 const decodeJsonl = (contents: string): Effect.Effect<ReadonlyArray<LogEntry>, EventLogCorruptEntryError> =>
-	Effect.gen(function* () {
-		let sessionId: string | undefined
-		const entries: Array<LogEntry> = []
-
-		for (const [index, line] of jsonlLines(contents).entries()) {
-			const entry = yield* decodeJsonlLine(line, index + 1, sessionId)
-			if (entry._tag === 'session_started') sessionId = entry.sessionId
-			entries.push(entry)
-		}
-
-		return entries
-	})
+	Effect.forEach(jsonlLines(contents), (line, index) => decodeJsonlLine(line, index + 1), { concurrency: 1 })
 
 const encodeJsonlLine = (entry: LogEntry): Effect.Effect<string, EventLogInvalidEntryError> =>
 	Effect.gen(function* () {

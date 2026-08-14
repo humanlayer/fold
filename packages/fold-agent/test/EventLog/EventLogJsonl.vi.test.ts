@@ -113,16 +113,16 @@ it.effect('jsonl layer maps invalid persisted lines to EventLogCorruptEntryError
 	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('jsonl layer rejects invalid persisted event IDs', () =>
+it.effect('jsonl layer requires valid persisted CUID event IDs', () =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
 			const dir = yield* fs.makeTempDirectoryScoped({ prefix: 'fold-event-log-' })
-			const filePath = join(dir, 'invalid-event-id.jsonl')
+			const filePath = join(dir, 'missing-event-id.jsonl')
 
 			yield* fs.writeFileString(
 				filePath,
-				`${JSON.stringify({ ...makeSessionStarted('/tmp/invalid-event-id'), seq: 0, eventId: null, ts: 1 })}\n`,
+				`${JSON.stringify({ ...makeSessionStarted('/tmp/missing-event-id'), seq: 0, ts: 1 })}\n`,
 			)
 
 			const error = yield* Effect.gen(function* () {
@@ -131,57 +131,6 @@ it.effect('jsonl layer rejects invalid persisted event IDs', () =>
 			}).pipe(Effect.provide(layerJsonl(filePath)), Effect.flip)
 
 			expect(error).toBeInstanceOf(EventLogCorruptEntryError)
-		}),
-	).pipe(Effect.provide(NodeFileSystem.layer)),
-)
-
-it.effect('jsonl layer assigns stable event IDs when replaying legacy rows', () =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const fs = yield* FileSystem.FileSystem
-			const dir = yield* fs.makeTempDirectoryScoped({ prefix: 'fold-event-log-' })
-			const filePath = join(dir, 'legacy.jsonl')
-			const legacyEntry = {
-				_tag: 'session_started',
-				seq: 0,
-				ts: 1,
-				agentId: null,
-				parentAgentId: null,
-				toolCallId: null,
-				version: 1,
-				cwd: '/tmp/legacy',
-				sessionId: SessionId.create(),
-				rootAgentId: AgentId.create(),
-				meta: {},
-			}
-			const legacyLine = JSON.stringify(legacyEntry)
-
-			yield* fs.writeFileString(filePath, [legacyLine, ''].join('\n'))
-			const firstRead = yield* Effect.gen(function* () {
-				const log = yield* EventLog
-				return yield* Stream.runCollect(log.entries())
-			}).pipe(Effect.provide(layerJsonl(filePath)))
-			const reopenedRead = yield* Effect.gen(function* () {
-				const log = yield* EventLog
-				return yield* Stream.runCollect(log.entries())
-			}).pipe(Effect.provide(layerJsonl(filePath)))
-
-			const firstEventId = firstRead[0]?.eventId
-			expect(firstEventId).toBeDefined()
-			expect(EventId.is(firstEventId ?? '')).toBe(true)
-			expect(reopenedRead[0]?.eventId).toBe(firstEventId)
-
-			const otherFilePath = join(dir, 'other-legacy.jsonl')
-			yield* fs.writeFileString(
-				otherFilePath,
-				`${JSON.stringify({ ...legacyEntry, sessionId: SessionId.create(), rootAgentId: AgentId.create() })}\n`,
-			)
-			const otherRead = yield* Effect.gen(function* () {
-				const log = yield* EventLog
-				return yield* Stream.runCollect(log.entries())
-			}).pipe(Effect.provide(layerJsonl(otherFilePath)))
-
-			expect(otherRead[0]?.eventId).not.toBe(firstEventId)
 		}),
 	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
