@@ -1,6 +1,6 @@
 import { Clock, Effect, Schema } from 'effect'
 
-import { EventId } from '../Ids'
+import type { IdsService } from '../Ids'
 import { EventLogInvalidEntryError } from './Errors'
 import { LogEntry, LogEntryInput, type LogSeq } from './Schemas'
 
@@ -15,17 +15,19 @@ const invalidEntryError = (message: string, cause: unknown) =>
 export const makeStoredLogEntry = (
 	input: LogEntryInput,
 	seq: LogSeq,
+	ids: Pick<IdsService, 'makeEventId'>,
 ): Effect.Effect<LogEntry, EventLogInvalidEntryError> =>
 	Effect.gen(function* () {
 		const decodedInput = yield* Schema.decodeUnknownEffect(LogEntryInput)(input).pipe(
 			Effect.mapError((cause) => invalidEntryError('Invalid EventLog entry input', cause)),
 		)
+		const eventId = yield* ids.makeEventId
 		const ts = yield* Clock.currentTimeMillis
 
 		return yield* Schema.decodeUnknownEffect(LogEntry)({
 			...decodedInput,
 			seq,
-			eventId: EventId.create(),
+			eventId,
 			ts,
 		}).pipe(Effect.mapError((cause) => invalidEntryError('Invalid stored EventLog entry', cause)))
 	})

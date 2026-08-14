@@ -6,7 +6,9 @@ import {
 	EventLogCorruptEntryError,
 	EventLogInvalidEntryError,
 	EventLogUnavailableError,
+	Ids,
 	LogEntry as LogEntrySchema,
+	layerLiveIdFactory,
 	makeStoredLogEntry,
 	type EventLogError,
 	type EventLogService,
@@ -163,12 +165,15 @@ const appendJsonlLine = (
 		}),
 	)
 
-/** JSONL-backed EventLog layer. The provided file path represents one fold session. */
-export const layerJsonl = (filePath: string): Layer.Layer<EventLog, EventLogError, FileSystem.FileSystem> =>
+/** JSONL-backed EventLog layer using the caller-supplied ID service. */
+export const layerJsonlWithIds = (
+	filePath: string,
+): Layer.Layer<EventLog, EventLogError, FileSystem.FileSystem | Ids> =>
 	Layer.effect(
 		EventLog,
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
+			const ids = yield* Ids
 			const initialEntries = yield* loadEntries(fs, filePath)
 			const entriesRef = yield* Ref.make<ReadonlyArray<LogEntry>>(initialEntries)
 			const pubsub = yield* PubSub.unbounded<LogEntry>()
@@ -178,7 +183,7 @@ export const layerJsonl = (filePath: string): Layer.Layer<EventLog, EventLogErro
 				appendLock.withPermit(
 					Effect.gen(function* () {
 						const current = yield* Ref.get(entriesRef)
-						const stored = yield* makeStoredLogEntry(input, current.length)
+						const stored = yield* makeStoredLogEntry(input, current.length, ids)
 						const line = yield* encodeJsonlLine(stored)
 
 						yield* appendJsonlLine(fs, filePath, line)
@@ -216,6 +221,10 @@ export const layerJsonl = (filePath: string): Layer.Layer<EventLog, EventLogErro
 			return { append, entries, subscribe }
 		}),
 	)
+
+/** JSONL-backed EventLog layer. The provided file path represents one fold session. */
+export const layerJsonl = (filePath: string): Layer.Layer<EventLog, EventLogError, FileSystem.FileSystem> =>
+	layerJsonlWithIds(filePath).pipe(Layer.provide(layerLiveIdFactory))
 
 /** Node-backed JSONL EventLog layer using `@effect/platform-node/NodeFileSystem.layer`. */
 export const layerJsonlNode = (filePath: string): Layer.Layer<EventLog, EventLogError> =>
