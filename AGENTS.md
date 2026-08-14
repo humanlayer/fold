@@ -5,7 +5,7 @@ Bun monorepo. Packages live in `packages/*` and run TypeScript directly (no buil
 ## Stack
 
 - **Runtime / package manager:** Bun (`bun@1.3.14`)
-- **Framework:** Effect **v4** (`4.0.0-beta.107`)
+- **Framework:** Effect **v4** (`4.0.0-rc.109`)
 - **Testing:** Vitest + `@effect/vitest`
 - **Lint / format:** oxlint + oxfmt (120 col, no semicolons)
 - **Effect editor tooling:** `@effect/tsgo` with the `@effect/language-service` TS plugin. `tsc` is patched for
@@ -26,7 +26,7 @@ packages reference them with `"<pkg>": "catalog:"`. Bump the version in the cata
 
 ## Effect v4 source (read this, not v3 docs)
 
-This repo targets **Effect v4 (beta)** — its API differs from the widely-documented v3. The v4
+This repo targets **Effect v4 (release candidate)** — its API differs from the widely-documented v3. The v4
 source is the `effect-smol` repo:
 
 - In Riptide worktree tasks it is checked out as a sibling at **`../effect-smol`**.

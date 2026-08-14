@@ -1,0 +1,166 @@
+diff --git a/dist/OpenAiLanguageModel.d.ts b/dist/OpenAiLanguageModel.d.ts
+--- a/dist/OpenAiLanguageModel.d.ts
++++ b/dist/OpenAiLanguageModel.d.ts
+@@ -41,7 +41,7 @@ declare const Config_base: Context.ServiceClass<Config, "@effect/ai-openai/OpenA
+     readonly previous_response_id?: string | undefined;
+     readonly model?: string | undefined;
+     readonly reasoning?: {
+-        readonly effort?: "high" | "low" | "medium" | "minimal" | "none" | "xhigh" | undefined;
++        readonly effort?: "high" | "low" | "max" | "medium" | "minimal" | "none" | "xhigh" | undefined;
+         readonly summary?: "auto" | "concise" | "detailed" | undefined;
+         readonly generate_summary?: "auto" | "concise" | "detailed" | undefined;
+     } | undefined;
+diff --git a/dist/OpenAiSchema.d.ts b/dist/OpenAiSchema.d.ts
+--- a/dist/OpenAiSchema.d.ts
++++ b/dist/OpenAiSchema.d.ts
+@@ -575,7 +575,7 @@ export declare const CreateResponse: Schema.Struct<{
+     readonly previous_response_id: Schema.optional<Schema.String>;
+     readonly model: Schema.optional<Schema.String>;
+     readonly reasoning: Schema.optional<Schema.Struct<{
+-        readonly effort: Schema.optional<Schema.Literals<readonly ["none", "minimal", "low", "medium", "high", "xhigh"]>>;
++        readonly effort: Schema.optional<Schema.Literals<readonly ["none", "minimal", "low", "medium", "high", "xhigh", "max"]>>;
+         readonly summary: Schema.optional<Schema.Literals<readonly ["auto", "concise", "detailed"]>>;
+         readonly generate_summary: Schema.optional<Schema.Literals<readonly ["auto", "concise", "detailed"]>>;
+     }>>;
+diff --git a/dist/OpenAiSchema.js b/dist/OpenAiSchema.js
+--- a/dist/OpenAiSchema.js
++++ b/dist/OpenAiSchema.js
+@@ -417,7 +417,7 @@ export const CreateResponse = /*#__PURE__*/Schema.Struct({
+   previous_response_id: /*#__PURE__*/Schema.optional(Schema.String),
+   model: /*#__PURE__*/Schema.optional(Schema.String),
+   reasoning: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Struct({
+-    effort: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Literals(["none", "minimal", "low", "medium", "high", "xhigh"])),
++    effort: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Literals(["none", "minimal", "low", "medium", "high", "xhigh", "max"])),
+     summary: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Literals(["auto", "concise", "detailed"])),
+     generate_summary: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.Literals(["auto", "concise", "detailed"]))
+   })),
+diff --git a/dist/internal/errors.js b/dist/internal/errors.js
+--- a/dist/internal/errors.js
++++ b/dist/internal/errors.js
+@@ -19,6 +19,10 @@ export const OpenAiErrorBody = /*#__PURE__*/Schema.Struct({
+     code: /*#__PURE__*/Schema.optional(/*#__PURE__*/Schema.NullOr(Schema.String))
+   })
+ });
++const XaiErrorBody = /*#__PURE__*/Schema.Struct({
++  error: Schema.String,
++  code: /*#__PURE__*/Schema.optional(Schema.String)
++});
+ // =============================================================================
+ // Error Mappers
+ // =============================================================================
+@@ -130,17 +134,20 @@ const mapStatusCodeError = /*#__PURE__*/Effect.fnUntraced(function* (error, meth
+     json = undefined;
+   }
+   const decoded = Schema.decodeUnknownOption(OpenAiErrorBody)(json);
++  const xaiDecoded = Schema.decodeUnknownOption(XaiErrorBody)(json);
++  const message = Option.isSome(decoded) ? decoded.value.error.message : Option.isSome(xaiDecoded) ? xaiDecoded.value.error : undefined;
++  const errorCode = Option.isSome(decoded) ? decoded.value.error.code ?? null : Option.isSome(xaiDecoded) ? xaiDecoded.value.code ?? null : null;
+   const reason = mapStatusCodeToReason({
+     status,
+     headers,
+-    message: Option.isSome(decoded) ? decoded.value.error.message : undefined,
++    message,
+     http: buildHttpContext({
+       request,
+       response,
+       body
+     }),
+     metadata: {
+-      errorCode: Option.isSome(decoded) ? decoded.value.error.code ?? null : null,
++      errorCode,
+       errorType: Option.isSome(decoded) ? decoded.value.error.type ?? null : null,
+       requestId: requestId ?? null
+     }
+@@ -280,10 +287,17 @@ export const mapStatusCodeToReason = ({
+         },
+         http
+       });
++    case 402:
++      return new AiError.QuotaExhaustedError({
++        metadata: {
++          openai: metadata
++        },
++        http
++      });
+     case 429:
+       {
+         // Best-effort detection: OpenAI returns insufficient_quota for billing/quota issues
+-        if (metadata.errorCode === "insufficient_quota" || metadata.errorType === "insufficient_quota") {
++        if (metadata.errorCode === "insufficient_quota" || metadata.errorType === "insufficient_quota" || metadata.errorType === "billing_insufficient_balance") {
+           return new AiError.QuotaExhaustedError({
+             metadata: {
+               openai: metadata
+diff --git a/src/OpenAiSchema.ts b/src/OpenAiSchema.ts
+--- a/src/OpenAiSchema.ts
++++ b/src/OpenAiSchema.ts
+@@ -662,7 +662,7 @@ export const CreateResponse = Schema.Struct({
+   previous_response_id: Schema.optional(Schema.String),
+   model: Schema.optional(Schema.String),
+   reasoning: Schema.optional(Schema.Struct({
+-    effort: Schema.optional(Schema.Literals(["none", "minimal", "low", "medium", "high", "xhigh"])),
++    effort: Schema.optional(Schema.Literals(["none", "minimal", "low", "medium", "high", "xhigh", "max"])),
+ 
+     summary: Schema.optional(Schema.Literals(["auto", "concise", "detailed"])),
+     generate_summary: Schema.optional(Schema.Literals(["auto", "concise", "detailed"]))
+diff --git a/src/internal/errors.ts b/src/internal/errors.ts
+--- a/src/internal/errors.ts
++++ b/src/internal/errors.ts
+@@ -28,6 +28,11 @@ export const OpenAiErrorBody = Schema.Struct({
+   })
+ })
+ 
++const XaiErrorBody = Schema.Struct({
++  error: Schema.String,
++  code: Schema.optional(Schema.String)
++})
++
+ // =============================================================================
+ // Error Mappers
+ // =============================================================================
+@@ -147,14 +152,25 @@ const mapStatusCodeError = Effect.fnUntraced(function*(
+     json = undefined
+   }
+   const decoded = Schema.decodeUnknownOption(OpenAiErrorBody)(json)
++  const xaiDecoded = Schema.decodeUnknownOption(XaiErrorBody)(json)
++  const message = Option.isSome(decoded)
++    ? decoded.value.error.message
++    : Option.isSome(xaiDecoded)
++    ? xaiDecoded.value.error
++    : undefined
++  const errorCode = Option.isSome(decoded)
++    ? decoded.value.error.code ?? null
++    : Option.isSome(xaiDecoded)
++    ? xaiDecoded.value.code ?? null
++    : null
+ 
+   const reason = mapStatusCodeToReason({
+     status,
+     headers,
+-    message: Option.isSome(decoded) ? decoded.value.error.message : undefined,
++    message,
+     http: buildHttpContext({ request, response, body }),
+     metadata: {
+-      errorCode: Option.isSome(decoded) ? decoded.value.error.code ?? null : null,
++      errorCode,
+       errorType: Option.isSome(decoded) ? decoded.value.error.type ?? null : null,
+       requestId: requestId ?? null
+     }
+@@ -321,11 +337,17 @@ export const mapStatusCodeToReason = ({ status, headers, message, metadata, http
+         metadata: { openai: metadata },
+         http
+       })
++    case 402:
++      return new AiError.QuotaExhaustedError({
++        metadata: { openai: metadata },
++        http
++      })
+     case 429: {
+       // Best-effort detection: OpenAI returns insufficient_quota for billing/quota issues
+       if (
+         metadata.errorCode === "insufficient_quota" ||
+-        metadata.errorType === "insufficient_quota"
++        metadata.errorType === "insufficient_quota" ||
++        metadata.errorType === "billing_insufficient_balance"
+       ) {
+         return new AiError.QuotaExhaustedError({
+           metadata: { openai: metadata },
