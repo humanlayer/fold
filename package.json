@@ -57,5 +57,8 @@
 		"oxlint-tsgolint": "0.24.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
+	},
+	"patchedDependencies": {
+		"@effect/ai-openai@4.0.0-beta.107": "patches/@effect%2Fai-openai@4.0.0-beta.107.patch"
 	}
 }

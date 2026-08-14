@@ -110,6 +110,7 @@ type ResponseFold = {
  * response, which also carries `generateText`/`generateObject` on the stock provider for free.
  */
 export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
+	// `min` caps the infinite exponential delay; `max` intersects it with the finite retry counter.
 	const retrySchedule = Schedule.min([
 		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
 		Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs)),
@@ -268,17 +269,15 @@ export const makeCodexLanguageModel = (
 		})
 
 		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
-		const providerEffort =
-			reasoning._tag === 'disabled' ? undefined : reasoning.effort === 'max' ? 'high' : reasoning.effort
 
 		return yield* OpenAiLanguageModel.make({
 			model: options.model ?? DEFAULT_CODEX_MODEL_ID,
 			config: {
 				// The ChatGPT backend does no server-side response storage (clanka parity).
 				store: false,
-				...(reasoning._tag === 'disabled' || providerEffort === undefined
+				...(reasoning._tag === 'disabled'
 					? {}
-					: { reasoning: { effort: providerEffort, summary: reasoning.summary } }),
+					: { reasoning: { effort: reasoning.effort, summary: reasoning.summary } }),
 			},
 		}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
 	})

@@ -76,6 +76,7 @@ export const makeXaiIssuerClient = (client: HttpClient.HttpClient): HttpClient.H
 		HttpClient.filterStatusOk,
 		HttpClient.retryTransient({
 			times: 5,
+			// `min` preserves the removed `either` behavior: use whichever infinite schedule wakes sooner.
 			schedule: Schedule.min([Schedule.exponential(150), Schedule.spaced(5000)]),
 		}),
 	)

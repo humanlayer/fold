@@ -145,27 +145,23 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 			case 'openai-compatible': {
 				const setting =
 					level === model.requestedReasoningLevel ? model.reasoning : resolveOpenAiReasoning(level)
-				const providerEffort =
-					setting._tag === 'disabled' ? undefined : setting.effort === 'max' ? 'high' : setting.effort
 
 				return (self) =>
 					OpenAiLanguageModel.withConfigOverride(self, {
 						model: model.modelId,
-						...(providerEffort === undefined ? {} : { reasoning: { effort: providerEffort } }),
+						...(setting._tag === 'disabled' ? {} : { reasoning: { effort: setting.effort } }),
 					})
 			}
 
 			case 'codex': {
 				const setting = level === model.requestedReasoningLevel ? model.reasoning : resolveCodexReasoning(level)
-				const providerEffort =
-					setting._tag === 'disabled' ? undefined : setting.effort === 'max' ? 'high' : setting.effort
 
 				return (self) =>
 					OpenAiLanguageModel.withConfigOverride(self, {
 						model: model.modelId,
-						...(setting._tag === 'disabled' || providerEffort === undefined
+						...(setting._tag === 'disabled'
 							? {}
-							: { reasoning: { effort: providerEffort, summary: setting.summary } }),
+							: { reasoning: { effort: setting.effort, summary: setting.summary } }),
 					})
 			}
 

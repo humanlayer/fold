@@ -133,11 +133,11 @@ it.effect('re-derives the setting from the projected level after a thinking-chan
 	}),
 )
 
-it.effect('clamps max to the highest effort supported by the provider config', () =>
+it.effect('passes max through to the provider config when re-deriving', () =>
 	Effect.gen(function* () {
 		const configs = yield* observedConfigs({ model: openAiMediumModel, reasoningLevel: 'max' })
 
-		expect(configs.openai).toEqual({ model: 'gpt-5.5', reasoning: { effort: 'high' } })
+		expect(configs.openai).toEqual({ model: 'gpt-5.5', reasoning: { effort: 'max' } })
 	}),
 )
 
@@ -160,13 +160,13 @@ it.effect('provides codex reasoning with auto summaries', () =>
 	}),
 )
 
-it.effect('clamps max effort while carrying auto summaries into the codex provider config', () =>
+it.effect('carries max effort with auto summaries into the codex provider config', () =>
 	Effect.gen(function* () {
 		const configs = yield* observedConfigs({ model: codexMaxModel, reasoningLevel: 'max' })
 
 		expect(configs.openai).toEqual({
 			model: 'gpt-5.6-sol',
-			reasoning: { effort: 'high', summary: 'auto' },
+			reasoning: { effort: 'max', summary: 'auto' },
 		})
 	}),
 )

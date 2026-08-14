@@ -124,8 +124,6 @@ export const makeOpenCodeLanguageModel = (
 		)
 		const resolved = resolveOpenCodeModelConfig(providers, requestedModel, options.apiUrl)
 		const reasoning = resolveOpenAiReasoning(options.reasoning ?? 'off')
-		const providerReasoning =
-			reasoning._tag === 'disabled' ? undefined : reasoning.effort === 'max' ? 'high' : reasoning.effort
 
 		if (resolved.protocol === 'chat-completions') {
 			const clientContext = yield* Layer.build(ChatClient.layer({ apiUrl: resolved.apiUrl })).pipe(
@@ -133,7 +131,7 @@ export const makeOpenCodeLanguageModel = (
 			)
 			return yield* ChatLanguageModel.make({
 				model: resolved.model,
-				config: providerReasoning === undefined ? {} : { reasoning: { effort: providerReasoning } },
+				config: reasoning._tag === 'disabled' ? {} : { reasoning: { effort: reasoning.effort } },
 			}).pipe(Effect.provideService(ChatClient.OpenAiClient, Context.get(clientContext, ChatClient.OpenAiClient)))
 		}
 
@@ -142,7 +140,7 @@ export const makeOpenCodeLanguageModel = (
 		)
 		return yield* ResponsesLanguageModel.make({
 			model: resolved.model,
-			config: providerReasoning === undefined ? {} : { reasoning: { effort: providerReasoning } },
+			config: reasoning._tag === 'disabled' ? {} : { reasoning: { effort: reasoning.effort } },
 		}).pipe(
 			Effect.provideService(
 				ResponsesClient.OpenAiClient,
