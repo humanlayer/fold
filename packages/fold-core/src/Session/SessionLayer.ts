@@ -62,7 +62,6 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 						agentId: null,
 						parentAgentId: null,
 						toolCallId: null,
-						version: 1,
 						cwd: input.cwd ?? null,
 						sessionId,
 						rootAgentId,

@@ -10,6 +10,7 @@ const finished = (resultText: string | null): AgentFinishedLogEntry => ({
 	seq: 3,
 	eventId: EventId.create(),
 	ts: 1,
+	version: 1,
 	agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
 	parentAgentId: null,
 	toolCallId: null,

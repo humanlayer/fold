@@ -7,6 +7,7 @@ import {
 	EventId,
 	EventLog,
 	EventLogCorruptEntryError,
+	EventLogUnsupportedVersionError,
 	MessageId,
 	SessionId,
 	StateId,
@@ -21,7 +22,6 @@ const makeSessionStarted = (cwd: string): LogEntryInput => ({
 	agentId: null,
 	parentAgentId: null,
 	toolCallId: null,
-	version: 1,
 	cwd,
 	sessionId: SessionId.create(),
 	rootAgentId: AgentId.create(),
@@ -174,6 +174,37 @@ it.effect('jsonl layer replays assistant usage when cache fields are absent', ()
 			expect(entry.finish?.usage.inputTokens?.cacheWrite).toBeUndefined()
 			expect(entry.finish?.usage.inputTokens?.cacheRead).toBe(0)
 			expect(entry.finish?.usage.outputTokens?.total).toBe(2)
+			expect(entry.version).toBe(1)
+		}),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('jsonl layer rejects event formats newer than the installed Fold runtime', () =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const dir = yield* fs.makeTempDirectoryScoped({ prefix: 'fold-event-log-' })
+			const filePath = join(dir, 'future-version.jsonl')
+			const line = JSON.stringify({
+				...makeSessionStarted('/tmp/future-version'),
+				seq: 0,
+				eventId: EventId.create(),
+				ts: 1,
+				version: 2,
+			})
+
+			yield* fs.writeFileString(filePath, `${line}\n`)
+
+			const error = yield* Effect.gen(function* () {
+				const log = yield* EventLog
+				return yield* Stream.runCollect(log.entries())
+			}).pipe(Effect.provide(layerJsonl(filePath)), Effect.flip)
+
+			expect(error).toBeInstanceOf(EventLogUnsupportedVersionError)
+			if (error instanceof EventLogUnsupportedVersionError) {
+				expect(error.version).toBe(2)
+				expect(error.supportedVersions).toEqual([1])
+			}
 		}),
 	).pipe(Effect.provide(NodeFileSystem.layer)),
 )

@@ -84,7 +84,6 @@ const appendRoot = (tools: ReadonlyArray<string> = ['read']) =>
 			agentId: null,
 			parentAgentId: null,
 			toolCallId: null,
-			version: 1,
 			cwd: '/tmp/project',
 			sessionId: yield* ids.makeSessionId,
 			rootAgentId,
