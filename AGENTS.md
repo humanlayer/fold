@@ -24,12 +24,21 @@ Bun monorepo. Packages live in `packages/*` and run TypeScript directly (no buil
 Shared versions are pinned once in the Bun **catalog** (`workspaces.catalog` in `package.json`);
 packages reference them with `"<pkg>": "catalog:"`. Bump the version in the catalog, not per package.
 
+## Shared packages
+
+- `packages/effect-branded-id` (`@humanlayer/effect-branded-id`) provides Effect schemas and
+  generators for type-safe, prefixed CUID2 identifiers.
+- `packages/effect-channels-core` (`@humanlayer/effect-channels-core`) contains the provider- and
+  agent-framework-agnostic Effect types and service interfaces for communication channels such as
+  Slack, Linear, and GitHub. Keep provider-specific channel implementations in separate packages.
+- `packages/vitest-config` (`@humanlayer/fold-vitest-config`) is the internal shared Vitest config.
+
 ## Effect v4 source (read this, not v3 docs)
 
 This repo targets **Effect v4 (release candidate)** — its API differs from the widely-documented v3. The v4
-source is the `effect-smol` repo:
+source is the `effect` repo:
 
-- In Riptide worktree tasks it is checked out as a sibling at **`../effect-smol`**.
-- Locally it lives at **`~/projects/effect-smol`**.
+- In Riptide worktree tasks it is checked out as a sibling at **`../effect`**.
+- Locally it lives at **`~/projects/effect`**.
 
 When unsure about a v4 API, read the source there rather than relying on v3 knowledge or docs.

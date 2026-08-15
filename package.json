@@ -52,8 +52,8 @@
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",
 		"@vitest/coverage-v8": "catalog:",
-		"oxfmt": "0.57.0",
-		"oxlint": "1.72.0",
+		"oxfmt": "0.62.0",
+		"oxlint": "1.77.0",
 		"oxlint-tsgolint": "0.24.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"

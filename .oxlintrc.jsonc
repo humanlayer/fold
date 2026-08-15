@@ -1,12 +1,33 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
-	// Mirrors synclayer's oxlint setup. The `correctness` category (native recommended)
-	// is enabled by default. Setting `plugins` overrides the default set; we keep
-	// typescript + oxc and add `vitest` (rules are API-gated to test files). `react` is
-	// omitted until tart has React code.
-	"plugins": ["typescript", "oxc", "vitest", "import"],
-	"ignorePatterns": ["**/node_modules/**", "**/dist/**"],
+	// The `correctness` category is enabled by default. Keep the broader Effect Channels
+	// plugin set and Vitest's test-specific rules.
+	"plugins": ["typescript", "import", "oxc", "eslint", "unicorn", "node", "vitest"],
+	"ignorePatterns": ["**/node_modules/**", "**/dist/**", ".release/**"],
 	"rules": {
+		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
+		"typescript/no-import-type-side-effects": "error",
+		"import/no-duplicates": "error",
+		"import/no-self-import": "error",
+		"import/no-empty-named-blocks": "error",
+		"typescript/no-unnecessary-type-assertion": "error",
+		"typescript/no-unnecessary-type-constraint": "error",
+		"typescript/no-useless-empty-export": "error",
+		"eslint/no-console": "error",
+		"eslint/no-var": "error",
+		"eslint/no-useless-constructor": "error",
+		"unicorn/no-abusive-eslint-disable": "error",
+		"eslint/no-unneeded-ternary": "error",
+		"eslint/no-useless-concat": "error",
+		"oxc/misrefactored-assign-op": "error",
+		"unicorn/prefer-array-flat-map": "error",
+		"unicorn/no-accessor-recursion": "error",
+		"oxc/no-map-spread": "off",
+		"eslint/object-shorthand": "off",
+		"eslint/no-shadow": "off",
+		"eslint/no-unused-vars": "off",
+		"typescript/array-type": ["error", { "default": "generic", "readonly": "generic" }],
+		"typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
 		// Tighten barrel files to errors.
 		"oxc/no-barrel-file": "error",
 		// Keep visible as warnings rather than off.
