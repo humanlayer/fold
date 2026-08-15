@@ -9,7 +9,7 @@
  */
 import { AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiLanguageModel } from '@effect/ai-openai'
-import { Effect, Stream } from 'effect'
+import { Effect, Predicate, Stream } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 
 import { ModelCatalog } from '../Model/ModelCatalog'
@@ -44,7 +44,7 @@ import {
 export type EnabledAutoCompactConfig = Extract<AutoCompactConfig, { readonly enabled: true }>
 
 const describeSummarizerError = (error: unknown): string => {
-	if (error instanceof Error) return error.message
+	if (Predicate.isError(error)) return error.message
 
 	try {
 		return JSON.stringify(error)

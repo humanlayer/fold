@@ -4,7 +4,7 @@
  * result with an error message, D21) narrow raw Causes through these helpers, so the model always sees
  * the same escaped, truncated, single-line description regardless of which boundary caught the defect.
  */
-import { Cause } from 'effect'
+import { Cause, Predicate } from 'effect'
 
 const maxModelVisibleErrorMessageLength = 300
 
@@ -25,7 +25,7 @@ export const truncateModelVisibleErrorMessage = (message: string): string => {
 }
 
 const stringifyUnknown = (value: unknown): string => {
-	if (value instanceof Error) return value.message
+	if (Predicate.isError(value)) return value.message
 
 	try {
 		return JSON.stringify(value)
@@ -36,7 +36,7 @@ const stringifyUnknown = (value: unknown): string => {
 
 /** Render an unknown thrown/failed value as safe model-visible text. */
 export const modelVisibleErrorDetailsFromUnknown = (value: unknown): string => {
-	const raw = value instanceof Error ? value.message : stringifyUnknown(value)
+	const raw = Predicate.isError(value) ? value.message : stringifyUnknown(value)
 
 	return escapeSystemInformationContent(truncateModelVisibleErrorMessage(raw === '' ? 'unknown error' : raw))
 }

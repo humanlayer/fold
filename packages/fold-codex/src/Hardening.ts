@@ -65,11 +65,11 @@ export const codexAcquisitionStallError = (timeoutMs: number): AiError.AiError =
 
 /** True for the first-event stall errors this package mints (the only retryable stall class). */
 export const isCodexFirstEventStall = (error: unknown): error is AiError.AiError =>
-	error instanceof AiError.AiError && error.module === CODEX_ERROR_MODULE && error.method === FIRST_EVENT_METHOD
+	AiError.isAiError(error) && error.module === CODEX_ERROR_MODULE && error.method === FIRST_EVENT_METHOD
 
 /** True for the mid-stream idle stall errors this package mints. */
 export const isCodexIdleStall = (error: unknown): error is AiError.AiError =>
-	error instanceof AiError.AiError && error.module === CODEX_ERROR_MODULE && error.method === IDLE_METHOD
+	AiError.isAiError(error) && error.module === CODEX_ERROR_MODULE && error.method === IDLE_METHOD
 
 /**
  * A retryable provider failure is safe to repeat only before the model has emitted any stream event.

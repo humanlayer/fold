@@ -136,13 +136,17 @@ function describeFailure(path: string, res: Response): string {
 
 /** A rejected request's reason as a string, with a friendly note for timeouts. */
 function reasonText(reason: unknown): string {
-	if (reason instanceof Error) {
-		if (reason.name === 'TimeoutError' || reason.name === 'AbortError') {
-			return `request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`
-		}
-		return reason.message
+	const name = stringProperty(reason, 'name')
+	if (name === 'TimeoutError' || name === 'AbortError') {
+		return `request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`
 	}
-	return String(reason)
+	return stringProperty(reason, 'message') ?? String(reason)
+}
+
+const stringProperty = (value: unknown, property: string): string | undefined => {
+	if (typeof value !== 'object' || value === null || !(property in value)) return undefined
+	const propertyValue = Reflect.get(value, property)
+	return typeof propertyValue === 'string' ? propertyValue : undefined
 }
 
 /** Prefer an actionable rate-limit reason over a generic one when both lists fail. */
@@ -233,7 +237,7 @@ export async function loadFeed(options: LoadOptions): Promise<Feed> {
 		}
 	} catch (error) {
 		// Any unexpected throw (e.g. malformed JSON) still lands on fixtures.
-		const reason = error instanceof Error ? error.message : String(error)
+		const reason = stringProperty(error, 'message') ?? String(error)
 		return { ...DEMO_FEED, repo, offlineReason: reason }
 	}
 }

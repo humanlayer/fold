@@ -10,7 +10,7 @@
  * those deltas are ephemeral and never persisted. Model provider failures become durable error +
  * agent-finished entries, never service failures.
  */
-import { Array as Arr, Cause, Effect, Exit, Layer, Ref, Result, Schema, Stream } from 'effect'
+import { Array as Arr, Cause, Effect, Exit, Layer, Predicate, Ref, Result, Schema, Stream } from 'effect'
 import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
@@ -79,7 +79,7 @@ type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 
 
 /** Derive a short human-readable message from a model provider failure. */
 const describeModelError = (error: unknown): string => {
-	if (error instanceof Error) return error.message
+	if (Predicate.isError(error)) return error.message
 
 	try {
 		return JSON.stringify(error)

@@ -1,5 +1,5 @@
 import { it, expect } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Predicate } from 'effect'
 
 import {
 	AgentId,
@@ -60,7 +60,7 @@ it.effect('rejects an unsupported event format without guessing its schema', () 
 		const error = yield* decodeStoredLogEntry(sessionStartedEntry(2)).pipe(Effect.flip)
 
 		expect(error).toBeInstanceOf(EventLogUnsupportedVersionError)
-		if (error instanceof EventLogUnsupportedVersionError) {
+		if (Predicate.isTagged(error, 'EventLogUnsupportedVersionError')) {
 			expect(error.version).toBe(2)
 			expect(error.seq).toBe(0)
 			expect(error.supportedVersions).toEqual([1])

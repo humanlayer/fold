@@ -12,7 +12,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { Effect, Schema } from 'effect'
+import { Effect, Predicate, Schema } from 'effect'
 
 import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { FoldConfig } from './ConfigSchema'
@@ -135,7 +135,7 @@ export const parseFoldConfig = (
 		const parsed = yield* Effect.try({
 			try: (): unknown => JSON.parse(stripJsonc(text)),
 			catch: (cause) =>
-				new ConfigParseError({ path, message: cause instanceof Error ? cause.message : String(cause) }),
+				new ConfigParseError({ path, message: Predicate.isError(cause) ? cause.message : String(cause) }),
 		})
 
 		return yield* decodeConfig(parsed).pipe(

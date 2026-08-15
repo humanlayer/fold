@@ -1,5 +1,5 @@
 import { defineTool, webFetchToolContract, type FoldTool } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Effect, Predicate } from 'effect'
 
 const maxResponseSize = 5 * 1024 * 1024
 const defaultTimeoutMs = 30_000
@@ -65,7 +65,7 @@ const readBody = (response: Response): Effect.Effect<string, { message: string }
 
 			return new TextDecoder().decode(bytes)
 		},
-		catch: (error) => ({ message: error instanceof Error ? error.message : String(error) }),
+		catch: (error) => ({ message: Predicate.isError(error) ? error.message : String(error) }),
 	})
 
 export const webFetchTool = (): FoldTool =>
@@ -90,9 +90,9 @@ export const webFetchTool = (): FoldTool =>
 							}),
 						catch: (error) => ({
 							message:
-								error instanceof Error && error.name === 'AbortError'
+								Predicate.isError(error) && error.name === 'AbortError'
 									? `Request timed out after ${timeoutMs}ms`
-									: error instanceof Error
+									: Predicate.isError(error)
 										? error.message
 										: String(error),
 						}),

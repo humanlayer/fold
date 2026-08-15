@@ -1,5 +1,5 @@
 import { CurrentAgent, defineTool, webSearchToolContract, type FoldTool } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Effect, Predicate } from 'effect'
 
 const defaultTimeoutMs = 25_000
 const maxNumResults = 20
@@ -88,7 +88,7 @@ const parseMcpResponse = (body: string): Effect.Effect<string | undefined, { mes
 			return undefined
 		},
 		catch: (error) => ({
-			message: `Failed to parse web search response: ${error instanceof Error ? error.message : String(error)}`,
+			message: `Failed to parse web search response: ${Predicate.isError(error) ? error.message : String(error)}`,
 		}),
 	})
 
@@ -123,9 +123,9 @@ const callMcp = (input: {
 					}),
 				catch: (error) => ({
 					message:
-						error instanceof Error && error.name === 'AbortError'
+						Predicate.isError(error) && error.name === 'AbortError'
 							? `${input.tool} request timed out`
-							: error instanceof Error
+							: Predicate.isError(error)
 								? error.message
 								: String(error),
 				}),
@@ -140,7 +140,7 @@ const callMcp = (input: {
 			const body = yield* Effect.tryPromise({
 				try: () => response.text(),
 				catch: (error) => ({
-					message: `Failed to read web search response: ${error instanceof Error ? error.message : String(error)}`,
+					message: `Failed to read web search response: ${Predicate.isError(error) ? error.message : String(error)}`,
 				}),
 			})
 			return yield* parseMcpResponse(body)
