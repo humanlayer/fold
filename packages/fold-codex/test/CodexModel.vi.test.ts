@@ -1,7 +1,8 @@
 import { OpenAiClient } from '@effect/ai-openai'
 import * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
 import { describe, expect, it } from '@effect/vitest'
-import { Context, Effect, Layer, Ref, Stream } from 'effect'
+import { Context, Deferred, Duration, Effect, Fiber, Layer, Ref, Stream } from 'effect'
+import { TestClock } from 'effect/testing'
 import { AiError } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
@@ -156,6 +157,50 @@ describe('decorateCodexClient', () => {
 
 			const [payload] = yield* scripted.payloads
 			expect(payload?.instructions).toBe('You are terse.\n\nPrefer bullet points.')
+		}).pipe(Effect.scoped),
+	)
+
+	it.effect('waits for Retry-After before retrying response acquisition', () =>
+		Effect.gen(function* () {
+			const firstAttempt = yield* Deferred.make<void>()
+			const attempts = yield* Ref.make(0)
+			const httpContext = yield* Layer.build(FetchHttpClient.layer)
+			const httpResponse = HttpClientResponse.fromWeb(
+				HttpClientRequest.get('http://scripted.test'),
+				new Response(''),
+			)
+			const rateLimitError = AiError.make({
+				module: 'OpenAiClient',
+				method: 'createResponseStream',
+				reason: new AiError.RateLimitError({ retryAfter: Duration.seconds(16) }),
+			})
+			const service: OpenAiClient.Service = {
+				client: Context.get(httpContext, HttpClient.HttpClient),
+				createResponse: () => Effect.die(new Error('unused')),
+				createResponseStream: () =>
+					Effect.gen(function* () {
+						const attempt = yield* Ref.updateAndGet(attempts, (count) => count + 1)
+						if (attempt === 1) {
+							yield* Deferred.succeed(firstAttempt, undefined)
+							return yield* Effect.fail(rateLimitError)
+						}
+						return [httpResponse, Stream.make(tick('one'))] as const
+					}),
+				createEmbedding: () => Effect.die(new Error('unused')),
+			}
+			const decorated = decorateCodexClient(service, fastOptions())
+			const fiber = yield* decorated
+				.createResponseStream({ model: 'gpt-5.5', input: 'hi' })
+				.pipe(Effect.forkChild({ startImmediately: true }))
+
+			yield* Deferred.await(firstAttempt)
+			yield* TestClock.adjust(Duration.seconds(15))
+			expect(yield* Ref.get(attempts)).toBe(1)
+
+			yield* TestClock.adjust(Duration.seconds(1))
+			const [, stream] = yield* Fiber.join(fiber)
+			expect(yield* Stream.runCollect(stream)).toHaveLength(1)
+			expect(yield* Ref.get(attempts)).toBe(2)
 		}).pipe(Effect.scoped),
 	)
 

@@ -2,11 +2,12 @@
  * Stream hardening for the unstable Codex backend (D23): a first-event ("no headers/no first token")
  * timeout, an idle-without-productive-event timeout, and bounded jittered-exponential retry of
  * first-event stalls. Semantics and defaults are ported from agentlayer's SSE vendor route: only
- * first-event stalls are retried - nothing has been emitted downstream yet, so a silent re-subscribe
- * cannot duplicate content - while an idle stall after partial output fails the stream honestly (the
- * turn-level restart with a `stream-retry` delta is the loop's future integration, D23). Timeouts
- * measure producer latency per pull: the deadline arms when the consumer asks for the next event and
- * clears when one arrives, so consumer-side processing time never counts against the stream.
+ * retryable failures before the first event are retried - nothing has been emitted downstream yet,
+ * so a fresh request cannot duplicate content - while an idle stall after partial output fails the
+ * stream honestly (the turn-level restart with a `stream-retry` delta is the loop's future
+ * integration, D23). Provider RateLimitError values use their Retry-After delay. Timeouts measure
+ * producer latency per pull: the deadline arms when the consumer asks for the next event and clears
+ * when one arrives, so consumer-side processing time never counts against the stream.
  */
 import { Duration, Effect, Random, Stream } from 'effect'
 import { AiError } from 'effect/unstable/ai'
@@ -71,6 +72,14 @@ export const isCodexIdleStall = (error: unknown): error is AiError.AiError =>
 	error instanceof AiError.AiError && error.module === CODEX_ERROR_MODULE && error.method === IDLE_METHOD
 
 /**
+ * A retryable provider failure is safe to repeat only before the model has emitted any stream event.
+ * Mid-stream failures are intentionally excluded because a fresh request could duplicate content or
+ * repeat a tool call that has already reached the agent runtime.
+ */
+export const isCodexRetryableBeforeFirstEvent = (error: unknown): error is AiError.AiError =>
+	error instanceof AiError.AiError && error.isRetryable && !isCodexIdleStall(error)
+
+/**
  * Bound the stream's producer latency: the first event must arrive within `firstEventTimeoutMs` and
  * every later event within `eventIdleTimeoutMs` of the previous pull, or the stream fails with a
  * typed stall error. Firing a timeout interrupts the in-flight pull, which tears down the underlying
@@ -108,7 +117,10 @@ export const withStallTimeouts =
 export const firstEventRetryDelayMs = (
 	options: Pick<CodexHardeningOptions, 'firstEventRetryBaseDelayMs' | 'firstEventRetryMaxDelayMs'>,
 	attempt: number,
+	error?: AiError.AiError,
 ): Effect.Effect<number> => {
+	if (error?.retryAfter !== undefined) return Effect.succeed(Duration.toMillis(error.retryAfter))
+
 	const max = options.firstEventRetryMaxDelayMs
 	const target = Math.min(options.firstEventRetryBaseDelayMs * 2 ** attempt, max)
 
@@ -127,9 +139,10 @@ const defaultOnStreamRetry = (info: StreamRetryInfo): Effect.Effect<void> =>
 	)
 
 /**
- * Retry first-event stalls with bounded jittered-exponential backoff. Each retry re-runs `makeAttempt`
- * from scratch - a fresh subscription and a fresh HTTP request. Only first-event stalls retry; every
- * other failure (idle stalls included) propagates immediately.
+ * Retry retryable failures before the first event with bounded backoff. Each retry re-runs
+ * `makeAttempt` from scratch - a fresh subscription and a fresh HTTP request. A provider-provided
+ * Retry-After takes precedence over the fallback jittered-exponential delay. Every mid-stream failure
+ * propagates immediately.
  */
 export const withFirstEventRetry = <A, E, R>(
 	makeAttempt: () => Stream.Stream<A, E, R>,
@@ -138,18 +151,33 @@ export const withFirstEventRetry = <A, E, R>(
 	const onStreamRetry = options.onStreamRetry ?? defaultOnStreamRetry
 
 	const attempt = (n: number): Stream.Stream<A, E, R> =>
-		makeAttempt().pipe(
-			Stream.catch((error) => {
-				if (!isCodexFirstEventStall(error) || n >= options.firstEventTimeoutRetries) {
-					return Stream.fail(error)
-				}
+		Stream.unwrap(
+			Effect.sync(() => {
+				let emitted = false
 
-				return Stream.unwrap(
-					firstEventRetryDelayMs(options, n).pipe(
-						Effect.tap((delayMs) => onStreamRetry({ attempt: n + 1, delayMs, error })),
-						Effect.flatMap((delayMs) => Effect.sleep(Duration.millis(delayMs))),
-						Effect.map(() => attempt(n + 1)),
+				return makeAttempt().pipe(
+					Stream.tap(() =>
+						Effect.sync(() => {
+							emitted = true
+						}),
 					),
+					Stream.catch((error) => {
+						if (
+							emitted ||
+							!isCodexRetryableBeforeFirstEvent(error) ||
+							n >= options.firstEventTimeoutRetries
+						) {
+							return Stream.fail(error)
+						}
+
+						return Stream.unwrap(
+							firstEventRetryDelayMs(options, n, error).pipe(
+								Effect.tap((delayMs) => onStreamRetry({ attempt: n + 1, delayMs, error })),
+								Effect.flatMap((delayMs) => Effect.sleep(Duration.millis(delayMs))),
+								Effect.map(() => attempt(n + 1)),
+							),
+						)
+					}),
 				)
 			}),
 		)

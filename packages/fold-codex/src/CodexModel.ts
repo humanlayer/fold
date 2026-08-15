@@ -9,9 +9,9 @@
  * terminal `response.completed`/`response.incomplete` event's response, because the backend rejects
  * `stream: false` outright. SSE is the transport: stateless full-input requests with no response-id
  * chaining, so every retry is a clean re-send; the WebSocket alternate is a config flag that lands
- * with the CLI (D23 amendment). Connection-level flakiness (connect errors, 408/429/5xx) retries at
- * the HttpClient seam via `retryTransient`, below the auth header injection so retries never re-enter
- * the auth path.
+ * with the CLI (D23 amendment). Transport failures retry at the HttpClient seam below the auth header
+ * injection so retries never re-enter the auth path. Retryable provider responses, including 429,
+ * retry before the first stream event and honor the provider's Retry-After delay.
  */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
 import * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
@@ -32,7 +32,7 @@ import {
 	CODEX_ERROR_MODULE,
 	codexAcquisitionStallError,
 	defaultCodexHardening,
-	isCodexFirstEventStall,
+	isCodexRetryableBeforeFirstEvent,
 	withFirstEventRetry,
 	withStallTimeouts,
 } from './Hardening'
@@ -40,7 +40,7 @@ import {
 /** The ChatGPT Codex backend the provider talks to (the client appends `/responses`). */
 export const CODEX_API_URL = 'https://chatgpt.com/backend-api/codex'
 
-/** Default `retryTransient` attempts for connection-level failures on model requests. */
+/** Default `retryTransient` attempts for transport failures on model requests. */
 export const DEFAULT_REQUEST_RETRY_TIMES = 3
 
 /** The codex model used when {@link CodexModelOptions.model} is omitted. */
@@ -111,11 +111,14 @@ type ResponseFold = {
  */
 export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
 	// `min` caps the infinite exponential delay; `max` intersects it with the finite retry counter.
-	const retrySchedule = Schedule.min([
+	const retryDelaySchedule: Schedule.Schedule<Duration.Duration, AiError.AiError> = Schedule.min([
 		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
 		Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs)),
 	]).pipe(Schedule.jittered, (schedule) =>
 		Schedule.max([schedule, Schedule.recurs(options.firstEventTimeoutRetries)]),
+	)
+	const retrySchedule = Schedule.passthrough(retryDelaySchedule).pipe(
+		Schedule.modifyDelay(({ output, duration }) => Effect.succeed(output.retryAfter ?? duration)),
 	)
 
 	// One request attempt, bounded by the first-event timeout: a request that gets no response at all
@@ -134,10 +137,10 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 	): Effect.Effect<readonly [HttpClientResponse.HttpClientResponse, EventStream], AiError.AiError> => {
 		const transformed = liftLeadingSystemIntoInstructions(payload)
 
-		// Attempt 0 acquires eagerly (its HttpClientResponse is the tuple's response); acquisition
-		// stalls retry in-effect - nothing has streamed yet, so a re-send cannot duplicate anything.
+		// Attempt 0 acquires eagerly (its HttpClientResponse is the tuple's response); retryable acquisition
+		// failures retry in-effect - nothing has streamed yet, so a re-send cannot duplicate anything.
 		return acquireOnce(transformed).pipe(
-			Effect.retry({ while: isCodexFirstEventStall, schedule: retrySchedule }),
+			Effect.retry({ while: isCodexRetryableBeforeFirstEvent, schedule: retrySchedule }),
 			Effect.map(([response, firstStream]) => {
 				let pending: EventStream | null = firstStream
 
@@ -223,7 +226,7 @@ export type CodexModelOptions = {
 	readonly store?: CodexAuthStore
 	/** Identity headers (`originator`/`User-Agent`/`session_id`) sent on model requests. */
 	readonly identity?: CodexIdentityOptions
-	/** Connection-level `retryTransient` attempts. Defaults to {@link DEFAULT_REQUEST_RETRY_TIMES}. */
+	/** Maximum transport retry attempts. Provider response retries use {@link CodexHardeningOptions.firstEventTimeoutRetries}. */
 	readonly requestRetryTimes?: number
 	/** Stall timeout / retry overrides. Defaults to {@link defaultCodexHardening}. */
 	readonly hardening?: Partial<CodexHardeningOptions>
@@ -247,11 +250,15 @@ export const makeCodexLanguageModel = (
 			Effect.provideService(HttpClient.HttpClient, baseClient),
 		)
 
-		// retryTransient sits below the auth wrapper: connection retries reuse the injected headers and
-		// never re-enter (or retry) the auth path itself.
+		// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
+		// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
+		// where the first-event retry can honor a provider Retry-After rather than retrying a 429 immediately.
 		const modelClient = withCodexAuth(
 			baseClient.pipe(
-				HttpClient.retryTransient({ times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES }),
+				HttpClient.retryTransient({
+					retryOn: 'errors-only',
+					times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
+				}),
 			),
 			auth,
 			options.identity,

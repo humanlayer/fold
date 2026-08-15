@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Duration, Effect, Stream } from 'effect'
+import { Deferred, Duration, Effect, Fiber, Stream } from 'effect'
+import { TestClock } from 'effect/testing'
+import { AiError } from 'effect/unstable/ai'
 
 import {
 	firstEventRetryDelayMs,
@@ -122,6 +124,25 @@ describe('hardenCodexStream', () => {
 		}),
 	)
 
+	it.effect('does not retry a rate limit after partial output', () =>
+		Effect.gen(function* () {
+			let attempts = 0
+			const rateLimitError = AiError.make({
+				module: 'test',
+				method: 'streamText',
+				reason: new AiError.RateLimitError({ retryAfter: Duration.millis(1) }),
+			})
+			const stream = hardenCodexStream(() => {
+				attempts += 1
+				return Stream.make(1).pipe(Stream.concat(Stream.fail(rateLimitError)))
+			}, fastOptions())
+
+			const error = yield* Stream.runCollect(stream).pipe(Effect.flip)
+			expect(error).toBe(rateLimitError)
+			expect(attempts).toBe(1)
+		}),
+	)
+
 	it.live('does not retry ordinary provider failures', () =>
 		Effect.gen(function* () {
 			let attempts = 0
@@ -134,6 +155,40 @@ describe('hardenCodexStream', () => {
 			const error = yield* Stream.runCollect(stream).pipe(Effect.flip)
 			expect(error).toBe(boom)
 			expect(attempts).toBe(1)
+		}),
+	)
+
+	it.effect('waits for a provider Retry-After before retrying a rate limit', () =>
+		Effect.gen(function* () {
+			let attempts = 0
+			const firstAttempt = yield* Deferred.make<void>()
+			const retries: Array<StreamRetryInfo> = []
+			const rateLimitError = AiError.make({
+				module: 'test',
+				method: 'streamText',
+				reason: new AiError.RateLimitError({ retryAfter: Duration.seconds(16) }),
+			})
+			const stream = hardenCodexStream(
+				() => {
+					attempts += 1
+					return attempts === 1
+						? Stream.unwrap(
+								Deferred.succeed(firstAttempt, undefined).pipe(Effect.as(Stream.fail(rateLimitError))),
+							)
+						: Stream.make(1)
+				},
+				fastOptions({ onStreamRetry: (info) => Effect.sync(() => void retries.push(info)) }),
+			)
+
+			const fiber = yield* Stream.runCollect(stream).pipe(Effect.forkChild({ startImmediately: true }))
+			yield* Deferred.await(firstAttempt)
+			yield* TestClock.adjust(Duration.seconds(15))
+			expect(attempts).toBe(1)
+
+			yield* TestClock.adjust(Duration.seconds(1))
+			expect(yield* Fiber.join(fiber)).toEqual([1])
+			expect(attempts).toBe(2)
+			expect(retries[0]?.delayMs).toBe(16_000)
 		}),
 	)
 })
@@ -155,6 +210,22 @@ describe('firstEventRetryDelayMs', () => {
 			const capped = yield* firstEventRetryDelayMs(options, 4)
 			expect(capped).toBeGreaterThanOrEqual(8000)
 			expect(capped).toBeLessThanOrEqual(10_000)
+		}),
+	)
+
+	it.effect('uses a provider Retry-After unchanged', () =>
+		Effect.gen(function* () {
+			const delay = yield* firstEventRetryDelayMs(
+				{ firstEventRetryBaseDelayMs: 1000, firstEventRetryMaxDelayMs: 10_000 },
+				0,
+				AiError.make({
+					module: 'test',
+					method: 'streamText',
+					reason: new AiError.RateLimitError({ retryAfter: Duration.seconds(16) }),
+				}),
+			)
+
+			expect(delay).toBe(16_000)
 		}),
 	)
 })
