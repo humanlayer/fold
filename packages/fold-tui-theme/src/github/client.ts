@@ -1,3 +1,5 @@
+import { Predicate } from 'effect'
+
 import { DEMO_FEED } from './fixtures'
 import type { Feed, GhItem, RateLimit } from './types'
 
@@ -144,9 +146,8 @@ function reasonText(reason: unknown): string {
 }
 
 const stringProperty = (value: unknown, property: string): string | undefined => {
-	if (typeof value !== 'object' || value === null || !(property in value)) return undefined
-	const propertyValue = Reflect.get(value, property)
-	return typeof propertyValue === 'string' ? propertyValue : undefined
+	if (!Predicate.hasProperty(value, property)) return undefined
+	return Predicate.isString(value[property]) ? value[property] : undefined
 }
 
 /** Prefer an actionable rate-limit reason over a generic one when both lists fail. */
