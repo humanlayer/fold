@@ -77,7 +77,7 @@ export const isCodexIdleStall = (error: unknown): error is AiError.AiError =>
  * repeat a tool call that has already reached the agent runtime.
  */
 export const isCodexRetryableBeforeFirstEvent = (error: unknown): error is AiError.AiError =>
-	error instanceof AiError.AiError && error.isRetryable && !isCodexIdleStall(error)
+	AiError.isAiError(error) && error.isRetryable && !isCodexIdleStall(error)
 
 /**
  * Bound the stream's producer latency: the first event must arrive within `firstEventTimeoutMs` and

@@ -9,7 +9,7 @@ import { Prompt } from 'effect/unstable/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
 import type { LogEntry, ToolResultLogEntry } from '../EventLog/Schemas'
-import { HookExecutionError, isHookExecutionError } from '../HookRunner/Errors'
+import { isHookExecutionError, type HookExecutionError } from '../HookRunner/Errors'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, ToolCallId, type AgentId } from '../Ids'
 import { Subagents } from '../Subagents/SubagentsService'
