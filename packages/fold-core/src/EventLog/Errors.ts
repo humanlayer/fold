@@ -39,5 +39,21 @@ export class EventLogCorruptEntryError extends Schema.TaggedError<EventLogCorrup
 	},
 ) {}
 
+/** The persisted entry uses a format newer than this Fold runtime can safely interpret. */
+export class EventLogUnsupportedVersionError extends Schema.TaggedError<EventLogUnsupportedVersionError>()(
+	'EventLogUnsupportedVersionError',
+	{
+		operation: EventLogOperation,
+		message: Schema.String,
+		version: Schema.Int,
+		seq: Schema.optional(Schema.Int),
+		supportedVersions: Schema.Array(Schema.Int),
+	},
+) {}
+
 /** Public EventLog error union. */
-export type EventLogError = EventLogInvalidEntryError | EventLogUnavailableError | EventLogCorruptEntryError
+export type EventLogError =
+	| EventLogInvalidEntryError
+	| EventLogUnavailableError
+	| EventLogCorruptEntryError
+	| EventLogUnsupportedVersionError

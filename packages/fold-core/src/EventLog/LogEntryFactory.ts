@@ -2,7 +2,7 @@ import { Clock, Effect, Schema } from 'effect'
 
 import type { IdsService } from '../Ids'
 import { EventLogInvalidEntryError } from './Errors'
-import { LogEntry, LogEntryInput, type LogSeq } from './Schemas'
+import { CURRENT_LOG_ENTRY_VERSION, LogEntry, LogEntryInput, type LogSeq } from './Schemas'
 
 const invalidEntryError = (message: string, cause: unknown) =>
 	new EventLogInvalidEntryError({
@@ -29,6 +29,6 @@ export const makeStoredLogEntry = (
 			seq,
 			eventId,
 			ts,
-			version: 1,
+			version: CURRENT_LOG_ENTRY_VERSION,
 		}).pipe(Effect.mapError((cause) => invalidEntryError('Invalid stored EventLog entry', cause)))
 	})

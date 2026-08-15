@@ -6,8 +6,10 @@ import {
 	EventLogCorruptEntryError,
 	EventLogInvalidEntryError,
 	EventLogUnavailableError,
+	EventLogUnsupportedVersionError,
 	Ids,
 	LogEntry as LogEntrySchema,
+	decodeStoredLogEntry,
 	layerLiveIdFactory,
 	makeStoredLogEntry,
 	type EventLogError,
@@ -58,7 +60,10 @@ const jsonlLines = (contents: string): ReadonlyArray<string> => {
 	return contents.split('\n')
 }
 
-const decodeJsonlLine = (line: string, lineNumber: number): Effect.Effect<LogEntry, EventLogCorruptEntryError> =>
+const decodeJsonlLine = (
+	line: string,
+	lineNumber: number,
+): Effect.Effect<LogEntry, EventLogCorruptEntryError | EventLogUnsupportedVersionError> =>
 	Effect.gen(function* () {
 		if (line.length === 0) {
 			return yield* corruptEntryError(lineNumber, `Empty JSONL line at line ${lineNumber}`)
@@ -68,9 +73,14 @@ const decodeJsonlLine = (line: string, lineNumber: number): Effect.Effect<LogEnt
 			try: (): unknown => JSON.parse(line),
 			catch: (cause) => corruptEntryError(lineNumber, `Invalid JSON at line ${lineNumber}`, cause),
 		})
-		const entry = yield* Schema.decodeUnknownEffect(LogEntrySchema)(parsed).pipe(
-			Effect.mapError((cause) =>
-				corruptEntryError(lineNumber, `Invalid EventLog entry at line ${lineNumber}`, cause),
+		const entry = yield* decodeStoredLogEntry(parsed).pipe(
+			Effect.catchTag('EventLogCorruptEntryError', (error) =>
+				corruptEntryError(
+					lineNumber,
+					`Invalid EventLog entry at line ${lineNumber}`,
+					error.cause ?? error,
+					error.seq,
+				),
 			),
 		)
 		const expectedSeq = lineNumber - 1
@@ -87,7 +97,9 @@ const decodeJsonlLine = (line: string, lineNumber: number): Effect.Effect<LogEnt
 		return entry
 	})
 
-const decodeJsonl = (contents: string): Effect.Effect<ReadonlyArray<LogEntry>, EventLogCorruptEntryError> =>
+const decodeJsonl = (
+	contents: string,
+): Effect.Effect<ReadonlyArray<LogEntry>, EventLogCorruptEntryError | EventLogUnsupportedVersionError> =>
 	Effect.forEach(jsonlLines(contents), (line, index) => decodeJsonlLine(line, index + 1), { concurrency: 1 })
 
 const encodeJsonlLine = (entry: LogEntry): Effect.Effect<string, EventLogInvalidEntryError> =>
@@ -105,7 +117,10 @@ const encodeJsonlLine = (entry: LogEntry): Effect.Effect<string, EventLogInvalid
 const loadEntries = (
 	fs: FileSystem.FileSystem,
 	filePath: string,
-): Effect.Effect<ReadonlyArray<LogEntry>, EventLogCorruptEntryError | EventLogUnavailableError> =>
+): Effect.Effect<
+	ReadonlyArray<LogEntry>,
+	EventLogCorruptEntryError | EventLogUnsupportedVersionError | EventLogUnavailableError
+> =>
 	Effect.gen(function* () {
 		yield* fs
 			.makeDirectory(dirname(filePath), { recursive: true })

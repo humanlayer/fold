@@ -16,11 +16,33 @@ export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 })
 export type EpochMillis = typeof EpochMillis.Type
 
-/** The durable event format version written on every stored log entry. */
-export const LogVersion = Schema.Literal(1)
+/** The event format emitted by this Fold runtime. Readers may support additional historical versions. */
+export const CURRENT_LOG_ENTRY_VERSION = 1 as const
+
+/** All event formats this Fold runtime can decode. Useful for host capability negotiation. */
+export const SUPPORTED_LOG_ENTRY_VERSIONS = [CURRENT_LOG_ENTRY_VERSION] as const
+
+/** A version found at the persisted-entry boundary, including versions this runtime may not support. */
+export const StoredLogEntryVersion = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)).annotate({
+	identifier: 'StoredLogEntryVersion',
+})
+export type StoredLogEntryVersion = typeof StoredLogEntryVersion.Type
+
+/** The current durable event format version. */
+export const LogVersion = Schema.Literal(CURRENT_LOG_ENTRY_VERSION)
 export type LogVersion = typeof LogVersion.Type
 
-const StoredLogEntryEnvelope = {
+/** Version-neutral envelope decoded before dispatching to a historical entry schema. */
+export const StoredLogEntryEnvelope = Schema.Struct({
+	seq: LogSeq,
+	eventId: EventId,
+	ts: EpochMillis,
+	// Entries written before per-entry versioning are legacy v1 and omit this field.
+	version: Schema.optional(StoredLogEntryVersion),
+}).annotate({ identifier: 'StoredLogEntryEnvelope' })
+export type StoredLogEntryEnvelope = typeof StoredLogEntryEnvelope.Type
+
+const CurrentStoredLogEntryEnvelope = {
 	seq: LogSeq,
 	eventId: EventId,
 	ts: EpochMillis,
@@ -216,7 +238,7 @@ export type SessionStartedLogEntryInput = typeof SessionStartedLogEntryInput.Typ
 
 /** Stored session started log entry. */
 export const SessionStartedLogEntry = Schema.TaggedStruct('session_started', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
@@ -247,7 +269,7 @@ export type AgentStartedLogEntryInput = typeof AgentStartedLogEntryInput.Type
 
 /** Stored agent started log entry. */
 export const AgentStartedLogEntry = Schema.TaggedStruct('agent_started', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -285,7 +307,7 @@ export type SystemMessageLogEntryInput = typeof SystemMessageLogEntryInput.Type
 
 /** Log entry for a system message block set. */
 export const SystemMessageLogEntry = Schema.TaggedStruct('system-message', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -311,7 +333,7 @@ export type UserMessageLogEntryInput = typeof UserMessageLogEntryInput.Type
 
 /** Log entry for user messages. */
 export const UserMessageLogEntry = Schema.TaggedStruct('user-message', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -342,7 +364,7 @@ export type AssistantMessageLogEntryInput = typeof AssistantMessageLogEntryInput
 
 /** Log entry for assistant messages. */
 export const AssistantMessageLogEntry = Schema.TaggedStruct('assistant-message', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -372,7 +394,7 @@ export type ToolResultLogEntryInput = typeof ToolResultLogEntryInput.Type
 
 /** Log entry for tool results. */
 export const ToolResultLogEntry = Schema.TaggedStruct('tool-result', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: ToolCallId,
@@ -396,7 +418,7 @@ export type ToolStateLogEntryInput = typeof ToolStateLogEntryInput.Type
 
 /** Schema for a tool state update log entry. toolCallId is null when a hook writes outside a tool call. */
 export const ToolStateLogEntry = Schema.TaggedStruct('tool_state', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -425,7 +447,7 @@ export type CompactionLogEntryInput = typeof CompactionLogEntryInput.Type
 
 /** Schema for a compaction log entry. */
 export const CompactionLogEntry = Schema.TaggedStruct('compaction', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -454,7 +476,7 @@ export type ModelChangeLogEntryInput = typeof ModelChangeLogEntryInput.Type
 
 /** Schema for model change log entry. */
 export const ModelChangeLogEntry = Schema.TaggedStruct('model-change', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -479,7 +501,7 @@ export type ThinkingChangeLogEntryInput = typeof ThinkingChangeLogEntryInput.Typ
 
 /** Schema for thinking / reasoning setting changes. */
 export const ThinkingChangeLogEntry = Schema.TaggedStruct('thinking-change', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -504,7 +526,7 @@ export type ToolsChangeLogEntryInput = typeof ToolsChangeLogEntryInput.Type
 
 /** Schema for active toolset changes. */
 export const ToolsChangeLogEntry = Schema.TaggedStruct('tools-change', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -536,7 +558,7 @@ export type AgentFinishedLogEntryInput = typeof AgentFinishedLogEntryInput.Type
 
 /** Schema for an agent's terminal state. */
 export const AgentFinishedLogEntry = Schema.TaggedStruct('agent-finished', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -561,7 +583,7 @@ export type SessionTitleLogEntryInput = typeof SessionTitleLogEntryInput.Type
 
 /** Stored session title. The latest entry is the session's authoritative title. */
 export const SessionTitleLogEntry = Schema.TaggedStruct('session_title', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
@@ -584,7 +606,7 @@ export type ErrorLogEntryInput = typeof ErrorLogEntryInput.Type
 
 /** Schema for a durable error note in the log. */
 export const ErrorLogEntry = Schema.TaggedStruct('error', {
-	...StoredLogEntryEnvelope,
+	...CurrentStoredLogEntryEnvelope,
 	agentId: Schema.NullOr(AgentId),
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -613,8 +635,8 @@ export const LogEntryInput = Schema.Union([
 ]).annotate({ identifier: 'LogEntryInput', discriminator: '_tag' })
 export type LogEntryInput = typeof LogEntryInput.Type
 
-/** Stored log entry schema. */
-export const LogEntry = Schema.Union([
+/** Frozen wire schema for persisted v1 entries. Add a new schema rather than changing incompatible v1 fields. */
+export const LogEntryV1 = Schema.Union([
 	SessionStartedLogEntry,
 	AgentStartedLogEntry,
 	SystemMessageLogEntry,
@@ -629,6 +651,10 @@ export const LogEntry = Schema.Union([
 	AgentFinishedLogEntry,
 	SessionTitleLogEntry,
 	ErrorLogEntry,
-]).annotate({ identifier: 'LogEntry', discriminator: '_tag' })
+]).annotate({ identifier: 'LogEntryV1', discriminator: '_tag' })
+export type LogEntryV1 = typeof LogEntryV1.Type
+
+/** Current in-memory log entry model. Historical wire entries are upcast to this type while decoding. */
+export const LogEntry = LogEntryV1
 export type LogEntry = typeof LogEntry.Type
 export type LogEntryEncoded = typeof LogEntry.Encoded
