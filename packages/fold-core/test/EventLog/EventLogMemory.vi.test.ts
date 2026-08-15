@@ -24,7 +24,6 @@ const makeSessionStarted = (cwd: string): Effect.Effect<LogEntryInput, never, Id
 			agentId: null,
 			parentAgentId: null,
 			toolCallId: null,
-			version: 1,
 			cwd,
 			sessionId: yield* ids.makeSessionId,
 			rootAgentId: yield* ids.makeAgentId,
@@ -67,6 +66,8 @@ it.effect('memory append assigns canonical sequence, event identity, and timesta
 		expect(entries[0].eventId).not.toBe(entries[1].eventId)
 		expect(entries[0].ts).toBe(1_000)
 		expect(entries[1].ts).toBe(1_000)
+		expect(entries[0].version).toBe(1)
+		expect(entries[1].version).toBe(1)
 	}),
 )
 
@@ -122,7 +123,7 @@ it.effect('memory append maps invalid input to EventLogInvalidEntryError', () =>
 				.append(
 					// Intentionally invalid input: this test exercises append's schema-validation failure path.
 					// oxlint-disable-next-line typescript/consistent-type-assertions
-					{ ...(yield* makeSessionStarted('/tmp/bad')), version: 2 } as unknown as LogEntryInput,
+					{ ...(yield* makeSessionStarted('/tmp/bad')), cwd: 42 } as unknown as LogEntryInput,
 				)
 				.pipe(Effect.flip)
 		}).pipe(Effect.provide(testLayer))

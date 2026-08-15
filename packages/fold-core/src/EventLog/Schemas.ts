@@ -16,15 +16,16 @@ export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 })
 export type EpochMillis = typeof EpochMillis.Type
 
+/** The durable event format version written on every stored log entry. */
+export const LogVersion = Schema.Literal(1)
+export type LogVersion = typeof LogVersion.Type
+
 const StoredLogEntryEnvelope = {
 	seq: LogSeq,
 	eventId: EventId,
 	ts: EpochMillis,
+	version: LogVersion,
 }
-
-/** The durable log format version written in the first session entry. */
-export const LogVersion = Schema.Literal(1)
-export type LogVersion = typeof LogVersion.Type
 
 /** A configured provider profile id, not a secret or API key. */
 export const LlmProviderId = Schema.String.annotate({ identifier: 'LlmProviderId' })
@@ -206,7 +207,6 @@ export const SessionStartedLogEntryInput = Schema.TaggedStruct('session_started'
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
-	version: LogVersion,
 	cwd: Schema.NullOr(Schema.String),
 	sessionId: SessionId,
 	rootAgentId: AgentId,
@@ -220,7 +220,6 @@ export const SessionStartedLogEntry = Schema.TaggedStruct('session_started', {
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
-	version: LogVersion,
 	cwd: Schema.NullOr(Schema.String),
 	sessionId: SessionId,
 	rootAgentId: AgentId,
