@@ -55,14 +55,12 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 							onSuccess: (stream) =>
 								Effect.succeed(
 									stream.pipe(
-										Stream.map(
-											(output): ToolHandlerOutput => ({
-												result: output.result,
-												encodedResult: output.encodedResult,
-												isFailure: output.isFailure,
-												preliminary: output.preliminary,
-											}),
-										),
+										Stream.map((output): ToolHandlerOutput => ({
+											result: output.result,
+											encodedResult: output.encodedResult,
+											isFailure: output.isFailure,
+											preliminary: output.preliminary,
+										})),
 										Stream.mapError((error): unknown => error),
 									),
 								),

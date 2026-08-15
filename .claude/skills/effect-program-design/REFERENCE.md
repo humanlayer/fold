@@ -48,10 +48,7 @@ export class WidgetUnavailableError extends Schema.TaggedErrorClass<WidgetUnavai
 ) {}
 
 export type WidgetProviderError =
-	| WidgetTokenRevokedError
-	| WidgetRateLimitError
-	| WidgetApiUnavailableError
-	| WidgetUnexpectedResponseError
+	WidgetTokenRevokedError | WidgetRateLimitError | WidgetApiUnavailableError | WidgetUnexpectedResponseError
 ```
 
 ### `widget.types.ts` — domain types + the service shape

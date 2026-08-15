@@ -398,35 +398,32 @@ const rowsForEntry = (
 			'tool-result': ({ executedInput, message, messageId, seq }) =>
 				typeof message.content === 'string'
 					? []
-					: message.content.flatMap(
-							(part, index): ReadonlyArray<ConversationRow> =>
-								part.type === 'tool-result'
-									? [
-											{
-												key: `${messageId}:result:${index}`,
-												seq,
-												kind: 'tool-result',
-												label: part.isFailure ? 'FAILED' : 'RESULT',
-												text: toolResultSummary(part.result),
-												inputText: null,
-												executedInputText:
-													executedInput === undefined ? null : toolInputDetail(executedInput),
-												resultText: toolResultDetail(part.result),
-												toolName: part.name,
-												toolCallId: part.id,
-												status:
-													part.isFailure &&
-													toolResultDetail(part.result).startsWith(
-														interruptedToolResultPrefix,
-													)
-														? 'interrupted'
-														: part.isFailure
-															? 'error'
-															: 'done',
-												isFailure: part.isFailure,
-											},
-										]
-									: [],
+					: message.content.flatMap((part, index): ReadonlyArray<ConversationRow> =>
+							part.type === 'tool-result'
+								? [
+										{
+											key: `${messageId}:result:${index}`,
+											seq,
+											kind: 'tool-result',
+											label: part.isFailure ? 'FAILED' : 'RESULT',
+											text: toolResultSummary(part.result),
+											inputText: null,
+											executedInputText:
+												executedInput === undefined ? null : toolInputDetail(executedInput),
+											resultText: toolResultDetail(part.result),
+											toolName: part.name,
+											toolCallId: part.id,
+											status:
+												part.isFailure &&
+												toolResultDetail(part.result).startsWith(interruptedToolResultPrefix)
+													? 'interrupted'
+													: part.isFailure
+														? 'error'
+														: 'done',
+											isFailure: part.isFailure,
+										},
+									]
+								: [],
 						),
 			compaction: ({
 				compactionId,
@@ -508,22 +505,20 @@ const collapseToolResults = (rows: ReadonlyArray<ConversationRow>): ReadonlyArra
 
 export const conversationRows = (state: SessionState): ReadonlyArray<ConversationRow> => [
 	...collapseToolResults(state.rootContent.flatMap((entry) => rowsForEntry(entry, state.interruptedAssistantSeqs))),
-	...state.transientContent.map(
-		(content): ConversationRow => ({
-			key: `transient:${content.key}`,
-			seq: null,
-			kind: content.kind === 'text' ? 'assistant' : 'reasoning',
-			label: content.kind === 'text' ? 'ASSISTANT' : 'THINKING',
-			text: content.text,
-			inputText: null,
-			executedInputText: null,
-			resultText: null,
-			toolName: null,
-			toolCallId: null,
-			status: 'none',
-			isFailure: false,
-		}),
-	),
+	...state.transientContent.map((content): ConversationRow => ({
+		key: `transient:${content.key}`,
+		seq: null,
+		kind: content.kind === 'text' ? 'assistant' : 'reasoning',
+		label: content.kind === 'text' ? 'ASSISTANT' : 'THINKING',
+		text: content.text,
+		inputText: null,
+		executedInputText: null,
+		resultText: null,
+		toolName: null,
+		toolCallId: null,
+		status: 'none',
+		isFailure: false,
+	})),
 ]
 
 export const replayIsReady = Match.type<ReplayState>().pipe(

@@ -65,15 +65,13 @@ export const toolCallTurn = (
 ): ScriptedTurn => ({
 	_tag: 'parts',
 	parts: [
-		...calls.map(
-			(call): Response.StreamPartEncoded => ({
-				type: 'tool-call',
-				id: call.id,
-				name: call.name,
-				params: call.params,
-				providerExecuted: false,
-			}),
-		),
+		...calls.map((call): Response.StreamPartEncoded => ({
+			type: 'tool-call',
+			id: call.id,
+			name: call.name,
+			params: call.params,
+			providerExecuted: false,
+		})),
 		finishPart({ reason: 'tool-calls', ...options }),
 	],
 })
