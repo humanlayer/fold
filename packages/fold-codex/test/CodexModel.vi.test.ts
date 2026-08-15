@@ -1,5 +1,5 @@
-import { OpenAiClient } from '@effect/ai-openai'
-import * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
+import type { OpenAiClient } from '@effect/ai-openai'
+import type * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
 import { describe, expect, it } from '@effect/vitest'
 import { Context, Deferred, Duration, Effect, Fiber, Layer, Ref, Stream } from 'effect'
 import { TestClock } from 'effect/testing'

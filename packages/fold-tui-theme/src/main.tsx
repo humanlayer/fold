@@ -13,7 +13,7 @@ interface Args {
 	readonly demo: boolean
 }
 
-function parseArgs(argv: readonly string[]): Args {
+function parseArgs(argv: ReadonlyArray<string>): Args {
 	let theme: ThemeId = 'tactical'
 	let slug = 'humanlayer/fold'
 	let demo = false

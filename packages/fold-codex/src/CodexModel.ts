@@ -14,7 +14,7 @@
  * retry before the first stream event and honor the provider's Retry-After delay.
  */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
-import * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
+import type * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'

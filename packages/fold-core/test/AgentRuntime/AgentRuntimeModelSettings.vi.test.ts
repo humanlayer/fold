@@ -19,7 +19,7 @@ import {
 	noopToolEventSink,
 	SessionControls,
 	Subagents,
-	SystemPrompt,
+	type SystemPrompt,
 	ToolEventSink,
 	toolsetLayerFromToolkit,
 	type ActiveModel,

@@ -4,9 +4,9 @@ import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
 
 import {
 	defineToolState,
-	EventLog,
-	HookRunner,
-	Ids,
+	type EventLog,
+	type HookRunner,
+	type Ids,
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	makeHookRunner,

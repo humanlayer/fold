@@ -35,7 +35,7 @@ interface RawItem {
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback)
 const num = (v: unknown, fallback = 0): number => (typeof v === 'number' ? v : fallback)
 
-function parseLabels(v: unknown): string[] {
+function parseLabels(v: unknown): Array<string> {
 	if (!Array.isArray(v)) return []
 	return v.flatMap((label) => {
 		if (typeof label === 'string') return [label]
@@ -155,11 +155,11 @@ function combineReasons(pullsReason: unknown, issuesReason: unknown): string {
 }
 
 /** Normalize a raw list payload, dropping PRs that the issues endpoint smuggles in. */
-function parseItems(payload: unknown, kind: GhItem['kind']): GhItem[] {
+function parseItems(payload: unknown, kind: GhItem['kind']): Array<GhItem> {
 	if (!Array.isArray(payload)) return []
 	// `Array.isArray` narrows to `any[]`, so this annotation stands in for an
 	// assertion. Every field is re-validated in `normalize`.
-	const raw: RawItem[] = payload
+	const raw: Array<RawItem> = payload
 	// The issues endpoint also returns pull requests. Anything carrying a
 	// `pull_request` key is a PR wearing an issue costume — drop it.
 	const rows = kind === 'issue' ? raw.filter((item) => item.pull_request === undefined) : raw

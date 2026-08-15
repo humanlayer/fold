@@ -15,7 +15,7 @@
  *   its batch boundaries (root and subagents alike - the tree stops together), cleared by the facade
  *   when the next send begins.
  */
-import { Context, Deferred, Effect, Exit, Fiber, Ref, SynchronizedRef } from 'effect'
+import { Context, Deferred, Effect, type Exit, Fiber, Ref, SynchronizedRef } from 'effect'
 
 import type { AgentFinishedLogEntry } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'

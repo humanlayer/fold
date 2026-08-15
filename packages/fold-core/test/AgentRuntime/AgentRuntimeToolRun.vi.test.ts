@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import type { Prompt } from 'effect/unstable/ai'
 
 import { AgentRuntime, type AssistantMessageLogEntry, type ToolResultLogEntry } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'

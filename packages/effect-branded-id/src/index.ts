@@ -1,5 +1,5 @@
 import { createId } from '@paralleldrive/cuid2'
-import { Brand, Schema } from 'effect'
+import { type Brand, Schema } from 'effect'
 
 // ---------------------------------------------------------------------------
 // Helpers

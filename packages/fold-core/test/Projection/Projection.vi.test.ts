@@ -9,7 +9,7 @@ import {
 	messagesForAgent,
 	runtimeForAgent,
 	toolStateForAgent,
-	ToolCallId,
+	type ToolCallId,
 	type ActiveModel,
 	type LogEntry,
 	type SystemMessageEncoded,

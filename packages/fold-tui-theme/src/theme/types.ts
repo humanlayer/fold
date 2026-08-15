@@ -56,7 +56,7 @@ export interface GlitchSpec {
 	 */
 
 	/** The palette a burst injects. Empty disables both blocks and tints. */
-	readonly corruptColors: readonly string[]
+	readonly corruptColors: ReadonlyArray<string>
 	/** Probability a burst paints solid colour blocks, and the most it paints. */
 	readonly blockChance: number
 	readonly maxBlocks: number
@@ -135,7 +135,7 @@ export interface Theme {
 	readonly semantic: ThemeSemantic
 	readonly fx: PostFx
 	/** Left-to-right partial block ramp used by the horizontal count bars. */
-	readonly barRamp: readonly string[]
+	readonly barRamp: ReadonlyArray<string>
 	/** Bottom-up block ramp used by the activity sparkline. */
-	readonly sparkRamp: readonly string[]
+	readonly sparkRamp: ReadonlyArray<string>
 }

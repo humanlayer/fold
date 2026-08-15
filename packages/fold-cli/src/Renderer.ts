@@ -16,8 +16,8 @@ import {
 	type ModelPricing,
 	type SessionId,
 	type UsageEncoded,
+	type FoldEvent,
 } from '@humanlayer/fold-core'
-import type { FoldEvent } from '@humanlayer/fold-core'
 import { Effect, Match } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'

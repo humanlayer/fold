@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer, Option } from 'effect'
-import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
+import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 
 import {
 	CodexTokenData,

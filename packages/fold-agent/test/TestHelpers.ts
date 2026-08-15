@@ -21,7 +21,7 @@ import {
 	type FoldTool,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, PlatformError, Ref, Schema } from 'effect'
+import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
 export const makeAmbientServices = (): Effect.Effect<{

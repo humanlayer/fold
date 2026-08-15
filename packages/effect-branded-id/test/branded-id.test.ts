@@ -1,7 +1,7 @@
 import { it, expect } from '@effect/vitest'
 import { Effect, Exit, Schema } from 'effect'
 
-import { makeBrandedId, type BrandedIdOf, isCuid } from '../src/index.js'
+import { makeBrandedId, type BrandedIdOf, isCuid } from '../src/index'
 
 const UserId = makeBrandedId('usr')
 type UserId = BrandedIdOf<typeof UserId>

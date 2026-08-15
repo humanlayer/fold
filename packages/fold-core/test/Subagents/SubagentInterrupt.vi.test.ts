@@ -11,8 +11,7 @@ import { Deferred, Effect, Fiber } from 'effect'
 
 import { defineSubagent, shortAgentId, type LogEntry, type UserMessageLogEntry } from '../../src/index'
 import { claudeActiveModel } from '../Api/ApiTestHelpers'
-import { textTurn } from '../TestLayers/ScriptedLanguageModel'
-import { toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
+import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { makeDriveSession, makeHangOnceModel, renderedDriveResult, subagentStartedEntries } from './DriveHarness'
 
 it.effect('an interrupted subagent leaves honest durable markers and is resumable', () =>

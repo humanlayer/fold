@@ -61,5 +61,13 @@
 				"oxc/no-barrel-file": "off",
 			},
 		},
+		{
+			// Runnable examples and release/maintenance entrypoints intentionally report
+			// progress and actionable setup failures to their terminal users.
+			"files": ["packages/*/examples/**/*.ts", "packages/*/scripts/**/*.ts", "scripts/**/*.ts"],
+			"rules": {
+				"eslint/no-console": "off",
+			},
+		},
 	],
 }

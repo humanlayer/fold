@@ -4,8 +4,7 @@
  * Session.events from the EventLog) and ephemeral `delta` fragments (streaming text/reasoning and tool
  * progress) that are published live and never persisted. AgentEvents itself only holds the delta side.
  */
-import { Context, Schema } from 'effect'
-import type { Effect, Stream } from 'effect'
+import { Context, type Effect, type Schema, type Stream } from 'effect'
 
 import type { LogEntry } from '../EventLog/Schemas'
 import type { AgentId, ToolCallId } from '../Ids'

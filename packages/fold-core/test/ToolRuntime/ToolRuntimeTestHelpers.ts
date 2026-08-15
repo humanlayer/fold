@@ -5,8 +5,8 @@ import type { Tool } from 'effect/unstable/ai'
 import {
 	AgentId,
 	EventLog,
-	HookRunner,
-	Ids,
+	type HookRunner,
+	type Ids,
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	noopToolEventSink,

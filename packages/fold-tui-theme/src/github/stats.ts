@@ -13,9 +13,9 @@ interface Tally<T> {
 }
 
 /** Fixed order so the bars don't reshuffle when counts change. */
-const STATE_ORDER: readonly DisplayState[] = ['open', 'draft', 'merged', 'closed']
+const STATE_ORDER: ReadonlyArray<DisplayState> = ['open', 'draft', 'merged', 'closed']
 
-export function stateTallies(items: readonly GhItem[]): Tally<DisplayState>[] {
+export function stateTallies(items: ReadonlyArray<GhItem>): Array<Tally<DisplayState>> {
 	const counts = new Map<DisplayState, number>()
 	for (const item of items) {
 		const state = displayState(item)
@@ -25,7 +25,7 @@ export function stateTallies(items: readonly GhItem[]): Tally<DisplayState>[] {
 }
 
 /** Most-applied labels, descending. Ties break alphabetically for stability. */
-export function labelTallies(items: readonly GhItem[], limit: number): Tally<string>[] {
+export function labelTallies(items: ReadonlyArray<GhItem>, limit: number): Array<Tally<string>> {
 	const counts = new Map<string, number>()
 	for (const item of items) {
 		for (const label of item.labels) counts.set(label, (counts.get(label) ?? 0) + 1)
@@ -36,7 +36,7 @@ export function labelTallies(items: readonly GhItem[], limit: number): Tally<str
 		.slice(0, limit)
 }
 
-export function authorTallies(items: readonly GhItem[], limit: number): Tally<string>[] {
+export function authorTallies(items: ReadonlyArray<GhItem>, limit: number): Array<Tally<string>> {
 	const counts = new Map<string, number>()
 	for (const item of items) counts.set(item.author, (counts.get(item.author) ?? 0) + 1)
 	return [...counts.entries()]
@@ -57,7 +57,7 @@ const DAY_MS = 86_400_000
  * How many records were last updated on each of the past `days` days, oldest
  * first. Buckets by local midnight so "today" means what the reader expects.
  */
-export function updatesByDay(items: readonly GhItem[], days: number): DayBucket[] {
+export function updatesByDay(items: ReadonlyArray<GhItem>, days: number): Array<DayBucket> {
 	const startOfToday = new Date()
 	startOfToday.setHours(0, 0, 0, 0)
 	const todayMs = startOfToday.getTime()

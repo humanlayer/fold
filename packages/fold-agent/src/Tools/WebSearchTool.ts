@@ -112,7 +112,7 @@ const callMcp = (input: {
 						headers: {
 							accept: 'application/json, text/event-stream',
 							'content-type': 'application/json',
-							...(input.headers ?? {}),
+							...input.headers,
 						},
 						body: JSON.stringify({
 							jsonrpc: '2.0',

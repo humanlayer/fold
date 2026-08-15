@@ -3,8 +3,9 @@
  * addon). Load failures degrade to null so the read tool can fall back to its "image omitted" note
  * instead of crashing the run.
  */
+import type * as PhotonModule from '@silvia-odwyer/photon-node'
 
-export type Photon = typeof import('@silvia-odwyer/photon-node')
+export type Photon = typeof PhotonModule
 
 /** The subset of photon's PhotonImage surface the resize pipeline touches. */
 export type PhotonImage = InstanceType<Photon['PhotonImage']>

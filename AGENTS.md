@@ -28,9 +28,6 @@ packages reference them with `"<pkg>": "catalog:"`. Bump the version in the cata
 
 - `packages/effect-branded-id` (`@humanlayer/effect-branded-id`) provides Effect schemas and
   generators for type-safe, prefixed CUID2 identifiers.
-- `packages/effect-channels-core` (`@humanlayer/effect-channels-core`) contains the provider- and
-  agent-framework-agnostic Effect types and service interfaces for communication channels such as
-  Slack, Linear, and GitHub. Keep provider-specific channel implementations in separate packages.
 - `packages/vitest-config` (`@humanlayer/fold-vitest-config`) is the internal shared Vitest config.
 
 ## Effect v4 source (read this, not v3 docs)

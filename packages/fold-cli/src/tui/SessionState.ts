@@ -468,7 +468,7 @@ const rowsForEntry = (
 	)
 
 const collapseToolResults = (rows: ReadonlyArray<ConversationRow>): ReadonlyArray<ConversationRow> => {
-	const visible: ConversationRow[] = []
+	const visible: Array<ConversationRow> = []
 	const toolCallIndexes = new Map<string, number>()
 
 	for (const row of rows) {

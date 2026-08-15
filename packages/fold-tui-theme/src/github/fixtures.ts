@@ -7,7 +7,7 @@ import type { Feed, GhItem } from './types'
 
 const iso = (daysAgo: number): string => new Date(Date.now() - daysAgo * 86_400_000).toISOString()
 
-const pulls: GhItem[] = [
+const pulls: Array<GhItem> = [
 	{
 		kind: 'pr',
 		number: 412,
@@ -117,7 +117,7 @@ const pulls: GhItem[] = [
 	},
 ]
 
-const issues: GhItem[] = [
+const issues: Array<GhItem> = [
 	{
 		kind: 'issue',
 		number: 410,

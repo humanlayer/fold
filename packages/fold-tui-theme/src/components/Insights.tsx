@@ -51,7 +51,7 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** Counts per PR/issue state, colored by the same semantic slots the list uses. */
-function StateBreakdown({ items }: { items: readonly GhItem[] }) {
+function StateBreakdown({ items }: { items: ReadonlyArray<GhItem> }) {
 	const tallies = useMemo(() => stateTallies(items), [items])
 	const max = Math.max(1, ...tallies.map((t) => t.count))
 
@@ -85,7 +85,7 @@ function StateRow({ state, count, max }: { state: DisplayState; count: number; m
 	)
 }
 
-function Labels({ items }: { items: readonly GhItem[] }) {
+function Labels({ items }: { items: ReadonlyArray<GhItem> }) {
 	const { color } = useTheme()
 	const tallies = useMemo(() => labelTallies(items, TOP_LABELS), [items])
 	const max = Math.max(1, ...tallies.map((t) => t.count))
@@ -113,7 +113,7 @@ function Labels({ items }: { items: readonly GhItem[] }) {
 	)
 }
 
-function Authors({ items }: { items: readonly GhItem[] }) {
+function Authors({ items }: { items: ReadonlyArray<GhItem> }) {
 	const { color } = useTheme()
 	const tallies = useMemo(() => authorTallies(items, TOP_AUTHORS), [items])
 	const max = Math.max(1, ...tallies.map((t) => t.count))
@@ -142,7 +142,7 @@ function Authors({ items }: { items: readonly GhItem[] }) {
 }
 
 /** A sparkline of how many records were last touched on each of the past N days. */
-function Activity({ items }: { items: readonly GhItem[] }) {
+function Activity({ items }: { items: ReadonlyArray<GhItem> }) {
 	const theme = useTheme()
 	const { color } = theme
 	const buckets = useMemo(() => updatesByDay(items, ACTIVITY_DAYS), [items])
@@ -222,7 +222,7 @@ function Source({ feed }: { feed: Feed }) {
  * The right-hand rail. Every panel is an aggregation over the records that were
  * actually fetched — no synthesized gauges, no decorative readouts.
  */
-export function Insights({ width, items, feed }: { width: number; items: readonly GhItem[]; feed: Feed }) {
+export function Insights({ width, items, feed }: { width: number; items: ReadonlyArray<GhItem>; feed: Feed }) {
 	return (
 		<box width={width} flexShrink={0} flexDirection="column">
 			<StateBreakdown items={items} />

@@ -4,7 +4,6 @@ export const root = join(import.meta.dirname, '../..')
 export const stage = join(root, '.release')
 export const libraries = [
 	'effect-branded-id',
-	'effect-channels-core',
 	'fold-core',
 	'fold-codex',
 	'fold-opencode',

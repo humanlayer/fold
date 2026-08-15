@@ -22,7 +22,7 @@ import { Context, Effect, Layer, Stream } from 'effect'
 import type { Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient, type HttpClientResponse } from 'effect/unstable/http'
+import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
 
 import type { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
@@ -78,7 +78,7 @@ const relaxAnthropicResponseModel = (modelId: string): ((client: HttpClient.Http
 				return new Proxy(response, {
 					get: (target, property, receiver) =>
 						property === 'stream' ? stream : Reflect.get(target, property, receiver),
-				}) as HttpClientResponse.HttpClientResponse
+				})
 			}),
 		)
 }

@@ -87,7 +87,7 @@ function Meta({ item }: { item: GhItem }) {
 	const { color } = theme
 	const style = useStateStyle(displayState(item))
 
-	const rows: ReactNode[] = [
+	const rows: Array<ReactNode> = [
 		<Field key="author" label="AUTHOR" value={item.author} color={color.core} />,
 		<Field key="opened" label="OPENED" value={relativeTime(item.createdAt)} color={color.textDim} />,
 		<Field key="updated" label="UPDATED" value={relativeTime(item.updatedAt)} color={color.textDim} />,

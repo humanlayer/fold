@@ -186,12 +186,12 @@ function applyChromaDropout(buffer: OptimizedBuffer, amount: number): void {
  *     — not that text is permanently smeared.
  */
 class GlitchDirector {
-	private rows: ActiveGlitch[] = []
-	private blocks: ActiveBlock[] = []
-	private tints: ActiveTint[] = []
+	private rows: Array<ActiveGlitch> = []
+	private blocks: Array<ActiveBlock> = []
+	private tints: Array<ActiveTint> = []
 	private remaining = 0
 	/** The corrupt palette, parsed to 0–255 RGB once at construction. */
-	private readonly colors: readonly Rgb[]
+	private readonly colors: ReadonlyArray<Rgb>
 
 	constructor(private readonly spec: GlitchSpec) {
 		this.colors = spec.corruptColors.map((hex) => {
@@ -250,7 +250,7 @@ class GlitchDirector {
 		this.tints = this.pickTints(width, height, structural)
 	}
 
-	private pickRows(height: number): ActiveGlitch[] {
+	private pickRows(height: number): Array<ActiveGlitch> {
 		const count = 1 + Math.floor(Math.random() * this.spec.maxLines)
 		return Array.from({ length: count }, () => {
 			const roll = Math.random()
@@ -274,9 +274,9 @@ class GlitchDirector {
 	 * pass here is free); used to anchor a share of blocks/tints onto chrome so
 	 * borders get hit. See {@link CHAR_FLAG_MASK} for why this is not a range test.
 	 */
-	private collectStructural(buffer: OptimizedBuffer, width: number, height: number): number[] {
+	private collectStructural(buffer: OptimizedBuffer, width: number, height: number): Array<number> {
 		const { char } = buffer.buffers
-		const out: number[] = []
+		const out: Array<number> = []
 		const total = width * height
 		for (let i = 0; i < total; i++) {
 			const cp = char[i] ?? 0
@@ -286,7 +286,7 @@ class GlitchDirector {
 	}
 
 	/** A placement point: biased onto a structural cell, else anywhere on screen. */
-	private anchor(structural: readonly number[], width: number, height: number): { x: number; y: number } {
+	private anchor(structural: ReadonlyArray<number>, width: number, height: number): { x: number; y: number } {
 		if (structural.length > 0 && Math.random() < STRUCTURAL_BIAS) {
 			const idx = structural[Math.floor(Math.random() * structural.length)]
 			if (idx !== undefined) return { x: idx % width, y: Math.floor(idx / width) }
@@ -298,10 +298,10 @@ class GlitchDirector {
 		return this.colors[Math.floor(Math.random() * this.colors.length)]
 	}
 
-	private pickBlocks(width: number, height: number, structural: readonly number[]): ActiveBlock[] {
+	private pickBlocks(width: number, height: number, structural: ReadonlyArray<number>): Array<ActiveBlock> {
 		if (this.colors.length === 0 || Math.random() >= this.spec.blockChance) return []
 		const count = 1 + Math.floor(Math.random() * this.spec.maxBlocks)
-		const blocks: ActiveBlock[] = []
+		const blocks: Array<ActiveBlock> = []
 		for (let k = 0; k < count; k++) {
 			const color = this.randomColor()
 			if (color === undefined) continue
@@ -315,10 +315,10 @@ class GlitchDirector {
 		return blocks
 	}
 
-	private pickTints(width: number, height: number, structural: readonly number[]): ActiveTint[] {
+	private pickTints(width: number, height: number, structural: ReadonlyArray<number>): Array<ActiveTint> {
 		if (this.colors.length === 0 || Math.random() >= this.spec.tintChance) return []
 		const count = 1 + Math.floor(Math.random() * this.spec.maxTints)
-		const tints: ActiveTint[] = []
+		const tints: Array<ActiveTint> = []
 		for (let k = 0; k < count; k++) {
 			const color = this.randomColor()
 			if (color === undefined) continue
@@ -428,7 +428,7 @@ class GlitchDirector {
  * corrupts last, so it tears whatever the frame finally looks like.
  */
 export function installPostFx(renderer: CliRenderer, theme: Theme, toggles: FxToggles): () => void {
-	const passes: ((buffer: OptimizedBuffer, deltaMs: number) => void)[] = []
+	const passes: Array<(buffer: OptimizedBuffer, deltaMs: number) => void> = []
 	const { fx } = theme
 
 	if (fx.glow && toggles.glow) {

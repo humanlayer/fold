@@ -4,8 +4,7 @@
  * user turns to the root agent, and subscribes to a merged stream of durable log rows and ephemeral
  * deltas. One provided Session instance represents exactly one session, mirroring EventLog.
  */
-import { Context, Schema } from 'effect'
-import type { Effect, Stream } from 'effect'
+import { Context, type Effect, type Schema, type Stream } from 'effect'
 
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
 import type { ActiveModel, AgentFinishedLogEntry, CompactionLogEntry, LogSeq } from '../EventLog/Schemas'

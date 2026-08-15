@@ -58,7 +58,7 @@ function Tab({ label, count, active }: { label: string; count: number; active: b
 }
 
 interface ItemListProps {
-	readonly items: readonly GhItem[]
+	readonly items: ReadonlyArray<GhItem>
 	readonly kind: ItemKind
 	readonly counts: Readonly<Record<ItemKind, number>>
 	readonly selectedIndex: number

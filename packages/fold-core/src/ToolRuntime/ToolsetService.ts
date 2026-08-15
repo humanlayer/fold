@@ -3,9 +3,8 @@
  * ToolRuntime live layer to execute tool handlers. The service keeps Effect AI's dynamic Toolkit boundary
  * contained so callers do not pass tool handlers around as arguments.
  */
-import { Context, Effect, Stream } from 'effect'
-import { Toolkit } from 'effect/unstable/ai'
-import type { Tool } from 'effect/unstable/ai'
+import { Context, type Effect, type Stream } from 'effect'
+import type { Tool, Toolkit } from 'effect/unstable/ai'
 
 import type { CurrentAgent, CurrentToolCall, InterruptNote, StopController, ToolEvents } from './ToolContextServices'
 import type { ToolState } from './ToolStateService'

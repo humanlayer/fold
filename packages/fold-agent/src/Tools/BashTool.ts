@@ -29,7 +29,7 @@ import {
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Context, Duration, Effect, Fiber, Layer, Option, Ref, Schema, Semaphore, Stream } from 'effect'
+import { type Context, Duration, Effect, Fiber, Layer, Option, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, type ChildProcessSpawner } from 'effect/unstable/process'
 
 import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'

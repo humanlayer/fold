@@ -138,7 +138,7 @@ export const defineTool = <
 			// Effect AI decodes model-supplied params against `parameters` before invoking the handler,
 			// so it is only ever called with values of `Params['Type']`.
 			// oxlint-disable-next-line typescript/consistent-type-assertions
-			handler: handler as ErasedToolHandler,
+			handler: handler,
 			promptBlock: null,
 		}),
 	}

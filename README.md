@@ -22,7 +22,6 @@ foldcode auth --help             # configure and manage authentication
 - `fold-tui-theme`: theme tokens and example app
 - `fold-xai`: effect XAI provider
 - `effect-branded-id`: Effect schemas and generators for type-safe, prefixed CUID2 identifiers
-- `effect-channels-core`: provider- and agent-framework-agnostic Effect types and service interfaces for communication channels such as Slack, Linear, and GitHub; provider implementations live in separate packages
 
 ## Isomorphic agents with `fold-core`
 

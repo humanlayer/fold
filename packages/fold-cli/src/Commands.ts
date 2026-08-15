@@ -30,7 +30,7 @@ import { SessionId, type ModelCatalogEntry } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
 import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
 import { Clock, Console, Effect, Option, Schema } from 'effect'
-import { CliError, Command, Flag } from 'effect/unstable/cli'
+import { type CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
 import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode } from './Renderer'

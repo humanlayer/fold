@@ -18,7 +18,7 @@ export const THEME_ORDER = [
 	'redalert',
 	'covenant',
 	'rapture',
-] as const satisfies readonly ThemeId[]
+] as const satisfies ReadonlyArray<ThemeId>
 
 export const THEMES: Readonly<Record<ThemeId, Theme>> = {
 	rapture,

@@ -4,7 +4,7 @@
  * without needing to know the toolkit's specific TypeScript shape.
  */
 import { Effect, Layer, Stream } from 'effect'
-import { Tool, Toolkit } from 'effect/unstable/ai'
+import type { Tool, Toolkit } from 'effect/unstable/ai'
 
 import { Toolset, type ToolHandlerOutput } from './ToolsetService'
 

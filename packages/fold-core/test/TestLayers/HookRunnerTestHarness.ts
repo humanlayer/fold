@@ -1,7 +1,7 @@
 import { Effect, Layer } from 'effect'
 
 import {
-	HookRunner,
+	type HookRunner,
 	layerInMemoryEventLog,
 	makeHookRunner,
 	StopController,

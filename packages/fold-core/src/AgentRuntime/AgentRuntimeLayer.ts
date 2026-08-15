@@ -11,8 +11,7 @@
  * agent-finished entries, never service failures.
  */
 import { Array as Arr, Cause, Effect, Exit, Layer, Ref, Result, Schema, Stream } from 'effect'
-import { LanguageModel, Prompt, Response } from 'effect/unstable/ai'
-import type { Tool, Toolkit } from 'effect/unstable/ai'
+import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { CompactionArchiveAccess } from '../Compaction/CompactionArchiveAccess'

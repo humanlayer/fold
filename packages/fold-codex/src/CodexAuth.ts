@@ -14,8 +14,7 @@ import { arch, platform, release } from 'node:os'
 import { Clock, Context, Effect, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
-import type { CodexAuthStore } from './AuthStore'
-import { CodexTokenData, makeCodexAuthStore } from './AuthStore'
+import { type CodexAuthStore, type CodexTokenData, makeCodexAuthStore } from './AuthStore'
 import type { BrowserFlowOptions, DeviceCodePrompt } from './OAuthFlows'
 import {
 	CodexAuthError,

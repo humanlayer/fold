@@ -2,8 +2,7 @@
 import { Clock, Context, Effect, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
-import type { XaiAuthStore } from './AuthStore'
-import { makeXaiAuthStore, XaiTokenData } from './AuthStore'
+import { makeXaiAuthStore, type XaiAuthStore, type XaiTokenData } from './AuthStore'
 import type { XaiBrowserFlowOptions, XaiDevicePrompt } from './OAuthFlows'
 import {
 	makeXaiIssuerClient,

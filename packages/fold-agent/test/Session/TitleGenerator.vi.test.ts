@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { AgentId, customModel, EventId, MessageId, type LogEntry } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
-import { LanguageModel, Response } from 'effect/unstable/ai'
+import { LanguageModel, type Response } from 'effect/unstable/ai'
 
 import {
 	fallbackSessionTitle,

@@ -3,7 +3,7 @@
  * per-call ToolEvents and StopController services, tool handlers consume them for progress and cooperative
  * stopping, and session-level code provides ToolEventSink to receive annotated progress events.
  */
-import { Context, Effect, Schema } from 'effect'
+import { Context, Effect, type Schema } from 'effect'
 
 import type { AgentId, ToolCallId } from '../Ids.ts'
 

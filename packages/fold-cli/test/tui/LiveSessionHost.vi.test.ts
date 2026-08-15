@@ -153,7 +153,7 @@ describe('LiveSessionHost', () => {
 	})
 
 	it('shuts down pending registrations, releases live sessions, and blocks publication', async () => {
-		const released: SessionId[] = []
+		const released: Array<SessionId> = []
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {

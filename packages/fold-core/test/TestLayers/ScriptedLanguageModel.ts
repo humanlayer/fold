@@ -12,8 +12,7 @@
 import { AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiLanguageModel } from '@effect/ai-openai'
 import { Effect, Layer, Ref, Stream } from 'effect'
-import { AiError, LanguageModel, Response } from 'effect/unstable/ai'
-import type { Prompt } from 'effect/unstable/ai'
+import { AiError, LanguageModel, type Prompt, type Response } from 'effect/unstable/ai'
 
 /** Optional shaping for a scripted turn's finish part. */
 export type ScriptedFinishOptions = {

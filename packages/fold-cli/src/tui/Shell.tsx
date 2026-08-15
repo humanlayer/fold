@@ -20,7 +20,7 @@ import { nextThemeId, type ThemeId } from '@humanlayer/fold-tui-theme/themes'
 import { makeXaiAuth, makeXaiAuthStore } from '@humanlayer/fold-xai'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
-import { Cause, Clock, Deferred, Effect, Option, Schema, Scope } from 'effect'
+import { Cause, Clock, Deferred, Effect, Option, Schema, type Scope } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js'
 
@@ -433,7 +433,7 @@ export const runTui = (
 									Effect.sync(() =>
 										setViewedChanges((all) => ({
 											...all,
-											[hosted.sessionId]: { ...viewed, ...(all[hosted.sessionId] ?? {}) },
+											[hosted.sessionId]: { ...viewed, ...all[hosted.sessionId] },
 										})),
 									),
 								),

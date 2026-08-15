@@ -12,7 +12,7 @@ export interface GhItem {
 	readonly createdAt: string
 	readonly updatedAt: string
 	readonly comments: number
-	readonly labels: readonly string[]
+	readonly labels: ReadonlyArray<string>
 	readonly body: string
 	readonly url: string
 	readonly headRef?: string
@@ -33,8 +33,8 @@ export interface RateLimit {
 
 export interface Feed {
 	readonly repo: string
-	readonly pulls: readonly GhItem[]
-	readonly issues: readonly GhItem[]
+	readonly pulls: ReadonlyArray<GhItem>
+	readonly issues: ReadonlyArray<GhItem>
 	readonly rateLimit: RateLimit | null
 	/** Set when we fell back to bundled fixtures instead of hitting the network. */
 	readonly offlineReason: string | null
