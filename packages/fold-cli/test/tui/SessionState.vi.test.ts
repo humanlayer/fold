@@ -14,7 +14,7 @@ const rootAgentId = Schema.decodeUnknownSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaa
 const childAgentId = Schema.decodeUnknownSync(AgentId)('agent_bbbbbbbbbbbbbbbbbbbbbbbb')
 
 const entry = (input: Record<string, unknown>) =>
-	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create() })
+	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create(), version: 1 })
 const assistant = (seq: number, agentId = rootAgentId) =>
 	entry({
 		_tag: 'assistant-message',
