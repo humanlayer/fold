@@ -1,5 +1,6 @@
 import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from 'effect'
 
+import { Ids, layerLiveIdFactory } from '../Ids'
 import { EventLog, type EventLogService } from './EventLogService'
 import { makeStoredLogEntry } from './LogEntryFactory'
 import type { LogEntry, LogEntryInput, LogSeq } from './Schemas'
@@ -7,10 +8,11 @@ import type { LogEntry, LogEntryInput, LogSeq } from './Schemas'
 const entriesFrom = (entries: ReadonlyArray<LogEntry>, fromSeq: LogSeq) =>
 	entries.filter((entry) => entry.seq >= fromSeq)
 
-/** In-memory EventLog implementation for tests, browser hosts, and transient sessions. */
-export const layerInMemoryEventLog: Layer.Layer<EventLog> = Layer.effect(
+/** In-memory EventLog implementation using the caller-supplied ID service. */
+export const layerInMemoryEventLogWithIds: Layer.Layer<EventLog, never, Ids> = Layer.effect(
 	EventLog,
 	Effect.gen(function* () {
+		const ids = yield* Ids
 		const entriesRef = yield* Ref.make<ReadonlyArray<LogEntry>>([])
 		const pubsub = yield* PubSub.unbounded<LogEntry>()
 		const appendLock = yield* Semaphore.make(1)
@@ -19,7 +21,7 @@ export const layerInMemoryEventLog: Layer.Layer<EventLog> = Layer.effect(
 			appendLock.withPermit(
 				Effect.gen(function* () {
 					const current = yield* Ref.get(entriesRef)
-					const stored = yield* makeStoredLogEntry(input, current.length)
+					const stored = yield* makeStoredLogEntry(input, current.length, ids)
 
 					yield* Ref.set(entriesRef, [...current, stored])
 					yield* PubSub.publish(pubsub, stored)
@@ -54,4 +56,9 @@ export const layerInMemoryEventLog: Layer.Layer<EventLog> = Layer.effect(
 
 		return { append, entries, subscribe }
 	}),
+)
+
+/** In-memory EventLog implementation for tests, browser hosts, and transient sessions. */
+export const layerInMemoryEventLog: Layer.Layer<EventLog> = layerInMemoryEventLogWithIds.pipe(
+	Layer.provide(layerLiveIdFactory),
 )

@@ -40,7 +40,7 @@ import {
 } from '../Compaction/CompactionArchiveAccess'
 import { compactionServiceFor } from '../Compaction/CompactionLayer'
 import { Compaction } from '../Compaction/CompactionService'
-import { layerInMemoryEventLog } from '../EventLog/EventLogLayerMemory'
+import { layerInMemoryEventLogWithIds } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import type {
 	AgentFinishedLogEntry,
@@ -256,8 +256,8 @@ type SessionAgentConfig = {
 }
 
 /** Lower the event log descriptor to its EventLog layer. */
-const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown> =>
-	log._tag === 'memory' ? layerInMemoryEventLog : Layer.effect(EventLog, log.make)
+const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids> =>
+	log._tag === 'memory' ? layerInMemoryEventLogWithIds : Layer.effect(EventLog, log.make)
 
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
@@ -420,9 +420,10 @@ const assembleSessionGraph = (options: {
 		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
 		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
 		// carries its own agent's hook chains (D16/D21).
+		const idsLayer = layerLiveIdFactory
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? { _tag: 'memory' }),
-			layerLiveIdFactory,
+			eventLogLayerFor(options.log ?? { _tag: 'memory' }).pipe(Layer.provide(idsLayer)),
+			idsLayer,
 			liveAgentEventsLayer,
 		)
 		const servicesLayer = Layer.mergeAll(

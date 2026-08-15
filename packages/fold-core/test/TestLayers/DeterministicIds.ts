@@ -1,6 +1,6 @@
 import { Effect, Layer, Ref } from 'effect'
 
-import { AgentId, CompactionId, Ids, MessageId, SessionId, StateId, ToolCallId } from '../../src/index'
+import { AgentId, CompactionId, EventId, Ids, MessageId, SessionId, StateId, ToolCallId } from '../../src/index'
 
 export type DeterministicIdsOptions = {
 	readonly start?: number
@@ -23,6 +23,7 @@ export const layerDeterministicIds = (options: DeterministicIdsOptions = {}): La
 			return {
 				makeAgentId: nextId(counter, AgentId.prefix, (id) => AgentId.make(id)),
 				makeCompactionId: nextId(counter, CompactionId.prefix, (id) => CompactionId.make(id)),
+				makeEventId: nextId(counter, EventId.prefix, (id) => EventId.make(id)),
 				makeMessageId: nextId(counter, MessageId.prefix, (id) => MessageId.make(id)),
 				makeSessionId: nextId(counter, SessionId.prefix, (id) => SessionId.make(id)),
 				makeStateId: nextId(counter, StateId.prefix, (id) => StateId.make(id)),

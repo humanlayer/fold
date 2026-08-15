@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { AgentId, customModel, MessageId, type LogEntry } from '@humanlayer/fold-core'
+import { AgentId, customModel, EventId, MessageId, type LogEntry } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
 import { LanguageModel, Response } from 'effect/unstable/ai'
 
@@ -15,6 +15,7 @@ const entries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'user-message',
 		seq: 1,
+		eventId: EventId.create(),
 		ts: 1,
 		agentId: root,
 		parentAgentId: null,
@@ -25,6 +26,7 @@ const entries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'assistant-message',
 		seq: 2,
+		eventId: EventId.create(),
 		ts: 2,
 		agentId: root,
 		parentAgentId: null,
@@ -36,6 +38,7 @@ const entries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'user-message',
 		seq: 3,
+		eventId: EventId.create(),
 		ts: 3,
 		agentId: AgentId.make('agent_bbbbbbbbbbbbbbbbbbbbbbbb'),
 		parentAgentId: null,

@@ -34,20 +34,24 @@
 		"@opentui/core": "catalog:",
 		"@opentui/keymap": "catalog:",
 		"@opentui/solid": "catalog:",
-		"@effect/platform-node": "catalog:",
 		"@humanlayer/fold-agent": "workspace:*",
 		"@humanlayer/fold-codex": "workspace:*",
 		"@humanlayer/fold-core": "workspace:*",
 		"@humanlayer/fold-opencode": "workspace:*",
 		"@humanlayer/fold-tui-theme": "workspace:*",
 		"@humanlayer/fold-xai": "workspace:*",
-		"effect": "catalog:",
 		"solid-js": "catalog:"
 	},
+	"peerDependencies": {
+		"@effect/platform-node": "catalog:",
+		"effect": "catalog:"
+	},
 	"devDependencies": {
+		"@effect/platform-node": "catalog:",
 		"@effect/vitest": "catalog:",
 		"@humanlayer/fold-vitest-config": "workspace:*",
 		"@kitlangton/terminal-control": "catalog:",
+		"effect": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

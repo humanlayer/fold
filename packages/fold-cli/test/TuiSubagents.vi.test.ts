@@ -1,4 +1,4 @@
-import { AgentId, type AgentStartedLogEntry, type LogEntry, MessageId } from '@humanlayer/fold-core'
+import { AgentId, type AgentStartedLogEntry, EventId, type LogEntry, MessageId } from '@humanlayer/fold-core'
 import { describe, expect, it } from 'vitest'
 
 import { relativeSubagentTime, skillViews, subagentViews } from '../src/tui/Subagents'
@@ -6,6 +6,7 @@ import { relativeSubagentTime, skillViews, subagentViews } from '../src/tui/Suba
 const startedEntry = (agentId: string, seq: number, ts: number): AgentStartedLogEntry => ({
 	_tag: 'agent_started',
 	seq,
+	eventId: EventId.create(),
 	ts,
 	agentId: AgentId.make(agentId),
 	parentAgentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
@@ -63,6 +64,7 @@ describe('skillViews', () => {
 			{
 				_tag: 'system-message',
 				seq: 1,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId,
 				parentAgentId: null,

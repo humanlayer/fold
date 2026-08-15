@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { AgentId } from '@humanlayer/fold-core'
+import { AgentId, EventId } from '@humanlayer/fold-core'
 import type { AgentFinishedLogEntry } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
 
@@ -8,6 +8,7 @@ import { ASSISTANT_RESPONSE_BEGIN, ASSISTANT_RESPONSE_END, makePromptOutputRende
 const finished = (resultText: string | null): AgentFinishedLogEntry => ({
 	_tag: 'agent-finished',
 	seq: 3,
+	eventId: EventId.create(),
 	ts: 1,
 	agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
 	parentAgentId: null,

@@ -1,13 +1,19 @@
 import { it, expect } from '@effect/vitest'
 import { Effect, Fiber, Layer, Stream } from 'effect'
 
-import { EventLog, EventLogInvalidEntryError, Ids, layerInMemoryEventLog, type LogEntryInput } from '../../src/index'
+import {
+	EventId,
+	EventLog,
+	EventLogInvalidEntryError,
+	Ids,
+	layerInMemoryEventLogWithIds,
+	makeStoredLogEntry,
+	type LogEntryInput,
+} from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 
-const testLayer = Layer.mergeAll(
-	layerInMemoryEventLog,
-	layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
-)
+const runtimeLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
+const testLayer = Layer.mergeAll(layerInMemoryEventLogWithIds.pipe(Layer.provide(runtimeLayer)), runtimeLayer)
 
 const makeSessionStarted = (cwd: string): Effect.Effect<LogEntryInput, never, Ids> =>
 	Effect.gen(function* () {
@@ -26,7 +32,25 @@ const makeSessionStarted = (cwd: string): Effect.Effect<LogEntryInput, never, Id
 		}
 	})
 
-it.effect('memory append assigns canonical seq and timestamp', () =>
+it.effect('the ID service creates branded event IDs', () =>
+	Effect.gen(function* () {
+		const ids = yield* Ids
+		expect(EventId.is(yield* ids.makeEventId)).toBe(true)
+	}).pipe(Effect.provide(testLayer)),
+)
+
+it.effect('stored entries use the supplied event ID service', () =>
+	Effect.gen(function* () {
+		const eventId = EventId.make('event_aaaaaaaaaaaaaaaaaaaaaaaa')
+		const entry = yield* makeStoredLogEntry(yield* makeSessionStarted('/tmp/one'), 0, {
+			makeEventId: Effect.succeed(eventId),
+		})
+
+		expect(entry.eventId).toBe(eventId)
+	}).pipe(Effect.provide(testLayer)),
+)
+
+it.effect('memory append assigns canonical sequence, event identity, and timestamp', () =>
 	Effect.gen(function* () {
 		const entries = yield* Effect.gen(function* () {
 			const log = yield* EventLog
@@ -38,6 +62,9 @@ it.effect('memory append assigns canonical seq and timestamp', () =>
 
 		expect(entries[0].seq).toBe(0)
 		expect(entries[1].seq).toBe(1)
+		expect(EventId.is(entries[0].eventId)).toBe(true)
+		expect(EventId.is(entries[1].eventId)).toBe(true)
+		expect(entries[0].eventId).not.toBe(entries[1].eventId)
 		expect(entries[0].ts).toBe(1_000)
 		expect(entries[1].ts).toBe(1_000)
 	}),

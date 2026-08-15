@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { AgentId, MessageId, SessionId, ToolCallId } from '@humanlayer/fold-core'
+import { AgentId, EventId, MessageId, SessionId, ToolCallId } from '@humanlayer/fold-core'
 import type { ActiveModel, ModelCatalogEntry, UsageEncoded } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
 
@@ -39,6 +39,7 @@ it.effect('renders the session id in the header and finish line', () =>
 			entry: {
 				_tag: 'assistant-message',
 				seq: 2,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId,
 				parentAgentId: null,
@@ -57,6 +58,7 @@ it.effect('renders the session id in the header and finish line', () =>
 		yield* renderer.renderFinish({
 			_tag: 'agent-finished',
 			seq: 3,
+			eventId: EventId.create(),
 			ts: 1,
 			agentId,
 			parentAgentId: null,
@@ -97,6 +99,7 @@ it.effect('json renderer emits only log rows in concise mode and finish is not d
 		const entry = {
 			_tag: 'agent-finished' as const,
 			seq: 7,
+			eventId: EventId.create(),
 			ts: 1,
 			agentId,
 			parentAgentId: null,
@@ -187,6 +190,7 @@ it.effect('renders profile-based resume command when the session used --profile'
 			entry: {
 				_tag: 'agent_started',
 				seq: 1,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId,
 				parentAgentId: null,
@@ -265,6 +269,7 @@ it.effect('with a catalog entry the usage table shows a real cost and the catalo
 			entry: {
 				_tag: 'assistant-message',
 				seq: 2,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId,
 				parentAgentId: null,
@@ -283,6 +288,7 @@ it.effect('with a catalog entry the usage table shows a real cost and the catalo
 		yield* renderer.renderFinish({
 			_tag: 'agent-finished',
 			seq: 3,
+			eventId: EventId.create(),
 			ts: 1,
 			agentId,
 			parentAgentId: null,
@@ -338,6 +344,7 @@ it.effect('tags every subagent line with its bracket label and keeps interleaved
 			entry: {
 				_tag: 'agent_started',
 				seq: 1,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId: rootId,
 				parentAgentId: null,
@@ -355,6 +362,7 @@ it.effect('tags every subagent line with its bracket label and keeps interleaved
 			entry: {
 				_tag: 'agent_started',
 				seq: 2,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId: subId,
 				parentAgentId: rootId,
@@ -389,6 +397,7 @@ it.effect('tags every subagent line with its bracket label and keeps interleaved
 			entry: {
 				_tag: 'tool-result',
 				seq: 3,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId: subId,
 				parentAgentId: rootId,
@@ -413,6 +422,7 @@ it.effect('tags every subagent line with its bracket label and keeps interleaved
 			entry: {
 				_tag: 'assistant-message',
 				seq: 4,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId: subId,
 				parentAgentId: rootId,
@@ -427,6 +437,7 @@ it.effect('tags every subagent line with its bracket label and keeps interleaved
 			entry: {
 				_tag: 'agent-finished',
 				seq: 5,
+				eventId: EventId.create(),
 				ts: 1,
 				agentId: subId,
 				parentAgentId: rootId,

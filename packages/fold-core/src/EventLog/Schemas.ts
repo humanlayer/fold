@@ -1,7 +1,7 @@
 import { Schema } from 'effect'
 import { Prompt, Response } from 'effect/unstable/ai'
 
-import { AgentId, CompactionId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
+import { AgentId, CompactionId, EventId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
 import { UsageEncoded } from './Usage'
 
 /** The sequence number of a log entry. The first entry in a session is seq 0. */
@@ -15,6 +15,12 @@ export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 	identifier: 'EpochMillis',
 })
 export type EpochMillis = typeof EpochMillis.Type
+
+const StoredLogEntryEnvelope = {
+	seq: LogSeq,
+	eventId: EventId,
+	ts: EpochMillis,
+}
 
 /** The durable log format version written in the first session entry. */
 export const LogVersion = Schema.Literal(1)
@@ -210,8 +216,7 @@ export type SessionStartedLogEntryInput = typeof SessionStartedLogEntryInput.Typ
 
 /** Stored session started log entry. */
 export const SessionStartedLogEntry = Schema.TaggedStruct('session_started', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
@@ -243,8 +248,7 @@ export type AgentStartedLogEntryInput = typeof AgentStartedLogEntryInput.Type
 
 /** Stored agent started log entry. */
 export const AgentStartedLogEntry = Schema.TaggedStruct('agent_started', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -282,8 +286,7 @@ export type SystemMessageLogEntryInput = typeof SystemMessageLogEntryInput.Type
 
 /** Log entry for a system message block set. */
 export const SystemMessageLogEntry = Schema.TaggedStruct('system-message', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -309,8 +312,7 @@ export type UserMessageLogEntryInput = typeof UserMessageLogEntryInput.Type
 
 /** Log entry for user messages. */
 export const UserMessageLogEntry = Schema.TaggedStruct('user-message', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -341,8 +343,7 @@ export type AssistantMessageLogEntryInput = typeof AssistantMessageLogEntryInput
 
 /** Log entry for assistant messages. */
 export const AssistantMessageLogEntry = Schema.TaggedStruct('assistant-message', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -372,8 +373,7 @@ export type ToolResultLogEntryInput = typeof ToolResultLogEntryInput.Type
 
 /** Log entry for tool results. */
 export const ToolResultLogEntry = Schema.TaggedStruct('tool-result', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: ToolCallId,
@@ -397,8 +397,7 @@ export type ToolStateLogEntryInput = typeof ToolStateLogEntryInput.Type
 
 /** Schema for a tool state update log entry. toolCallId is null when a hook writes outside a tool call. */
 export const ToolStateLogEntry = Schema.TaggedStruct('tool_state', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -427,8 +426,7 @@ export type CompactionLogEntryInput = typeof CompactionLogEntryInput.Type
 
 /** Schema for a compaction log entry. */
 export const CompactionLogEntry = Schema.TaggedStruct('compaction', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -457,8 +455,7 @@ export type ModelChangeLogEntryInput = typeof ModelChangeLogEntryInput.Type
 
 /** Schema for model change log entry. */
 export const ModelChangeLogEntry = Schema.TaggedStruct('model-change', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -483,8 +480,7 @@ export type ThinkingChangeLogEntryInput = typeof ThinkingChangeLogEntryInput.Typ
 
 /** Schema for thinking / reasoning setting changes. */
 export const ThinkingChangeLogEntry = Schema.TaggedStruct('thinking-change', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -509,8 +505,7 @@ export type ToolsChangeLogEntryInput = typeof ToolsChangeLogEntryInput.Type
 
 /** Schema for active toolset changes. */
 export const ToolsChangeLogEntry = Schema.TaggedStruct('tools-change', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -542,8 +537,7 @@ export type AgentFinishedLogEntryInput = typeof AgentFinishedLogEntryInput.Type
 
 /** Schema for an agent's terminal state. */
 export const AgentFinishedLogEntry = Schema.TaggedStruct('agent-finished', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: AgentId,
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),
@@ -568,8 +562,7 @@ export type SessionTitleLogEntryInput = typeof SessionTitleLogEntryInput.Type
 
 /** Stored session title. The latest entry is the session's authoritative title. */
 export const SessionTitleLogEntry = Schema.TaggedStruct('session_title', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: Schema.Null,
 	parentAgentId: Schema.Null,
 	toolCallId: Schema.Null,
@@ -592,8 +585,7 @@ export type ErrorLogEntryInput = typeof ErrorLogEntryInput.Type
 
 /** Schema for a durable error note in the log. */
 export const ErrorLogEntry = Schema.TaggedStruct('error', {
-	seq: LogSeq,
-	ts: EpochMillis,
+	...StoredLogEntryEnvelope,
 	agentId: Schema.NullOr(AgentId),
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: Schema.NullOr(ToolCallId),

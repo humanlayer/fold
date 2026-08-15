@@ -1,4 +1,4 @@
-import { AgentId, MessageId, ToolCallId, type LogEntry } from '@humanlayer/fold-core'
+import { AgentId, EventId, MessageId, ToolCallId, type LogEntry } from '@humanlayer/fold-core'
 /** @jsxImportSource @opentui/solid */
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
@@ -46,6 +46,7 @@ const overflowSubagentEntries: ReadonlyArray<LogEntry> =
 					{
 						_tag: 'assistant-message',
 						seq: 100 + index * 2,
+						eventId: EventId.create(),
 						ts: 100 + index * 2,
 						agentId: rootAgentId,
 						parentAgentId: null,
@@ -72,6 +73,7 @@ const overflowSubagentEntries: ReadonlyArray<LogEntry> =
 					{
 						_tag: 'agent_started',
 						seq: 101 + index * 2,
+						eventId: EventId.create(),
 						ts: 101 + index * 2,
 						agentId,
 						parentAgentId: rootAgentId,
@@ -90,6 +92,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'agent_started',
 		seq: 0,
+		eventId: EventId.create(),
 		ts: 0,
 		agentId: rootAgentId,
 		parentAgentId: null,
@@ -104,6 +107,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'system-message',
 		seq: 2,
+		eventId: EventId.create(),
 		ts: 2,
 		agentId: rootAgentId,
 		parentAgentId: null,
@@ -123,6 +127,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 				{
 					_tag: 'assistant-message',
 					seq: 6,
+					eventId: EventId.create(),
 					ts: 6,
 					agentId: rootAgentId,
 					parentAgentId: null,
@@ -147,6 +152,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'system-message',
 		seq: 3,
+		eventId: EventId.create(),
 		ts: 3,
 		agentId: researcherAgentId,
 		parentAgentId: null,
@@ -164,6 +170,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'assistant-message',
 		seq: 4,
+		eventId: EventId.create(),
 		ts: 4,
 		agentId: researcherAgentId,
 		parentAgentId: null,
@@ -188,6 +195,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 				{
 					_tag: 'agent-finished',
 					seq: 5,
+					eventId: EventId.create(),
 					ts: 5,
 					agentId: researcherAgentId,
 					parentAgentId: null,
@@ -201,6 +209,7 @@ const subagentEntries: ReadonlyArray<LogEntry> = [
 	{
 		_tag: 'agent_started',
 		seq: 1,
+		eventId: EventId.create(),
 		ts: 1,
 		agentId: researcherAgentId,
 		parentAgentId: rootAgentId,
