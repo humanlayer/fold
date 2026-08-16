@@ -169,12 +169,15 @@
       "dependencies": {
         "@opentui/core": "catalog:",
         "@opentui/react": "0.4.3",
-        "effect": "catalog:",
         "react": "19.2.0",
       },
       "devDependencies": {
         "@types/react": "19.2.2",
+        "effect": "catalog:",
         "typescript": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
       },
     },
     "packages/fold-xai": {
