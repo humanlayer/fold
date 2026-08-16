@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Result } from 'effect'
+import { Effect, Predicate, Result } from 'effect'
 
 import {
 	applyChunks,
@@ -430,7 +430,9 @@ describe('computePatch', () => {
 			).pipe(Effect.result)
 
 			if (!Result.isFailure(result)) throw new Error('expected failure')
-			if (!(result.failure instanceof PatchFileNotFoundError)) throw new Error('expected PatchFileNotFoundError')
+			if (!Predicate.isTagged(result.failure, 'PatchFileNotFoundError')) {
+				throw new Error('expected PatchFileNotFoundError')
+			}
 			expect(result.failure.message).toBe('Failed to read file to update: gone.txt')
 		}),
 	)

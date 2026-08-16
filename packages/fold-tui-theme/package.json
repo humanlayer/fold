@@ -32,6 +32,10 @@
 	},
 	"devDependencies": {
 		"@types/react": "19.2.2",
+		"effect": "catalog:",
 		"typescript": "catalog:"
+	},
+	"peerDependencies": {
+		"effect": "catalog:"
 	}
 }

@@ -14,7 +14,7 @@
 import { dirname, join } from 'node:path'
 
 import { ModelCatalogEntry } from '@humanlayer/fold-core'
-import { Clock, Effect, Schema, type FileSystem } from 'effect'
+import { Clock, Effect, Predicate, Schema, type FileSystem } from 'effect'
 
 import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { bakedModelCatalog } from './BakedCatalog'
@@ -75,7 +75,7 @@ export const modelCatalogCachePath = (foldHome: string): string => join(foldHome
 
 /** The ONE mapper from thrown fetch failures to the typed catalog fetch error. */
 const catalogFetchErrorFrom = (cause: unknown): CatalogFetchError =>
-	new CatalogFetchError({ message: cause instanceof Error ? cause.message : String(cause) })
+	new CatalogFetchError({ message: Predicate.isError(cause) ? cause.message : String(cause) })
 
 const defaultFetchJson = (url: string): Effect.Effect<unknown, CatalogFetchError> =>
 	Effect.tryPromise({
@@ -104,7 +104,7 @@ const readCache = (fs: FileSystem.FileSystem, path: string): Effect.Effect<Model
 		return yield* Effect.try({
 			try: (): unknown => JSON.parse(text),
 			catch: (cause) =>
-				new CatalogCacheParseError({ message: cause instanceof Error ? cause.message : String(cause) }),
+				new CatalogCacheParseError({ message: Predicate.isError(cause) ? cause.message : String(cause) }),
 		}).pipe(
 			Effect.flatMap((parsed) => decodeCache(parsed)),
 			Effect.catch((error) =>

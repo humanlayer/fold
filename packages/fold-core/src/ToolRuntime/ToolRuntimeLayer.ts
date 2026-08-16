@@ -9,7 +9,7 @@ import { Prompt } from 'effect/unstable/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
 import type { LogEntry, ToolResultLogEntry } from '../EventLog/Schemas'
-import { HookExecutionError } from '../HookRunner/Errors'
+import { isHookExecutionError, type HookExecutionError } from '../HookRunner/Errors'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, ToolCallId, type AgentId } from '../Ids'
 import { Subagents } from '../Subagents/SubagentsService'
@@ -159,7 +159,7 @@ const hookFailureResult = (error: HookExecutionError, toolName: string): string 
 const hookExecutionErrorFromCause = (cause: Cause.Cause<unknown>): HookExecutionError | undefined => {
 	const reason = cause.reasons.find(Cause.isFailReason)
 
-	return reason?.error instanceof HookExecutionError ? reason.error : undefined
+	return isHookExecutionError(reason?.error) ? reason.error : undefined
 }
 
 const failureResultFromCause = (toolName: string, cause: Cause.Cause<unknown>): string => {

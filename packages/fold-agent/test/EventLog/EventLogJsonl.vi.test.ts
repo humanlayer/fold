@@ -13,7 +13,7 @@ import {
 	StateId,
 	type LogEntryInput,
 } from '@humanlayer/fold-core'
-import { Effect, Fiber, FileSystem, Stream } from 'effect'
+import { Effect, Fiber, FileSystem, Predicate, Stream } from 'effect'
 
 import { layerJsonl } from '../../src/index'
 
@@ -105,7 +105,7 @@ it.effect('jsonl layer maps invalid persisted lines to EventLogCorruptEntryError
 				return yield* Stream.runCollect(log.entries())
 			}).pipe(Effect.provide(layerJsonl(filePath)), Effect.flip)
 
-			if (!(error instanceof EventLogCorruptEntryError)) {
+			if (!Predicate.isTagged(error, 'EventLogCorruptEntryError')) {
 				throw new Error(`expected EventLogCorruptEntryError, got ${error._tag}`)
 			}
 			expect(error.line).toBe(1)
@@ -201,7 +201,7 @@ it.effect('jsonl layer rejects event formats newer than the installed Fold runti
 			}).pipe(Effect.provide(layerJsonl(filePath)), Effect.flip)
 
 			expect(error).toBeInstanceOf(EventLogUnsupportedVersionError)
-			if (error instanceof EventLogUnsupportedVersionError) {
+			if (Predicate.isTagged(error, 'EventLogUnsupportedVersionError')) {
 				expect(error.version).toBe(2)
 				expect(error.supportedVersions).toEqual([1])
 			}

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer, Option, Predicate } from 'effect'
 import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 
 import {
@@ -22,6 +22,8 @@ const jwtWith = (claims: Record<string, unknown>): string =>
 
 type RecordedRequest = { readonly url: string; readonly body: string }
 
+const isWebRequest = (input: string | URL | Request): input is Request => Predicate.hasProperty(input, 'url')
+
 /** A FetchHttpClient layer whose network is a scripted function, recording every request it serves. */
 const scriptedFetchLayer = (
 	respond: (request: RecordedRequest) => Response,
@@ -31,7 +33,7 @@ const scriptedFetchLayer = (
 	// Bun's `typeof fetch` carries a `preconnect` property; borrow the real one alongside the fake body.
 	const fakeFetch: typeof fetch = Object.assign(
 		async (input: string | URL | Request, init?: RequestInit) => {
-			const request = input instanceof Request ? input : new Request(String(input), init)
+			const request = isWebRequest(input) ? input : new Request(String(input), init)
 			const recorded = { url: request.url, body: await request.clone().text() }
 			requests.push(recorded)
 			return respond(recorded)

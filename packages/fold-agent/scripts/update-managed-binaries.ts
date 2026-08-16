@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { Effect, Schema } from 'effect'
+import { Effect, Predicate, Schema } from 'effect'
 
 import { MANAGED_BINARY_PLATFORMS, managedBinaryRegistry } from '../src/Bin/Registry'
 
@@ -33,7 +33,9 @@ const fetchBytes = (url: string): Effect.Effect<Uint8Array, ChecksumBakeError> =
 			return new Uint8Array(await response.arrayBuffer())
 		},
 		catch: (cause) =>
-			new ChecksumBakeError({ message: `GET ${url}: ${cause instanceof Error ? cause.message : String(cause)}` }),
+			new ChecksumBakeError({
+				message: `GET ${url}: ${Predicate.isError(cause) ? cause.message : String(cause)}`,
+			}),
 	}).pipe(
 		Effect.timeout(downloadTimeoutMillis),
 		Effect.catchTag('TimeoutError', () =>
