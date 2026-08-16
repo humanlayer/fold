@@ -34,7 +34,7 @@ import {
 	type FoldSession,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, Schema, Semaphore, type Scope } from 'effect'
+import { Effect, Match, Schema, Semaphore, type Scope } from 'effect'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
@@ -221,11 +221,12 @@ const modeFor = (opts: LaunchSessionOptions, profileMode: ProfileModeName | null
 	opts.mode ?? (profileMode === null ? defaultCodingMode : modeForName(profileMode))
 
 const roleBindingFor = (config: FoldConfig, role: ConfigRole): RoleBinding =>
-	role === 'fast'
-		? config.roles.fast
-		: role === 'orchestrator'
-			? (config.roles.orchestrator ?? config.roles.smart)
-			: config.roles.smart
+	Match.value(role).pipe(
+		Match.when('fast', () => config.roles.fast),
+		Match.when('orchestrator', () => config.roles.orchestrator ?? config.roles.smart),
+		Match.when('smart', () => config.roles.smart),
+		Match.exhaustive,
+	)
 
 /**
  * Merge a CLI/OpenTUI model selection over a role's configured binding. Field-wise the selection wins,
@@ -253,11 +254,12 @@ const withSelectedRoleBinding = (config: FoldConfig, role: ConfigRole, binding: 
 	...config,
 	roles: {
 		...config.roles,
-		...(role === 'fast'
-			? { fast: binding }
-			: role === 'orchestrator'
-				? { orchestrator: binding }
-				: { smart: binding }),
+		...Match.value(role).pipe(
+			Match.when('fast', () => ({ fast: binding })),
+			Match.when('orchestrator', () => ({ orchestrator: binding })),
+			Match.when('smart', () => ({ smart: binding })),
+			Match.exhaustive,
+		),
 	},
 })
 

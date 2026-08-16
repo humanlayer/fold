@@ -8,7 +8,7 @@ import { dirname } from 'node:path'
 import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Effect, Schema } from 'effect'
+import { Effect, Match, Schema } from 'effect'
 
 import { fileSystemFor } from '../Fs/DefaultFileSystem'
 import type { FoldConfig, ProviderKind } from './ConfigSchema'
@@ -136,14 +136,12 @@ export const configureProvider = (
 			})
 		const apiKey = !oauth && hasApiKey ? yield* required(input.apiKey ?? '', 'apiKey') : undefined
 		const apiKeyEnv = !oauth && hasApiKeyEnv ? yield* required(input.apiKeyEnv ?? '', 'apiKeyEnv') : undefined
-		const defaultModel =
-			input.kind === 'codex'
-				? DEFAULT_CODEX_MODEL_ID
-				: input.kind === 'opencode'
-					? DEFAULT_OPENCODE_MODEL_ID
-					: input.kind === 'xai'
-						? DEFAULT_XAI_MODEL_ID
-						: undefined
+		const defaultModel = Match.value(input.kind).pipe(
+			Match.when('codex', () => DEFAULT_CODEX_MODEL_ID),
+			Match.when('opencode', () => DEFAULT_OPENCODE_MODEL_ID),
+			Match.when('xai', () => DEFAULT_XAI_MODEL_ID),
+			Match.orElse(() => undefined),
+		)
 		const model = input.model === undefined ? defaultModel : yield* required(input.model, 'model')
 		const config = yield* loadFoldConfig(options)
 		const previousModels = config.providers[name]?.configuredModels ?? []

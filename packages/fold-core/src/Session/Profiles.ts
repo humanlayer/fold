@@ -8,7 +8,7 @@
  * at resolve time is an engine invariant violation - session-start validation rejects any roster whose
  * role bindings the initial profiles do not cover - and dies like other configuration invariants.
  */
-import { Context, Effect, Ref, Schema } from 'effect'
+import { Context, Effect, Match, Ref, Schema } from 'effect'
 
 import type { FoldModel } from '../Api/ModelDescriptor'
 
@@ -78,11 +78,12 @@ export const makeProfiles = (initial: SessionProfiles): Effect.Effect<ProfilesSe
 
 		const set = (role: ProfileRole, model: FoldModel): Effect.Effect<void> =>
 			Ref.update(state, (profiles) =>
-				role === 'smart'
-					? { ...profiles, smart: model }
-					: role === 'fast'
-						? { ...profiles, fast: model }
-						: { ...profiles, orchestrator: model },
+				Match.value(role).pipe(
+					Match.when('smart', () => ({ ...profiles, smart: model })),
+					Match.when('fast', () => ({ ...profiles, fast: model })),
+					Match.when('orchestrator', () => ({ ...profiles, orchestrator: model })),
+					Match.exhaustive,
+				),
 			)
 
 		return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }

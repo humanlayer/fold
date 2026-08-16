@@ -2,7 +2,7 @@ import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Effect } from 'effect'
+import { Effect, Match } from 'effect'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
@@ -74,14 +74,12 @@ export const describeModelConfiguration = (
 		const catalogModels = catalog
 			.filter((entry) => catalogProviderIds.includes(entry.providerId))
 			.map((entry) => entry.modelId)
-		const defaultModels =
-			provider.kind === 'codex'
-				? [DEFAULT_OPENCODE_MODEL_ID]
-				: provider.kind === 'opencode'
-					? [DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID]
-					: provider.kind === 'xai'
-						? [DEFAULT_XAI_MODEL_ID]
-						: []
+		const defaultModels = Match.value(provider.kind).pipe(
+			Match.when('codex', () => [DEFAULT_OPENCODE_MODEL_ID]),
+			Match.when('opencode', () => [DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID]),
+			Match.when('xai', () => [DEFAULT_XAI_MODEL_ID]),
+			Match.orElse((): ReadonlyArray<string> => []),
+		)
 		const models =
 			provider.kind === 'xai'
 				? [DEFAULT_XAI_MODEL_ID]

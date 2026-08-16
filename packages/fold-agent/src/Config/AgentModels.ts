@@ -18,7 +18,7 @@ import { anthropicModel, DEFAULT_ANTHROPIC_MODEL_ID, lookupCatalogEntry, openaiM
 import type { ActiveModel, ModelCatalogEntry, ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, openCodeModel } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID, xaiModel } from '@humanlayer/fold-xai'
-import { Effect, Redacted, Schema } from 'effect'
+import { Effect, Match, Redacted, Schema } from 'effect'
 
 import { ConfigRole, type ProviderConnection, type RoleBinding, type FoldConfig } from './ConfigSchema'
 
@@ -62,12 +62,12 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 	const catalog = options?.catalog
 
 	/** The binding for a role; `orchestrator` falls back to `smart`. */
-	const bindingFor = (role: ConfigRole): RoleBinding =>
-		role === 'fast'
-			? config.roles.fast
-			: role === 'orchestrator'
-				? (config.roles.orchestrator ?? config.roles.smart)
-				: config.roles.smart
+	const bindingFor = Match.type<ConfigRole>().pipe(
+		Match.when('fast', () => config.roles.fast),
+		Match.when('orchestrator', () => config.roles.orchestrator ?? config.roles.smart),
+		Match.when('smart', () => config.roles.smart),
+		Match.exhaustive,
+	)
 
 	/** Resolve the API key for a keyed provider (anthropic/openai-compat). */
 	const resolveApiKey = (

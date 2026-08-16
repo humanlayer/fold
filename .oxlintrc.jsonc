@@ -14,6 +14,7 @@
 		"automation/no-shadowed-standard-array-static": "error",
 		"automation/no-disable-validation": "error",
 		"automation/no-silent-error-swallow": "error",
+		"automation/prefer-effect-match": "error",
 		"anti-slop/no-reflect-apply": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
@@ -71,6 +72,7 @@
 				"automation/no-disable-validation": "off",
 				"automation/no-shadowed-standard-array-static": "off",
 				"automation/no-silent-error-swallow": "off",
+				"automation/prefer-effect-match": "off",
 			},
 		},
 		{

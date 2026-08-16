@@ -9,7 +9,7 @@
  * low-level composition roots never mention it and every consumer degrades gracefully: compaction
  * falls back to its interim pattern table, cost rendering falls back to `--`.
  */
-import { Context, Effect, Schema } from 'effect'
+import { Context, Effect, Match, Schema } from 'effect'
 
 import type { ActiveModel } from '../EventLog/Schemas'
 
@@ -69,8 +69,11 @@ const candidateProviderIds = (model: ActiveModel): ReadonlyArray<string> => {
 }
 
 /** Deterministic preference for bare-model-id matches: anthropic, then openai, then first-seen. */
-const bareMatchPriority = (providerId: string): number =>
-	providerId === 'anthropic' ? 2 : providerId === 'openai' ? 1 : 0
+const bareMatchPriority = Match.type<string>().pipe(
+	Match.when('anthropic', () => 2),
+	Match.when('openai', () => 1),
+	Match.orElse(() => 0),
+)
 
 type CatalogIndex = {
 	readonly byProvider: ReadonlyMap<string, ReadonlyMap<string, ModelCatalogEntry>>
