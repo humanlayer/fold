@@ -122,14 +122,12 @@ const writeCache = (fs: FileSystem.FileSystem, path: string, cache: ModelCatalog
 		const json = JSON.stringify(cache)
 		const tmpPath = `${path}.tmp`
 
-		yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(Effect.catch(() => Effect.void))
+		yield* fs.makeDirectory(dirname(path), { recursive: true })
 		yield* fs.writeFileString(tmpPath, json).pipe(
 			Effect.andThen(fs.rename(tmpPath, path)),
 			// Seams without rename (the in-memory test FileSystem) fall back to a plain write.
 			Effect.catch(() =>
-				fs
-					.writeFileString(path, json)
-					.pipe(Effect.andThen(fs.remove(tmpPath).pipe(Effect.catch(() => Effect.void)))),
+				fs.writeFileString(path, json).pipe(Effect.andThen(fs.remove(tmpPath).pipe(Effect.ignore))),
 			),
 		)
 	}).pipe(

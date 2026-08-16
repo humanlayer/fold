@@ -332,11 +332,7 @@ const installFromAsset = (
 
 			yield* context.fs.rename(extractedPath, installPath)
 			yield* context.fs.chmod(installPath, 0o755)
-		}).pipe(
-			Effect.ensuring(
-				context.fs.remove(extractDir, { recursive: true, force: true }).pipe(Effect.catch(() => Effect.void)),
-			),
-		)
+		}).pipe(Effect.ensuring(context.fs.remove(extractDir, { recursive: true, force: true }).pipe(Effect.ignore)))
 	})
 
 /** Resolve one binary through the system -> managed -> download ladder. Failures propagate typed (inferred). */

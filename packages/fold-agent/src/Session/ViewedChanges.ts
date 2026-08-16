@@ -56,6 +56,8 @@ export const saveViewedPatchHash = (
 	const record = { sessionId, changeKey, patchHash, ts: Date.now() }
 	return fs.makeDirectory(directory, { recursive: true }).pipe(
 		Effect.andThen(fs.writeFileString(viewedChangesPath(options), `${JSON.stringify(record)}\n`, { flag: 'a' })),
-		Effect.catch(() => Effect.void),
+		Effect.catch((error) =>
+			Effect.logWarning(`could not save viewed change for session ${sessionId}: ${error.message}`),
+		),
 	)
 }

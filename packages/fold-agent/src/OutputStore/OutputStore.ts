@@ -182,7 +182,7 @@ export const makeOutputStore = (options: MakeOutputStoreOptions): OutputStoreSer
 				if (info === null || info.type !== 'File') continue
 
 				const mtime = Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })
-				if (now - mtime > retentionMs) yield* fs.remove(path).pipe(Effect.catch(() => Effect.void))
+				if (now - mtime > retentionMs) yield* fs.remove(path).pipe(Effect.ignore)
 			}
 		}
 	}).pipe(

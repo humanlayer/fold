@@ -293,10 +293,24 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					spillPath,
 					writeSpill: (path, chunk) =>
 						outputStore === undefined
-							? fs.writeFileString(path, chunk, { flag: 'a' }).pipe(Effect.catch(() => Effect.void))
+							? fs
+									.writeFileString(path, chunk, { flag: 'a' })
+									.pipe(
+										Effect.catch((error) =>
+											Effect.logWarning(
+												`could not persist bash output at ${path}: ${error.message}`,
+											),
+										),
+									)
 							: outputStore
 									.append(currentToolCall.toolCallId, chunk)
-									.pipe(Effect.catch(() => Effect.void)),
+									.pipe(
+										Effect.catch((error) =>
+											Effect.logWarning(
+												`could not persist bash output at ${path}: ${error.message}`,
+											),
+										),
+									),
 				})
 
 				// If this call is interrupted, the synthetic tool result points the model at the partial

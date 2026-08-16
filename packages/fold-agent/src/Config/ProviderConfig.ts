@@ -102,9 +102,7 @@ const writeConfig = (
 		Effect.andThen(fs.chmod(path, 0o600)),
 		// Some injected/sandbox filesystems do not implement rename. A mode-restricted direct write is
 		// still reasonable there; clean up the temporary file on either fallback outcome.
-		Effect.catch(() =>
-			writeDirect.pipe(Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.catch(() => Effect.void)))),
-		),
+		Effect.catch(() => writeDirect.pipe(Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.ignore)))),
 		Effect.mapError(
 			(error) =>
 				new ProviderConfigurationWriteError({ path, message: `could not write config: ${error.message}` }),

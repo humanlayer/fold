@@ -49,6 +49,7 @@
 	},
 	"devDependencies": {
 		"@effect/tsgo": "0.36.4",
+		"@oxlint/plugins": "1.77.0",
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",
 		"@vitest/coverage-v8": "catalog:",
