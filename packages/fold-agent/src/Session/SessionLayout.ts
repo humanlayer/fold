@@ -114,7 +114,11 @@ const appendSessionIndexRecord = (record: SessionIndexRecord, options?: SessionL
 		Effect.andThen(
 			fs.writeFileString(join(directory, 'index.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a' }),
 		),
-		Effect.catch(() => Effect.void),
+		Effect.catch((error) =>
+			Effect.logWarning(
+				`could not append session index record at ${join(directory, 'index.jsonl')}: ${error.message}`,
+			),
+		),
 	)
 }
 

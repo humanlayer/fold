@@ -1,191 +1,142 @@
 ---
 name: effect-program-design
 description: >-
-    Design, write, and review Effect service modules (Context.Service + Layer) using the riptide-api
-    "deep module" pattern. Use when creating or changing an Effect service, external adapter, tagged
-    error, layer, or its @effect/vitest tests; or when reviewing Effect code for module depth, typed-error
-    capture-then-narrow, observability (spans/logs/Sentry), Config/Redacted secrets, and real-seam layer
-    tests. The Slack service (apps/riptide-api/src/effects/services/slack) is the canonical reference.
+    Design, write, review, and test Fold's Effect v4 programs: descriptor-facing public APIs, deep services and
+    layers, schemas, tagged failures, resource ownership, concurrency, and real-seam Effect tests. Use for Fold
+    services, adapters, providers, event logs, session workflows, and Effect-based code review.
 ---
 
-# Effect Program Design
+# Fold Effect Program Design
 
-Build **deep** Effect service modules: a small, domain-shaped public surface hiding substantial behavior,
-with typed success **and** error channels, declared dependencies, capture-then-narrow error handling, spans,
-and tests that swap real layers at real seams. The Slack service is the gold standard. `workos`, `resend`,
-`stripe`, and `s3` are shallow foils — do not copy them.
+Build deep Fold modules: a small, domain-shaped public interface hides descriptor lowering, service wiring, provider
+details, persistence, resource ownership, and workflow coordination. Keep expected failures in Effect's error channel,
+dependencies in `R`, resources in scopes, and external values at explicit schema boundaries.
 
-CANONICAL references on Effect v4 (effect-smol):
+Fold is an Effect v4 (`4.0.0-rc.109`) Bun monorepo. Read the installed declarations first; when they do not settle an
+API, read `~/projects/effect`, not Effect v3 documentation or examples.
 
-- https://effect-ts-effect-smol.mintlify.app/introduction
-- ~/projects/effect-smol
+## Fold's architecture
 
-## The creed (non-negotiables)
+- **Public Fold APIs are descriptor-facing.** Hosts use `defineAgent`, model descriptors, tool descriptors, and
+  event-log descriptors without learning `Layer`, `Toolkit`, or runtime wiring. See `README.md` and
+  `packages/fold-core/src/Api/Provisioning.ts`.
+- **Provisioning owns lowering.** The provisioner turns descriptors into the required services and layers once per
+  runtime/session. Do not make callers build or pass Fold's internal clients, layers, toolsets, or runtime services.
+- **Services are internal capabilities.** Use `Context.Service` and `Layer` where a capability varies by runtime,
+  implementation, or test seam. One implementation is enough when the seam is valuable for real tests.
+- **Event schemas are durable contracts.** Model persisted and wire-visible log entries with `Schema.TaggedStruct` and
+  `Schema.Union`; decode before projecting or dispatching. See `packages/fold-core/src/EventLog/Schemas.ts`.
 
-1. **Deep modules.** The interface is the _cost_, the implementation is the _benefit_. Hide a lot behind a
-   small, simple shape. The caller never learns the module's internals.
-2. **Everything stays in Effect.** Typed success **and** error channels; dependencies declared in `R` (Effect
-   services), never passed as arguments. No plain functions that receive/inspect errors or carry errors as values.
-3. **Two-tier errors, capture-then-narrow.** Classify raw failures into tagged errors → capture (log + Sentry)
-   **before** narrowing → map to a small, caller-actionable public union. `catchTag`/`catchTags` only — never
-   `instanceof`, never `error._tag === '…'`.
-4. **Observe everything.** A span per public method, structured logs, Sentry for the actionable/unexpected —
-   all with safe fields, secrets `Redacted`.
-5. **Testable by layer substitution.** Every service is exercised through its public interface with deps
-   swapped as layers (`@effect/vitest` + `Effect.provide`). No module mocks, no method spies.
+## The defaults
 
-> See `REFERENCE.md` for the annotated file skeleton, copy-paste stubs, and the anti-pattern catalog with
-> in-repo line references.
-> See `SCHEMA-DOMAIN-PATTERNS.md` for schema-first domain modeling: `Schema.TaggedClass`, branded IDs,
-> `Schema.TaggedErrorClass`, and deriving TypeScript types from schemas instead of hand-writing parallel types.
+1. **Deep modules.** A module's interface is the cost; hidden behavior is the benefit. A caller supplies the domain
+   values it holds, not credentials, provider clients, decoded rows, layers, or other internals.
+2. **Effects retain their channels.** Expected failure stays in `E`; dependencies stay in `R`; resources have an
+   owning scope. Do not pass errors, services, layers, or effects around as ordinary data just to compose them later.
+3. **Typed failures recover in-channel.** Classify an untrusted/throwing boundary once, then use `Effect.catchTag` or
+   `Effect.catchTags` to recover or narrow. Do not recover typed failures with `instanceof` or manual `_tag` checks.
+4. **Normal tagged data dispatches explicitly.** For decoded or otherwise trusted union values, use `Predicate` for
+   reusable narrowing and `Match` for complete transformations. See `PREDICATE-MATCH.md`.
+5. **Schemas parse boundaries.** Decode JSON, files, provider payloads, host input, and durable records at their edge.
+   Do not cast or ad hoc-narrow unknown data through the core.
+6. **Tests cross real seams.** Test services through their public interface with `@effect/vitest` and substitute layers
+   or real test adapters. Do not use `vi.mock`, module patching, or method spies.
 
-## 1. Anatomy — the file set
+## Module depth and seams
 
-Split by responsibility. Names like `client`/`dispatch`/`persistence`/`oauth` are Slack-specific, not required.
+- Give public operations named domain inputs and outputs. A descriptor API should hide the provider/layer graph it
+  needs to realize the descriptor.
+- Use the deletion test: deleting a useful module should spread its orchestration and invariants across callers, not
+  simply delete a pass-through.
+- Keep pure domain decisions, projections, and formatting separate from the I/O shell. Pure helpers accept and return
+  domain values; layers/adapters sequence Effects and own I/O.
+- Do not add a wrapper solely to mirror an SDK or data structure. A module earns its seam by concentrating meaningful
+  lifecycle, policy, parsing, or orchestration.
+- Do not make all dependencies ordinary parameters. Runtime-varying capabilities belong in Effect's environment; pure
+  values legitimately held by the caller stay explicit inputs.
 
-| File                                         | Owns                                                                                    |
-| -------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `x.service.ts`                               | the `Context.Service` **shape** + the **live layer** (`Layer.effect`)                   |
-| `x.errors.ts`                                | all `Schema.TaggedErrorClass` classes + the internal/public error unions                |
-| `x.types.ts`                                 | domain types (and optionally the service shape — both fine)                             |
-| `x.client.ts`                                | the external adapter: wraps the SDK/HTTP, emits typed errors, owns the SDK-error mapper |
-| `x.persistence.ts`                           | DB operations (Drizzle), each mapping driver errors to a tagged error                   |
-| `x.<concern>.ts`                             | further sub-effects (dispatch/oauth/…) by responsibility                                |
-| pure helpers (`format.ts`, `classify.ts`, …) | functional core — no I/O, no deps                                                       |
+## Services, layers, and resources
 
-A small service may stay in one file. Split when it spans external-call + persistence + orchestration.
+- Prefer `Context.Service` for an application capability and `Layer.effect` or `Layer.scoped` for its implementation.
+  Small capabilities may collocate shape, tag, and live layer; split an external adapter, persistence, or workflow
+  only when that separation improves locality.
+- Dependencies normally remain ambient in `R`. Yield them where the operation needs them rather than forwarding them
+  through public signatures.
+- Build runtime-specific layer graphs at the provisioner/facade seam. Fold's agent provisioner owns memo-map and
+  scope semantics; callers do not recreate that graph.
+- Acquire resources in a scope and make background work supervised/owned. Bound concurrency for unbounded fan-out and
+  keep external calls outside authoritative transactions.
+- Use `Effect.fn` or `Effect.withSpan` for meaningful public or I/O operation boundaries when observability is
+  configured. Add safe context only; never log secrets or unrestricted provider payloads.
 
-## 2. Deep modules
+## Errors and boundaries
 
-- **Small, domain-shaped surface.** Few methods; each input/output a domain type; **each method's error union
-  is small, caller-actionable, and distinct from (smaller than) the internal vocabulary.** Slack: 8 internal
-  `SlackProviderError` tags → public `SlackConnectionError` (4); `dispatch*` advertises `never`.
-- **The caller must not know the module's internals.** A service resolves the data that is its _own_ concern
-  rather than making the caller fetch and pass it. `listChannels({ organizationId })` resolves the bot token
-  internally; a shallow `listChannels({ botToken })` leaks an internal.
-- **But accept the domain inputs the caller legitimately holds, as named types.** Not "pass a `taskId` and
-  look it up" — if callers have the `Task`, take a `Task`. Don't destructure its fields into the signature.
-- **IDs:** branded IDs are the default for identity values. Use raw `string` only for non-identity text,
-  provider-owned names, opaque external strings, or display values. Always pass IDs in named input objects
-  (`{ organizationId }`) — never positional bare strings or same-typed positional args.
-- **Decision rule:** _to produce this argument, would the caller have to know how the module works inside?_
-  Yes → the module resolves it. No, it's a value they already hold → accept it as its domain type.
-- **Deletion test:** removing the module must _spread_ complexity to callers, not erase it. Shallow tells: a
-  1:1 SDK/table mirror; an interface that makes callers supply internals.
+- Model expected failures as tagged errors with fields a caller can use. `Data.TaggedError` is appropriate for an
+  internal failure; use a schema-backed tagged error when the error itself crosses an encoded boundary.
+- Wrap a throwing SDK or native API once at its adapter edge with `Effect.try` or `Effect.tryPromise`. Its `catch`
+  maps the unknown cause into the module's typed error vocabulary. Do not repeat provider-specific inspection in
+  callers.
+- Preserve rich internal failures until the module boundary, then narrow to the small set of outcomes callers can
+  actually act on. A fallback is only correct when it is part of the operation's contract.
+- Capture actionable or unexpected failures with the repository's configured logging/observability before swallowing
+  or narrowing them. Do not add Sentry or other product-specific dependencies unless Fold provides and configures one.
+- Use `catchCause` only for a deliberate top-level safety net that must include defects, such as a best-effort
+  operation. It must make the failure observable before it is swallowed.
 
-## 3. Errors
+## Schema and domain data
 
-- **`Schema.TaggedErrorClass`** for every expected failure — stable tag, structured safe fields, optional
-  `cause: Schema.Defect()`. Derive operation/status/id field types from schemas, not duplicate TypeScript types.
-- **Two tiers.** Internal: the rich vocabulary of everything that can break (transport + API-body + persistence).
-  Public: a small union of caller-actionable outcomes per method.
-- **Model the decision, not the status.** `SlackNeedsReauthError`, `retryable`, `…Unavailable`, `AlreadyRequested`
-  — not `ServerError`/`RateLimitError` status buckets. Never make a caller string-match a message to recover a
-  distinction (the workos `'already invited'` smell).
-- **Classify in the channel.** Transform the **error channel** with `catchTags`/`mapError` on typed errors —
-  not a plain `(cause: unknown) => Error`. Prefer SDKs that already emit typed errors (`@humanlayer/effect-slack`).
-- **Throwing SDKs** (the one exception): `Effect.tryPromise({ try, catch })` where `catch` delegates to **one**
-  per-adapter `mapSdkErrorToEffectError(cause) => TaggedError`. Centralized — no scattered cause-inspection,
-  no `instanceof`, no `(x as any).status` sprinkled around.
-- **Banned:** `instanceof` in Effect code; `error._tag === '…'` equality; raw/`unknown` errors leaked to callers;
-  errors carried as values (`{ ok: false, error: string }`). Aggregate with `Effect.result` → `Result<A, E>`.
+- Use `Schema.Struct` for ordinary records and `Schema.TaggedStruct` plus `Schema.Union` for encoded tagged variants.
+  Derive the TypeScript type from the schema with `typeof X.Type`.
+- Use `Schema.Literals` for closed scalar vocabularies. Branded IDs are valuable where Fold must prevent
+  same-typed identity mix-ups, but do not introduce brands by default without a concrete boundary or misuse risk.
+- Use `Schema.optionalKey`, `Schema.optional`, and `Schema.NullOr` to preserve the distinction between absent,
+  `undefined`, and `null` values.
+- Decode untrusted encoded values with `Schema.decodeUnknownEffect`; use `make`/`makeEffect` only for trusted
+  type-side construction. Do not cast decoded JSON.
+- Keep schemas that define durable log data backward compatible. Add an entry schema/version and upcast at the decode
+  boundary instead of mutating an incompatible persisted format.
 
-## 4. Effect purity & dependencies
+## Predicate and Match
 
-- **Declare service deps in `R`** (`yield* PostgresDb`, `yield* WorkosService`). Never pass a service/layer as a
-  function argument (`(workos) => Layer.succeed(...)` is wrong).
-- **Effect-needs-effect → compose with the pipe pattern** (`.pipe` / `yield*` / `flatMap`), not by passing
-  effects around. Passing an effect/capability is a rare, justified exception.
-- The functional core (parsers, formatting, decisions) is pure — no I/O, no logger, no ambient time/randomness.
-  The imperative shell (the layer + adapters) sequences effects, does I/O, classifies failures, observes.
+The error channel and ordinary tagged values require different tools:
 
-## 5. Observability — three channels
+- Use `Effect.catchTag` / `Effect.catchTags` for typed errors in `Effect<A, E, R>`.
+- Use `Predicate.isTagged` for a reusable one-tag guard or a named multi-tag refinement used by `find`, `filter`, or
+  a guard clause.
+- Use `Match.type<T>()` and `Match.tagsExhaustive` for a reusable transformation over a Fold-owned closed union.
+  Use `Match.value(value)` for a one-off dispatch.
+- Keep a simple direct `_tag` guard in a local stateful loop when a matcher or extracted predicate would add ceremony.
+  Do not mechanically replace every conditional. Repeated comparisons and complete domain transformations should not
+  drift across ad hoc conditionals.
+- Neither `Predicate` nor `Match` validates an unknown provider/file/JSON value. Decode it first.
 
-- **Spans (required).** One `Effect.withSpan('service_name.operation', { attributes })` per **public method**,
-  plus **child spans for sub-effects that do I/O or are expensive**, **none for pure helpers**. Add safe context
-  with `Effect.annotateCurrentSpan({...})`. Naming: `snake_case` `domain.operation` (`slack.list_channels`).
-  Spans live **inside** the service, not only at the orpc handler.
-- **Logs.** `Effect.logError` (+ `logDebug`/`logInfo` for notable events) with `Effect.annotateLogs({...})`.
-  Reuse the **same attribute object** for logs and spans.
-- **Sentry — actionable or unexpected only.** `Sentry.captureException(error, { tags: { error_type }, extra })`
-  for integration/transport breakage, defects (via `catchCause`), and anything degrading a capability a human
-  should see. **Not** pure control-flow / input validation (`SlackNotConnectedError`, `…ValidationError`).
-- **Capture before you narrow or swallow.** `tapError(log)` + `tapError(Sentry)` on the **raw** error _before_
-  `catchTags`. Best-effort work captures, then swallows — never swallows silently. Top-level nets use
-  `catchCause` (catches defects too), not just `catchTag`.
-- **Safe fields only.** Domain IDs, operation, provider, tags, `has_access_token: Boolean(...)`. Secrets are
-  `Redacted` and never logged/spanned.
+Read `PREDICATE-MATCH.md` before writing or reviewing tagged normal-value control flow.
 
-## 6. Config & secrets
+## Tests
 
-- Load **all env vars and secrets via Effect `Config`** (`Config.string` / `Config.redacted` / `Config.url`,
-  `Config.withDefault(...)`) inside the layer's `Effect.gen`. No `process.env` in service logic.
-- Secrets are `Redacted` end-to-end; `Redacted.value(...)` **only at the adapter edge** making the call.
-- `Config`-based loading is what makes the service testable without env (tests inject `ConfigProvider`).
+- Use `@effect/vitest` and `it.effect`; provide the service/layer graph to the program under test.
+- Substitute an external provider, filesystem, clock, or other true boundary with a narrow fake Effect layer. Use real
+  ephemeral infrastructure when behavior depends on its constraints or persistence semantics.
+- Prefer deterministic `TestClock`, `Deferred`, `Queue`, `Latch`, and `Ref` coordination over sleeps and timing
+  races.
+- Assert both the returned value/error and the relevant observable end state: durable entries, emitted events, files,
+  requests recorded by a fake, or released resources.
+- A fake should fail loudly for unexpected methods. If a dependency cannot be replaced at a layer seam, improve the
+  module boundary rather than reaching for a module mock.
 
-## 7. Boundaries & DB rows
+## References
 
-- **Parse untrusted boundaries into domain types** at the adapter edge (HTTP/SDK/JSON/webhooks/user input).
-  Slack maps raw `conversations.list` objects → `SlackChannel`. Parsing of inbound request bodies happens at
-  the oRPC/webhook entrypoint; the service receives already-parsed domain inputs.
-- **Schema-first domain modeling.** Domain records, commands, durable events, and discriminated unions should be
-  modeled as schemas first (`Schema.TaggedClass` for tagged variants; branded schemas for IDs), then exported as
-  `type X = typeof X.Type`. Avoid hand-written object types that duplicate schema fields.
-- **DB rows: scalar trust, jsonb parse.** Trust Drizzle `$inferSelect` types for straightforward scalar columns
-  (Postgres enforces them). **Parse `jsonb`** — Postgres does not enforce jsonb shape — with the existing **Zod**
-  schemas (`@codelayer/db/zodschemas/*`, `drizzle-zod` select schemas). No Effect Schema bridging.
-- **Never return a raw `$inferSelect` row across the public interface** — project to a domain type
-  (Slack returns `SlackConnectionStatus`, not the integration row).
-- `parseX` / `makeX` / `isX` naming (avoid `validateX`); no generic `isRecord`/`isObject` guards; no `as T` on
-  decoded JSON or rows.
-
-## 8. Async & workflows
-
-- **Bounded concurrency** for unbounded/fan-out work (`Effect.forEach(xs, f, { concurrency })`); start independent
-  work together rather than awaiting in a loop.
-- **Idempotency** on retried creates (idempotency keys; `onConflictDoNothing` claims). **Atomic transition guards**
-  for lifecycle writes (the Slack thread-claim via `acquireUseRelease`). Do **not** hold a DB transaction open
-  across a network call.
-- **Best-effort / `Effect<void, never>`** is the right shape for fan-out/notification side-effects where one
-  failure must not fail the caller: capture (log + Sentry) then swallow; surface a typed error only when the
-  caller can act on it. Codify Slack's `absorbDeliveryFailure` + `catchCause`.
-- No floating/unsupervised effects.
-
-## 9. Testing — real-seam layers with `@effect/vitest`
-
-- **Always `@effect/vitest`.** `import { describe, it } from '@effect/vitest'`; keep `expect`/`beforeAll`/`afterAll`
-  from `vitest`. The Slack `ManagedRuntime` + plain-vitest tests are **legacy** — write new tests with `it.effect`.
-- **`it.effect('…', () => Effect.gen(function*(){ … }).pipe(Effect.provide(layer)))`.** No `ManagedRuntime`, no
-  manual `runPromise`/`dispose`.
-- **Build the layer** behind a `makeLayer(opts)` factory:
-  `Layer.provideMerge(ServiceLive, Layer.mergeAll(PostgresDbLive(db), …fakes, ConfigProvider…))`.
-- **Substitute each dep by category:** real ephemeral DB (`PostgresDbLive(db)` + `createTestDb`) for persistence
-  behavior; a hand-fake `PostgresDb` layer for pure-logic-over-DB; `Layer.succeed(Service, {...})` recording-store
-  fakes for true externals (unused methods `Effect.die('… not used')`); a fake `HttpClient` layer or loopback
-  server for transport; `ConfigProvider.fromUnknown({...})` for config.
-- **Expose a `…Base` layer** that leaves the external transport unprovided, so tests can inject a fake `HttpClient`.
-- **Assert on both** the returned value / narrowed error **and** real side-effect end-state (DB rows via
-  `Effect.promise(() => db.select()…)`, recording-store contents).
-- **Banned:** `vi.mock`, `vi.spyOn`, module patching, method spies. If a dep can't be swapped via a layer, the
-  module is wrong (hidden/ambient/arg-passed) — fix the module, not the test.
-
-## 10. TypeScript contracts (must-haves)
-
-No `any`, no `!`, no unjustified `as` (escape hatches are local, behind precise interfaces, with a `SAFETY:`
-comment + lint-disable reason). `readonly` by default. `??` not `||` for "absent" defaults; no `filter(Boolean)`.
-`import type` for type-only imports; no barrels; JSDoc on exports. Guard clauses (no `else` after `return`).
-`Map`/`Set` for dynamic keyed collections. Precise file names — no `utils.ts`/`helpers.ts` dumping grounds.
+- `PREDICATE-MATCH.md` for tagged normal-value dispatch.
+- `SCHEMA-DOMAIN-PATTERNS.md` for Fold schema, durable-data, and error-model choices.
+- `REFERENCE.md` for canonical Fold modules and the expected service/layer shapes.
+- `codebase-design` for shared vocabulary on depth, interface, seam, adapter, leverage, and locality.
 
 ## Review checklist
 
-- [ ] Public surface small, domain-shaped; per-method error union narrow + distinct from internal.
-- [ ] No `$inferSelect` row, `any`, or `unknown` across the public seam.
-- [ ] Errors are `Schema.TaggedErrorClass`, model caller actions; classified in-channel; **one** SDK-error mapper.
-- [ ] Capture (log + Sentry) happens on the raw error **before** narrowing/swallowing; `catchCause` at top nets.
-- [ ] `Effect.withSpan` on every public method; safe annotations; secrets `Redacted`.
-- [ ] All deps in `R`; no service/layer/effect passed as an argument; no errors-as-values.
-- [ ] Config via `Config.*`; secrets `Redacted`, unwrapped only at the edge.
-- [ ] jsonb parsed with Zod; scalar columns trusted.
-- [ ] Tests use `@effect/vitest` `it.effect` + `Effect.provide(layer)`; real seams; no `vi.mock`/`vi.spyOn`;
-      assert value **and** persisted end-state.
-- [ ] No `instanceof`, no `error._tag === '…'`, no plain `(cause) => Error` classifiers.
+- [ ] The public interface is small, domain-shaped, and hides Fold's descriptor-lowering and runtime wiring.
+- [ ] Expected failures remain typed in `E`; dependencies remain declared in `R`; resources have an owner.
+- [ ] Unknown data is decoded at the edge and raw provider/file data does not leak through a public contract.
+- [ ] Typed errors use `catchTag` / `catchTags`; ordinary trusted tags use `Predicate` / `Match` when appropriate.
+- [ ] Fold-owned complete unions use an exhaustive transformation where a new variant must force a review.
+- [ ] Provider calls, concurrency, retries, and resource lifetime are bounded and owned by the module that needs them.
+- [ ] Tests use `@effect/vitest`, real seams, deterministic coordination, and no module mocks or spies.

@@ -1,267 +1,98 @@
-# Schema-First Domain Patterns
+# Fold Schema and Domain Patterns
 
-Use this when modeling Effect service inputs, outputs, durable events, command records, tagged errors, and IDs.
-The rule: make the schema the source of truth, then derive the TypeScript type from it. Do not hand-write a
-parallel object type that can drift from the schema.
+Schemas define Fold's encoded boundaries: durable log records, host/provider input, and values that must survive a
+process or package boundary. Use the smallest model that preserves the contract; do not add class or schema ceremony
+to trusted local control flow with no encoded representation.
 
-## Defaults
+## Schema chooser
 
-- Model identity values as branded schemas, not raw strings.
-- Model tagged domain variants with `Schema.TaggedClass`, not ad-hoc object unions.
-- Model expected failures with `Schema.TaggedErrorClass`, not `Data.TaggedError`.
-- Export both the schema/class value and the derived type: `export type X = typeof X.Type`.
-- Use raw `string` for freeform text, provider-owned opaque strings, display labels, and external values that are
-  not identity-bearing inside the domain.
+| Value role                                        | Default representation                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Ordinary encoded record                           | `Schema.Struct`                                                                 |
+| Closed scalar vocabulary                          | `Schema.Literals`                                                               |
+| One encoded `_tag` variant                        | `Schema.TaggedStruct`                                                           |
+| Encoded tagged union                              | `Schema.Union` of `Schema.TaggedStruct` variants                                |
+| Internal-only tagged decision                     | A precise TypeScript union or `Data.TaggedEnum` when constructors/matchers help |
+| Internal-only expected failure                    | `Data.TaggedError`                                                              |
+| Error that crosses an encoded boundary            | A schema-backed tagged error, when its codec is required                        |
+| Identity with a concrete cross-domain mix-up risk | A constrained branded schema                                                    |
 
-## Branded IDs
+`Schema.TaggedClass` and `Schema.TaggedErrorClass` are not defaults in Fold. Use them only when class identity or
+behavior has a real requirement. `Schema.TaggedStruct` and `Data.TaggedError` normally preserve a smaller, clearer
+surface.
 
-```ts
-import { makeBrandedId } from '@humanlayer/effect-branded-id'
+## Durable tagged events
 
-/** ID for an organization in this domain. */
-export const OrganizationId = makeBrandedId('org', { brand: 'OrganizationId' })
-export type OrganizationId = typeof OrganizationId.Type
-
-/** ID for a session-scoped agent. */
-export const AgentId = makeBrandedId('agent', { brand: 'AgentId' })
-export type AgentId = typeof AgentId.Type
-
-/** ID for a persisted message. */
-export const MessageId = makeBrandedId('msg', { brand: 'MessageId' })
-export type MessageId = typeof MessageId.Type
-```
-
-Prefer branded IDs whenever two values could both be strings but must not be interchangeable. Branded IDs belong
-in public service inputs and persisted schemas; callers should not pass positional bare strings.
-
-```ts
-export type WidgetService = {
-	readonly listWidgets: (input: { readonly organizationId: OrganizationId }) => Effect.Effect<readonly Widget[]>
-}
-```
-
-## Domain Scalars
-
-Small constrained values should also start as schemas.
+Fold event-log data is schema-first and versioned. Define each persisted variant with `Schema.TaggedStruct`, then
+compose the public union and derive its type from the schema.
 
 ```ts
 import { Schema } from 'effect'
 
-export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
-	identifier: 'LogSeq',
-})
-export type LogSeq = typeof LogSeq.Type
-
-export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
-	identifier: 'EpochMillis',
-})
-export type EpochMillis = typeof EpochMillis.Type
-
-export const ProviderKind = Schema.Literals(['anthropic', 'openai-compatible', 'codex']).annotate({
-	identifier: 'ProviderKind',
-})
-export type ProviderKind = typeof ProviderKind.Type
-```
-
-Use literal schemas for closed vocabularies. Use branded IDs for identities. Use plain `Schema.String` only when
-the value is truly freeform or provider-owned.
-
-## Tagged Domain Classes
-
-Use `Schema.TaggedClass` for persisted events, commands, state transitions, and other discriminated records.
-This gives you constructors, schemas, encoders/decoders, and the `_tag` discriminator from one definition.
-
-```ts
-import { Schema } from 'effect'
-import { makeBrandedId } from '@humanlayer/effect-branded-id'
-
-export const AgentId = makeBrandedId('agent', { brand: 'AgentId' })
-export type AgentId = typeof AgentId.Type
-
-export const MessageId = makeBrandedId('msg', { brand: 'MessageId' })
-export type MessageId = typeof MessageId.Type
-
-export const LogSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({ identifier: 'LogSeq' })
-export type LogSeq = typeof LogSeq.Type
-
-export const EpochMillis = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
-	identifier: 'EpochMillis',
-})
-export type EpochMillis = typeof EpochMillis.Type
-
-const StoredEnvelopeFields = {
-	seq: LogSeq,
-	ts: EpochMillis,
-} as const
-
-const AgentScopedFields = {
-	agentId: AgentId,
-	parentAgentId: Schema.NullOr(AgentId),
-} as const
-
-export class UserMessageInput extends Schema.TaggedClass<UserMessageInput>()('user-message', {
-	...AgentScopedFields,
+const UserMessage = Schema.TaggedStruct('user-message', {
 	messageId: MessageId,
-	text: Schema.String,
-}) {}
-export type UserMessageInput = typeof UserMessageInput.Type
-
-export class UserMessageEntry extends Schema.TaggedClass<UserMessageEntry>()('user-message', {
-	...StoredEnvelopeFields,
-	...AgentScopedFields,
-	messageId: MessageId,
-	text: Schema.String,
-}) {}
-export type UserMessageEntry = typeof UserMessageEntry.Type
-
-export class ToolResultInput extends Schema.TaggedClass<ToolResultInput>()('tool-result', {
-	...AgentScopedFields,
-	messageId: MessageId,
-	output: Schema.String,
-}) {}
-export type ToolResultInput = typeof ToolResultInput.Type
-
-export class ToolResultEntry extends Schema.TaggedClass<ToolResultEntry>()('tool-result', {
-	...StoredEnvelopeFields,
-	...AgentScopedFields,
-	messageId: MessageId,
-	output: Schema.String,
-}) {}
-export type ToolResultEntry = typeof ToolResultEntry.Type
-
-export const LogEntryInput = Schema.Union([UserMessageInput, ToolResultInput]).annotate({
-	identifier: 'LogEntryInput',
-	discriminator: '_tag',
+	message: UserMessageEncoded,
 })
-export type LogEntryInput = typeof LogEntryInput.Type
 
-export const LogEntry = Schema.Union([UserMessageEntry, ToolResultEntry]).annotate({
+const Compaction = Schema.TaggedStruct('compaction', {
+	compactionId: CompactionId,
+	summary: Schema.String,
+})
+
+export const LogEntry = Schema.Union([UserMessage, Compaction]).annotate({
 	identifier: 'LogEntry',
 	discriminator: '_tag',
 })
 export type LogEntry = typeof LogEntry.Type
 ```
 
-Keep repeated field groups as schema field constants (`StoredEnvelopeFields`, `AgentScopedFields`) instead of
-duplicating TypeScript object types. If a variant has invariants, pass a checked `Schema.Struct` to
-`Schema.TaggedClass` and derive the type from the class.
+When a durable format changes incompatibly, add a new versioned schema and upcast at the decode boundary. Do not
+silently change the meaning of a persisted v1 field or use a type assertion to reinterpret historical data.
+
+## Optionality and unknown fields
+
+Choose the exact wire contract:
+
+- `Schema.optionalKey(S)` means a key may be absent.
+- `Schema.optional(S)` permits an absent key or an explicit `undefined` value.
+- `Schema.NullOr(S)` means the key is present and its value is either `null` or `S`.
+- `Schema.Unknown` and `Schema.Json` are valid inside an explicit extensibility/payload boundary. Keep that unknown
+  data contained, decoded, or narrowed before it becomes domain behavior.
+
+Do not flatten absent, `undefined`, and `null` merely to make a caller easier to write. Provider and persisted data
+often assign different meanings to them.
+
+## Decode before domain behavior
+
+Decode at a file, JSONL, provider, host, or network boundary. Decoding is distinct from constructing a value Fold
+already trusts.
 
 ```ts
-type AgentRunContext = {
-	readonly parentAgentId: AgentId | null
-	readonly toolCallId: ToolCallId | null
-}
+const decodeLogEntry = Schema.decodeUnknownEffect(LogEntry)
 
-const AgentRunContextFilter = Schema.makeFilter<AgentRunContext>(
-	({ parentAgentId, toolCallId }) => {
-		const bothNull = parentAgentId === null && toolCallId === null
-		const bothSet = parentAgentId !== null && toolCallId !== null
-
-		return bothNull || bothSet ? undefined : 'parentAgentId and toolCallId must both be null or both be set'
-	},
-	{ identifier: 'AgentRunContext' },
-)
-
-export class AgentStartedInput extends Schema.TaggedClass<AgentStartedInput>()(
-	'agent-started',
-	Schema.Struct({
-		agentId: AgentId,
-		parentAgentId: Schema.NullOr(AgentId),
-		toolCallId: Schema.NullOr(ToolCallId),
-		model: Schema.String,
-	}).check(AgentRunContextFilter),
-) {}
-export type AgentStartedInput = typeof AgentStartedInput.Type
+const decoded = yield * decodeLogEntry(unknownInput)
+const trusted = LogEntry.make(trustedInput)
 ```
 
-The helper `type AgentRunContext` is acceptable because it exists only to type the filter callback. It is not a
-public domain type and does not duplicate an exported schema contract.
+Use `Schema.decodeUnknownEffect` for encoded/untrusted input. Use `make` only when the input is already the schema's
+type-side construction input; use `makeEffect` when trusted construction can still legitimately fail in a workflow.
+Do not use `as T` to skip decoding.
 
-## Tagged Errors
+## Tagged values and errors
 
-Use `Schema.TaggedErrorClass` for typed expected failures. Error fields should be safe to log and structured for
-recovery. Model the caller action, not the transport status.
+After decoding, normal tagged data uses `Predicate` and `Match` according to `PREDICATE-MATCH.md`. Schema decoding
+establishes the whole variant shape; `Predicate.isTagged` establishes only a tag and must not replace decoding.
 
-```ts
-import { Schema } from 'effect'
+Expected errors retain Effect's error channel. Use `Data.TaggedError` for internal errors, then recover with
+`Effect.catchTag` or `Effect.catchTags`. Choose a schema-backed error only when an adapter must encode/decode that
+error as part of its public boundary.
 
-import { OrganizationId } from './ids'
+## IDs and records
 
-export const WidgetOperation = Schema.Literals(['list', 'sync', 'notify']).annotate({
-	identifier: 'WidgetOperation',
-})
-export type WidgetOperation = typeof WidgetOperation.Type
+Fold already uses schema-backed IDs where identity matters. Introduce another brand only when it prevents a realistic
+cross-domain mix-up or protects a persisted/public contract. A raw string remains correct for freeform text,
+provider-owned opaque identifiers, paths, and display values.
 
-export class WidgetUnavailableError extends Schema.TaggedErrorClass<WidgetUnavailableError>()(
-	'WidgetUnavailableError',
-	{
-		operation: WidgetOperation,
-		retryable: Schema.Boolean,
-		message: Schema.String,
-		cause: Schema.optional(Schema.Defect()),
-	},
-) {}
-
-export class WidgetNeedsReauthError extends Schema.TaggedErrorClass<WidgetNeedsReauthError>()(
-	'WidgetNeedsReauthError',
-	{
-		operation: WidgetOperation,
-		organizationId: OrganizationId,
-		message: Schema.String,
-	},
-) {}
-
-export type WidgetError = WidgetUnavailableError | WidgetNeedsReauthError
-```
-
-Avoid `cause: unknown` in the schema. Prefer `cause: Schema.optional(Schema.Defect())`, and keep raw inspection at
-the adapter boundary before mapping into a tagged error.
-
-## Boundary Parsing
-
-Decode at trust boundaries and keep service internals typed.
-
-```ts
-const decodeLogEntry = (input: unknown): Effect.Effect<LogEntry, ParseError> =>
-	Schema.decodeUnknownEffect(LogEntry)(input)
-
-const encodeLogEntry = (entry: LogEntry): Effect.Effect<typeof LogEntry.Encoded, ParseError> =>
-	Schema.encodeUnknownEffect(LogEntry)(entry)
-```
-
-Use `Schema.decodeUnknownEffect` for inbound JSON, webhooks, CLI input, provider responses, and JSONL/database
-JSON blobs. Use `Schema.encodeUnknownEffect` before persisting or sending schema-modeled values across a wire.
-
-## Anti-Patterns
-
-```ts
-// Wrong: schema and type can drift.
-export const UserMessage = Schema.Struct({
-	messageId: MessageId,
-	text: Schema.String,
-})
-export type UserMessage = {
-	readonly messageId: string
-	readonly text: string
-}
-
-// Wrong: identity values are interchangeable strings.
-export type AppendInput = {
-	readonly agentId: string
-	readonly messageId: string
-}
-
-// Wrong: tagged union exists only in TypeScript and cannot decode/encode itself.
-export type LogEntry =
-	| { readonly _tag: 'user-message'; readonly messageId: MessageId; readonly text: string }
-	| { readonly _tag: 'tool-result'; readonly messageId: MessageId; readonly output: string }
-
-// Wrong: expected error is not schema-modeled.
-export class WidgetUnavailableError extends Data.TaggedError('WidgetUnavailableError')<{
-	readonly message: string
-	readonly cause?: unknown
-}> {}
-```
-
-Prefer the schema/class value as the contract. The type alias is derived documentation for TypeScript, not a
-second source of truth.
+Keep repeated durable event fields as schema field constants when it improves consistency. A local helper type is
+acceptable for typing a schema filter; do not maintain an exported hand-written object type that duplicates an
+exported schema's fields.

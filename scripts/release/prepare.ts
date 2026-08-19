@@ -28,13 +28,8 @@ const repository = { type: 'git', url: 'git+https://github.com/humanlayer/fold.g
 await rm(stage, { recursive: true, force: true })
 
 function dependencies(manifest: PackageManifest) {
-	for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
-		const dependencyMap =
-			field === 'dependencies'
-				? manifest.dependencies
-				: field === 'peerDependencies'
-					? manifest.peerDependencies
-					: manifest.optionalDependencies
+	for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+		const dependencyMap = manifest[field]
 		if (dependencyMap === undefined) continue
 		for (const [name, range] of Object.entries(dependencyMap)) {
 			if (range === 'catalog:')

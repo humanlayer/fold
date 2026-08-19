@@ -176,7 +176,13 @@ export const bootstrapFoldHome = (options?: ConfigInitOptions): Effect.Effect<Co
 		if (!authExists) {
 			// Same document shape and permissions the codex auth store maintains (provider-keyed JSON).
 			yield* fs.writeFileString(authPath, '{}\n', { mode: 0o600 }).pipe(Effect.orDie)
-			yield* fs.chmod(authPath, 0o600).pipe(Effect.catch(() => Effect.void))
+			yield* fs
+				.chmod(authPath, 0o600)
+				.pipe(
+					Effect.catch((error) =>
+						Effect.logWarning(`could not set auth file permissions at ${authPath}: ${error.message}`),
+					),
+				)
 		}
 
 		return { configPath, schemaPath, infoPath, authPath, createdConfig: !configExists, createdAuth: !authExists }

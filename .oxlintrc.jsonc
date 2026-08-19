@@ -3,8 +3,19 @@
 	// The `correctness` category is enabled by default. Keep the broader Effect Channels
 	// plugin set and Vitest's test-specific rules.
 	"plugins": ["typescript", "import", "oxc", "eslint", "unicorn", "node", "vitest"],
-	"ignorePatterns": ["**/node_modules/**", "**/dist/**", ".release/**"],
+	"jsPlugins": [
+		{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
+		{ "name": "automation", "specifier": "./tools/oxlint/automation/index.ts" },
+	],
+	"ignorePatterns": ["**/node_modules/**", "**/dist/**", ".release/**", "tools/oxlint/**"],
 	"rules": {
+		"anti-slop/no-module-mocking": "error",
+		"anti-slop/no-object-parameters": "error",
+		"automation/no-shadowed-standard-array-static": "error",
+		"automation/no-disable-validation": "error",
+		"automation/no-silent-error-swallow": "error",
+		"automation/prefer-effect-match": "error",
+		"anti-slop/no-reflect-apply": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
 		"import/no-duplicates": "error",
@@ -45,6 +56,25 @@
 		"import/extensions": ["error", "never"],
 	},
 	"overrides": [
+		{
+			// TUI code intentionally permits exploratory implementation patterns.
+			"files": [
+				"packages/fold-tui-theme/**",
+				"packages/fold-cli/src/tui/**",
+				"packages/fold-cli/test/tui/**",
+				"packages/fold-cli/test/Tui*.vi.test.ts",
+				"packages/fold-cli/test/fixtures/Tui*.tsx",
+			],
+			"rules": {
+				"anti-slop/no-module-mocking": "off",
+				"anti-slop/no-object-parameters": "off",
+				"anti-slop/no-reflect-apply": "off",
+				"automation/no-disable-validation": "off",
+				"automation/no-shadowed-standard-array-static": "off",
+				"automation/no-silent-error-swallow": "off",
+				"automation/prefer-effect-match": "off",
+			},
+		},
 		{
 			// The vitest-config package needs explicit `.ts` extensions for Node's strict
 			// ESM resolution when Vite externalizes the workspace package.
