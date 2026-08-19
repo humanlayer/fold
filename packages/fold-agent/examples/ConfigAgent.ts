@@ -8,6 +8,7 @@
  *   -> writes ~/.fold/config.jsonc; edit providers/roles, export the referenced API key env var, re-run.
  * Then:       bun packages/fold-agent/examples/ConfigAgent.ts "your prompt"
  */
+import { layerLiveIdFactory } from '@humanlayer/fold-core'
 import { Console, Effect } from 'effect'
 
 import { configInit, launchSession, loadFoldConfigOrNull } from '../src/index'
@@ -28,7 +29,7 @@ const program = Effect.gen(function* () {
 
 	const finished = yield* session.send(prompt)
 	yield* Console.log(`\n[${finished.outcome}] ${finished.resultText ?? '(no text)'}`)
-}).pipe(Effect.scoped)
+}).pipe(Effect.provide(layerLiveIdFactory), Effect.scoped)
 
 Effect.runPromise(program).catch((error) => {
 	console.error(error)

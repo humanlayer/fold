@@ -2,7 +2,7 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 
-import { Clock, Deferred, Duration, Effect, Schedule, Schema } from 'effect'
+import { Clock, Crypto, Deferred, Duration, Effect, Schedule, Schema } from 'effect'
 import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
 import { XaiTokenData } from './AuthStore'
@@ -194,16 +194,18 @@ export const runXaiDeviceFlow = Effect.fn('fold.xaiAuth.deviceFlow')(function* (
 })
 
 const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
-const random = (length: number): string =>
-	Array.from(crypto.getRandomValues(new Uint8Array(length)))
+const pkceString = (bytes: Uint8Array): string =>
+	Array.from(bytes)
 		.map((byte) => CHARS[byte % CHARS.length])
 		.join('')
-const base64Url = (buffer: ArrayBuffer): string => Buffer.from(buffer).toString('base64url')
+const base64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64url')
 
 export type XaiPkce = { readonly verifier: string; readonly challenge: string }
-export const generateXaiPkce: Effect.Effect<XaiPkce> = Effect.promise(async () => {
-	const verifier = random(64)
-	return { verifier, challenge: base64Url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))) }
+export const generateXaiPkce: Effect.Effect<XaiPkce, never, Crypto.Crypto> = Effect.gen(function* () {
+	const crypto = yield* Crypto.Crypto
+	const verifier = pkceString(yield* crypto.randomBytes(64).pipe(Effect.orDie))
+	const challenge = base64Url(yield* crypto.digest('SHA-256', new TextEncoder().encode(verifier)).pipe(Effect.orDie))
+	return { verifier, challenge }
 })
 
 /** Build xAI's registered Grok CLI authorization URL. */
@@ -231,9 +233,10 @@ export type XaiBrowserFlowOptions = {
 
 /** Run browser PKCE on xAI's fixed registered 127.0.0.1:56121 callback. */
 export const runXaiBrowserFlow = Effect.fn('fold.xaiAuth.browserFlow')(function* (options: XaiBrowserFlowOptions) {
+	const crypto = yield* Crypto.Crypto
 	const pkce = yield* generateXaiPkce
-	const state = base64Url(crypto.getRandomValues(new Uint8Array(32)).buffer)
-	const nonce = base64Url(crypto.getRandomValues(new Uint8Array(32)).buffer)
+	const state = base64Url(yield* crypto.randomBytes(32).pipe(Effect.orDie))
+	const nonce = base64Url(yield* crypto.randomBytes(32).pipe(Effect.orDie))
 	const code = yield* Effect.scoped(
 		Effect.gen(function* () {
 			const callback = yield* Deferred.make<string, XaiAuthError>()

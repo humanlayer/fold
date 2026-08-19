@@ -1,4 +1,5 @@
 /** Persistent, single-flight xAI OAuth credential service and authenticated HTTP decorator. */
+import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
 import { Clock, Context, Effect, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
@@ -74,7 +75,13 @@ export const makeXaiAuth = Effect.fnUntraced(function* (options?: MakeXaiAuthOpt
 			.pipe(Effect.withSpan('fold.xaiAuth.authenticateDevice')),
 		authenticateBrowser: semaphore
 			.withPermit(
-				run(runXaiBrowserFlow({ client, onUrl: options?.onBrowserUrl ?? browserPrompt, ...options?.browser })),
+				run(
+					runXaiBrowserFlow({
+						client,
+						onUrl: options?.onBrowserUrl ?? browserPrompt,
+						...options?.browser,
+					}).pipe(Effect.provide(NodeCrypto.layer)),
+				),
 			)
 			.pipe(Effect.withSpan('fold.xaiAuth.authenticateBrowser')),
 		logout: semaphore

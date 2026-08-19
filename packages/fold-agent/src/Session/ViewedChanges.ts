@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 
 import { SessionId } from '@humanlayer/fold-core'
-import { Effect, Option, Schema } from 'effect'
+import { Clock, Effect, Option, Schema } from 'effect'
 
 import { fileSystemFor } from '../Fs/DefaultFileSystem'
 import { sessionsDirFor, type SessionLayoutOptions } from './SessionLayout'
@@ -53,9 +53,12 @@ export const saveViewedPatchHash = (
 ): Effect.Effect<void> => {
 	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
 	const directory = sessionsDirFor(options)
-	const record = { sessionId, changeKey, patchHash, ts: Date.now() }
-	return fs.makeDirectory(directory, { recursive: true }).pipe(
-		Effect.andThen(fs.writeFileString(viewedChangesPath(options), `${JSON.stringify(record)}\n`, { flag: 'a' })),
+	return Effect.gen(function* () {
+		const ts = yield* Clock.currentTimeMillis
+		const record = { sessionId, changeKey, patchHash, ts }
+		yield* fs.makeDirectory(directory, { recursive: true })
+		yield* fs.writeFileString(viewedChangesPath(options), `${JSON.stringify(record)}\n`, { flag: 'a' })
+	}).pipe(
 		Effect.catch((error) =>
 			Effect.logWarning(`could not save viewed change for session ${sessionId}: ${error.message}`),
 		),

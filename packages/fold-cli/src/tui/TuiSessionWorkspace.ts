@@ -12,7 +12,7 @@ import {
 	type SessionToResumeNotFoundError,
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
-import { lookupCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
+import { layerLiveIdFactory, lookupCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
 import { Cause, Duration, Effect, Match, Option, Scope } from 'effect'
 import { createSignal, type Accessor } from 'solid-js'
 
@@ -200,7 +200,7 @@ export const makeTuiSessionWorkspace = (options: {
 			host
 				.register(
 					acquire(
-						initialSession(options.tui),
+						initialSession(options.tui).pipe(Effect.provide(layerLiveIdFactory)),
 						{
 							cwd: options.tui.cwd,
 							profile: options.tui.profile ?? 'default',
@@ -246,7 +246,15 @@ export const makeTuiSessionWorkspace = (options: {
 			}
 			cwds.add(metadata.cwd)
 			return reserve(
-				host.register(acquire(launchSession(launchOptions(next)), metadata, true)).pipe(Effect.flatMap(finish)),
+				host
+					.register(
+						acquire(
+							launchSession(launchOptions(next)).pipe(Effect.provide(layerLiveIdFactory)),
+							metadata,
+							true,
+						),
+					)
+					.pipe(Effect.flatMap(finish)),
 			)
 		}
 		const remove = (sessionId: SessionId) =>

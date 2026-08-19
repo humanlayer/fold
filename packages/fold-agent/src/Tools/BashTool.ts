@@ -11,7 +11,6 @@
  * degrade to inline notes, never crash the run. Non-zero exit and timeout are typed model-visible
  * failures carrying the accumulated output; signal-killed commands are successes (pi semantics).
  */
-import { randomBytes } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -29,7 +28,7 @@ import {
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { type Context, Duration, Effect, Fiber, Layer, Option, Ref, Schema, Semaphore, Stream } from 'effect'
+import { type Context, Duration, Effect, Fiber, Layer, Option, Random, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, type ChildProcessSpawner } from 'effect/unstable/process'
 
 import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
@@ -286,9 +285,8 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const currentToolCall = yield* CurrentToolCall
 				const outputStore = options?.outputStore
 				const spillRef = outputStore?.refFor(currentToolCall.toolCallId)
-				const spillPath =
-					spillRef?.path ??
-					join(options?.spillDir ?? tmpdir(), `fold-bash-${randomBytes(8).toString('hex')}.log`)
+				const spillToken = `${(yield* Random.next).toString(36).slice(2)}${(yield* Random.next).toString(36).slice(2)}`
+				const spillPath = spillRef?.path ?? join(options?.spillDir ?? tmpdir(), `fold-bash-${spillToken}.log`)
 				const accumulator = yield* makeAccumulator({
 					spillPath,
 					writeSpill: (path, chunk) =>

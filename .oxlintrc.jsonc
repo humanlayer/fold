@@ -15,6 +15,7 @@
 		"automation/no-disable-validation": "error",
 		"automation/no-silent-error-swallow": "error",
 		"automation/prefer-effect-match": "error",
+		"automation/no-ambient-nondeterminism": "error",
 		"anti-slop/no-reflect-apply": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
@@ -73,6 +74,15 @@
 				"automation/no-shadowed-standard-array-static": "off",
 				"automation/no-silent-error-swallow": "off",
 				"automation/prefer-effect-match": "off",
+				"automation/no-ambient-nondeterminism": "off",
+			},
+		},
+		{
+			// no-ambient-nondeterminism targets production seams. Tests deliberately use fixed or real
+			// time and node crypto, driven through explicit layers, so the rule is off for test files.
+			"files": ["packages/*/test/**"],
+			"rules": {
+				"automation/no-ambient-nondeterminism": "off",
 			},
 		},
 		{
