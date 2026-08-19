@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFil
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
-import { customModel, defineAgent, SessionId, startSession } from '@humanlayer/fold-core'
+import { customModel, defineAgent, layerLiveIdFactory, SessionId, startSession } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
@@ -18,13 +18,18 @@ import {
 	deleteSession,
 	listSessionLogs,
 	listSessionSummaries,
-	prepareSessionLog,
+	prepareSessionLog as prepareSessionLogRaw,
 	projectSlugFor,
 	sessionLogPathFor,
 	sessionsDirFor,
 	toolOutputSessionDirFor,
 } from '../../src/index'
 import { tempDir } from '../TestHelpers'
+
+// The Ids service is provided by the runtime in production (see cli.ts). Tests supply the same live
+// factory so `prepareSessionLog` mints real ids; swap in `layerDeterministicIds` where determinism matters.
+const prepareSessionLog = (options?: Parameters<typeof prepareSessionLogRaw>[0]) =>
+	prepareSessionLogRaw(options).pipe(Effect.provide(layerLiveIdFactory))
 
 it.effect('the project slug is a deterministic, filesystem-safe escape of the cwd', () =>
 	Effect.sync(() => {

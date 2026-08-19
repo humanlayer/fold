@@ -8,14 +8,14 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
-import { customModel, type ActiveModel, type FoldModel } from '@humanlayer/fold-core'
+import { customModel, layerLiveIdFactory, type ActiveModel, type FoldModel } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
 import { LanguageModel, type Response } from 'effect/unstable/ai'
 
 import {
 	DEFAULT_CODING_PROMPT,
 	defaultCodingMode,
-	launchSession,
+	launchSession as launchSessionRaw,
 	mergeModelSelection,
 	parseFoldConfig,
 	resumeLatestSession,
@@ -25,6 +25,11 @@ import {
 	switchSessionMode,
 } from '../../src/index'
 import { tempDir } from '../TestHelpers'
+
+// The Ids service is provided by the runtime in production (see cli.ts). Tests supply the same live
+// factory so `launchSession` mints real ids; swap in `layerDeterministicIds` where determinism matters.
+const launchSession = (options?: Parameters<typeof launchSessionRaw>[0]) =>
+	launchSessionRaw(options).pipe(Effect.provide(layerLiveIdFactory))
 
 const openAiActiveModel = (modelId: string): ActiveModel => ({
 	providerId: 'test',

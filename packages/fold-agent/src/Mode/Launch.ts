@@ -33,6 +33,7 @@ import {
 	type FoldModel,
 	type FoldSession,
 	type FoldTool,
+	type Ids,
 } from '@humanlayer/fold-core'
 import { Effect, Match, Schema, Semaphore, type Scope } from 'effect'
 
@@ -480,7 +481,7 @@ const catalogFor = (options: LaunchSessionOptions): Effect.Effect<ReadonlyArray<
  */
 export const launchSession = (
 	options?: LaunchSessionOptions,
-): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope> =>
+): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope | Ids> =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
 		const mode = modeFor(opts, profileMode)

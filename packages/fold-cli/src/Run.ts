@@ -20,6 +20,7 @@ import { makeCodexAuthStore } from '@humanlayer/fold-codex'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
+	Ids,
 	LogEntry,
 	ModelCatalogEntry,
 	SessionId,
@@ -80,7 +81,9 @@ const launchOptions = (options: CliSessionOptions) => ({
 })
 
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
-const openSessionFor = (options: CliSessionOptions): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope> => {
+const openSessionFor = (
+	options: CliSessionOptions,
+): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids> => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
 
 	return options.resume._tag === 'latest'
@@ -88,7 +91,7 @@ const openSessionFor = (options: CliSessionOptions): Effect.Effect<FoldSession, 
 		: resumeSessionById(options.resume.sessionId, launchOptions(options))
 }
 
-const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope> =>
+const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
 		const logPath = sessionLogPathFor(session.sessionId, {
@@ -279,7 +282,7 @@ const forkStartupEnsures = (options: CliSessionOptions, renderer: OutputRenderer
 export const runPrompt = (
 	options: PromptRunOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope> =>
+): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope | Ids> =>
 	Effect.gen(function* () {
 		yield* bootstrapForRun(options)
 		const opened = yield* openSession(options)

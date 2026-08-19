@@ -10,9 +10,9 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { SessionId, usageInputTotal } from '@humanlayer/fold-core'
-import type { ActiveModel, LogEntry, FoldEventLog } from '@humanlayer/fold-core'
-import { Effect, Exit, Match, Option, Schema, Stream } from 'effect'
+import { SessionId, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
+import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
+import { Clock, Effect, Exit, Match, Option, Schema, Stream } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
@@ -155,10 +155,10 @@ const loadSessionIndex = (options?: SessionLayoutOptions): Effect.Effect<Map<Ses
  */
 export const prepareSessionLog = (
 	options?: SessionLayoutOptions,
-): Effect.Effect<{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog }> =>
+): Effect.Effect<{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog }, never, Ids> =>
 	Effect.gen(function* () {
 		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
-		const sessionId = SessionId.create()
+		const sessionId = yield* makeSessionId
 		const directory = sessionsDirFor(options)
 		yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie)
 
@@ -375,7 +375,8 @@ export const deleteSession = (
 		const outputDirectory = toolOutputSessionDirFor({ sessionId, foldHome })
 		const outputExists = yield* fs.exists(outputDirectory).pipe(Effect.orDie)
 		yield* fs.remove(logPath).pipe(Effect.orDie)
-		yield* appendSessionIndexRecord({ _tag: 'deleted', sessionId, ts: Date.now() }, options)
+		const ts = yield* Clock.currentTimeMillis
+		yield* appendSessionIndexRecord({ _tag: 'deleted', sessionId, ts }, options)
 		if (!outputExists) return { deleted: true, outputRemoved: true }
 
 		const outputRemoval = yield* Effect.exit(fs.remove(outputDirectory, { recursive: true }))
