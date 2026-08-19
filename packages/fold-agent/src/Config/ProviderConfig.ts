@@ -8,7 +8,7 @@ import { dirname } from 'node:path'
 import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Effect, Match, Schema } from 'effect'
+import { Clock, Effect, Match, Random, Schema } from 'effect'
 
 import { fileSystemFor } from '../Fs/DefaultFileSystem'
 import type { FoldConfig, ProviderKind } from './ConfigSchema'
@@ -88,27 +88,32 @@ const validBaseUrl = (value: string): Effect.Effect<string, ProviderConfiguratio
 const writeConfig = (
 	config: FoldConfig,
 	options: LoadConfigOptions | undefined,
-): Effect.Effect<void, ProviderConfigurationWriteError> => {
-	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
-	const path = configPathFor(options)
-	const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`
-	const text = `${JSON.stringify(config, null, '\t')}\n`
-	const writeDirect = fs.writeFileString(path, text, { mode: 0o600 }).pipe(Effect.andThen(fs.chmod(path, 0o600)))
+): Effect.Effect<void, ProviderConfigurationWriteError> =>
+	Effect.gen(function* () {
+		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const path = configPathFor(options)
+		// A unique temp path for the atomic write-rename. Clock/Random are the seams here (not Date.now/crypto),
+		// so a test can pin the temporary filename deterministically.
+		const now = yield* Clock.currentTimeMillis
+		const salt = (yield* Random.next).toString(36).slice(2)
+		const temporaryPath = `${path}.tmp-${process.pid}-${now}-${salt}`
+		const text = `${JSON.stringify(config, null, '\t')}\n`
+		const writeDirect = fs.writeFileString(path, text, { mode: 0o600 }).pipe(Effect.andThen(fs.chmod(path, 0o600)))
 
-	return fs.makeDirectory(dirname(path), { recursive: true }).pipe(
-		Effect.andThen(fs.writeFileString(temporaryPath, text, { mode: 0o600 })),
-		Effect.andThen(fs.chmod(temporaryPath, 0o600)),
-		Effect.andThen(fs.rename(temporaryPath, path)),
-		Effect.andThen(fs.chmod(path, 0o600)),
-		// Some injected/sandbox filesystems do not implement rename. A mode-restricted direct write is
-		// still reasonable there; clean up the temporary file on either fallback outcome.
-		Effect.catch(() => writeDirect.pipe(Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.ignore)))),
-		Effect.mapError(
-			(error) =>
-				new ProviderConfigurationWriteError({ path, message: `could not write config: ${error.message}` }),
-		),
-	)
-}
+		return yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(
+			Effect.andThen(fs.writeFileString(temporaryPath, text, { mode: 0o600 })),
+			Effect.andThen(fs.chmod(temporaryPath, 0o600)),
+			Effect.andThen(fs.rename(temporaryPath, path)),
+			Effect.andThen(fs.chmod(path, 0o600)),
+			// Some injected/sandbox filesystems do not implement rename. A mode-restricted direct write is
+			// still reasonable there; clean up the temporary file on either fallback outcome.
+			Effect.catch(() => writeDirect.pipe(Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.ignore)))),
+			Effect.mapError(
+				(error) =>
+					new ProviderConfigurationWriteError({ path, message: `could not write config: ${error.message}` }),
+			),
+		)
+	})
 
 /**
  * Add or replace an Anthropic/OpenAI-compatible connection, preserving every other decoded config
