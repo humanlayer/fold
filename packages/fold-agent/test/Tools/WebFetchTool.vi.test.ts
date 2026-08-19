@@ -1,8 +1,10 @@
 /**
  * WebFetchTool exercised against a real loopback HTTP server (the real transport seam, per the testing
- * reference). Images use a genuine multi-kilobyte gradient bitmap that forces the convert+resize path,
- * not a 1x1 placeholder, so the assertions prove the image pipeline actually ran.
+ * reference). The image case serves a genuine 128x128 photograph (`fixtures/hopper.png`, the standard
+ * Pillow test image), so the assertions prove the tool fetches and returns a real image, not a
+ * hand-built placeholder.
  */
+import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 
 import { it } from '@effect/vitest'
@@ -12,6 +14,9 @@ import { afterAll, beforeAll, expect } from 'vitest'
 
 import { webFetchTool } from '../../src/index'
 import { handlerOf, messageOf, runHandler } from '../TestHelpers'
+
+const hopperPng = readFileSync(new URL('../fixtures/hopper.png', import.meta.url))
+const hopperBase64 = hopperPng.toString('base64')
 
 const richHtml = [
 	'<!doctype html>',
@@ -23,37 +28,11 @@ const richHtml = [
 	'</body></html>',
 ].join('')
 
-/** A real 24-bit BMP with a per-pixel gradient (not a placeholder): large enough to force a resize. */
-const makeGradientBmp = (width: number, height: number): Uint8Array => {
-	const rowStride = Math.ceil((width * 3) / 4) * 4
-	const pixelBytes = rowStride * height
-	const fileSize = 54 + pixelBytes
-	const bytes = new Uint8Array(fileSize)
-	const view = new DataView(bytes.buffer)
-	bytes[0] = 0x42 // B
-	bytes[1] = 0x4d // M
-	view.setUint32(2, fileSize, true)
-	view.setUint32(10, 54, true) // pixel data offset
-	view.setUint32(14, 40, true) // DIB header size
-	view.setInt32(18, width, true)
-	view.setInt32(22, height, true)
-	view.setUint16(26, 1, true) // planes
-	view.setUint16(28, 24, true) // bits per pixel
-	view.setUint32(34, pixelBytes, true)
-	for (let y = 0; y < height; y++) {
-		let offset = 54 + y * rowStride
-		for (let x = 0; x < width; x++) {
-			bytes[offset++] = x % 256 // blue
-			bytes[offset++] = y % 256 // green
-			bytes[offset++] = (x + y) % 256 // red
-		}
-	}
-	return bytes
+/** Width/height read from a PNG IHDR (bytes 16-23, big-endian). */
+const pngDimensions = (bytes: Uint8Array): { readonly width: number; readonly height: number } => {
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+	return { width: view.getUint32(16, false), height: view.getUint32(20, false) }
 }
-
-/** Big-endian IHDR width of a PNG (bytes 16-19). */
-const pngWidth = (bytes: Uint8Array): number =>
-	new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(16, false)
 
 const isToolResultContent = Schema.is(ToolResultContent)
 
@@ -89,17 +68,27 @@ beforeAll(async () => {
 			response.end('plain body text')
 			return
 		}
-		if (path === '/image.bmp') {
-			response.writeHead(200, { 'content-type': 'image/bmp' })
-			response.end(Buffer.from(makeGradientBmp(2100, 700)))
+		if (path === '/photo.png') {
+			response.writeHead(200, { 'content-type': 'image/png' })
+			response.end(hopperPng)
 			return
 		}
-		if (path === '/huge') {
+		if (path === '/streamed-huge') {
 			// No content-length: the streaming cap is the only guard. 6MB in 1MB chunks trips it at 5MB.
 			response.writeHead(200, { 'content-type': 'application/octet-stream' })
 			response.on('error', () => {})
 			for (let index = 0; index < 6; index++) response.write(Buffer.alloc(1024 * 1024, index))
 			response.end()
+			return
+		}
+		if (path === '/declared-huge') {
+			// Advertises 6MB but sends almost nothing: only the content-length precheck can reject this.
+			response.writeHead(200, {
+				'content-type': 'application/octet-stream',
+				'content-length': String(6 * 1024 * 1024),
+			})
+			response.on('error', () => {})
+			response.end(Buffer.alloc(16))
 			return
 		}
 		if (path === '/slow') {
@@ -158,31 +147,36 @@ it.live('returns non-HTML bodies unchanged', () =>
 	}),
 )
 
-it.live('returns a fetched image as a resized PNG content block', () =>
+it.live('returns a fetched PNG photo as an image content block', () =>
 	Effect.gen(function* () {
-		const result = yield* fetchResult(`${baseUrl}/image.bmp`)
+		const result = yield* fetchResult(`${baseUrl}/photo.png`)
 		const blocks = contentOf(result)
 
-		expect(firstText(result)).toContain('Fetched image')
-		expect(firstText(result)).toContain('converted from image/bmp')
-		// The 2100px-wide source must be resized under the 2000px limit, proving the pipeline ran.
-		expect(firstText(result)).toContain('Multiply coordinates')
+		expect(firstText(result)).toContain('Fetched image [image/png]')
 
 		const image = blocks[1]
 		if (image?.type !== 'image') throw new Error('expected an image block')
 		expect(image.mimeType).toBe('image/png')
+		// A real 128x128 photo is within the resize limits, so it round-trips byte-for-byte.
+		expect(image.data).toBe(hopperBase64)
 
 		const decoded = new Uint8Array(Buffer.from(image.data, 'base64'))
 		expect(Array.from(decoded.subarray(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]) // PNG signature
-		const width = pngWidth(decoded)
-		expect(width).toBeGreaterThan(1)
-		expect(width).toBeLessThanOrEqual(2000)
+		expect(pngDimensions(decoded)).toEqual({ width: 128, height: 128 })
 	}),
 )
 
-it.live('rejects a response that exceeds the 5MB cap while streaming', () =>
+it.live('rejects up front when the declared content-length exceeds the cap', () =>
 	Effect.gen(function* () {
-		const failure = yield* fetchResult(`${baseUrl}/huge`).pipe(Effect.flip)
+		const failure = yield* fetchResult(`${baseUrl}/declared-huge`).pipe(Effect.flip)
+
+		expect(messageOf(failure)).toBe('Response too large (exceeds 5MB limit)')
+	}),
+)
+
+it.live('rejects while streaming when an unmeasured body exceeds the cap', () =>
+	Effect.gen(function* () {
+		const failure = yield* fetchResult(`${baseUrl}/streamed-huge`).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toBe('Response too large (exceeds 5MB limit)')
 	}),
