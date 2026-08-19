@@ -2,8 +2,6 @@ import { chmod, cp, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { Match } from 'effect'
-
 import { internal, json, libraries, root, stage, targetName, targets } from './manifest'
 
 const version = parseArgs({ options: { version: { type: 'string' } } }).values.version
@@ -31,12 +29,7 @@ await rm(stage, { recursive: true, force: true })
 
 function dependencies(manifest: PackageManifest) {
 	for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
-		const dependencyMap = Match.value(field).pipe(
-			Match.when('dependencies', () => manifest.dependencies),
-			Match.when('peerDependencies', () => manifest.peerDependencies),
-			Match.when('optionalDependencies', () => manifest.optionalDependencies),
-			Match.exhaustive,
-		)
+		const dependencyMap = manifest[field]
 		if (dependencyMap === undefined) continue
 		for (const [name, range] of Object.entries(dependencyMap)) {
 			if (range === 'catalog:')
