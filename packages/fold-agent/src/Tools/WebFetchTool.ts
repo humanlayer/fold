@@ -1,9 +1,23 @@
-import { defineTool, webFetchToolContract, type FoldTool } from '@humanlayer/fold-core'
+import {
+	defineTool,
+	textResult,
+	webFetchToolContract,
+	type FoldTool,
+	type ToolResultBlock,
+} from '@humanlayer/fold-core'
 import { Effect, Predicate } from 'effect'
+import TurndownService from 'turndown'
+
+import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
+import { processImage } from './Image/Process'
 
 const maxResponseSize = 5 * 1024 * 1024
 const defaultTimeoutMs = 30_000
 const maxTimeoutMs = 120_000
+
+/** Desktop Chrome UA: bot user agents are blocked by many sites, so present as a real browser. */
+const browserUserAgent =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36'
 
 const stripHtmlTags = (html: string): string =>
 	html
@@ -19,26 +33,42 @@ const stripHtmlTags = (html: string): string =>
 		.replace(/\n{3,}/g, '\n\n')
 		.trim()
 
-const htmlToMarkdown = (html: string): string =>
-	stripHtmlTags(
-		html
-			.replace(/<\s*br\s*\/?\s*>/gi, '\n')
-			.replace(/<\s*\/p\s*>/gi, '\n\n')
-			.replace(/<\s*\/h([1-6])\s*>/gi, '\n\n')
-			.replace(/<\s*h([1-6])[^>]*>/gi, (_match, level: string) => `\n\n${'#'.repeat(Number(level))} `)
-			.replace(/<\s*li[^>]*>/gi, '\n- ')
-			.replace(/<\s*\/li\s*>/gi, ''),
-	)
-
-const isHtml = (body: string): boolean => {
-	const trimmed = body.trimStart().toLowerCase()
-	return trimmed.startsWith('<!doctype html') || trimmed.startsWith('<html')
+/** One Turndown service per tool value: atx headings, fenced code, and no script/style/meta noise. */
+const makeTurndown = (): TurndownService => {
+	const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' })
+	turndown.remove(['script', 'style', 'meta', 'link', 'noscript', 'iframe'])
+	return turndown
 }
 
-const readBody = (response: Response): Effect.Effect<string, { message: string }> =>
+/** HTML by content-type or by a leading document marker (matches the pi/agentlayer heuristic). */
+const isHtml = (contentType: string, body: string): boolean => {
+	if (contentType.includes('text/html')) return true
+	const trimmed = body.trimStart().toLowerCase()
+	return trimmed.startsWith('<!') || trimmed.startsWith('<html')
+}
+
+/**
+ * The image MIME to hand the resize pipeline, or null for non-images. Prefer a magic-byte sniff (robust
+ * against wrong headers); fall back to a non-SVG `image/*` content-type so mislabeled-but-real images
+ * still route to `processImage`, which converts unknown formats to PNG.
+ */
+const imageMimeFor = (bytes: Uint8Array, contentType: string): string | null => {
+	const sniffed = detectSupportedImageMimeType(bytes.subarray(0, imageSniffBytes))
+	if (sniffed !== null) return sniffed
+	if (contentType.startsWith('image/') && !contentType.includes('svg'))
+		return contentType.split(';')[0]?.trim() ?? null
+	return null
+}
+
+/** Read the response body to bytes, enforcing the 5MB cap while streaming so an oversize body never fully buffers. */
+const readBytes = (response: Response): Effect.Effect<Uint8Array, { message: string }> =>
 	Effect.tryPromise({
 		try: async () => {
-			if (response.body === null) return await response.text()
+			if (response.body === null) {
+				const buffered = new Uint8Array(await response.arrayBuffer())
+				if (buffered.byteLength > maxResponseSize) throw new Error('Response too large (exceeds 5MB limit)')
+				return buffered
+			}
 
 			const reader = response.body.getReader()
 			const chunks: Array<Uint8Array> = []
@@ -63,13 +93,15 @@ const readBody = (response: Response): Effect.Effect<string, { message: string }
 				offset += chunk.byteLength
 			}
 
-			return new TextDecoder().decode(bytes)
+			return bytes
 		},
 		catch: (error) => ({ message: Predicate.isError(error) ? error.message : String(error) }),
 	})
 
-export const webFetchTool = (): FoldTool =>
-	defineTool({
+export const webFetchTool = (): FoldTool => {
+	const turndown = makeTurndown()
+
+	return defineTool({
 		...webFetchToolContract,
 		handler: (params) =>
 			Effect.gen(function* () {
@@ -86,7 +118,7 @@ export const webFetchTool = (): FoldTool =>
 						try: () =>
 							fetch(params.url, {
 								signal: controller.signal,
-								headers: { 'user-agent': 'Mozilla/5.0 (compatible; fold/1.0)' },
+								headers: { 'user-agent': browserUserAgent },
 							}),
 						catch: (error) => ({
 							message:
@@ -102,11 +134,42 @@ export const webFetchTool = (): FoldTool =>
 						return yield* Effect.fail({ message: `Request failed with status code: ${response.status}` })
 					}
 
-					const body = yield* readBody(response)
+					// Cheap early reject on the advertised size; the streaming read still enforces the cap when
+					// the header is missing or lies.
+					const contentLength = response.headers.get('content-length')
+					if (contentLength !== null && Number.parseInt(contentLength, 10) > maxResponseSize) {
+						return yield* Effect.fail({ message: 'Response too large (exceeds 5MB limit)' })
+					}
+
+					const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
+					const bytes = yield* readBytes(response)
+
+					// Images: normalize/resize through the shared pipeline and return a native image content block.
+					// A base64 data URI in tool_result JSON is not rendered as an image by the provider (D3).
+					const imageMimeType = imageMimeFor(bytes, contentType)
+					if (imageMimeType !== null) {
+						const processed = yield* Effect.promise(() => processImage(bytes, imageMimeType))
+						if (!processed.ok) {
+							return textResult(`Fetched image [${imageMimeType}]\n${processed.message}`)
+						}
+
+						const note = [
+							`Fetched image [${processed.mimeType}] from ${params.url}`,
+							...processed.hints,
+						].join('\n')
+						const blocks: Array<ToolResultBlock> = [
+							{ type: 'text', text: note },
+							{ type: 'image', data: processed.data, mimeType: processed.mimeType },
+						]
+						return { content: blocks }
+					}
+
+					const body = new TextDecoder().decode(bytes)
 					const format = params.format ?? 'markdown'
-					if (format === 'html') return body
-					if (!isHtml(body)) return body
-					return format === 'text' ? stripHtmlTags(body) : htmlToMarkdown(body)
+					if (format === 'html') return textResult(body)
+					if (!isHtml(contentType, body)) return textResult(body)
+					return textResult(format === 'text' ? stripHtmlTags(body) : turndown.turndown(body))
 				}).pipe(Effect.ensuring(Effect.sync(() => clearTimeout(timer))))
 			}),
 	})
+}

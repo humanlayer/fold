@@ -20,6 +20,7 @@
 		"@humanlayer/fold-opencode": "workspace:*",
 		"@humanlayer/fold-xai": "workspace:*",
 		"@silvia-odwyer/photon-node": "catalog:",
+		"turndown": "catalog:",
 		"yaml": "catalog:"
 	},
 	"peerDependencies": {
@@ -30,6 +31,7 @@
 		"@effect/platform-node": "catalog:",
 		"@effect/vitest": "catalog:",
 		"@humanlayer/fold-vitest-config": "workspace:*",
+		"@types/turndown": "catalog:",
 		"effect": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"

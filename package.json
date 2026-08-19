@@ -38,6 +38,8 @@
 			"@effect/platform-node": "4.0.0-rc.109",
 			"@effect/vitest": "4.0.0-rc.109",
 			"@silvia-odwyer/photon-node": "0.3.4",
+			"turndown": "7.2.4",
+			"@types/turndown": "5.0.6",
 			"yaml": "2.9.0",
 			"vitest": "4.1.9",
 			"@vitest/coverage-v8": "4.1.9",

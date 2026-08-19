@@ -179,12 +179,13 @@ const WebFetchParameters = Schema.Struct({
 export const webFetchToolContract = {
 	name: 'web_fetch',
 	description:
-		'Fetch content from a URL and return it as markdown, plain text, or raw HTML. Use this for specific ' +
-		'official docs pages, articles, and other known sources. Responses over 5MB are rejected.',
+		'Fetch content from a URL and return it as markdown, plain text, or raw HTML. Image URLs (jpeg, png, ' +
+		'gif, webp, bmp) are returned as inline images. Use this for specific official docs pages, articles, ' +
+		'and other known sources. Responses over 5MB are rejected.',
 	parameters: WebFetchParameters,
-	success: Schema.String,
+	success: ToolResultContent,
 	failure: ToolFailure,
-} satisfies ToolContract<typeof WebFetchParameters, typeof Schema.String, typeof ToolFailure>
+} satisfies ToolContract<typeof WebFetchParameters, typeof ToolResultContent, typeof ToolFailure>
 
 // --- web_search -------------------------------------------------------------------------------------
 
