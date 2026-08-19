@@ -8,7 +8,7 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 
-import { Clock, Deferred, Duration, Effect, Encoding, Option, Result, Schedule, Schema } from 'effect'
+import { Clock, Crypto, Deferred, Duration, Effect, Encoding, Option, Result, Schedule, Schema } from 'effect'
 import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
 import { CodexTokenData } from './AuthStore'
@@ -315,15 +315,12 @@ export const runDeviceFlow = Effect.fn('fold.codexAuth.deviceFlow')(function* (o
 
 const PKCE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
 
-const generateRandomString = (length: number): string => {
-	const bytes = crypto.getRandomValues(new Uint8Array(length))
-	return Array.from(bytes)
+const pkceString = (bytes: Uint8Array): string =>
+	Array.from(bytes)
 		.map((byte) => PKCE_CHARSET[byte % PKCE_CHARSET.length])
 		.join('')
-}
 
-const base64UrlEncode = (buffer: ArrayBuffer): string => {
-	const bytes = new Uint8Array(buffer)
+const base64UrlEncode = (bytes: Uint8Array): string => {
 	const binary = String.fromCharCode(...bytes)
 	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
@@ -335,13 +332,17 @@ export type PkceCodes = {
 }
 
 /** Generate a PKCE verifier (43 chars over the unreserved set) and its S256 challenge. */
-export const generatePkce: Effect.Effect<PkceCodes> = Effect.promise(async () => {
-	const verifier = generateRandomString(43)
-	const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+export const generatePkce: Effect.Effect<PkceCodes, never, Crypto.Crypto> = Effect.gen(function* () {
+	const crypto = yield* Crypto.Crypto
+	const verifier = pkceString(yield* crypto.randomBytes(43).pipe(Effect.orDie))
+	const hash = yield* crypto.digest('SHA-256', new TextEncoder().encode(verifier)).pipe(Effect.orDie)
 	return { verifier, challenge: base64UrlEncode(hash) }
 })
 
-const generateState = (): string => base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer)
+const generateState: Effect.Effect<string, never, Crypto.Crypto> = Effect.gen(function* () {
+	const crypto = yield* Crypto.Crypto
+	return base64UrlEncode(yield* crypto.randomBytes(32).pipe(Effect.orDie))
+})
 
 /** The authorization URL a browser-flow user opens (agentlayer's exact parameter set). */
 export const buildAuthorizeUrl = (redirectUri: string, pkce: PkceCodes, state: string): string => {
@@ -404,7 +405,7 @@ export const runBrowserFlow = Effect.fn('fold.codexAuth.browserFlow')(function* 
 	const redirectUri = `http://${hostname}:${port}/auth/callback`
 
 	const pkce = yield* generatePkce
-	const state = generateState()
+	const state = yield* generateState
 
 	const code = yield* Effect.scoped(
 		Effect.gen(function* () {

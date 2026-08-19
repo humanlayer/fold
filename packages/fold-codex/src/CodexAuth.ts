@@ -11,6 +11,7 @@
  */
 import { arch, platform, release } from 'node:os'
 
+import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
 import { Clock, Context, Effect, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
@@ -139,7 +140,7 @@ export const makeCodexAuth = Effect.fnUntraced(function* (options?: MakeCodexAut
 						client: issuerClient,
 						onUrl: options?.onBrowserUrl ?? defaultOnBrowserUrl,
 						...options?.browser,
-					}),
+					}).pipe(Effect.provide(NodeCrypto.layer)),
 				),
 			)
 			.pipe(Effect.withSpan('fold.codexAuth.authenticateBrowser')),
