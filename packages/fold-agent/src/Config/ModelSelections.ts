@@ -81,12 +81,7 @@ export const describeModelConfiguration = (
 			Match.orElse((): ReadonlyArray<string> => []),
 		)
 		const models = [
-			...new Set([
-				...defaultModels,
-				...(provider.configuredModels ?? []),
-				...configured,
-				...catalogModels,
-			]),
+			...new Set([...defaultModels, ...(provider.configuredModels ?? []), ...configured, ...catalogModels]),
 		].sort()
 		return {
 			name,

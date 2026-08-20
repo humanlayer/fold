@@ -13,13 +13,13 @@ export const requestToLaunchOptions = (options: TuiOptions, request: NewSessionR
 				? {}
 				: { profile: request.profile }
 			: {
-				modelSelection: {
-					provider: request.provider,
-					model: request.model,
-					...(request.reasoning === undefined ? {} : { reasoning: request.reasoning }),
-				},
-				mode: request.mode,
-			}),
+					modelSelection: {
+						provider: request.provider,
+						model: request.model,
+						...(request.reasoning === undefined ? {} : { reasoning: request.reasoning }),
+					},
+					mode: request.mode,
+				}),
 	}
 }
 
