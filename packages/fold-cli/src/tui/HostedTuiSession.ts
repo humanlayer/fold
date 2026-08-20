@@ -183,7 +183,13 @@ export const makeHostedTuiSession = (
 					...(options.rpi === true ? { rpi: true } : {}),
 					...(selection._tag === 'profile'
 						? { profile: selection.profile }
-						: { modelSelection: { provider: selection.provider, model: selection.model } }),
+						: {
+								modelSelection: {
+									provider: selection.provider,
+									model: selection.model,
+									...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
+								},
+							}),
 					reason: `TUI switch to ${selection.mode ?? mode()} mode`,
 				}).pipe(
 					Effect.tap(() =>

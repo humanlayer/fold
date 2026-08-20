@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, normalize, resolve } from 'node:path'
 
 import type { ModelConfiguration, ProfileModeName } from '@humanlayer/fold-agent'
+import type { ReasoningLevel } from '@humanlayer/fold-core'
 import { TextAttributes, type KeyEvent, type TextareaRenderable } from '@opentui/core'
 import { registerManagedTextareaLayer } from '@opentui/keymap/addons/opentui'
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui'
@@ -16,7 +17,13 @@ import { prepareTuiKeyboard } from './TuiKeymap'
 
 export type NewSessionRequest = { readonly cwd: string } & (
 	| { readonly _tag: 'profile'; readonly profile: string }
-	| { readonly _tag: 'direct'; readonly provider: string; readonly model: string; readonly mode: ProfileModeName }
+	| {
+			readonly _tag: 'direct'
+			readonly provider: string
+			readonly model: string
+			readonly reasoning?: ReasoningLevel
+			readonly mode: ProfileModeName
+	  }
 )
 
 const expandHome = (value: string): string =>
@@ -192,6 +199,7 @@ export const NewSessionModal = (props: {
 								_tag: 'direct',
 								provider: selection.provider,
 								model: selection.model,
+								...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
 								mode: selection.mode,
 								cwd: cwd(),
 							})

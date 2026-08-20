@@ -1,9 +1,16 @@
 import type { ConfiguredModelSelection, ModelConfiguration, ProfileModeName } from '@humanlayer/fold-agent'
+import type { ReasoningLevel } from '@humanlayer/fold-core'
 
 export type ModelSelectionContext = 'active' | 'new-session'
 export type ModelSelectionRequest =
 	| { readonly _tag: 'profile'; readonly profile: string; readonly mode?: ProfileModeName }
-	| { readonly _tag: 'direct'; readonly provider: string; readonly model: string; readonly mode?: ProfileModeName }
+	| {
+			readonly _tag: 'direct'
+			readonly provider: string
+			readonly model: string
+			readonly reasoning?: ReasoningLevel
+			readonly mode?: ProfileModeName
+	  }
 type StagedModelSelection =
 	| { readonly _tag: 'profile'; readonly profile: string }
 	| { readonly _tag: 'direct'; readonly provider: string; readonly model: string }
@@ -12,11 +19,29 @@ export type ModelPickerState =
 	| { readonly _tag: 'profile' }
 	| { readonly _tag: 'provider' }
 	| { readonly _tag: 'model'; readonly provider: string }
-	| { readonly _tag: 'mode'; readonly selection: StagedModelSelection }
+	| { readonly _tag: 'reasoning'; readonly selection: StagedModelSelection }
+	| { readonly _tag: 'mode'; readonly selection: StagedModelSelection; readonly reasoning?: ReasoningLevel }
 export type ModelPickerChoice = { readonly id: string; readonly label: string; readonly detail: string }
 
 export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection =>
-	request._tag === 'profile' ? request : { _tag: 'direct', provider: request.provider, model: request.model }
+	request._tag === 'profile'
+		? request
+		: {
+				_tag: 'direct',
+				provider: request.provider,
+				model: request.model,
+				...(request.reasoning === undefined ? {} : { reasoning: request.reasoning }),
+			}
+
+const REASONING_LEVELS: ReadonlyArray<{ id: ReasoningLevel; label: string; detail: string }> = [
+	{ id: 'off', label: 'Off', detail: 'No extended thinking' },
+	{ id: 'low', label: 'Low', detail: 'Minimal reasoning' },
+	{ id: 'medium', label: 'Medium', detail: 'Moderate reasoning' },
+	{ id: 'high', label: 'High', detail: 'Thorough reasoning' },
+	{ id: 'max', label: 'Max', detail: 'Maximum reasoning depth' },
+]
+
+const toReasoningLevel = (choice: string): ReasoningLevel => REASONING_LEVELS.find((l) => l.id === choice)?.id ?? 'off'
 
 export const initialModelPickerState = (): ModelPickerState => ({ _tag: 'kind' })
 export const modelPickerChoices = (
@@ -59,6 +84,8 @@ export const modelPickerChoices = (
 					label: model,
 					detail: state.provider,
 				}))
+		case 'reasoning':
+			return REASONING_LEVELS
 		case 'mode':
 			return [
 				{ id: 'default', label: 'Default', detail: 'Smart root with standard tools' },
@@ -81,12 +108,21 @@ export const advanceModelPicker = (
 		case 'provider':
 			return { _tag: 'model', provider: choice }
 		case 'model':
-			return { _tag: 'mode', selection: { _tag: 'direct', provider: state.provider, model: choice } }
-		case 'mode':
+			return { _tag: 'reasoning', selection: { _tag: 'direct', provider: state.provider, model: choice } }
+		case 'reasoning':
 			return {
-				...state.selection,
-				mode: choice === 'rlm' ? 'rlm' : 'default',
+				_tag: 'mode',
+				selection: state.selection,
+				...(choice === 'off' ? {} : { reasoning: toReasoningLevel(choice) }),
 			}
+		case 'mode':
+			return state.selection._tag === 'profile'
+				? { ...state.selection, mode: choice === 'rlm' ? 'rlm' : 'default' }
+				: {
+						...state.selection,
+						...(state.reasoning === undefined ? {} : { reasoning: state.reasoning }),
+						mode: choice === 'rlm' ? 'rlm' : 'default',
+					}
 	}
 }
 export const retreatModelPicker = (state: ModelPickerState): ModelPickerState | null => {
@@ -98,9 +134,11 @@ export const retreatModelPicker = (state: ModelPickerState): ModelPickerState | 
 			return { _tag: 'kind' }
 		case 'model':
 			return { _tag: 'provider' }
-		case 'mode':
+		case 'reasoning':
 			return state.selection._tag === 'profile'
 				? { _tag: 'profile' }
 				: { _tag: 'model', provider: state.selection.provider }
+		case 'mode':
+			return { _tag: 'reasoning', selection: state.selection }
 	}
 }
