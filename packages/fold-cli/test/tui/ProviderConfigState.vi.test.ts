@@ -59,7 +59,7 @@ describe('provider config form state', () => {
 		const rows = providerManagementRows({ profiles: [], providers: [] })
 		expect(rows[3]).toMatchObject({
 			type: 'create',
-			form: { name: 'xai', kind: 'xai', baseUrl: 'https://api.x.ai/v1', model: 'grok-4.5' },
+			form: { name: 'xai', kind: 'xai', baseUrl: 'https://api.x.ai/v1', model: 'grok-4.6' },
 		})
 		expect(rows[4]).toMatchObject({
 			type: 'create',

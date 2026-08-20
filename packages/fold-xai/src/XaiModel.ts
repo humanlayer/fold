@@ -1,5 +1,5 @@
 /** FoldModel factory for xAI's OpenAI-compatible inference API authenticated with OAuth. */
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
+import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai-compat'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Context, Effect, Layer } from 'effect'
@@ -11,7 +11,7 @@ import type { XaiAuthStore } from './AuthStore'
 import { makeXaiAuth, withXaiAuth } from './XaiAuth'
 
 export const XAI_API_URL = 'https://api.x.ai/v1'
-export const DEFAULT_XAI_MODEL_ID = 'grok-4.5'
+export const DEFAULT_XAI_MODEL_ID = 'grok-4.6'
 
 export type XaiModelOptions = {
 	readonly model?: string

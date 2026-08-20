@@ -74,7 +74,7 @@ is optional and falls back to \`smart\`.
 | \`orchestrator\` | the RLM mode's primary agent |
 
 Each binding is \`{ "provider": <key>, "model"?: <id>, "reasoning"?: <level> }\`. Omitting \`model\`
-uses the provider kind's default: codex/opencode → \`gpt-5.6-sol\`, xai → \`grok-4.5\`, and
+uses the provider kind's default: codex/opencode → \`gpt-5.6-sol\`, xai → \`grok-4.6\`, and
 anthropic → \`claude-opus-4-8\`
 (openai-compat requires an explicit model). \`reasoning\` is one of \`off · minimal · low · medium ·
 high · xhigh · max\` and is validated against the model catalog - a level the model does not support

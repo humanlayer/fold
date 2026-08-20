@@ -190,7 +190,7 @@
         "@humanlayer/fold-core": "workspace:*",
       },
       "devDependencies": {
-        "@effect/ai-openai": "catalog:",
+        "@effect/ai-openai-compat": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/vitest": "catalog:",
         "@humanlayer/fold-vitest-config": "workspace:*",
@@ -199,7 +199,7 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@effect/ai-openai": "catalog:",
+        "@effect/ai-openai-compat": "catalog:",
         "@effect/platform-node": "catalog:",
         "effect": "catalog:",
       },

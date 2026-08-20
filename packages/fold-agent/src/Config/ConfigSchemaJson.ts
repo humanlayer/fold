@@ -68,7 +68,7 @@ export const starterConfigJsonc = (): string =>
 
 	// Model roles bound to a provider (+ optional model). "smart" and "fast" are required;
 	// "orchestrator" is optional and falls back to "smart". Omitting "model" uses the provider
-	// defaults: codex/opencode → gpt-5.6-sol, xai → grok-4.5, anthropic → claude-opus-4-8.
+	// defaults: codex/opencode → gpt-5.6-sol, xai → grok-4.6, anthropic → claude-opus-4-8.
 	"roles": {
 		// Default primary model for new sessions.
 		"smart": { "provider": "codex", "model": "gpt-5.6-sol", "reasoning": "medium" },
