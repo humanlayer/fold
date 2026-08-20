@@ -213,12 +213,12 @@ it.effect('provides OAuth defaults when the external catalog is unavailable', ()
 		})
 		expect(description.providers.find(({ name }) => name === 'grok')).toMatchObject({
 			credentialPresent: null,
-			models: ['grok-4.5'],
+			models: ['grok-4.6'],
 		})
 	}),
 )
 
-it.effect('only exposes Grok 4.5 for xAI providers', () =>
+it.effect('only exposes Grok 4.6 for xAI providers', () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(`{
 			"providers": { "grok": { "kind": "xai", "configuredModels": ["grok-3", "grok-4"] } },
@@ -228,6 +228,6 @@ it.effect('only exposes Grok 4.5 for xAI providers', () =>
 			}
 		}`)
 		const description = describeModelConfiguration(config, [catalogEntry('xai', 'grok-2')])
-		expect(description.providers[0]?.models).toEqual(['grok-4.5'])
+		expect(description.providers[0]?.models).toEqual(['grok-4.6'])
 	}),
 )

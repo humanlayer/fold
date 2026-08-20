@@ -32,7 +32,7 @@ export const emptyProviderForm = (): ProviderForm => ({
 const defaults = (kind: ProviderForm['kind']): Pick<ProviderForm, 'baseUrl' | 'model'> => {
 	if (kind === 'codex') return { baseUrl: 'https://chatgpt.com/backend-api/codex', model: 'gpt-5.6-sol' }
 	if (kind === 'opencode') return { baseUrl: 'https://opencode.ai/zen/v1', model: 'gpt-5.6-sol' }
-	if (kind === 'xai') return { baseUrl: 'https://api.x.ai/v1', model: 'grok-4.5' }
+	if (kind === 'xai') return { baseUrl: 'https://api.x.ai/v1', model: 'grok-4.6' }
 	if (kind === 'anthropic') return { baseUrl: 'https://api.anthropic.com', model: '' }
 	return { baseUrl: 'https://api.openai.com/v1', model: '' }
 }
