@@ -41,8 +41,7 @@ const REASONING_LEVELS: ReadonlyArray<{ id: ReasoningLevel; label: string; detai
 	{ id: 'max', label: 'Max', detail: 'Maximum reasoning depth' },
 ]
 
-const toReasoningLevel = (choice: string): ReasoningLevel =>
-	REASONING_LEVELS.find((l) => l.id === choice)?.id ?? 'off'
+const toReasoningLevel = (choice: string): ReasoningLevel => REASONING_LEVELS.find((l) => l.id === choice)?.id ?? 'off'
 
 export const initialModelPickerState = (): ModelPickerState => ({ _tag: 'kind' })
 export const modelPickerChoices = (
