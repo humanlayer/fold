@@ -77,20 +77,17 @@ export const describeModelConfiguration = (
 		const defaultModels = Match.value(provider.kind).pipe(
 			Match.when('codex', () => [DEFAULT_OPENCODE_MODEL_ID]),
 			Match.when('opencode', () => [DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID]),
-			Match.when('xai', () => [DEFAULT_XAI_MODEL_ID]),
+			Match.when('xai', () => ['grok-4.5', DEFAULT_XAI_MODEL_ID]),
 			Match.orElse((): ReadonlyArray<string> => []),
 		)
-		const models =
-			provider.kind === 'xai'
-				? [DEFAULT_XAI_MODEL_ID]
-				: [
-						...new Set([
-							...defaultModels,
-							...(provider.configuredModels ?? []),
-							...configured,
-							...catalogModels,
-						]),
-					].sort()
+		const models = [
+			...new Set([
+				...defaultModels,
+				...(provider.configuredModels ?? []),
+				...configured,
+				...catalogModels,
+			]),
+		].sort()
 		return {
 			name,
 			kind: provider.kind,

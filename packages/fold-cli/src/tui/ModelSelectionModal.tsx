@@ -28,6 +28,8 @@ const heading = (state: ModelPickerState): string => {
 			return 'Provider'
 		case 'model':
 			return `Model · ${state.provider}`
+		case 'reasoning':
+			return 'Thinking'
 		case 'mode':
 			return 'Mode'
 	}

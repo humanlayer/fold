@@ -127,30 +127,52 @@ describe('model picker state machine', () => {
 		})
 	})
 
-	it('stages direct model then mode and supports stepwise escape', () => {
+	it('stages direct model then reasoning then mode and supports stepwise escape', () => {
 		const provider = requirePickerState(advanceModelPicker(initialModelPickerState(), 'direct', 'new-session'))
 		const model = requirePickerState(advanceModelPicker(provider, 'claude-alias', 'new-session'))
-		const mode = requirePickerState(advanceModelPicker(model, 'two', 'new-session'))
+		const reasoning = requirePickerState(advanceModelPicker(model, 'two', 'new-session'))
 
+		expect(reasoning).toEqual({
+			_tag: 'reasoning',
+			selection: { _tag: 'direct', provider: 'claude-alias', model: 'two' },
+		})
+
+		const mode = requirePickerState(advanceModelPicker(reasoning, 'high', 'new-session'))
 		expect(mode).toEqual({
 			_tag: 'mode',
 			selection: { _tag: 'direct', provider: 'claude-alias', model: 'two' },
+			reasoning: 'high',
 		})
 		expect(advanceModelPicker(mode, 'rlm', 'new-session')).toEqual({
 			_tag: 'direct',
 			provider: 'claude-alias',
 			model: 'two',
+			reasoning: 'high',
 			mode: 'rlm',
 		})
-		expect(retreatModelPicker(mode)).toEqual({ _tag: 'model', provider: 'claude-alias' })
+
+		expect(retreatModelPicker(mode)).toEqual({
+			_tag: 'reasoning',
+			selection: { _tag: 'direct', provider: 'claude-alias', model: 'two' },
+		})
+		expect(retreatModelPicker(reasoning)).toEqual({ _tag: 'model', provider: 'claude-alias' })
 		expect(retreatModelPicker({ _tag: 'provider' })).toEqual({ _tag: 'kind' })
 		expect(retreatModelPicker({ _tag: 'kind' })).toBeNull()
 	})
 
-	it('asks for mode when switching an active direct model', () => {
+	it('omits reasoning from selection when set to off', () => {
+		const reasoning = requirePickerState(
+			advanceModelPicker({ _tag: 'model', provider: 'claude-alias' }, 'one', 'new-session'),
+		)
+		const mode = requirePickerState(advanceModelPicker(reasoning, 'off', 'new-session'))
+		expect(mode).not.toHaveProperty('reasoning')
+		expect(advanceModelPicker(mode, 'default', 'new-session')).not.toHaveProperty('reasoning')
+	})
+
+	it('asks for reasoning when switching an active direct model', () => {
 		const model = { _tag: 'model' as const, provider: 'claude-alias' }
 		expect(advanceModelPicker(model, 'one', 'active')).toEqual({
-			_tag: 'mode',
+			_tag: 'reasoning',
 			selection: { _tag: 'direct', provider: 'claude-alias', model: 'one' },
 		})
 	})
