@@ -10,7 +10,7 @@
  * those deltas are ephemeral and never persisted. Model provider failures become durable error +
  * agent-finished entries, never service failures.
  */
-import { Array as Arr, Cause, Effect, Exit, Layer, Predicate, Ref, Result, Schema, Stream } from 'effect'
+import { Array as Arr, Effect, Layer, Predicate, Ref, Result, Schema, Stream } from 'effect'
 import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
@@ -214,27 +214,6 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			})
 
 		/**
-		 * Flush partial assistant text on interrupt (D10): whatever streamed before the interruption is
-		 * appended as an ordinary assistant-message, so resume sees coherent, honest history. Runs from an
-		 * uninterruptible onExit around the model stream; a turn that completed normally never reaches it.
-		 */
-		const flushPartialAssistantText = (input: RunAgentInput, partialText: Ref.Ref<string>): Effect.Effect<void> =>
-			Effect.gen(function* () {
-				const text = yield* Ref.get(partialText)
-				if (text.length === 0) return
-
-				yield* appendToEventLog({
-					_tag: 'assistant-message',
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					messageId: yield* ids.makeMessageId,
-					message: encodeAssistantMessage(Prompt.assistantMessage({ content: [Prompt.textPart({ text })] })),
-					finish: null,
-				})
-			})
-
-		/**
 		 * Run one compaction against the agent's current projection (D11): plan through the Compaction
 		 * service - the summarization call runs on this runtime's own LanguageModel, so every agent
 		 * (root or subagent) summarizes with its own model - and append the durable `compaction` entry
@@ -359,31 +338,20 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// enter the durable log. A failing stream fails before any part, so failure turns publish no deltas.
 				// The whole collection runs under the active model request settings, so the provider reads the
 				// projected reasoning configuration when it builds the request (thinking-change binds next turn).
-				// Text deltas also accumulate outside the interruptible region: if this turn is interrupted
-				// mid-stream, the uninterruptible onExit below flushes the partial assistant text durably (D10).
-				const partialText = yield* Ref.make('')
 				const modelParts = yield* Stream.runCollect(
 					languageModel.streamText({ prompt: requestPrompt, toolkit, disableToolCallResolution: true }).pipe(
 						Stream.tap((part) =>
 							part.type === 'text-delta' || part.type === 'reasoning-delta'
-								? agentEvents
-										.publish({
-											kind: 'delta',
-											agentId: input.agentId,
-											parentAgentId: input.parentAgentId,
-											toolCallId: input.toolCallId,
-											part:
-												part.type === 'text-delta'
-													? { type: 'text-delta', id: part.id, delta: part.delta }
-													: { type: 'reasoning-delta', id: part.id, delta: part.delta },
-										})
-										.pipe(
-											Effect.andThen(
-												part.type === 'text-delta'
-													? Ref.update(partialText, (text) => text + part.delta)
-													: Effect.void,
-											),
-										)
+								? agentEvents.publish({
+										kind: 'delta',
+										agentId: input.agentId,
+										parentAgentId: input.parentAgentId,
+										toolCallId: input.toolCallId,
+										part:
+											part.type === 'text-delta'
+												? { type: 'text-delta', id: part.id, delta: part.delta }
+												: { type: 'reasoning-delta', id: part.id, delta: part.delta },
+									})
 								: Effect.void,
 						),
 					),
@@ -392,11 +360,6 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						model: runtimeState.activeModel,
 						reasoningLevel: runtimeState.reasoningLevel,
 					}),
-					Effect.onExit((exit) =>
-						Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)
-							? flushPartialAssistantText(input, partialText)
-							: Effect.void,
-					),
 					Effect.result,
 				)
 

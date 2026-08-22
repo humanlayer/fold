@@ -1,27 +1,19 @@
 /**
- * Slice-2 hard-interrupt tests (D10): `interrupt` cancels the live fiber tree; uninterruptible
- * finalizers keep the log honest - the mid-stream partial assistant text flushes as a durable
- * assistant-message, the root gets its terminal `agent-finished{interrupted}` marker, and the awaiting
- * send resolves with that honest outcome. A TARGETED interrupt of one running subagent folds into its
- * dispatcher's tool result as an interrupted-outcome result while the dispatcher keeps running.
+ * Slice-2 hard-interrupt tests (D10): `interrupt` cancels the live fiber tree, discards unfinished
+ * assistant output, writes the root `agent-finished{interrupted}` marker, and resolves the awaiting
+ * send with that honest outcome. A TARGETED interrupt of one running subagent folds into its dispatcher's
+ * tool result as an interrupted-outcome result while the dispatcher keeps running.
  */
 import { expect, it } from '@effect/vitest'
 import { Deferred, Effect, Fiber } from 'effect'
 
-import {
-	defineAgent,
-	defineSubagent,
-	shortAgentId,
-	startSession,
-	subagentTool,
-	type AssistantMessageLogEntry,
-} from '../../src/index'
+import { defineAgent, defineSubagent, shortAgentId, startSession, subagentTool } from '../../src/index'
 import { makeHangOnceModel } from '../Subagents/DriveHarness'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from './ApiTestHelpers'
 import { makePartialHangModel } from './SessionControlHarness'
 
-it.effect('interrupt flushes partial assistant text, writes the root marker, and resumes coherently', () =>
+it.effect('interrupt discards partial assistant text, writes the root marker, and resumes coherently', () =>
 	Effect.gen(function* () {
 		const partialHang = yield* makePartialHangModel(gptActiveModel, 'I was thinking about the answer', [
 			textTurn('resumed cleanly'),
@@ -39,30 +31,22 @@ it.effect('interrupt flushes partial assistant text, writes the root marker, and
 
 		const entries = yield* session.entries
 
-		// D10: the partial assistant text streamed before the interruption is a durable entry...
-		const flushed = entries.find(
-			(entry): entry is AssistantMessageLogEntry =>
-				entry._tag === 'assistant-message' && JSON.stringify(entry).includes('I was thinking about the answer'),
-		)
-		if (flushed === undefined) throw new Error('expected the flushed partial assistant-message')
-		expect(flushed.finish).toBeNull()
+		expect(JSON.stringify(entries)).not.toContain('I was thinking about the answer')
 
-		// ...followed by the root's terminal marker.
 		const rootFinished = entries.findLast((entry) => entry._tag === 'agent-finished')
 		if (rootFinished === undefined || rootFinished._tag !== 'agent-finished') {
 			throw new Error('expected the root terminal marker')
 		}
 		expect(rootFinished.outcome).toBe('interrupted')
-		expect(entries.indexOf(rootFinished)).toBeGreaterThan(entries.indexOf(flushed))
 
-		// Resume over the same log: the next send completes and its request carries the partial text.
+		// Resume over the same log without replaying text from the discarded response.
 		const resumed = yield* session.send('pick it back up')
 		expect(resumed.outcome).toBe('completed')
 		expect(resumed.resultText).toBe('resumed cleanly')
 
 		const prompts = yield* partialHang.prompts
 		const resumedPrompt = JSON.stringify(prompts[1])
-		expect(resumedPrompt).toContain('I was thinking about the answer')
+		expect(resumedPrompt).not.toContain('I was thinking about the answer')
 		expect(resumedPrompt).toContain('pick it back up')
 	}).pipe(Effect.scoped),
 )
