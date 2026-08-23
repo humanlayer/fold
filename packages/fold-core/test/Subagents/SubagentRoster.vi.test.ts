@@ -6,9 +6,21 @@
  * distinct definitions are a session-start defect.
  */
 import { expect, it } from '@effect/vitest'
-import { Cause, Effect, Exit } from 'effect'
+import { Cause, Effect, Exit, Schema } from 'effect'
 
-import { defineAgent, defineSubagent, startSession, subagentTool, type ToolResultLogEntry } from '../../src/index'
+import {
+	defineAgent,
+	defineForkAgent,
+	defineSubagent,
+	defineTool,
+	renderSubagentResult,
+	startSession,
+	Subagents,
+	subagentTool,
+	withSubagentCapabilities,
+	type ForkAgentDefinition,
+	type ToolResultLogEntry,
+} from '../../src/index'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from '../Api/ApiTestHelpers'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { subagentStartedEntries } from './DriveHarness'
@@ -147,5 +159,73 @@ it.effect('the same definition shared by two rosters is one registry entry', () 
 
 		const finished = yield* session.send('go')
 		expect(finished.outcome).toBe('completed')
+	}).pipe(Effect.scoped),
+)
+
+const hostAgentTool = (forkAgent: ForkAgentDefinition) =>
+	withSubagentCapabilities(
+		defineTool({
+			name: 'agent',
+			description: 'Fork the current agent for an isolated task.',
+			parameters: Schema.Struct({ prompt: Schema.String }),
+			success: Schema.Struct({ content: Schema.String }),
+			handler: ({ prompt }) =>
+				Effect.gen(function* () {
+					const subagents = yield* Subagents
+					const result = yield* subagents
+						.fork({ prompt, skill: null, forkAgentDefinitionId: forkAgent.id })
+						.pipe(Effect.orDie)
+					return { content: renderSubagentResult(result) }
+				}),
+		}),
+		{ agents: [], forkAgent },
+	)
+
+it.effect('host agent tools configure two fork generations structurally', () =>
+	Effect.gen(function* () {
+		const leafFork = defineForkAgent({ id: 'leaf-fork', tools: [] })
+		const delegatingFork = defineForkAgent({
+			id: 'delegating-fork',
+			tools: [hostAgentTool(leafFork)],
+		})
+		const scripted = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'root-fork', name: 'agent', params: { prompt: 'first child' } }]),
+			toolCallTurn([{ id: 'child-fork', name: 'agent', params: { prompt: 'leaf child' } }]),
+			textTurn('leaf done'),
+			textTurn('child done'),
+			textTurn('root done'),
+		])
+
+		const session = yield* startSession({
+			agent: defineAgent({ model: scripted.model, tools: [hostAgentTool(delegatingFork)] }),
+		})
+		const finished = yield* session.send('go')
+		expect(finished.outcome).toBe('completed')
+
+		const started = subagentStartedEntries(yield* session.entries)
+		expect(started).toHaveLength(2)
+		expect(started[0]?.fork?.definitionId).toBe('delegating-fork')
+		expect(started[0]?.tools).toContain('agent')
+		expect(started[1]?.fork?.definitionId).toBe('leaf-fork')
+		expect(started[1]?.tools).not.toContain('agent')
+		expect(started[1]?.parentAgentId).toBe(started[0]?.agentId)
+	}).pipe(Effect.scoped),
+)
+
+it.effect('duplicate fork agent definition ids defect at session start', () =>
+	Effect.gen(function* () {
+		const scripted = yield* scriptedModel(claudeActiveModel, [])
+		const first = defineForkAgent({ id: 'duplicate', tools: [] })
+		const second = defineForkAgent({ id: 'duplicate', tools: [] })
+
+		const exit = yield* startSession({
+			agent: defineAgent({
+				model: scripted.model,
+				tools: [subagentTool([], { forkAgent: first }), subagentTool([], { forkAgent: second })],
+			}),
+		}).pipe(Effect.exit)
+
+		if (!Exit.isFailure(exit)) throw new Error('expected session start to defect')
+		expect(String(Cause.squash(exit.cause))).toContain('duplicate fork agent definition id')
 	}).pipe(Effect.scoped),
 )

@@ -8,8 +8,8 @@
  * descriptors become layers; no public signature accepts or returns one.
  *
  * System tools are ordinary members of `tools` (round-five ruling): the composition root walks tools
- * arrays from the root - following every `subagentTool([...])` value into the definitions it carries -
- * to build the flat agent-type registry, and runs each distinct tool value's `init` exactly once (the
+ * arrays from the root through every delegation tool's specialist and fork definitions, builds the
+ * flat agent-definition registry, and runs each distinct tool value's `init` exactly once (the
  * skill tool's roster scan), collecting the realized tool and its leading-prompt block for every agent
  * listing that value.
  *
@@ -74,9 +74,12 @@ import { Session, type SessionService, type StartedSession } from '../Session/Se
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { StopConditions } from '../StopConditions/StopConditions'
 import { agentIdsFromEntries, resolveAgentIdRef } from '../Subagents/AgentIdRef'
-import { agentRegistryFromDefinitions, collectSubagentDefinitions } from '../Subagents/AgentRegistry'
+import {
+	agentRegistryFromDefinitions,
+	collectAgentDefinitions,
+	type CollectedAgentDefinitions,
+} from '../Subagents/AgentRegistry'
 import { SubagentNotFoundError } from '../Subagents/Errors'
-import type { SubagentDefinition } from '../Subagents/SubagentDefinition'
 import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
 import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
@@ -275,14 +278,12 @@ type SessionGraph = {
 	readonly profiles: ProfilesService
 	readonly configRef: Ref.Ref<SessionAgentConfig>
 	readonly validateSubagentRegistry: (
-		definitions: ReadonlyArray<SubagentDefinition>,
+		definitions: CollectedAgentDefinitions,
 		profiles: SessionProfiles,
 	) => Effect.Effect<void>
-	readonly extendSubagentRegistry: (definitions: ReadonlyArray<SubagentDefinition>) => void
+	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
 	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
-	readonly collectNewSubagentDefinitions: (
-		tools: ReadonlyArray<FoldTool>,
-	) => Effect.Effect<ReadonlyArray<SubagentDefinition>>
+	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
 		tools: ReadonlyArray<FoldTool>,
@@ -313,10 +314,11 @@ const assembleSessionGraph = (options: {
 		const rootTools = agent.tools ?? []
 		const rootHooks = agent.hooks ?? {}
 
-		// Walk the tools arrays from the root: every subagentTool value contributes its definitions
-		// (recursively, through THEIR tools), flattening into the session's one flat registry (§1a).
-		const subagentDefinitions = yield* collectSubagentDefinitions(rootTools)
-		const registry = agentRegistryFromDefinitions(subagentDefinitions)
+		// Walk the tools arrays from the root: every delegation tool contributes its specialist and fork
+		// definitions recursively, flattening them into the session's registries (§1a).
+		const agentDefinitions = yield* collectAgentDefinitions(rootTools)
+		const subagentDefinitions = agentDefinitions.subagents
+		const registry = agentRegistryFromDefinitions(agentDefinitions)
 
 		// Profiles slice: every role-bound registry entry must resolve against the INITIAL bindings
 		// (`orchestrator` -> `smart` fallback counts, D25), so an uncovered role is a configuration
@@ -342,6 +344,9 @@ const assembleSessionGraph = (options: {
 		yield* Effect.forEach(subagentDefinitions, (definition) => validateToolNames(definition.tools ?? []), {
 			discard: true,
 		})
+		yield* Effect.forEach(agentDefinitions.forkAgents, (definition) => validateToolNames(definition.tools), {
+			discard: true,
+		})
 
 		// Run each distinct tool value's init exactly once per session (for ordinary tools that is a
 		// constant; for the skill tool it is the roster scan): the contribution - realized tool,
@@ -357,6 +362,9 @@ const assembleSessionGraph = (options: {
 
 		yield* ensureToolContributions(rootTools)
 		yield* Effect.forEach(subagentDefinitions, (definition) => ensureToolContributions(definition.tools ?? []), {
+			discard: true,
+		})
+		yield* Effect.forEach(agentDefinitions.forkAgents, (definition) => ensureToolContributions(definition.tools), {
 			discard: true,
 		})
 
@@ -520,7 +528,9 @@ const assembleSessionGraph = (options: {
 				Effect.sync(() => {
 					const bindings = [
 						...registry.entries,
-						...definitions.filter((definition) => registry.resolveAgentType(definition.name) === null),
+						...definitions.subagents.filter(
+							(definition) => registry.resolveAgentType(definition.name) === null,
+						),
 					]
 					for (const entry of bindings) {
 						if (typeof entry.model !== 'string') continue
@@ -534,7 +544,7 @@ const assembleSessionGraph = (options: {
 				registry.extend(definitions)
 			},
 			ensureToolContributions,
-			collectNewSubagentDefinitions: (tools) => collectSubagentDefinitions(tools),
+			collectNewSubagentDefinitions: (tools) => collectAgentDefinitions(tools),
 			provisionRootRuntime,
 			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
 			currentProvisionedRuntime: Ref.get(runtimeRef),
@@ -813,15 +823,23 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				// is the sole extension boundary, so dispatch can never observe a partially installed graph.
 				yield* graph.ensureToolContributions(next.tools)
 				const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
-				yield* Effect.forEach(introduced, (definition) => validateToolNames(definition.tools ?? []), {
+				yield* Effect.forEach(introduced.subagents, (definition) => validateToolNames(definition.tools ?? []), {
 					discard: true,
 				})
 				yield* Effect.forEach(
-					introduced,
+					introduced.subagents,
 					(definition) => graph.ensureToolContributions(definition.tools ?? []),
 					{
 						discard: true,
 					},
+				)
+				yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
+					discard: true,
+				})
+				yield* Effect.forEach(
+					introduced.forkAgents,
+					(definition) => graph.ensureToolContributions(definition.tools),
+					{ discard: true },
 				)
 				yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
 

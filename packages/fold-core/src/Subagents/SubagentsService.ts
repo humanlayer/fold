@@ -15,7 +15,7 @@ import type { AgentId } from '../Ids'
 import type { SkillNotFoundError } from '../Skills/SkillSource'
 import type { CurrentAgent, CurrentToolCall, InterruptNote } from '../ToolRuntime/ToolContextServices'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
-import type { SubagentResult } from './Schemas'
+import type { ForkSubagentInput, SubagentResult } from './Schemas'
 
 /** Ambient per-tool-call services every Subagents method consumes. */
 export type SubagentAmbientServices = CurrentAgent | CurrentToolCall | InterruptNote
@@ -29,12 +29,6 @@ export type DispatchSubagentInput = {
 	readonly skill: string | null
 	/** The executing subagentTool value's roster (from its closure) - the dispatch authority (§1a). */
 	readonly allowedAgents: ReadonlyArray<string>
-}
-
-/** Input for forking the dispatching agent: the fork clones its context, config, and toolset. */
-export type ForkSubagentInput = {
-	readonly prompt: string
-	readonly skill: string | null
 }
 
 /**

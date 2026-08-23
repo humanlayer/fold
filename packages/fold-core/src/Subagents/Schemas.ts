@@ -12,6 +12,7 @@ import { AgentFinishedOutcome } from '../EventLog/Schemas'
 import { AgentId } from '../Ids'
 import { AgentIdRef } from './AgentIdRef'
 import { InvalidSubagentCommandError } from './Errors'
+import { ForkAgentDefinitionId } from './ForkAgentDefinition'
 
 /** Count of assistant turns (one LLM call each, D7 vocabulary) - a pure fold over assistant-message rows. */
 export const TurnCount = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({ identifier: 'TurnCount' })
@@ -76,6 +77,14 @@ export const SubagentCommand = Schema.Union([
 	ForkSubagentCommand,
 ]).annotate({ identifier: 'SubagentCommand' })
 export type SubagentCommand = typeof SubagentCommand.Type
+
+/** Input to the fork engine after a model-facing tool has selected its next fork configuration. */
+export const ForkSubagentInput = Schema.Struct({
+	prompt: Schema.String,
+	skill: Schema.NullOr(Schema.String),
+	forkAgentDefinitionId: Schema.NullOr(ForkAgentDefinitionId),
+}).annotate({ identifier: 'ForkSubagentInput' })
+export type ForkSubagentInput = typeof ForkSubagentInput.Type
 
 const decodeAgentIdRef = Schema.decodeUnknownEffect(AgentIdRef)
 

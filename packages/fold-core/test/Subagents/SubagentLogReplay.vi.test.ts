@@ -10,6 +10,7 @@ import { Context, Effect, Layer } from 'effect'
 
 import {
 	defineAgent,
+	defineForkAgent,
 	defineSubagent,
 	EventLog,
 	eventLogSource,
@@ -138,5 +139,68 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 		expect(rendered).toContain(`agent_id: ${shortAgentId(dispatched.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (2 total)')
 		expect(rendered).toContain('resumed findings')
+	}).pipe(Effect.scoped),
+)
+
+it.effect('replay restores a configured fork toolset before resuming the child', () =>
+	Effect.gen(function* () {
+		const logContext = yield* Layer.build(layerInMemoryEventLog)
+		const sharedLog = Context.get(logContext, EventLog)
+		const sharedLogSource = eventLogSource(Effect.succeed(sharedLog))
+
+		const dispatched = yield* Effect.scoped(
+			Effect.gen(function* () {
+				const leafFork = defineForkAgent({ id: 'leaf-fork', tools: [] })
+				const delegatingFork = defineForkAgent({
+					id: 'delegating-fork',
+					tools: [subagentTool([], { forkAgent: leafFork })],
+				})
+				const scripted = yield* scriptedModel(gptActiveModel, [
+					toolCallTurn([
+						{ id: 'root-fork', name: 'subagent', params: { prompt: 'first child', fork: true } },
+					]),
+					textTurn('child paused'),
+					textTurn('root A done'),
+				])
+				const session = yield* startSession({
+					agent: defineAgent({
+						model: scripted.model,
+						tools: [subagentTool([], { forkAgent: delegatingFork })],
+					}),
+					log: sharedLogSource,
+				})
+				yield* session.send('go')
+				const started = subagentStartedEntries(yield* session.entries)[0]
+				if (started === undefined) throw new Error('expected a configured fork')
+				return started.agentId
+			}),
+		)
+
+		const leafFork = defineForkAgent({ id: 'leaf-fork', tools: [] })
+		const delegatingFork = defineForkAgent({
+			id: 'delegating-fork',
+			tools: [subagentTool([], { forkAgent: leafFork })],
+		})
+		const scripted = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([
+				{ id: 'root-resume', name: 'subagent', params: { prompt: 'continue', agent_id: dispatched } },
+			]),
+			toolCallTurn([{ id: 'child-fork', name: 'subagent', params: { prompt: 'leaf work', fork: true } }]),
+			textTurn('leaf done'),
+			textTurn('child resumed'),
+			textTurn('root B done'),
+		])
+		const session = yield* startSession({
+			agent: defineAgent({ model: scripted.model, tools: [subagentTool([], { forkAgent: delegatingFork })] }),
+			log: sharedLogSource,
+		})
+		yield* session.send('resume')
+
+		const started = subagentStartedEntries(yield* session.entries)
+		expect(started).toHaveLength(2)
+		expect(started[0]?.fork?.definitionId).toBe('delegating-fork')
+		expect(started[1]?.fork?.definitionId).toBe('leaf-fork')
+		expect(started[1]?.parentAgentId).toBe(dispatched)
+		expect(started[1]?.tools).not.toContain('subagent')
 	}).pipe(Effect.scoped),
 )
