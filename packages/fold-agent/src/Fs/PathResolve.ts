@@ -6,35 +6,31 @@
  */
 import { homedir } from 'node:os'
 
-import * as NodePath from '@effect/platform-node/NodePath'
-import { Context, Effect, type FileSystem, Layer, Path } from 'effect'
+import { Effect, type FileSystem, Path } from 'effect'
 
 const unicodeSpaces = /[  -   　]/g
 
-let nodePath: Path.Path | null = null
-
-const defaultNodePath = (): Path.Path => {
-	if (nodePath === null) {
-		nodePath = Effect.runSync(
-			Effect.scoped(Layer.build(NodePath.layer).pipe(Effect.map((context) => Context.get(context, Path.Path)))),
-		)
-	}
-
-	return nodePath
-}
-
 /** Normalize a model-supplied path and resolve it against the working directory (pi's resolvePath). */
-export const resolveToCwd = (filePath: string, cwd: string): string => {
-	const pathService = defaultNodePath()
-	let path = filePath.trim().replace(unicodeSpaces, ' ')
+export const resolveToCwd = (filePath: string, cwd: string) =>
+	Effect.gen(function* () {
+		const pathService = yield* Path.Path
+		let path = filePath.trim().replace(unicodeSpaces, ' ')
 
-	if (path.startsWith('@')) path = path.slice(1)
-	if (path.startsWith('file://')) path = Effect.runSync(pathService.fromFileUrl(new URL(path)))
-	if (path === '~') path = homedir()
-	else if (path.startsWith('~/')) path = pathService.resolve(homedir(), path.slice(2))
+		if (path.startsWith('@')) path = path.slice(1)
+		if (path.startsWith('file://')) {
+			const url = yield* Effect.try({
+				try: () => new URL(path),
+				catch: () => ({ message: `Invalid file URL: ${path}` }),
+			})
+			path = yield* pathService
+				.fromFileUrl(url)
+				.pipe(Effect.mapError(() => ({ message: `Invalid file URL: ${path}` })))
+		}
+		if (path === '~') path = homedir()
+		else if (path.startsWith('~/')) path = pathService.resolve(homedir(), path.slice(2))
 
-	return pathService.isAbsolute(path) ? pathService.normalize(path) : pathService.resolve(cwd, path)
-}
+		return pathService.isAbsolute(path) ? pathService.normalize(path) : pathService.resolve(cwd, path)
+	})
 
 /** macOS screenshot names put a narrow no-break space before AM/PM. */
 const macosScreenshotVariant = (path: string): string => path.replace(/ (AM|PM)\./gi, ' $1.')
@@ -53,9 +49,13 @@ const exists = (fs: FileSystem.FileSystem, path: string): Effect.Effect<boolean>
  * not exist: as-is, narrow-no-break-space AM/PM, NFD, curly apostrophe, NFD + curly. Returns the first
  * existing variant, or the plain resolved path when none exists (the caller surfaces the read error).
  */
-export const resolveReadPath = (filePath: string, cwd: string, fs: FileSystem.FileSystem): Effect.Effect<string> =>
+export const resolveReadPath = (
+	filePath: string,
+	cwd: string,
+	fs: FileSystem.FileSystem,
+): Effect.Effect<string, { readonly message: string }, Path.Path> =>
 	Effect.gen(function* () {
-		const resolved = resolveToCwd(filePath, cwd)
+		const resolved = yield* resolveToCwd(filePath, cwd)
 		if (yield* exists(fs, resolved)) return resolved
 
 		const variants = [

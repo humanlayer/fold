@@ -1,12 +1,16 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import * as NodePath from '@effect/platform-node/NodePath'
 import { expect, it } from '@effect/vitest'
+import { Effect } from 'effect'
 
-import { cwdFor } from '../../src/Fs/DefaultFileSystem'
+import { resolveToCwd } from '../../src/Fs/PathResolve'
 
-it('expands a home-relative configured working directory to an absolute path', () => {
-	expect(cwdFor({ cwd: '~/.humanlayer/workspaces/example' })).toBe(
-		join(homedir(), '.humanlayer', 'workspaces', 'example'),
-	)
-})
+it.effect('expands a home-relative configured working directory to an absolute path', () =>
+	Effect.gen(function* () {
+		expect(yield* resolveToCwd('~/.humanlayer/workspaces/example', process.cwd())).toBe(
+			join(homedir(), '.humanlayer', 'workspaces', 'example'),
+		)
+	}).pipe(Effect.provide(NodePath.layer)),
+)

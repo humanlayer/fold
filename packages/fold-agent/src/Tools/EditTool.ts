@@ -4,10 +4,17 @@
  * over the file's content, and a serialized read-modify-write through the per-file mutation queue so
  * parallel edits of one file cannot interleave.
  */
-import { defineTool, applyEdits, editToolContract, normalizeEditInput, type FoldTool } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import {
+	defineTool,
+	applyEdits,
+	editToolContract,
+	normalizeEditInput,
+	platformToolDependencies,
+	type FoldTool,
+} from '@humanlayer/fold-core'
+import { Effect, FileSystem } from 'effect'
 
-import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { errnoCode, platformErrorMessage } from './ReadTool'
@@ -16,10 +23,12 @@ import { errnoCode, platformErrorMessage } from './ReadTool'
 export const editTool = (options?: FsToolOptions): FoldTool =>
 	defineTool({
 		...editToolContract,
+		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = fileSystemFor(options)
-				const absolutePath = resolveToCwd(params.path, cwdFor(options))
+				const fs = options?.fileSystem ?? (yield* FileSystem.FileSystem)
+				const cwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
+				const absolutePath = yield* resolveToCwd(params.path, cwd)
 				const edits = yield* normalizeEditInput(params).pipe(
 					Effect.mapError((error) => ({ message: error.message })),
 				)
