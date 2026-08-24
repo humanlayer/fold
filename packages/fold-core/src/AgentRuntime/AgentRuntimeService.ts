@@ -32,6 +32,7 @@ export type StartAgentInput = {
 	/** Registry type name the agent was dispatched as (D21); null for the root agent and forks. */
 	readonly agentType: string | null
 	readonly model: ActiveModel
+	readonly promptCacheKey?: string | null
 	/** One leading system block, an ordered set of blocks (one system message each), or null for none. */
 	readonly systemPrompt: string | ReadonlyArray<string> | null
 }

@@ -78,6 +78,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 					skill: null,
 					agentType: null,
 					model: input.model,
+					promptCacheKey: input.promptCacheKey ?? null,
 					systemPrompt: input.systemPrompt,
 				})
 

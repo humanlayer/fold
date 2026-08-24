@@ -16,6 +16,7 @@ export type StartSessionInput = {
 	/** Host working directory recorded on `session_started`; omit (or pass null) on hosts without a filesystem. */
 	readonly cwd?: string | null
 	readonly model: ActiveModel
+	readonly promptCacheKey?: string
 	/** One leading system block, an ordered set of blocks (one system message each), or null for none. */
 	readonly systemPrompt: string | ReadonlyArray<string> | null
 	readonly meta?: Readonly<Record<string, typeof Schema.Json.Type>>

@@ -254,6 +254,7 @@ export type FoldSession = {
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
 type SessionAgentConfig = {
 	readonly model: FoldModel
+	readonly promptCacheKey: string | null
 	readonly systemPrompt: string | ReadonlyArray<string> | null
 	readonly tools: ReadonlyArray<FoldTool>
 }
@@ -402,6 +403,7 @@ const assembleSessionGraph = (options: {
 
 		const initialConfig: SessionAgentConfig = {
 			model: agent.model,
+			promptCacheKey: agent.promptCacheKey ?? null,
 			systemPrompt: agent.systemPrompt ?? null,
 			tools: rootTools,
 		}
@@ -487,6 +489,7 @@ const assembleSessionGraph = (options: {
 		const currentRootAgent: Effect.Effect<RootAgentSnapshot> = Ref.get(configRef).pipe(
 			Effect.map((config) => ({
 				model: config.model,
+				promptCacheKey: config.promptCacheKey,
 				tools: config.tools,
 				hooks: rootHooks,
 				systemPrompt: config.systemPrompt,
@@ -814,6 +817,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
 				const next: SessionAgentConfig = {
 					model,
+					promptCacheKey: current.promptCacheKey,
 					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
 					tools: switchOptions?.tools ?? current.tools,
 				}
@@ -915,6 +919,7 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSe
 			.start({
 				cwd: options.cwd ?? null,
 				model: options.agent.model.activeModel,
+				...(options.agent.promptCacheKey === undefined ? {} : { promptCacheKey: options.agent.promptCacheKey }),
 				systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
 				meta: {
 					...options.meta,

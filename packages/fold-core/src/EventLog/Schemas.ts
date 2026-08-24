@@ -209,6 +209,10 @@ export const AgentFork = Schema.Struct({
 	atSeq: LogSeq,
 	/** Host fork configuration. Absent on legacy and default toolset-inheriting forks. */
 	definitionId: Schema.optionalKey(ForkAgentDefinitionId),
+	/** Eligible caller history inherited by this fork. Absent on legacy forks and interpreted as all. */
+	history: Schema.optionalKey(
+		Schema.Union([Schema.Literals(['all', 'none']), Schema.Int.check(Schema.isGreaterThan(0))]),
+	),
 }).annotate({ identifier: 'AgentFork' })
 export type AgentFork = typeof AgentFork.Type
 
@@ -259,6 +263,7 @@ export const AgentStartedLogEntryInput = Schema.TaggedStruct('agent_started', {
 	toolCallId: Schema.NullOr(ToolCallId),
 	mode: AgentLaunchMode,
 	model: ActiveModel,
+	promptCacheKey: Schema.optionalKey(Schema.String),
 	tools: Schema.Array(Schema.String),
 	skill: Schema.NullOr(Schema.String),
 	fork: Schema.NullOr(AgentFork),
@@ -278,6 +283,7 @@ export const AgentStartedLogEntry = Schema.TaggedStruct('agent_started', {
 	toolCallId: Schema.NullOr(ToolCallId),
 	mode: AgentLaunchMode,
 	model: ActiveModel,
+	promptCacheKey: Schema.optionalKey(Schema.String),
 	tools: Schema.Array(Schema.String),
 	skill: Schema.NullOr(Schema.String),
 	fork: Schema.NullOr(AgentFork),

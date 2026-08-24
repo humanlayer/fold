@@ -125,6 +125,18 @@ it.effect('binds the projected model id and stored reasoning when the level matc
 	}),
 )
 
+it.effect('binds an agent-specific prompt cache key on OpenAI requests', () =>
+	Effect.gen(function* () {
+		const configs = yield* observedConfigs({
+			model: codexModel,
+			reasoningLevel: 'high',
+			promptCacheKey: 'session-child-affinity',
+		})
+
+		expect(Reflect.get(configs.openai ?? {}, 'prompt_cache_key')).toBe('session-child-affinity')
+	}),
+)
+
 it.effect('re-derives the setting from the projected level after a thinking-change', () =>
 	Effect.gen(function* () {
 		const configs = yield* observedConfigs({ model: openAiMediumModel, reasoningLevel: 'high' })
