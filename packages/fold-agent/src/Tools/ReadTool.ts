@@ -9,15 +9,16 @@ import {
 	defineTool,
 	formatSize,
 	defaultMaxBytes,
+	platformToolDependencies,
 	readToolContract,
 	truncateHead,
 	type FoldTool,
 	type ToolResultBlock,
 } from '@humanlayer/fold-core'
-import { Effect, type PlatformError } from 'effect'
+import { Effect, FileSystem, type PlatformError } from 'effect'
 
-import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
-import { resolveReadPath } from '../Fs/PathResolve'
+import type { FsToolOptions } from '../Fs/DefaultFileSystem'
+import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
 import { processImage } from './Image/Process'
 
@@ -56,10 +57,11 @@ export const errnoCode = (error: PlatformError.PlatformError): string => {
 export const readTool = (options?: FsToolOptions): FoldTool =>
 	defineTool({
 		...readToolContract,
+		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = fileSystemFor(options)
-				const cwd = cwdFor(options)
+				const fs = options?.fileSystem ?? (yield* FileSystem.FileSystem)
+				const cwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const absolutePath = yield* resolveReadPath(params.path, cwd, fs)
 
 				const bytes = yield* fs
