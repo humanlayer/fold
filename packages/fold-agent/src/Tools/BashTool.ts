@@ -32,6 +32,7 @@ import { type Context, Duration, Effect, Fiber, Layer, Option, Random, Ref, Sche
 import { ChildProcess, type ChildProcessSpawner } from 'effect/unstable/process'
 
 import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { resolveToCwd } from '../Fs/PathResolve'
 import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
 
@@ -264,7 +265,8 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = fileSystemFor(options)
-				const cwd = params.workdir ?? cwdFor(options)
+				const configuredCwd = cwdFor(options)
+				const cwd = params.workdir === undefined ? configuredCwd : resolveToCwd(params.workdir, configuredCwd)
 				const timeoutSeconds = params.timeout ?? defaultTimeoutSeconds
 
 				if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {

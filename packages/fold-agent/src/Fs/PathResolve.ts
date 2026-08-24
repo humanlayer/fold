@@ -5,23 +5,35 @@
  * curly combination - tried in that order against the filesystem.
  */
 import { homedir } from 'node:os'
-import { isAbsolute, normalize, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-import { Effect, type FileSystem } from 'effect'
+import * as NodePath from '@effect/platform-node/NodePath'
+import { Context, Effect, type FileSystem, Layer, Path } from 'effect'
 
 const unicodeSpaces = /[  -   　]/g
 
+let nodePath: Path.Path | null = null
+
+const defaultNodePath = (): Path.Path => {
+	if (nodePath === null) {
+		nodePath = Effect.runSync(
+			Effect.scoped(Layer.build(NodePath.layer).pipe(Effect.map((context) => Context.get(context, Path.Path)))),
+		)
+	}
+
+	return nodePath
+}
+
 /** Normalize a model-supplied path and resolve it against the working directory (pi's resolvePath). */
 export const resolveToCwd = (filePath: string, cwd: string): string => {
+	const pathService = defaultNodePath()
 	let path = filePath.trim().replace(unicodeSpaces, ' ')
 
 	if (path.startsWith('@')) path = path.slice(1)
-	if (path.startsWith('file://')) path = fileURLToPath(path)
+	if (path.startsWith('file://')) path = Effect.runSync(pathService.fromFileUrl(new URL(path)))
 	if (path === '~') path = homedir()
-	else if (path.startsWith('~/')) path = resolve(homedir(), path.slice(2))
+	else if (path.startsWith('~/')) path = pathService.resolve(homedir(), path.slice(2))
 
-	return isAbsolute(path) ? normalize(path) : resolve(cwd, path)
+	return pathService.isAbsolute(path) ? pathService.normalize(path) : pathService.resolve(cwd, path)
 }
 
 /** macOS screenshot names put a narrow no-break space before AM/PM. */

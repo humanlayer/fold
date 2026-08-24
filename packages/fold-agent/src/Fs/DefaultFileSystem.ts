@@ -9,6 +9,8 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Context, Effect, FileSystem, Layer } from 'effect'
 
+import { resolveToCwd } from './PathResolve'
+
 /** Options shared by every filesystem-backed tool factory in fold-agent. */
 export type FsToolOptions = {
 	/** Working directory for resolving relative paths. Defaults to `process.cwd()` at call time. */
@@ -39,4 +41,4 @@ export const fileSystemFor = (options?: FsToolOptions): FileSystem.FileSystem =>
 	options?.fileSystem ?? defaultNodeFileSystem()
 
 /** Resolve the working directory a tool handler should resolve relative paths against. */
-export const cwdFor = (options?: FsToolOptions): string => options?.cwd ?? process.cwd()
+export const cwdFor = (options?: FsToolOptions): string => resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
