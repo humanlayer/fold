@@ -6,6 +6,7 @@
  * a typed failure before any subagent row is written.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Ref } from 'effect'
 
 import {
@@ -93,7 +94,7 @@ it.effect('a shared skillTool value scans once; the preload rides the dispatcher
 			(entry) => entry._tag === 'system-message' && entry.agentId === started.agentId,
 		)
 		expect(JSON.stringify(subagentSystem)).toContain('available_skills')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a dispatcher with no skillTool cannot preload: typed failure before any subagent row', () =>
@@ -125,5 +126,5 @@ it.effect('a dispatcher with no skillTool cannot preload: typed failure before a
 
 		const toolResult = entries.find((entry) => entry._tag === 'tool-result')
 		expect(JSON.stringify(toolResult)).toContain('Skill \\"commit-helper\\" not found')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

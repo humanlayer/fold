@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { describeModelConfiguration } from '@humanlayer/fold-agent'
-import { Effect } from 'effect'
+import { Effect, FileSystem, Layer } from 'effect'
 
 import { memoryFileFor, memoryFileSystem } from '../../../fold-agent/test/TestHelpers'
 import { providerManagementRows } from '../../src/tui/ProviderConfigState'
@@ -14,7 +14,9 @@ const requireConfig = <A>(config: A | null): A => {
 it.effect('bootstraps and loads a fresh fold home before deriving provider management rows', () =>
 	Effect.gen(function* () {
 		const fs = memoryFileSystem({})
-		const result = yield* bootstrapTuiConfig({ foldHome: '/fresh/.fold', fileSystem: fs })
+		const result = yield* bootstrapTuiConfig({ foldHome: '/fresh/.fold' }).pipe(
+			Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)),
+		)
 
 		expect(result.notice).toBeNull()
 		expect(result.config).not.toBeNull()
@@ -43,7 +45,9 @@ it.effect('does not rewrite an old commented config while virtual provider rows 
 			"roles": { "smart": { "provider": "openai", "model": "gpt-old" }, "fast": { "provider": "openai", "model": "gpt-old" } }
 		}\n`
 		const fs = memoryFileSystem({ '/old/.fold/config.jsonc': oldConfig })
-		const result = yield* bootstrapTuiConfig({ foldHome: '/old/.fold', fileSystem: fs })
+		const result = yield* bootstrapTuiConfig({ foldHome: '/old/.fold' }).pipe(
+			Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)),
+		)
 
 		expect(result.notice).toBeNull()
 		expect(yield* memoryFileFor(fs, '/old/.fold/config.jsonc')).toBe(oldConfig)
@@ -66,7 +70,10 @@ it.effect('surfaces bootstrap failure while canonical virtual rows remain availa
 	Effect.gen(function* () {
 		const base = memoryFileSystem({})
 		const fs = { ...base, writeFileString: () => Effect.die(new Error('fixture write failure')) }
-		const result = yield* bootstrapTuiConfig({ foldHome: '/blocked', fileSystem: fs })
+		const result = yield* bootstrapTuiConfig({ foldHome: '/blocked' }).pipe(
+			// oxlint-disable-next-line typescript/consistent-type-assertions
+			Effect.provide(Layer.succeed(FileSystem.FileSystem, fs as FileSystem.FileSystem)),
+		)
 
 		expect(result.config).toBeNull()
 		expect(result.notice).toContain('CONFIGURATION BOOTSTRAP ERROR')

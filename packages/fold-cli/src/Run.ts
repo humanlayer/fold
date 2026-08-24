@@ -26,7 +26,8 @@ import type {
 	SessionId,
 	FoldSession,
 } from '@humanlayer/fold-core'
-import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import { Cause, Clock, Effect, Exit, Fiber, type FileSystem, Option, Stream, type Scope } from 'effect'
 
 import type { CredentialSummary, OutputRenderer, ResumeCommandFlag, SessionHeader } from './Renderer'
 
@@ -83,7 +84,7 @@ const launchOptions = (options: CliSessionOptions) => ({
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
 const openSessionFor = (
 	options: CliSessionOptions,
-): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids> => {
+): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
 
 	return options.resume._tag === 'latest'
@@ -91,7 +92,7 @@ const openSessionFor = (
 		: resumeSessionById(options.resume.sessionId, launchOptions(options))
 }
 
-const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids> =>
+const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
 		const logPath = sessionLogPathFor(session.sessionId, {
@@ -121,10 +122,10 @@ const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions
 		if (model === null) return { _tag: 'unknown', detail: 'no active model row found in the session log' }
 
 		if (model.providerKind === 'codex') {
-			const store = makeCodexAuthStore({
+			const store = yield* makeCodexAuthStore({
 				providerId: model.providerId,
 				...(options.foldHome === undefined ? {} : { path: join(options.foldHome, 'auth.json') }),
-			})
+			}).pipe(Effect.provide(NodeFileSystem.layer))
 			const token = yield* store.load
 			if (Option.isNone(token)) return { _tag: 'missing', detail: `entry "${model.providerId}" in ${store.path}` }
 
@@ -257,13 +258,13 @@ const withProcessSignals = <A, E, R>(
  * absent), and the regenerated `config.schema.json` + `FOLD_INFO.md`. Never fails a run - a broken
  * home surfaces as the launch's own config error moments later.
  */
-const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void> =>
+const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void, never, FileSystem.FileSystem> =>
 	bootstrapFoldHome(options.foldHome === undefined ? {} : { foldHome: options.foldHome }).pipe(
 		Effect.asVoid,
 		Effect.catchCause(() => Effect.void),
 	)
 
-const forkStartupEnsures = (options: CliSessionOptions, renderer: OutputRenderer): Effect.Effect<void> =>
+const forkStartupEnsures = (options: CliSessionOptions, renderer: OutputRenderer): Effect.Effect<void, never, FileSystem.FileSystem> =>
 	Effect.forkDetach(
 		Effect.gen(function* () {
 			const statuses = yield* ensureManagedBinaries({
@@ -282,7 +283,7 @@ const forkStartupEnsures = (options: CliSessionOptions, renderer: OutputRenderer
 export const runPrompt = (
 	options: PromptRunOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope | Ids> =>
+): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		yield* bootstrapForRun(options)
 		const opened = yield* openSession(options)

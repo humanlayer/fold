@@ -13,6 +13,7 @@ import { join } from 'node:path'
 
 import { codingTools, jsonlEventLog } from '@humanlayer/fold-agent'
 import { defineAgent, startSession } from '@humanlayer/fold-core'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Console, Effect } from 'effect'
 
 import { codexModel } from '../src/index'
@@ -47,7 +48,7 @@ const program = Effect.gen(function* () {
 	yield* Console.log(`result: ${finished.resultText ?? '(no text)'}`)
 	yield* Console.log(`log rows: ${entries.length} (persisted to ${logPath})`)
 	yield* Console.log(`tools used: ${entries.filter((entry) => entry._tag === 'tool-result').length} tool results`)
-}).pipe(Effect.scoped)
+}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 Effect.runPromise(program).catch((error) => {
 	console.error(`Set up codex credentials in ${join(homedir(), '.fold', 'auth.json')} before running.`)

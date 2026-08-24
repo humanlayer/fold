@@ -9,9 +9,7 @@
  */
 import { join } from 'node:path'
 
-import { Effect } from 'effect'
-
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem } from 'effect'
 import type { ConfigInitOptions } from './ConfigSchemaJson'
 import { defaultFoldHome } from './Load'
 
@@ -215,9 +213,9 @@ and \`fd\` over find. Disable downloads with \`FOLD_DISABLE_BINARY_DOWNLOADS=1\`
 `
 
 /** Write (always overwrite) `<foldHome>/FOLD_INFO.md`, creating the directory if needed. Returns its path. */
-export const writeFoldInfo = (options?: ConfigInitOptions): Effect.Effect<string> =>
+export const writeFoldInfo = (options?: ConfigInitOptions): Effect.Effect<string, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const home = options?.foldHome ?? defaultFoldHome()
 		yield* fs.makeDirectory(home, { recursive: true }).pipe(Effect.orDie)
 		const path = foldInfoPath(home)

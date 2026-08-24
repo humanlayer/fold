@@ -6,6 +6,7 @@
  * roster changes the block). An unchanged configuration writes nothing.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Cause, Context, Effect, Exit, Layer } from 'effect'
 
 import {
@@ -71,7 +72,7 @@ it.effect('resume adopts the log: same ids, no new rows, full continuity - and n
 		expect(prompt).toContain('go')
 		expect(prompt).toContain('first answer')
 		expect(prompt).toContain('continue where we left off')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('resume with a different model binding writes one epoch transition (D17 resume ruling)', () =>
@@ -97,7 +98,7 @@ it.effect('resume with a different model binding writes one epoch transition (D1
 
 		const finished = yield* session.send('continue')
 		expect(finished.resultText).toBe('answered by the new model')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('resume with changed leading blocks transitions too (D20 resume rule)', () =>
@@ -123,7 +124,7 @@ it.effect('resume with changed leading blocks transitions too (D20 resume rule)'
 		const prompt = JSON.stringify((yield* resumedScripted.scripted.prompts)[0])
 		expect(prompt).toContain('prompt v2')
 		expect(prompt).not.toContain('prompt v1')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('resuming an empty log is a defect with instructive guidance', () =>
@@ -138,5 +139,5 @@ it.effect('resuming an empty log is a defect with instructive guidance', () =>
 
 		if (!Exit.isFailure(exit)) throw new Error('expected resume on an empty log to defect')
 		expect(String(Cause.squash(exit.cause))).toContain('no session_started')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Layer } from 'effect'
 import type { LanguageModel, Tool } from 'effect/unstable/ai'
 
@@ -99,6 +100,7 @@ export const agentRuntimeBaseLayer = (
 		Layer.succeed(Subagents, noSubagentsStub),
 		Layer.succeed(StopConditions, stopConditions),
 		Layer.effect(SessionControls, makeSessionControls()),
+		NodeFileSystem.layer,
 	)
 
 	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))

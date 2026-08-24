@@ -5,20 +5,20 @@
  * parallel edits of one file cannot interleave.
  */
 import { defineTool, applyEdits, editToolContract, normalizeEditInput, type FoldTool } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Effect, FileSystem } from 'effect'
 
-import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { cwdFor } from '../Fs/DefaultFileSystem'
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { errnoCode, platformErrorMessage } from './ReadTool'
 
-/** Build the edit tool over the default or provided filesystem. */
-export const editTool = (options?: FsToolOptions): FoldTool =>
+/** Build the edit tool over the ambient FileSystem service. */
+export const editTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...editToolContract,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = fileSystemFor(options)
+				const fs = yield* FileSystem.FileSystem
 				const absolutePath = resolveToCwd(params.path, cwdFor(options))
 				const edits = yield* normalizeEditInput(params).pipe(
 					Effect.mapError((error) => ({ message: error.message })),

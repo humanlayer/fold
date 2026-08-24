@@ -11,7 +11,7 @@
  * scan into its description and contributes the skills prompt block - do real work in theirs. Sharing
  * the same value across several agents' `tools` arrays shares one init (one scan, one snapshot).
  */
-import { Effect, Schema } from 'effect'
+import { Effect, FileSystem, Schema } from 'effect'
 import { Tool } from 'effect/unstable/ai'
 
 import type { SkillSourceService } from '../Skills/SkillSource'
@@ -41,6 +41,7 @@ export type ToolHandlerServices =
 	| CurrentToolCall
 	| InterruptNote
 	| Subagents
+	| FileSystem.FileSystem
 
 /** Handler stored on a tool descriptor, erased to the runtime dispatch shape. */
 export type ErasedToolHandler = (params: unknown) => Effect.Effect<unknown, unknown, ToolHandlerServices>
@@ -70,7 +71,7 @@ export type SessionToolContribution = {
 export type FoldTool = {
 	readonly name: string
 	/** Run ONCE per distinct value per session by the composition root; contributions are reused. */
-	readonly init: Effect.Effect<SessionToolContribution>
+	readonly init: Effect.Effect<SessionToolContribution, never, FileSystem.FileSystem>
 }
 
 /** One realized tool ready to install into a Toolset: the composition-internal, post-init stage. */
@@ -121,7 +122,16 @@ export const defineTool = <
 		failureMode: 'return',
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all of them around each execution.
-		dependencies: [ToolState, ToolEvents, StopController, CurrentAgent, CurrentToolCall, InterruptNote, Subagents],
+		dependencies: [
+			ToolState,
+			ToolEvents,
+			StopController,
+			CurrentAgent,
+			CurrentToolCall,
+			InterruptNote,
+			Subagents,
+			FileSystem.FileSystem,
+		],
 	}).annotate(Tool.Strict, false)
 
 	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.

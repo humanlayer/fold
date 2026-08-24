@@ -10,9 +10,7 @@
  */
 import { join } from 'node:path'
 
-import { JsonSchema, Effect, Schema } from 'effect'
-
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { JsonSchema, Effect, FileSystem, Schema } from 'effect'
 import { FoldConfig } from './ConfigSchema'
 import { writeFoldInfo } from './FoldInfo'
 import { defaultConfigPath, defaultFoldHome } from './Load'
@@ -120,14 +118,12 @@ export const starterConfigJsonc = (): string =>
 export type ConfigInitOptions = {
 	/** The fold home directory. Defaults to `~/.fold`. */
 	readonly foldHome?: string
-	/** FileSystem override for hermetic tests. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
 }
 
 /** Write `config.schema.json` under the fold home, creating the directory if needed. Returns its path. */
-export const writeFoldConfigSchema = (options?: ConfigInitOptions): Effect.Effect<string> =>
+export const writeFoldConfigSchema = (options?: ConfigInitOptions): Effect.Effect<string, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const home = options?.foldHome ?? defaultFoldHome()
 		yield* fs.makeDirectory(home, { recursive: true }).pipe(Effect.orDie)
 
@@ -159,9 +155,9 @@ export type ConfigInitResult = {
  * `foldcode auth codex login` runs or the `apiKeyEnv` variables are exported. Only the two generated
  * files are ever overwritten.
  */
-export const bootstrapFoldHome = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult> =>
+export const bootstrapFoldHome = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const schemaPath = yield* writeFoldConfigSchema(options)
 		const infoPath = yield* writeFoldInfo(options)
 
@@ -189,4 +185,4 @@ export const bootstrapFoldHome = (options?: ConfigInitOptions): Effect.Effect<Co
 	})
 
 /** `foldcode config init`: the same bootstrap, kept under its command-facing name. */
-export const configInit = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult> => bootstrapFoldHome(options)
+export const configInit = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult, never, FileSystem.FileSystem> => bootstrapFoldHome(options)

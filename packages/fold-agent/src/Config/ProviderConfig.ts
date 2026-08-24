@@ -8,9 +8,7 @@ import { dirname } from 'node:path'
 import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Clock, Effect, Match, Random, Schema } from 'effect'
-
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
+import { Clock, Effect, FileSystem, Match, Random, Schema } from 'effect'
 import type { FoldConfig, ProviderKind } from './ConfigSchema'
 import {
 	configPathFor,
@@ -88,9 +86,9 @@ const validBaseUrl = (value: string): Effect.Effect<string, ProviderConfiguratio
 const writeConfig = (
 	config: FoldConfig,
 	options: LoadConfigOptions | undefined,
-): Effect.Effect<void, ProviderConfigurationWriteError> =>
+): Effect.Effect<void, ProviderConfigurationWriteError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const path = configPathFor(options)
 		// A unique temp path for the atomic write-rename. Clock/Random are the seams here (not Date.now/crypto),
 		// so a test can pin the temporary filename deterministically.
@@ -122,7 +120,7 @@ const writeConfig = (
 export const configureProvider = (
 	input: ConfigureProviderInput,
 	options?: LoadConfigOptions,
-): Effect.Effect<FoldConfig, ConfigureProviderError> =>
+): Effect.Effect<FoldConfig, ConfigureProviderError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const name = yield* required(input.name, 'name')
 		const baseUrl = yield* validBaseUrl(input.baseUrl)

@@ -14,9 +14,9 @@ import {
 	type FoldTool,
 	type ToolResultBlock,
 } from '@humanlayer/fold-core'
-import { Effect, type PlatformError } from 'effect'
+import { Effect, FileSystem, type PlatformError } from 'effect'
 
-import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { cwdFor } from '../Fs/DefaultFileSystem'
 import { resolveReadPath } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
 import { processImage } from './Image/Process'
@@ -52,13 +52,13 @@ export const errnoCode = (error: PlatformError.PlatformError): string => {
 	}
 }
 
-/** Build the read tool over the default or provided filesystem. */
-export const readTool = (options?: FsToolOptions): FoldTool =>
+/** Build the read tool over the ambient FileSystem service. */
+export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...readToolContract,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = fileSystemFor(options)
+				const fs = yield* FileSystem.FileSystem
 				const cwd = cwdFor(options)
 				const absolutePath = yield* resolveReadPath(params.path, cwd, fs)
 

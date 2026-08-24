@@ -14,9 +14,7 @@
 import { dirname, join } from 'node:path'
 
 import { ModelCatalogEntry } from '@humanlayer/fold-core'
-import { Clock, Effect, Predicate, Schema, type FileSystem } from 'effect'
-
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { Clock, Effect, FileSystem, Predicate, Schema } from 'effect'
 import { bakedModelCatalog } from './BakedCatalog'
 import { decodeModelsDevModels, ModelsDevDecodeError } from './ModelsDevSchema'
 import { modelCatalogEntriesFromModelsDev } from './Normalize'
@@ -58,8 +56,6 @@ export type ModelCatalogCache = typeof ModelCatalogCache.Type
 export type LoadModelCatalogOptions = {
 	/** The fold home directory; the cache lives at `<foldHome>/cache/models-dev.json`. */
 	readonly foldHome: string
-	/** FileSystem override for hermetic tests. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
 	/** Environment lookup for {@link FOLD_DISABLE_MODELS_FETCH}. Defaults to reading `process.env`. */
 	readonly env?: (name: string) => string | undefined
 	/** Fetch seam returning the parsed JSON payload. Defaults to global `fetch` with a 10s timeout. */
@@ -154,9 +150,9 @@ const fetchCatalogEntries = (
  * Load the model catalog entries for a launch. Never fails: fresh cache, else fetch-and-cache, else
  * stale cache, else the baked snapshot.
  */
-export const loadModelCatalog = (options: LoadModelCatalogOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>> =>
+export const loadModelCatalog = (options: LoadModelCatalogOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const env = options.env ?? ((name: string) => process.env[name])
 		const now = yield* options.now ?? Clock.currentTimeMillis
 		const ttlMs = options.ttlMs ?? defaultCatalogTtlMs

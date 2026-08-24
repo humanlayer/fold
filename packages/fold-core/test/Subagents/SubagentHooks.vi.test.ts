@@ -5,6 +5,7 @@
  * invisible in another agent's fold of the same namespace.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Ref, Schema } from 'effect'
 
 import {
@@ -87,5 +88,5 @@ it.effect('root and subagent run their own hook chains, and hook state stays per
 
 		expect(toolStateForAgent(entries, rootStarted.agentId, 'probe')).toEqual({ marker: 'from-root' })
 		expect(toolStateForAgent(entries, subagentStarted.agentId, 'probe')).toEqual({ marker: 'from-subagent' })
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

@@ -7,10 +7,9 @@
 import { join } from 'node:path'
 
 import { SessionId, ToolCallId } from '@humanlayer/fold-core'
-import { Cause, Clock, Context, Effect, Layer, Option, Schema } from 'effect'
+import { Cause, Clock, Context, Effect, FileSystem, Layer, Option, Schema } from 'effect'
 
 import { defaultFoldHome } from '../Config/Load'
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 
 const dayMs = 24 * 60 * 60 * 1000
 
@@ -65,8 +64,6 @@ export type MakeOutputStoreOptions = {
 	readonly foldHome?: string
 	/** Files older than this are deleted by `sweep`. Defaults to 7 days. */
 	readonly retentionMs?: number
-	/** Filesystem override for tests. Defaults to Node's filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
 }
 
 /** Root directory for all stored tool output. */
@@ -112,8 +109,8 @@ const lineSlice = (content: string, options?: OutputStoreReadOptions): string =>
 }
 
 /** Construct a file-backed OutputStore service for one session. */
-export const makeOutputStore = (options: MakeOutputStoreOptions): OutputStoreService => {
-	const fs = fileSystemFor(options.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+export const makeOutputStore = (options: MakeOutputStoreOptions): Effect.Effect<OutputStoreService, never, FileSystem.FileSystem> =>
+	Effect.map(FileSystem.FileSystem, (fs) => {
 	const foldHome = options.foldHome ?? defaultFoldHome()
 	const sessionId = options.sessionId
 	const directory = toolOutputSessionDirFor({ sessionId, foldHome })
@@ -191,8 +188,8 @@ export const makeOutputStore = (options: MakeOutputStoreOptions): OutputStoreSer
 	)
 
 	return { sessionId, directory, refFor, prepare, append, read, sweep }
-}
+	})
 
 /** Layer constructor for hosts that want OutputStore in `R`. */
-export const outputStoreLayer = (options: MakeOutputStoreOptions): Layer.Layer<OutputStore> =>
-	Layer.succeed(OutputStore, makeOutputStore(options))
+export const outputStoreLayer = (options: MakeOutputStoreOptions): Layer.Layer<OutputStore, never, FileSystem.FileSystem> =>
+	Layer.effect(OutputStore, makeOutputStore(options))

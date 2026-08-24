@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { expect, it } from '@effect/vitest'
 import { customModel, defineAgent, layerLiveIdFactory, SessionId, startSession } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { LanguageModel } from 'effect/unstable/ai'
 
 import {
@@ -53,7 +54,7 @@ it.effect('prepareSessionLog mints the id, creates the directory, and derives th
 		writeFileSync(prepared.path, '')
 		const listed = yield* listSessionLogs({ cwd, foldHome })
 		expect(listed.map((ref) => ref.sessionId)).toEqual([prepared.sessionId])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a prepared log round-trips a session: the filename and session_started agree on the id', () =>
@@ -91,7 +92,7 @@ it.effect('a prepared log round-trips a session: the filename and session_starte
 			throw new Error('expected session_started')
 		}
 		expect(sessionStarted.sessionId).toBe(prepared.sessionId)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('session summaries expose first-message titles, turns, and the active model', () =>
@@ -133,7 +134,7 @@ it.effect('session summaries expose first-message titles, turns, and the active 
 			providerId: 'scripted',
 			modelId: 'picker-model',
 		})
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('session summary index is a full fast path and latest valid record wins', () =>
@@ -176,7 +177,7 @@ it.effect('session summary index is a full fast path and latest valid record win
 		const [fast] = yield* listSessionSummaries({ cwd, foldHome })
 		expect(fast?.title).toBe('Latest Wins')
 		expect(fast?.turns).toBe(1)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('missing, corrupt, and stale summary records rebuild only their source logs', () =>
@@ -209,7 +210,7 @@ it.effect('missing, corrupt, and stale summary records rebuild only their source
 		yield* session.setTitle('Fresh From Authoritative Log')
 		expect((yield* listSessionSummaries({ cwd, foldHome }))[0]?.title).toBe('Fresh From Authoritative Log')
 		expect(readFileSync(indexPath, 'utf8')).toContain('Fresh From Authoritative Log')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('deletion never returns cached summaries and appends a tombstone', () =>
@@ -224,7 +225,7 @@ it.effect('deletion never returns cached summaries and appends a tombstone', () 
 		expect(readFileSync(join(sessionsDirFor({ cwd, foldHome }), 'index.jsonl'), 'utf8')).toContain(
 			'"_tag":"deleted"',
 		)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect("discovery lists a project's logs newest-first and ignores foreign files", () =>
@@ -257,7 +258,7 @@ it.effect("discovery lists a project's logs newest-first and ignores foreign fil
 
 		// Ids parse back as branded SessionIds.
 		expect(SessionId.make(listed[0]?.sessionId ?? '')).toBe(newer.sessionId)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('deleting a session removes its event log and full tool-output directory', () =>
@@ -280,5 +281,5 @@ it.effect('deleting a session removes its event log and full tool-output directo
 			deleted: false,
 			outputRemoved: true,
 		})
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

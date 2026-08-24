@@ -6,6 +6,7 @@
  * SessionIsolation.vi.test.ts.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Context, Effect, Fiber, Layer, Schema, Stream } from 'effect'
 
 import {
@@ -90,7 +91,7 @@ it.effect('runs a tool-calling turn end to end from descriptors only', () =>
 		expect(resultPart.result).toEqual({ echoed: 'hello facade' })
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('runs a tool-free agent with defaults (memory log, no tools, no failure schema)', () =>
@@ -106,7 +107,7 @@ it.effect('runs a tool-free agent with defaults (memory log, no tools, no failur
 		expect(finished.resultText).toBe('Just text.')
 		expect(requests).toHaveLength(1)
 		expect(requests[0]?.toolNames).toEqual([])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('injects a skill as a linked synthetic tool call and result without a user message', () =>
@@ -138,7 +139,7 @@ it.effect('injects a skill as a linked synthetic tool call and result without a 
 		expect(resultPart.id).toBe(injected.result.toolCallId)
 		expect(injected.call.agentId).toBe(session.rootAgentId)
 		expect(injected.result.agentId).toBe(session.rootAgentId)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 // ── Ambient tool services and the merged event stream ───────────────────────
@@ -218,7 +219,7 @@ it.effect('tool handlers reach ToolState and ToolEvents; session.events carries 
 		expect(stateEntry?.namespace).toBe('progress-echo')
 		expect(stateEntry?.key).toBe('last')
 		expect(stateEntry?.value).toBe('hi')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 // ── Hooks and typed tool failures ────────────────────────────────────────────
@@ -264,7 +265,7 @@ it.effect('agent hooks run in the facade: a preToolUse deny replaces the result 
 		const resultPart = firstToolResultPart(entries)
 		expect(resultPart.isFailure).toBe(true)
 		expect(resultPart.result).toEqual({ message: 'denied by policy hook' })
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a typed handler failure returns to the model schema-encoded with isFailure', () =>
@@ -296,7 +297,7 @@ it.effect('a typed handler failure returns to the model schema-encoded with isFa
 		const resultPart = firstToolResultPart(entries)
 		expect(resultPart.isFailure).toBe(true)
 		expect(resultPart.result).toEqual({ message: 'expected failure' })
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 // ── Log backends and descriptor validation ──────────────────────────────────
@@ -324,7 +325,7 @@ it.effect('eventLogSource backs the session with a caller-supplied EventLog serv
 			'assistant-message',
 			'agent-finished',
 		])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('rejects duplicate tool names as a defect', () =>
@@ -337,5 +338,5 @@ it.effect('rejects duplicate tool names as a defect', () =>
 
 		expect(exit._tag).toBe('Failure')
 		expect(String(exit)).toContain('duplicate tool names: echo')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

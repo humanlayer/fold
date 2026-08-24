@@ -9,6 +9,7 @@
  * Then:       bun packages/fold-agent/examples/ConfigAgent.ts "your prompt"
  */
 import { layerLiveIdFactory } from '@humanlayer/fold-core'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Console, Effect } from 'effect'
 
 import { configInit, launchSession, loadFoldConfigOrNull } from '../src/index'
@@ -29,7 +30,7 @@ const program = Effect.gen(function* () {
 
 	const finished = yield* session.send(prompt)
 	yield* Console.log(`\n[${finished.outcome}] ${finished.resultText ?? '(no text)'}`)
-}).pipe(Effect.provide(layerLiveIdFactory), Effect.scoped)
+}).pipe(Effect.provide(layerLiveIdFactory), Effect.provide(NodeFileSystem.layer), Effect.scoped)
 
 Effect.runPromise(program).catch((error) => {
 	console.error(error)

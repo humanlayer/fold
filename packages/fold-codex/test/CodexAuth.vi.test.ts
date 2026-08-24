@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Layer, Option, Predicate } from 'effect'
 import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 
@@ -50,10 +51,10 @@ const jsonResponse = (body: unknown, status = 200): Response =>
 
 const storeWith = (token?: CodexTokenData): Effect.Effect<CodexAuthStore> =>
 	Effect.gen(function* () {
-		const store = makeCodexAuthStore({ path: tempStorePath() })
+		const store = yield* makeCodexAuthStore({ path: tempStorePath() })
 		if (token !== undefined) yield* Effect.orDie(store.save(token))
 		return store
-	})
+	}).pipe(Effect.provide(NodeFileSystem.layer))
 
 describe('JWT account id extraction', () => {
 	it('reads the direct claim first', () => {
@@ -105,7 +106,7 @@ describe('CodexAuth.get', () => {
 			const token = yield* auth.get
 			expect(token.access).toBe('valid-access')
 			expect(network.requests).toHaveLength(0)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('fails NotAuthenticated when the store is empty', () =>
@@ -120,7 +121,7 @@ describe('CodexAuth.get', () => {
 			expect(result._tag).toBe('CodexAuthError')
 			expect(result.reason).toBe('NotAuthenticated')
 			expect(result.message).toContain(store.path)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('refreshes an expired token, persists it, and preserves the account id', () =>
@@ -151,7 +152,7 @@ describe('CodexAuth.get', () => {
 			const persisted = yield* store.load
 			expect(Option.isSome(persisted)).toBe(true)
 			if (Option.isSome(persisted)) expect(persisted.value.access).toBe('fresh-access')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('extracts the account id from a refreshed id_token', () =>
@@ -169,7 +170,7 @@ describe('CodexAuth.get', () => {
 
 			const token = yield* auth.get
 			expect(token.accountId).toBe('acct_new')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('single-flights concurrent refreshes', () =>
@@ -184,7 +185,7 @@ describe('CodexAuth.get', () => {
 			expect(first.access).toBe('fresh-access')
 			expect(second.access).toBe('fresh-access')
 			expect(network.requests).toHaveLength(1)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('a failed refresh surfaces RefreshFailed and keeps the stored credential', () =>
@@ -200,7 +201,7 @@ describe('CodexAuth.get', () => {
 			const persisted = yield* store.load
 			expect(Option.isSome(persisted)).toBe(true)
 			if (Option.isSome(persisted)) expect(persisted.value.refresh).toBe('stale-refresh')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('logout clears the stored credential', () =>
@@ -217,6 +218,6 @@ describe('CodexAuth.get', () => {
 
 			const result = yield* auth.get.pipe(Effect.flip)
 			expect(result.reason).toBe('NotAuthenticated')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 })

@@ -27,7 +27,7 @@
  * e.g. a changed skills roster - D20 rule), the facade writes one epoch transition before the first
  * send.
  */
-import { Cause, Context, Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Semaphore, Stream } from 'effect'
+import { Cause, Context, Effect, Exit, Fiber, FileSystem, Layer, Ref, Schema, Scope, Semaphore, Stream } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
@@ -260,7 +260,9 @@ type SessionAgentConfig = {
 }
 
 /** Lower the event log descriptor to its EventLog layer. */
-const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids> =>
+const eventLogLayerFor = (
+	log: FoldEventLog,
+): Layer.Layer<EventLog, unknown, Ids | FileSystem.FileSystem> =>
 	log._tag === 'memory' ? layerInMemoryEventLogWithIds : Layer.effect(EventLog, log.make)
 
 /** Fold a leading-prompt config value into an ordered block list. */
@@ -283,7 +285,7 @@ type SessionGraph = {
 		profiles: SessionProfiles,
 	) => Effect.Effect<void>
 	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
-	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
+	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void, never, FileSystem.FileSystem>
 	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
@@ -291,6 +293,7 @@ type SessionGraph = {
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
 	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
+	readonly fileSystem: FileSystem.FileSystem
 	readonly leadingPromptFor: (
 		systemPrompt: string | ReadonlyArray<string> | null,
 		tools: ReadonlyArray<FoldTool>,
@@ -309,7 +312,7 @@ const assembleSessionGraph = (options: {
 	readonly profiles?: SessionProfiles
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}): Effect.Effect<SessionGraph, never, Scope.Scope> =>
+}): Effect.Effect<SessionGraph, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const agent = options.agent
 		const rootTools = agent.tools ?? []
@@ -354,7 +357,7 @@ const assembleSessionGraph = (options: {
 		// leading-prompt block, skill source - is reused by every agent listing that value, across
 		// epochs, and by every subagent dispatch (D20's one-snapshot law).
 		const toolContributions = new Map<FoldTool, SessionToolContribution>()
-		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
+		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void, never, FileSystem.FileSystem> =>
 			Effect.forEach(
 				tools.filter((tool) => !toolContributions.has(tool)),
 				(tool) => tool.init.pipe(Effect.map((contribution) => toolContributions.set(tool, contribution))),
@@ -430,14 +433,19 @@ const assembleSessionGraph = (options: {
 		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
 		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
 		// carries its own agent's hook chains (D16/D21).
+		const fileSystem = yield* FileSystem.FileSystem
 		const idsLayer = layerLiveIdFactory
+		const fsLayer = Layer.succeed(FileSystem.FileSystem, fileSystem)
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? { _tag: 'memory' }).pipe(Layer.provide(idsLayer)),
+			eventLogLayerFor(options.log ?? { _tag: 'memory' }).pipe(
+				Layer.provide(Layer.mergeAll(idsLayer, fsLayer)),
+			),
 			idsLayer,
 			liveAgentEventsLayer,
 		)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
+			Layer.succeed(FileSystem.FileSystem, fileSystem),
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
@@ -546,6 +554,7 @@ const assembleSessionGraph = (options: {
 			extendSubagentRegistry: (definitions) => {
 				registry.extend(definitions)
 			},
+			fileSystem,
 			ensureToolContributions,
 			collectNewSubagentDefinitions: (tools) => collectAgentDefinitions(tools),
 			provisionRootRuntime,
@@ -811,7 +820,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 
 	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
 		gate.withPermit(
-			Effect.gen(function* () {
+			Effect.provideService(FileSystem.FileSystem, graph.fileSystem)(Effect.gen(function* () {
 				const current = yield* Ref.get(configRef)
 				const currentProfiles = yield* profiles.snapshot
 				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
@@ -867,7 +876,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				graph.extendSubagentRegistry(introduced)
 				yield* profiles.replace(candidateProfiles)
 				yield* Ref.set(configRef, next)
-			}),
+			})),
 		)
 
 	const compact = (): Effect.Effect<CompactionLogEntry | null> =>
@@ -910,7 +919,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const config = yield* Ref.get(graph.configRef)
@@ -939,7 +948,7 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSe
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(

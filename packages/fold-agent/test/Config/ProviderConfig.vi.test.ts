@@ -3,7 +3,8 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, FileSystem, Layer } from 'effect'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 
 import { configureProvider, describeModelConfiguration, loadFoldConfig, starterConfigJsonc } from '../../src/index'
 import { memoryFileSystem, tempDir } from '../TestHelpers'
@@ -44,7 +45,7 @@ it.effect('adds a provider and model without changing roles, profiles, or policy
 			).toContain('company-model-1')
 			expect(statSync(path).mode & 0o777).toBe(0o600)
 		}),
-	),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('updates a provider, retaining configured models when no new model is supplied', () =>
@@ -86,7 +87,7 @@ it.effect('updates a provider, retaining configured models when no new model is 
 			})
 			expect(updated.roles.smart).toEqual({ provider: 'custom', model: 'existing-model' })
 		}),
-	),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('stores an API key environment variable name without resolving or persisting its value', () =>
@@ -114,7 +115,7 @@ it.effect('stores an API key environment variable name without resolving or pers
 				configuredModels: ['anthropic/claude-sonnet-4'],
 			})
 		}),
-	),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('rejects supplying both inline and environment API key sources', () =>
@@ -137,7 +138,7 @@ it.effect('rejects supplying both inline and environment API key sources', () =>
 
 			expect(error._tag).toBe('ProviderConfigurationValidationError')
 		}),
-	),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('adds OAuth profiles without an API key and supplies their default model', () =>
@@ -157,7 +158,7 @@ it.effect('adds OAuth profiles without an API key and supplies their default mod
 				configuredModels: ['gpt-5.6-sol'],
 			})
 		}),
-	),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('rejects accidental API keys for OAuth profiles before writing', () =>
@@ -174,19 +175,19 @@ it.effect('rejects accidental API keys for OAuth profiles before writing', () =>
 			expect(error._tag).toBe('ProviderConfigurationKindError')
 			expect(yield* Effect.promise(() => readFile(path, 'utf8'))).toBe(before)
 		}),
-	),
+	).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('does not replace a malformed existing config', () =>
-	Effect.gen(function* () {
-		const fileSystem = memoryFileSystem({
-			'/home/user/.fold/config.jsonc': '{ malformed',
-		})
+it.effect('does not replace a malformed existing config', () => {
+	const fs = memoryFileSystem({
+		'/home/user/.fold/config.jsonc': '{ malformed',
+	})
+	return Effect.gen(function* () {
 		const error = yield* configureProvider(
 			{ name: 'custom', kind: 'anthropic', baseUrl: 'https://example.test', apiKey: 'secret' },
-			{ foldHome: '/home/user/.fold', fileSystem },
+			{ foldHome: '/home/user/.fold' },
 		).pipe(Effect.flip)
 
 		expect(error._tag).toBe('ConfigParseError')
-	}),
-)
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+})

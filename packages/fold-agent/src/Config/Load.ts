@@ -12,9 +12,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { Effect, Predicate, Schema } from 'effect'
-
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Predicate, Schema } from 'effect'
 import { FoldConfig } from './ConfigSchema'
 
 /** The config file could not be found at the resolved path. */
@@ -40,8 +38,6 @@ export type LoadConfigOptions = {
 	readonly path?: string
 	/** The fold home directory. Defaults to `~/.fold`. */
 	readonly foldHome?: string
-	/** FileSystem override for hermetic tests. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
 }
 
 /** The fold home directory: `~/.fold`. */
@@ -149,9 +145,9 @@ export const parseFoldConfig = (
  */
 export const loadFoldConfig = (
 	options?: LoadConfigOptions,
-): Effect.Effect<FoldConfig, ConfigFileNotFoundError | ConfigParseError | ConfigDecodeError> =>
+): Effect.Effect<FoldConfig, ConfigFileNotFoundError | ConfigParseError | ConfigDecodeError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const path = configPathFor(options)
 
 		const exists = yield* fs.exists(path).pipe(Effect.catch(() => Effect.succeed(false)))
@@ -167,5 +163,5 @@ export const loadFoldConfig = (
  */
 export const loadFoldConfigOrNull = (
 	options?: LoadConfigOptions,
-): Effect.Effect<FoldConfig | null, ConfigParseError | ConfigDecodeError> =>
+): Effect.Effect<FoldConfig | null, ConfigParseError | ConfigDecodeError, FileSystem.FileSystem> =>
 	loadFoldConfig(options).pipe(Effect.catchTag('ConfigFileNotFoundError', () => Effect.succeed(null)))

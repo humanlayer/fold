@@ -1,16 +1,16 @@
 import { expect, it } from '@effect/vitest'
 import { SessionId } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Effect, FileSystem, Layer } from 'effect'
 
 import { loadViewedPatchHashes, saveViewedPatchHash } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
 
-it.effect('persists latest viewed patch hashes per session and ignores corrupt records', () =>
-	Effect.gen(function* () {
-		const fs = memoryFileSystem({})
+it.effect('persists latest viewed patch hashes per session and ignores corrupt records', () => {
+	const fs = memoryFileSystem({})
+	return Effect.gen(function* () {
 		const first = SessionId.make('sess_aaaaaaaaaaaaaaaaaaaaaaaa')
 		const second = SessionId.make('sess_bbbbbbbbbbbbbbbbbbbbbbbb')
-		const options = { fileSystem: fs, cwd: '/repo', foldHome: '/home/user/.fold' }
+		const options = { cwd: '/repo', foldHome: '/home/user/.fold' }
 
 		yield* saveViewedPatchHash(first, 'unstaged:app.ts', 'old', options)
 		yield* saveViewedPatchHash(second, 'unstaged:app.ts', 'other-session', options)
@@ -19,5 +19,5 @@ it.effect('persists latest viewed patch hashes per session and ignores corrupt r
 
 		expect(yield* loadViewedPatchHashes(first, options)).toEqual({ 'unstaged:app.ts': 'new' })
 		expect(yield* loadViewedPatchHashes(second, options)).toEqual({ 'unstaged:app.ts': 'other-session' })
-	}),
-)
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+})

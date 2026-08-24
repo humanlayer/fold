@@ -6,20 +6,20 @@
 import { dirname } from 'node:path'
 
 import { defineTool, utf8ByteLength, writeToolContract, type FoldTool } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Effect, FileSystem } from 'effect'
 
-import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { cwdFor } from '../Fs/DefaultFileSystem'
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
 
-/** Build the write tool over the default or provided filesystem. */
-export const writeTool = (options?: FsToolOptions): FoldTool =>
+/** Build the write tool over the ambient FileSystem service. */
+export const writeTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...writeToolContract,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = fileSystemFor(options)
+				const fs = yield* FileSystem.FileSystem
 				const absolutePath = resolveToCwd(params.path, cwdFor(options))
 
 				yield* withFileMutationLock(

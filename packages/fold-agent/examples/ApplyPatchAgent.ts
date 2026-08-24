@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Console, Effect } from 'effect'
 
 import { codingTools } from '../src/index'
@@ -49,7 +50,7 @@ const makeProgram = (apiKey: string) =>
 		yield* Console.log(`finished: ${finished.outcome}`)
 		yield* Console.log(`result: ${finished.resultText ?? '(no text)'}`)
 		yield* Console.log(`tools called: ${toolNames.join(', ')}`)
-	}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set OPENAI_API_KEY to run this example.')

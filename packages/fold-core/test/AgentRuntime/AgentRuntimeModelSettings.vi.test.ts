@@ -1,4 +1,5 @@
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Layer, Schema } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import type { LanguageModel } from 'effect/unstable/ai'
@@ -199,6 +200,7 @@ const familyAgentLayer = (
 		Layer.succeed(ToolEventSink, noopToolEventSink),
 		Layer.succeed(Subagents, noSubagentsStub),
 		Layer.effect(SessionControls, makeSessionControls()),
+		NodeFileSystem.layer,
 	)
 
 	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))

@@ -13,6 +13,7 @@ import {
 	type ViewedPatchHashes,
 } from '@humanlayer/fold-agent'
 import { makeCodexAuth, makeCodexAuthStore } from '@humanlayer/fold-codex'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import type { SessionId } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore } from '@humanlayer/fold-opencode'
 import { ALL_FX_ON, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
@@ -20,7 +21,7 @@ import { nextThemeId, type ThemeId } from '@humanlayer/fold-tui-theme/themes'
 import { makeXaiAuth, makeXaiAuthStore } from '@humanlayer/fold-xai'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
-import { Cause, Clock, Deferred, Effect, Option, Schema, type Scope } from 'effect'
+import { Cause, Clock, Deferred, Effect, type FileSystem, Option, Schema, type Scope } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js'
 
@@ -53,7 +54,7 @@ export type { TuiOptions } from './TuiSessionOptions'
 
 export const runTui = (
 	options: TuiOptions,
-): Effect.Effect<void, TuiRequiresTtyError | TuiRendererError | TuiInitialSessionError, Scope.Scope> =>
+): Effect.Effect<void, TuiRequiresTtyError | TuiRendererError | TuiInitialSessionError, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return yield* new TuiRequiresTtyError()
 		const quit = yield* Deferred.make<void>()
@@ -198,7 +199,7 @@ export const runTui = (
 						})
 					}
 					if (providerKind === 'xai') {
-						const store = makeXaiAuthStore(xaiAuthStoreOptions(provider, options.foldHome))
+						const store = yield* makeXaiAuthStore(xaiAuthStoreOptions(provider, options.foldHome))
 						if (action === 'status') {
 							update({ _tag: 'working', message: 'Checking stored xAI credential...' })
 							const token = yield* store.load
@@ -254,7 +255,7 @@ export const runTui = (
 							authStatus: 'logged-in',
 						})
 					}
-					const store = makeCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome))
+					const store = yield* makeCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome))
 					if (action === 'status') {
 						update({ _tag: 'working', message: 'Checking stored credential...' })
 						const token = yield* store.load
@@ -314,6 +315,7 @@ export const runTui = (
 					Effect.catchCause((cause) =>
 						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
 					),
+					Effect.provide(NodeFileSystem.layer),
 				),
 			)
 		}
@@ -339,6 +341,7 @@ export const runTui = (
 					Effect.catchCause((cause) =>
 						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
 					),
+					Effect.provide(NodeFileSystem.layer),
 				),
 			)
 		}
@@ -365,6 +368,7 @@ export const runTui = (
 					Effect.catchCause((cause) =>
 						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
 					),
+					Effect.provide(NodeFileSystem.layer),
 				),
 			)
 		}
@@ -437,6 +441,7 @@ export const runTui = (
 										})),
 									),
 								),
+								Effect.provide(NodeFileSystem.layer),
 							),
 						)
 					})
@@ -500,7 +505,7 @@ export const runTui = (
 														change.key,
 														change.patchHash,
 														layoutOptions,
-													),
+													).pipe(Effect.provide(NodeFileSystem.layer)),
 												)
 											}}
 											onRefreshGit={() => refreshGit(current().cwd)}

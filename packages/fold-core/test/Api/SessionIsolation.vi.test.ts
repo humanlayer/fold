@@ -6,6 +6,7 @@
  * both sessions one shared EventLog and one shared event spine.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect } from 'effect'
 
 import { defineAgent, startSession, type SessionStartedLogEntry } from '../../src/index'
@@ -56,5 +57,5 @@ it.effect('two sessions in one program share no log, ids, or model runtime', () 
 		// Sequence numbers restart per log - interleaving into one shared log would break this.
 		expect(entriesA.map((entry) => entry.seq)).toEqual(entriesA.map((_, index) => index))
 		expect(entriesB.map((entry) => entry.seq)).toEqual(entriesB.map((_, index) => index))
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

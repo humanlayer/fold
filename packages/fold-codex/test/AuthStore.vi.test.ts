@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Option, Schema } from 'effect'
 
 import { CodexTokenData, makeCodexAuthStore, TOKEN_EXPIRY_BUFFER_MS } from '../src/index'
@@ -28,16 +29,16 @@ const sampleToken = new CodexTokenData({
 describe('CodexAuthStore', () => {
 	it.effect('load returns none for a missing store', () =>
 		Effect.gen(function* () {
-			const store = makeCodexAuthStore({ path: tempStorePath() })
+			const store = yield* makeCodexAuthStore({ path: tempStorePath() })
 			const loaded = yield* store.load
 			expect(Option.isNone(loaded)).toBe(true)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('save/load round-trips and forces 0600 permissions', () =>
 		Effect.gen(function* () {
 			const path = tempStorePath()
-			const store = makeCodexAuthStore({ path })
+			const store = yield* makeCodexAuthStore({ path })
 
 			yield* store.save(sampleToken)
 			const loaded = yield* store.load
@@ -51,7 +52,7 @@ describe('CodexAuthStore', () => {
 			}
 
 			expect(statSync(path).mode & 0o777).toBe(0o600)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('save preserves other providers entries in the document', () =>
@@ -59,13 +60,13 @@ describe('CodexAuthStore', () => {
 			const path = tempStorePath()
 			writeFileSync(path, JSON.stringify({ anthropic: { type: 'api', key: 'sk-other' } }))
 
-			const store = makeCodexAuthStore({ path })
+			const store = yield* makeCodexAuthStore({ path })
 			yield* store.save(sampleToken)
 
 			const document = readDocument(path)
 			expect(document['anthropic']).toEqual({ type: 'api', key: 'sk-other' })
 			expect(document['codex']).toMatchObject({ access: 'access-token-1' })
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('clear removes only the codex entry', () =>
@@ -73,7 +74,7 @@ describe('CodexAuthStore', () => {
 			const path = tempStorePath()
 			writeFileSync(path, JSON.stringify({ anthropic: { type: 'api', key: 'sk-other' } }))
 
-			const store = makeCodexAuthStore({ path })
+			const store = yield* makeCodexAuthStore({ path })
 			yield* store.save(sampleToken)
 			yield* store.clear
 
@@ -83,7 +84,7 @@ describe('CodexAuthStore', () => {
 
 			const loaded = yield* store.load
 			expect(Option.isNone(loaded)).toBe(true)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('corrupt JSON degrades to no credentials without clobbering the file', () =>
@@ -91,12 +92,12 @@ describe('CodexAuthStore', () => {
 			const path = tempStorePath()
 			writeFileSync(path, 'not json at all {')
 
-			const store = makeCodexAuthStore({ path })
+			const store = yield* makeCodexAuthStore({ path })
 			const loaded = yield* store.load
 
 			expect(Option.isNone(loaded)).toBe(true)
 			expect(readFileSync(path, 'utf8')).toBe('not json at all {')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('an invalid codex entry is skipped, not decoded', () =>
@@ -104,10 +105,10 @@ describe('CodexAuthStore', () => {
 			const path = tempStorePath()
 			writeFileSync(path, JSON.stringify({ codex: { type: 'api', key: 'wrong-shape' } }))
 
-			const store = makeCodexAuthStore({ path })
+			const store = yield* makeCodexAuthStore({ path })
 			const loaded = yield* store.load
 			expect(Option.isNone(loaded)).toBe(true)
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it('isExpired applies the 30s safety buffer', () => {

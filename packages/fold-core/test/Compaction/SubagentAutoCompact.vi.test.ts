@@ -6,6 +6,7 @@
  * the parent's own view (global seq keeps the cut coherent - the worked D21 claim).
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect } from 'effect'
 
 import {
@@ -111,7 +112,7 @@ it.effect('a dispatched subagent compacts its own context; the parent projection
 
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a fork compacts history including the parent folded range without touching the parent view', () =>
@@ -184,5 +185,5 @@ it.effect('a fork compacts history including the parent folded range without tou
 		expect(messagesForAgent(entries, session.rootAgentId).some((m) => m._tag === 'compaction-summary')).toBe(false)
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

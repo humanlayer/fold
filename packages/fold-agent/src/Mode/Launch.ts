@@ -35,7 +35,7 @@ import {
 	type FoldTool,
 	type Ids,
 } from '@humanlayer/fold-core'
-import { Effect, Match, Schema, Semaphore, type Scope } from 'effect'
+import { Effect, FileSystem, Layer, Match, Schema, Semaphore, type Scope } from 'effect'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
@@ -193,7 +193,8 @@ const resolveProfileSelection = (
 	opts: LaunchSessionOptions,
 ): Effect.Effect<
 	{ readonly options: LaunchSessionOptions; readonly profileMode: ProfileModeName | null },
-	LaunchModelError
+	LaunchModelError,
+	FileSystem.FileSystem
 > =>
 	Effect.gen(function* () {
 		if (opts.profile === undefined) return { options: opts, profileMode: null }
@@ -274,7 +275,7 @@ const resolveModeModels = (
 	options: LaunchSessionOptions,
 	mode: FoldMode,
 	catalog: ReadonlyArray<ModelCatalogEntry>,
-): Effect.Effect<ModeModels, LaunchModelError> =>
+): Effect.Effect<ModeModels, LaunchModelError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		if (options.model !== undefined) {
 			const model = options.model
@@ -338,7 +339,7 @@ const buildAgentDefinition = (
 	cwd: string,
 	config: FoldConfig | null,
 	outputStore: OutputStoreService,
-): Effect.Effect<AgentDefinition> =>
+): Effect.Effect<AgentDefinition, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const memoryBlock = yield* memoryPromptBlock({
 			cwd,
@@ -387,7 +388,7 @@ const sessionProfilesFor = (models: ModeModels): SessionProfiles => ({
 export const switchSessionMode = (
 	session: FoldSession,
 	options: SwitchSessionModeOptions,
-): Effect.Effect<void, LaunchModelError> =>
+): Effect.Effect<void, LaunchModelError, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const { options: profiled } = yield* resolveProfileSelection(options)
 		const mode = options.mode
@@ -395,7 +396,7 @@ export const switchSessionMode = (
 		const catalog = yield* catalogFor(profiled)
 		const models = yield* resolveModeModels(profiled, mode, catalog)
 		const config = yield* runtimeConfigFor(profiled)
-		const outputStore = makeOutputStore({
+		const outputStore = yield* makeOutputStore({
 			sessionId: session.sessionId,
 			...(profiled.foldHome === undefined ? {} : { foldHome: profiled.foldHome }),
 		})
@@ -414,11 +415,14 @@ const withGeneratedTitles = (
 	session: FoldSession,
 	model: FoldModel,
 	options: { readonly cwd: string; readonly foldHome?: string },
-): Effect.Effect<FoldSession> =>
-	Semaphore.make(1).pipe(
+): Effect.Effect<FoldSession, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const fsLayer = Layer.succeed(FileSystem.FileSystem, fs)
+		return yield* Semaphore.make(1).pipe(
 		Effect.map((titleLock) => ({
 			...session,
-			send: (text, target) =>
+			send: (text: string, target?: Parameters<FoldSession['send']>[1]) =>
 				session.send(text, target).pipe(
 					Effect.tap(() => {
 						if (target?.agentId !== undefined && target.agentId !== session.rootAgentId) return Effect.void
@@ -445,7 +449,9 @@ const withGeneratedTitles = (
 													})
 													.pipe(
 														Effect.andThen(
-															refreshSessionSummaryIndex(session.sessionId, options),
+															refreshSessionSummaryIndex(session.sessionId, options).pipe(
+																Effect.provide(fsLayer),
+															),
 														),
 													)
 											}),
@@ -458,8 +464,9 @@ const withGeneratedTitles = (
 				),
 		})),
 	)
+	})
 
-const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<FoldConfig | null, LaunchModelError> => {
+const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<FoldConfig | null, LaunchModelError, FileSystem.FileSystem> => {
 	if (options.config !== undefined) return Effect.succeed(options.config)
 	if (options.model !== undefined) return Effect.succeed(null)
 
@@ -467,7 +474,7 @@ const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<FoldConf
 }
 
 /** The catalog for a launch: the caller's (the CLI loads once), else a fresh load (never fails). */
-const catalogFor = (options: LaunchSessionOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>> =>
+const catalogFor = (options: LaunchSessionOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
 	options.catalog !== undefined
 		? Effect.succeed(options.catalog)
 		: loadModelCatalog({
@@ -481,7 +488,7 @@ const catalogFor = (options: LaunchSessionOptions): Effect.Effect<ReadonlyArray<
  */
 export const launchSession = (
 	options?: LaunchSessionOptions,
-): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope | Ids> =>
+): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope | Ids | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
 		const mode = modeFor(opts, profileMode)
@@ -495,7 +502,7 @@ export const launchSession = (
 			cwd,
 			...(opts.foldHome === undefined ? {} : { foldHome: opts.foldHome }),
 		})
-		const outputStore = makeOutputStore({
+		const outputStore = yield* makeOutputStore({
 			sessionId: prepared.sessionId,
 			...(opts.foldHome === undefined ? {} : { foldHome: opts.foldHome }),
 		})
@@ -528,13 +535,13 @@ const resumeFromLog = (
 	options: LaunchSessionOptions,
 	mode: FoldMode,
 	cwd: string,
-): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope> =>
+): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		// Same order as launchSession: the catalog loads before model resolution (D23 validation).
 		const catalog = yield* catalogFor(options)
 		const models = yield* resolveModeModels(options, mode, catalog)
 		const config = yield* runtimeConfigFor(options)
-		const outputStore = makeOutputStore({
+		const outputStore = yield* makeOutputStore({
 			sessionId: log.sessionId,
 			...(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
 		})
@@ -562,7 +569,7 @@ const resumeFromLog = (
  */
 export const resumeLatestSession = (
 	options?: LaunchSessionOptions,
-): Effect.Effect<FoldSession, LaunchModelError | NoSessionToResumeError, Scope.Scope> =>
+): Effect.Effect<FoldSession, LaunchModelError | NoSessionToResumeError, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
 		const mode = modeFor(opts, profileMode)
@@ -585,7 +592,7 @@ export const resumeLatestSession = (
 export const resumeSessionById = (
 	sessionId: SessionId,
 	options?: LaunchSessionOptions,
-): Effect.Effect<FoldSession, LaunchModelError | SessionToResumeNotFoundError, Scope.Scope> =>
+): Effect.Effect<FoldSession, LaunchModelError | SessionToResumeNotFoundError, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
 		const mode = modeFor(opts, profileMode)

@@ -5,6 +5,7 @@
  * tool result as an interrupted-outcome result while the dispatcher keeps running.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Deferred, Effect, Fiber } from 'effect'
 
 import { defineAgent, defineSubagent, shortAgentId, startSession, subagentTool } from '../../src/index'
@@ -48,7 +49,7 @@ it.effect('interrupt discards partial assistant text, writes the root marker, an
 		const resumedPrompt = JSON.stringify(prompts[1])
 		expect(resumedPrompt).not.toContain('I was thinking about the answer')
 		expect(resumedPrompt).toContain('pick it back up')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a targeted subagent interrupt folds into the dispatcher, which keeps running', () =>
@@ -106,5 +107,5 @@ it.effect('a targeted subagent interrupt folds into the dispatcher, which keeps 
 		expect(rendered).toContain(`agent_id: ${shortAgentId(childStarted.agentId)}`)
 		expect(rendered).toContain('This subagent was interrupted')
 		expect(rendered).not.toContain('The user interrupted the execution of this tool call.')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

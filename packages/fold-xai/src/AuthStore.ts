@@ -10,8 +10,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Context, Effect, FileSystem, Layer, Option, Schema } from 'effect'
+import { Effect, FileSystem, Option, Schema } from 'effect'
 
 /** Milliseconds before nominal expiry a token is already treated as expired (clanka parity). */
 export const TOKEN_EXPIRY_BUFFER_MS = 30_000
@@ -55,25 +54,6 @@ export type MakeXaiAuthStoreOptions = {
 	readonly path?: string
 	/** Key of this provider's entry in the document. Defaults to `xai`. */
 	readonly providerId?: string
-	/** FileSystem implementation override. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FileSystem.FileSystem
-}
-
-let nodeFileSystem: FileSystem.FileSystem | null = null
-
-/** The process-wide Node FileSystem service, built lazily once (layer construction is synchronous). */
-export const defaultNodeFileSystem = (): FileSystem.FileSystem => {
-	if (nodeFileSystem === null) {
-		nodeFileSystem = Effect.runSync(
-			Effect.scoped(
-				Layer.build(NodeFileSystem.layer).pipe(
-					Effect.map((context) => Context.get(context, FileSystem.FileSystem)),
-				),
-			),
-		)
-	}
-
-	return nodeFileSystem
 }
 
 /** The auth document is provider-keyed; entries other than ours are opaque and preserved verbatim. */
@@ -92,8 +72,8 @@ const encodeToken = (token: XaiTokenData): Record<string, unknown> => ({
 })
 
 /** Build a file-backed Xai credential store. */
-export const makeXaiAuthStore = (options?: MakeXaiAuthStoreOptions): XaiAuthStore => {
-	const fs = options?.fileSystem ?? defaultNodeFileSystem()
+export const makeXaiAuthStore = (options?: MakeXaiAuthStoreOptions): Effect.Effect<XaiAuthStore, never, FileSystem.FileSystem> =>
+	Effect.map(FileSystem.FileSystem, (fs) => {
 	const path = options?.path ?? defaultAuthStorePath()
 	const providerId = options?.providerId ?? 'xai'
 
@@ -155,4 +135,4 @@ export const makeXaiAuthStore = (options?: MakeXaiAuthStoreOptions): XaiAuthStor
 	}).pipe(Effect.withSpan('fold.xaiAuthStore.clear'))
 
 	return { path, load, save, clear }
-}
+	})

@@ -5,6 +5,7 @@
  * durable tool result renders the agent_id + turns header and the <subagent_result> body.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect } from 'effect'
 
 import {
@@ -125,5 +126,5 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 		// Both scripts fully consumed: the subagent ran exactly one turn, the root exactly two.
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

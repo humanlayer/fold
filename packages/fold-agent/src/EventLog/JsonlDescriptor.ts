@@ -6,17 +6,14 @@
 import { eventLogSource, EventLog, type FoldEventLog } from '@humanlayer/fold-core'
 import { Context, Effect, FileSystem, Layer } from 'effect'
 
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { layerJsonl } from './JsonlLayer'
 
-/** Options for {@link jsonlEventLog}: the FileSystem seam (Node default, overridable for tests). */
-export type JsonlEventLogOptions = Pick<FsToolOptions, 'fileSystem'>
-
 /** Back a session's durable log with one JSONL file. Existing entries replay on start (resume). */
-export const jsonlEventLog = (filePath: string, options?: JsonlEventLogOptions): FoldEventLog =>
+export const jsonlEventLog = (filePath: string): FoldEventLog =>
 	eventLogSource(
 		Effect.gen(function* () {
-			const fsLayer = Layer.succeed(FileSystem.FileSystem, fileSystemFor(options))
+			const fs = yield* FileSystem.FileSystem
+			const fsLayer = Layer.succeed(FileSystem.FileSystem, fs)
 			const context = yield* Layer.build(layerJsonl(filePath).pipe(Layer.provide(fsLayer)))
 
 			return Context.get(context, EventLog)

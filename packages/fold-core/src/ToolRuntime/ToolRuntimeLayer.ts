@@ -4,7 +4,7 @@
  * per-call ToolState, ToolEvents, and StopController services while handlers run, then persists one durable
  * tool-result entry per call, including synthetic interruption results when a tool fiber is interrupted.
  */
-import { Cause, Effect, Layer, Ref, Schema, Stream } from 'effect'
+import { Cause, Effect, FileSystem, Layer, Ref, Schema, Stream } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
@@ -306,6 +306,7 @@ const finalOutputFromToolHandler = (input: {
 	| CurrentToolCall
 	| InterruptNote
 	| Subagents
+	| FileSystem.FileSystem
 > =>
 	Effect.gen(function* () {
 		const toolset = yield* Toolset
@@ -383,7 +384,7 @@ const settlePreparedToolCall = (input: {
 	readonly prepared: PreparedToolCall
 	readonly stopRef: Ref.Ref<string | null>
 	readonly stateSnapshot: ReadonlyArray<LogEntry>
-}): Effect.Effect<ToolResultLogEntry, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents> =>
+}): Effect.Effect<ToolResultLogEntry, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const toolCallId = yield* decodeToolCallId(input.prepared.original)
 		const toolName = input.prepared.original.name
@@ -436,6 +437,7 @@ const settlePreparedToolCall = (input: {
 			| CurrentToolCall
 			| InterruptNote
 			| Subagents
+			| FileSystem.FileSystem
 		> = Effect.gen(function* () {
 			if (input.prepared._tag === 'replaceResult') {
 				return {
@@ -517,7 +519,7 @@ type SettleToolCallsInput = Parameters<ToolRuntimeService['settle']>[0]
 /** Settle every tool call in one assistant message and report whether a stop was requested. */
 const settleToolCalls = (
 	input: SettleToolCallsInput,
-): Effect.Effect<ToolSettlement, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents> =>
+): Effect.Effect<ToolSettlement, never, EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const stopRef = yield* Ref.make<string | null>(null)
 		const stopController = {
@@ -577,7 +579,7 @@ const settleToolCalls = (
 export const liveToolRuntimeLayer: Layer.Layer<
 	ToolRuntime,
 	never,
-	EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents
+	EventLog | Ids | HookRunner | Toolset | ToolEventSink | Subagents | FileSystem.FileSystem
 > = Layer.effect(
 	ToolRuntime,
 	Effect.gen(function* () {
@@ -587,6 +589,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 		const toolset = yield* Toolset
 		const sink = yield* ToolEventSink
 		const subagents = yield* Subagents
+		const fs = yield* FileSystem.FileSystem
 
 		const settle: ToolRuntimeService['settle'] = Effect.fn('fold.tool_runtime.settle')((input) =>
 			settleToolCalls(input).pipe(
@@ -596,6 +599,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 				Effect.provideService(Toolset, toolset),
 				Effect.provideService(ToolEventSink, sink),
 				Effect.provideService(Subagents, subagents),
+				Effect.provideService(FileSystem.FileSystem, fs),
 			),
 		)
 

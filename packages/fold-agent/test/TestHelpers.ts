@@ -21,6 +21,7 @@ import {
 	type FoldTool,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
@@ -58,6 +59,7 @@ export const makeAmbientServices = (): Effect.Effect<{
 					resume: () => Effect.die(new Error('Subagents not available in this test')),
 					continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
 				}),
+				NodeFileSystem.layer,
 			),
 			emitted: Ref.get(events),
 			interruptNote: Ref.get(note),

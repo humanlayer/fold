@@ -28,10 +28,10 @@ import {
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { type Context, Duration, Effect, Fiber, Layer, Option, Random, Ref, Schema, Semaphore, Stream } from 'effect'
+import { type Context, Duration, Effect, Fiber, FileSystem, Layer, Option, Random, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, type ChildProcessSpawner } from 'effect/unstable/process'
 
-import { cwdFor, fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { cwdFor } from '../Fs/DefaultFileSystem'
 import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
 
@@ -82,7 +82,9 @@ const killGrace = Duration.millis(200)
 const inMemoryRetentionBytes = 4 * defaultMaxBytes
 
 /** Options for {@link bashTool}. */
-export type BashToolOptions = FsToolOptions & {
+export type BashToolOptions = {
+	/** Working directory for resolving relative paths. Defaults to `process.cwd()` at call time. */
+	readonly cwd?: string
 	/** Base directory for spill files holding full untruncated output. Defaults to `os.tmpdir()`. */
 	readonly spillDir?: string
 	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
@@ -263,7 +265,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		failure: BashFailure,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = fileSystemFor(options)
+				const fs = yield* FileSystem.FileSystem
 				const cwd = params.workdir ?? cwdFor(options)
 				const timeoutSeconds = params.timeout ?? defaultTimeoutSeconds
 

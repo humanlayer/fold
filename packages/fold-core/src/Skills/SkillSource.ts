@@ -5,7 +5,7 @@
  * disk loader. Public configuration goes through descriptors ({@link skillsFromData} /
  * {@link skillSource}) so no service or layer appears in caller signatures.
  */
-import { Context, Effect, Schema } from 'effect'
+import { Context, Effect, type FileSystem, Schema } from 'effect'
 
 import { skillDescriptionProblem, skillNameProblem, type Skill, type SkillMeta } from './Schemas'
 
@@ -81,7 +81,7 @@ export const skillSourceFromData = (skills: ReadonlyArray<SkillData>): Effect.Ef
 /** Skills configuration descriptor for {@link defineAgent}: data-backed or a custom source seam. */
 export type FoldSkills =
 	| { readonly _tag: 'fromData'; readonly skills: ReadonlyArray<SkillData> }
-	| { readonly _tag: 'source'; readonly make: Effect.Effect<SkillSourceService, unknown> }
+	| { readonly _tag: 'source'; readonly make: Effect.Effect<SkillSourceService, unknown, FileSystem.FileSystem> }
 
 /** Configure an agent's skills from in-memory data (isomorphic; browser/worker hosts). */
 export const skillsFromData = (skills: ReadonlyArray<SkillData>): FoldSkills => ({ _tag: 'fromData', skills })
@@ -90,11 +90,13 @@ export const skillsFromData = (skills: ReadonlyArray<SkillData>): FoldSkills => 
  * Configure an agent's skills from a custom source implementation (the extension seam, mirroring
  * `eventLogSource`): fold-agent exposes its disk loader through this.
  */
-export const skillSource = (make: Effect.Effect<SkillSourceService, unknown>): FoldSkills => ({
+export const skillSource = (make: Effect.Effect<SkillSourceService, unknown, FileSystem.FileSystem>): FoldSkills => ({
 	_tag: 'source',
 	make,
 })
 
 /** Lower a skills descriptor to its source implementation (composition-root internal). */
-export const skillSourceFor = (skills: FoldSkills): Effect.Effect<SkillSourceService> =>
+export const skillSourceFor = (
+	skills: FoldSkills,
+): Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> =>
 	skills._tag === 'fromData' ? skillSourceFromData(skills.skills) : skills.make.pipe(Effect.orDie)

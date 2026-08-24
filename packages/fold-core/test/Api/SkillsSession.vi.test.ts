@@ -5,6 +5,7 @@
  * switch carries the same session-start block into the new epoch's leading system message.
  */
 import { expect, it } from '@effect/vitest'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Ref } from 'effect'
 
 import {
@@ -71,7 +72,7 @@ it.effect('renders the skills block into the leading prompt and installs the ski
 		if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(JSON.stringify(part.result)).toContain('<skill name=')
 		expect(JSON.stringify(part.result)).toContain('Write conventional commits.')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('adding a skill mid-session never changes rendered prompt bytes; refresh reveals it', () =>
@@ -124,7 +125,7 @@ it.effect('adding a skill mid-session never changes rendered prompt bytes; refre
 		if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(JSON.stringify(part.result)).toContain('Skills added since session start')
 		expect(JSON.stringify(part.result)).toContain('late-arrival')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a model switch carries the session-start skills block and skill tool into the new epoch', () =>
@@ -156,5 +157,5 @@ it.effect('a model switch carries the session-start skills block and skill tool 
 		// The new epoch still advertises the skill tool.
 		const secondRequests = yield* second.scripted.requests
 		expect(secondRequests[0]?.toolNames).toContain('skill')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )

@@ -7,7 +7,7 @@
  */
 import { expect, it } from '@effect/vitest'
 import type { ModelCatalogEntry } from '@humanlayer/fold-core'
-import { Effect, Ref } from 'effect'
+import { Effect, FileSystem, Layer, Ref } from 'effect'
 
 import {
 	bakedModelCatalog,
@@ -68,29 +68,26 @@ const failingOutcome = Effect.fail(new CatalogFetchError({ message: 'network unr
 
 it.effect('a fresh cache short-circuits the fetch', () =>
 	Effect.gen(function* () {
-		const fs = memoryFileSystem({ [cachePath]: cacheFile(fixedNow - hourMs) })
 		const fetch = yield* recordingFetch(Effect.succeed(fetchedPayload))
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fileSystem: fs,
 			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
 		})
 
 		expect(entries).toEqual([cachedEntry])
 		expect(yield* fetch.calls).toBe(0)
-	}),
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - hourMs) })))),
 )
 
 it.effect('a stale cache refetches, returns the live entries, and rewrites the cache', () =>
 	Effect.gen(function* () {
-		const fs = memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })
+		const fs = yield* FileSystem.FileSystem
 		const fetch = yield* recordingFetch(Effect.succeed(fetchedPayload))
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fileSystem: fs,
 			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
 		})
@@ -103,67 +100,59 @@ it.effect('a stale cache refetches, returns the live entries, and rewrites the c
 		// The cache was rewritten with the fresh fetch time and the normalized entries.
 		const written: unknown = JSON.parse(yield* fs.readFileString(cachePath))
 		expect(written).toEqual({ version: 1, fetchedAt: fixedNow, entries })
-	}),
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })))),
 )
 
 it.effect('a fetch failure degrades to the stale cache with a warning', () =>
 	Effect.gen(function* () {
-		const fs = memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })
 		const fetch = yield* recordingFetch(failingOutcome)
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fileSystem: fs,
 			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
 		})
 
 		expect(yield* fetch.calls).toBe(1)
 		expect(entries).toEqual([cachedEntry])
-	}),
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })))),
 )
 
 it.effect('no cache plus a fetch failure degrades to the baked snapshot', () =>
 	Effect.gen(function* () {
-		const fs = memoryFileSystem({})
 		const fetch = yield* recordingFetch(failingOutcome)
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fileSystem: fs,
 			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
 		})
 
 		expect(entries).toBe(bakedModelCatalog)
-	}),
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({})))),
 )
 
 it.effect('FOLD_DISABLE_MODELS_FETCH skips the fetch: stale cache when present, baked otherwise', () =>
 	Effect.gen(function* () {
 		const env = (name: string): string | undefined => (name === FOLD_DISABLE_MODELS_FETCH ? '1' : undefined)
 
-		const withStale = memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })
 		const fetchA = yield* recordingFetch(Effect.succeed(fetchedPayload))
 		const staleEntries = yield* loadModelCatalog({
 			foldHome,
-			fileSystem: withStale,
 			env,
 			fetchJson: fetchA.fetchJson,
 			now: Effect.succeed(fixedNow),
-		})
+		}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) }))))
 		expect(staleEntries).toEqual([cachedEntry])
 		expect(yield* fetchA.calls).toBe(0)
 
-		const withoutCache = memoryFileSystem({})
 		const fetchB = yield* recordingFetch(Effect.succeed(fetchedPayload))
 		const bakedEntries = yield* loadModelCatalog({
 			foldHome,
-			fileSystem: withoutCache,
 			env,
 			fetchJson: fetchB.fetchJson,
 			now: Effect.succeed(fixedNow),
-		})
+		}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({}))))
 		expect(bakedEntries).toBe(bakedModelCatalog)
 		expect(yield* fetchB.calls).toBe(0)
 	}),
@@ -180,10 +169,9 @@ it.effect('corrupt or wrong-version caches read as absent: the fetch runs and re
 
 			const entries = yield* loadModelCatalog({
 				foldHome,
-				fileSystem: fs,
 				fetchJson: fetch.fetchJson,
 				now: Effect.succeed(fixedNow),
-			})
+			}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
 
 			expect(yield* fetch.calls).toBe(1)
 			expect(entries[0]?.modelId).toBe('fetched-model')
