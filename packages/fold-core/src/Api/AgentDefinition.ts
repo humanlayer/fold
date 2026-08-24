@@ -17,6 +17,8 @@ export type AgentDefinition = {
 	readonly name?: string
 	/** The model the agent starts on. Sessions can switch later with `FoldSession.switchModel`. */
 	readonly model: FoldModel
+	/** Stable provider cache-affinity key. Forked children derive and persist their own key from this one. */
+	readonly promptCacheKey?: string
 	/** The agent's own leading system prompt: one block or an ordered set of blocks. */
 	readonly systemPrompt?: string | ReadonlyArray<string>
 	/**

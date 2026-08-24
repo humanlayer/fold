@@ -83,6 +83,9 @@ export const ForkSubagentInput = Schema.Struct({
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
 	forkAgentDefinitionId: Schema.NullOr(ForkAgentDefinitionId),
+	history: Schema.optionalKey(
+		Schema.Union([Schema.Literals(['all', 'none']), Schema.Int.check(Schema.isGreaterThan(0))]),
+	),
 }).annotate({ identifier: 'ForkSubagentInput' })
 export type ForkSubagentInput = typeof ForkSubagentInput.Type
 

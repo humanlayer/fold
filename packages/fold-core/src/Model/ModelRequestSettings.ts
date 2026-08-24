@@ -108,6 +108,7 @@ export const anthropicEffortForLevel = (level: ReasoningLevel): 'low' | 'medium'
 export type WrapModelRequestInput = {
 	readonly model: ActiveModel | null
 	readonly reasoningLevel: ReasoningLevel | null
+	readonly promptCacheKey?: string | null
 }
 
 /**
@@ -136,7 +137,7 @@ const identity = <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>
  * pre-adaptive models) through the Anthropic provider's `Config`.
  */
 export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = Layer.succeed(ModelRequestSettings, {
-	wrap: ({ model, reasoningLevel }) => {
+	wrap: ({ model, reasoningLevel, promptCacheKey = null }) => {
 		if (model === null) return identity
 
 		const level = reasoningLevel ?? model.requestedReasoningLevel
@@ -149,6 +150,7 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 				return (self) =>
 					OpenAiLanguageModel.withConfigOverride(self, {
 						model: model.modelId,
+						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
 						...(setting._tag === 'disabled' ? {} : { reasoning: { effort: setting.effort } }),
 					})
 			}
@@ -159,6 +161,7 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 				return (self) =>
 					OpenAiLanguageModel.withConfigOverride(self, {
 						model: model.modelId,
+						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
 						...(setting._tag === 'disabled'
 							? {}
 							: { reasoning: { effort: setting.effort, summary: setting.summary } }),

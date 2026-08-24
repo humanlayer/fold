@@ -359,6 +359,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					modelRequestSettings.wrap({
 						model: runtimeState.activeModel,
 						reasoningLevel: runtimeState.reasoningLevel,
+						promptCacheKey: runtimeState.promptCacheKey,
 					}),
 					Effect.result,
 				)
@@ -544,6 +545,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					toolCallId: input.toolCallId,
 					mode: input.mode,
 					model: input.model,
+					...(input.promptCacheKey == null ? {} : { promptCacheKey: input.promptCacheKey }),
 					tools: resolvedToolset.names,
 					skill: input.skill,
 					fork: input.fork,

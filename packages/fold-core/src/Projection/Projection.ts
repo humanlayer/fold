@@ -28,6 +28,7 @@ export type AgentRuntimeProjection = AgentLifecycleProjection & {
 	readonly activeModel: ActiveModel | null
 	readonly activeTools: ReadonlyArray<string>
 	readonly reasoningLevel: ReasoningLevel | null
+	readonly promptCacheKey: string | null
 }
 
 /** Helper for projected records that keep the durable entry discriminant and selected payload fields. */
@@ -86,6 +87,60 @@ const findAgentFinished = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): 
 
 const compareSeq = (left: LogEntry, right: LogEntry) => left.seq - right.seq
 
+const userMessageText = (entry: UserMessageLogEntry): string =>
+	typeof entry.message.content === 'string'
+		? entry.message.content
+		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+
+const isInjectedSkillMessage = (entry: LogEntry): boolean => {
+	if (entry._tag !== 'user-message') return false
+	const content = userMessageText(entry).trim()
+	return /^<skill(?:\s|>)/.test(content) && content.endsWith('</skill>')
+}
+
+const isSettledAssistantText = (entry: LogEntry): boolean => {
+	if (entry._tag !== 'assistant-message') return false
+	if (typeof entry.message.content === 'string') return entry.message.content.trim().length > 0
+	return entry.message.content.length > 0 && entry.message.content.every((part) => part.type === 'text')
+}
+
+const eligibleForkHistory = (
+	entries: ReadonlyArray<LogEntry>,
+	history: 'all' | 'none' | number,
+): ReadonlyArray<LogEntry> => {
+	const leadingSystem = entries.filter((entry) => entry._tag === 'system-message' && entry.placement === 'leading')
+	if (history === 'none') return leadingSystem
+
+	let invokingTurnStart = entries.length
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index]
+		if (entry?._tag === 'user-message' && !isInjectedSkillMessage(entry)) {
+			invokingTurnStart = index
+			break
+		}
+	}
+
+	const eligible = entries
+		.slice(0, invokingTurnStart)
+		.filter(
+			(entry) =>
+				(entry._tag === 'system-message' && entry.placement === 'leading') ||
+				entry._tag === 'user-message' ||
+				isSettledAssistantText(entry),
+		)
+	if (history === 'all') return eligible
+
+	let userTurns = 0
+	for (let index = eligible.length - 1; index >= 0; index -= 1) {
+		const entry = eligible[index]
+		if (entry?._tag !== 'user-message' || isInjectedSkillMessage(entry)) continue
+		userTurns += 1
+		if (userTurns === history)
+			return [...leadingSystem, ...eligible.slice(index).filter((item) => item._tag !== 'system-message')]
+	}
+	return eligible
+}
+
 const entriesForAgentInternal = (
 	entries: ReadonlyArray<LogEntry>,
 	agentId: AgentId,
@@ -104,7 +159,9 @@ const entriesForAgentInternal = (
 		(entry) => entry.seq <= fork.atSeq,
 	)
 
-	return [...parentEntries, ...ownEntries].sort(compareSeq)
+	const inheritedEntries =
+		fork.history === undefined ? parentEntries : eligibleForkHistory(parentEntries, fork.history)
+	return [...inheritedEntries, ...ownEntries].sort(compareSeq)
 }
 
 /**
@@ -137,6 +194,7 @@ export const runtimeForAgent = (entries: ReadonlyArray<LogEntry>, agentId: Agent
 	let activeModel: ActiveModel | null = null
 	let activeTools: ReadonlyArray<string> = []
 	let reasoningLevel: ReasoningLevel | null = null
+	let promptCacheKey: string | null = null
 
 	for (const entry of visibleEntries) {
 		switch (entry._tag) {
@@ -144,6 +202,7 @@ export const runtimeForAgent = (entries: ReadonlyArray<LogEntry>, agentId: Agent
 				activeModel = entry.model
 				activeTools = entry.tools
 				reasoningLevel = entry.model.requestedReasoningLevel
+				promptCacheKey = entry.promptCacheKey ?? null
 				break
 			case 'model-change':
 				activeModel = entry.model
@@ -163,6 +222,7 @@ export const runtimeForAgent = (entries: ReadonlyArray<LogEntry>, agentId: Agent
 		activeModel,
 		activeTools,
 		reasoningLevel,
+		promptCacheKey,
 	}
 }
 

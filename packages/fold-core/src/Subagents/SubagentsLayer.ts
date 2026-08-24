@@ -72,6 +72,7 @@ export type RealizedAgentTools = {
 /** The root agent's current configuration; model switches move it (read fresh per dispatch). */
 export type RootAgentSnapshot = {
 	readonly model: FoldModel
+	readonly promptCacheKey: string | null
 	/** The root's tools as configured (system-tool values included). */
 	readonly tools: ReadonlyArray<FoldTool>
 	readonly hooks: HookConfig
@@ -92,6 +93,7 @@ type OriginatingConfig = { readonly _tag: 'entry'; readonly entry: RegisteredAge
 
 type AgentConfigurationSnapshot = {
 	readonly model: FoldModel
+	readonly promptCacheKey: string | null
 	readonly tools: ReadonlyArray<FoldTool>
 	readonly hooks: HookConfig
 	readonly systemPrompt: string | ReadonlyArray<string> | null
@@ -109,6 +111,7 @@ type LaunchSubagentParams = {
 	readonly mode: AgentLaunchMode
 	readonly fork: AgentFork | null
 	readonly model: FoldModel
+	readonly promptCacheKey: string | null
 	readonly tools: ReadonlyArray<RealizedFoldTool>
 	readonly hooks: HookConfig
 	/** Leading blocks for fresh starts (entry blocks + tool-contributed blocks); null for forks/resumes. */
@@ -193,6 +196,16 @@ const lastAssistantTextForRun = (
 /** Structural model-binding comparison deciding whether a resume needs a D17 transition. */
 const activeModelsDiffer = (left: unknown, right: unknown): boolean => JSON.stringify(left) !== JSON.stringify(right)
 
+const CHILD_CACHE_SUFFIX_LENGTH = 28
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64
+
+/** Derive a bounded, deterministic child cache-affinity key from its parent and durable id. */
+export const deriveChildPromptCacheKey = (parentKey: string, agentId: AgentId): Effect.Effect<string> => {
+	const suffix = `:${agentId.slice(-CHILD_CACHE_SUFFIX_LENGTH)}`
+	const parentLength = MAX_PROMPT_CACHE_KEY_LENGTH - suffix.length
+	return Effect.succeed(`${parentKey.slice(0, parentLength)}${suffix}`)
+}
+
 /**
  * Build the Subagents engine over the session's shared services. `startSession` constructs this once
  * per session (after the registry and tool contributions exist) and publishes it as the ambient
@@ -270,6 +283,7 @@ export const makeSubagents = (
 				: resolveModelBinding(origin.entry.model).pipe(
 						Effect.map((model) => ({
 							model,
+							promptCacheKey: null,
 							tools: origin.entry.tools,
 							hooks: origin.entry.hooks,
 							systemPrompt: origin.entry.systemPrompt,
@@ -287,8 +301,10 @@ export const makeSubagents = (
 
 				const snapshot = yield* agentSnapshotForOrigin(origin)
 				const started = findAgentStarted(entries, agentId)
-				const definitionId = started?.fork?.definitionId
-				if (definitionId === undefined) return snapshot
+				if (started === null) return snapshot
+				const withCacheKey = { ...snapshot, promptCacheKey: started.promptCacheKey ?? snapshot.promptCacheKey }
+				const definitionId = started.fork?.definitionId
+				if (definitionId === undefined) return withCacheKey
 
 				const definition = config.registry.resolveForkAgentDefinition(definitionId)
 				if (definition === null) {
@@ -297,7 +313,10 @@ export const makeSubagents = (
 					)
 				}
 
-				return { ...snapshot, tools: definition.tools }
+				return {
+					...withCacheKey,
+					tools: definition.tools,
+				}
 			})
 
 		/** Every ancestor of an agent (parent chain from agent_started rows), for the resume self-guard. */
@@ -451,6 +470,7 @@ export const makeSubagents = (
 							skill: params.skillParam,
 							agentType: params.agentTypeName,
 							model: params.model.activeModel,
+							promptCacheKey: params.promptCacheKey,
 							systemPrompt: params.systemPrompt,
 						})
 					} else if (params.launch.modelTransition !== null) {
@@ -688,14 +708,19 @@ export const makeSubagents = (
 					// subagent row exists (§2.3 step 6).
 					const entries = yield* collectEntries
 					const dispatcherSnapshot = yield* agentSnapshotForAgent(entries, dispatcher.agentId)
+					if (dispatcherSnapshot === null) {
+						return yield* Effect.die(
+							new Error(`dispatching agent ${dispatcher.agentId} has no resolvable configuration`),
+						)
+					}
 					const preloaded =
-						input.skill === null
-							? null
-							: dispatcherSnapshot === null
-								? yield* new SkillNotFoundError({ name: input.skill, availableSkills: [] })
-								: yield* preloadedSkillMessage(dispatcherSnapshot, input.skill)
+						input.skill === null ? null : yield* preloadedSkillMessage(dispatcherSnapshot, input.skill)
 
 					const subagentId = yield* ids.makeAgentId
+					const promptCacheKey =
+						dispatcherSnapshot.promptCacheKey === null
+							? null
+							: yield* deriveChildPromptCacheKey(dispatcherSnapshot.promptCacheKey, subagentId)
 					yield* interruptNote.set(interruptedSubagentNote(entry.name, subagentId, 0))
 
 					const realized = config.realizeAgentTools(entry.tools)
@@ -710,6 +735,7 @@ export const makeSubagents = (
 						fork: null,
 						// Role bindings resolve at dispatch time: a setProfile swap binds the NEXT dispatch.
 						model: yield* resolveModelBinding(entry.model),
+						promptCacheKey,
 						tools: realized.tools,
 						hooks: entry.hooks,
 						systemPrompt: leadingBlocksFor(entry.systemPrompt, realized),
@@ -758,6 +784,10 @@ export const makeSubagents = (
 				}
 
 				const subagentId = yield* ids.makeAgentId
+				const promptCacheKey =
+					dispatcherSnapshot.promptCacheKey === null
+						? null
+						: yield* deriveChildPromptCacheKey(dispatcherSnapshot.promptCacheKey, subagentId)
 				const agentLabel = `fork of ${shortAgentId(dispatcher.agentId)}`
 				yield* interruptNote.set(interruptedSubagentNote(agentLabel, subagentId, 0))
 
@@ -772,8 +802,10 @@ export const makeSubagents = (
 						fromAgentId: dispatcher.agentId,
 						atSeq: lastEntry.seq,
 						...(input.forkAgentDefinitionId === null ? {} : { definitionId: input.forkAgentDefinitionId }),
+						...(input.history === undefined ? {} : { history: input.history }),
 					},
 					model: dispatcherSnapshot.model,
+					promptCacheKey,
 					tools: realized.tools,
 					hooks: dispatcherSnapshot.hooks,
 					// Forks append no leading system message: the fold carries the caller's blocks (D21).
@@ -850,6 +882,7 @@ export const makeSubagents = (
 					mode: started.mode,
 					fork: started.fork,
 					model: snapshot.model,
+					promptCacheKey: snapshot.promptCacheKey,
 					tools: realized.tools,
 					hooks: snapshot.hooks,
 					systemPrompt: null,

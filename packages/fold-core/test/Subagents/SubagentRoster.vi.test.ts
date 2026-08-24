@@ -173,7 +173,7 @@ const hostAgentTool = (forkAgent: ForkAgentDefinition) =>
 				Effect.gen(function* () {
 					const subagents = yield* Subagents
 					const result = yield* subagents
-						.fork({ prompt, skill: null, forkAgentDefinitionId: forkAgent.id })
+						.fork({ prompt, skill: null, forkAgentDefinitionId: forkAgent.id, history: 'all' })
 						.pipe(Effect.orDie)
 					return { content: renderSubagentResult(result) }
 				}),

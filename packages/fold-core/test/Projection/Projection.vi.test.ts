@@ -53,6 +53,9 @@ const assistantWithToolCalls = (toolCallIds: ReadonlyArray<ToolCallId>) =>
 		}),
 	)
 
+const assistantText = (text: string) =>
+	Schema.encodeUnknownSync(Prompt.AssistantMessage)(Prompt.assistantMessage({ content: [Prompt.textPart({ text })] }))
+
 const toolMessage = (toolCallId: ToolCallId, index: number): ToolMessageEncoded =>
 	Schema.encodeUnknownSync(Prompt.ToolMessage)(
 		Prompt.toolMessage({
@@ -338,6 +341,76 @@ it.effect('projects forked agents through the parent fork sequence plus child en
 		expect(projected.map((message) => message._tag)).toEqual(['system-message', 'user-message', 'user-message'])
 		expect(projected[1]).toMatchObject({ _tag: 'user-message', message: { content: 'parent before fork' } })
 		expect(projected[2]).toMatchObject({ _tag: 'user-message', message: { content: 'child prompt' } })
+	}),
+)
+
+it.effect('configured fork history keeps recent completed turns and removes the invoking turn', () =>
+	Effect.gen(function* () {
+		const result = yield* Effect.gen(function* () {
+			const log = yield* EventLog
+			const rootAgentId = yield* appendRoot()
+			for (const [user, assistant] of [
+				['old user', 'old assistant'],
+				['recent user', 'recent assistant'],
+			] as const) {
+				yield* log.append({
+					_tag: 'user-message',
+					agentId: rootAgentId,
+					parentAgentId: null,
+					toolCallId: null,
+					messageId: yield* messageId,
+					message: userMessage(user),
+				})
+				yield* log.append({
+					_tag: 'assistant-message',
+					agentId: rootAgentId,
+					parentAgentId: null,
+					toolCallId: null,
+					messageId: yield* messageId,
+					message: assistantText(assistant),
+					finish: null,
+				})
+			}
+			yield* log.append({
+				_tag: 'user-message',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: yield* messageId,
+				message: userMessage('invoking user'),
+			})
+
+			const childAgentId = yield* agentId
+			const dispatchToolCallId = yield* toolCallId
+			yield* log.append({
+				_tag: 'agent_started',
+				agentId: childAgentId,
+				parentAgentId: rootAgentId,
+				toolCallId: dispatchToolCallId,
+				mode: 'fork',
+				model,
+				tools: [],
+				skill: null,
+				fork: { fromAgentId: rootAgentId, atSeq: lastSeq(yield* readEntries), history: 1 },
+				agentType: null,
+			})
+			yield* log.append({
+				_tag: 'user-message',
+				agentId: childAgentId,
+				parentAgentId: rootAgentId,
+				toolCallId: dispatchToolCallId,
+				messageId: yield* messageId,
+				message: userMessage('child prompt'),
+			})
+			return { childAgentId, entries: yield* readEntries }
+		}).pipe(Effect.provide(testLayer))
+
+		const projected = JSON.stringify(messagesForAgent(result.entries, result.childAgentId))
+		expect(projected).toContain('recent user')
+		expect(projected).toContain('recent assistant')
+		expect(projected).toContain('child prompt')
+		expect(projected).not.toContain('old user')
+		expect(projected).not.toContain('invoking user')
 	}),
 )
 
