@@ -49,12 +49,11 @@ import {
 import { agentIdsFromEntries, resolveAgentIdRef, shortAgentId } from './AgentIdRef'
 import type { AgentRegistry, RegisteredAgentType } from './AgentRegistry'
 import { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
-import type { SubagentResult, TurnCount } from './Schemas'
+import type { ForkSubagentInput, SubagentResult, TurnCount } from './Schemas'
 import type { SubagentModelBinding } from './SubagentDefinition'
 import type {
 	ContinueSubagentInput,
 	DispatchSubagentInput,
-	ForkSubagentInput,
 	ResumeSubagentInput,
 	SubagentsService,
 } from './SubagentsService'
@@ -90,6 +89,13 @@ export type SubagentsConfig = {
 
 /** Where an agent's configuration comes from: a registered type, or the root agent. */
 type OriginatingConfig = { readonly _tag: 'entry'; readonly entry: RegisteredAgentType } | { readonly _tag: 'root' }
+
+type AgentConfigurationSnapshot = {
+	readonly model: FoldModel
+	readonly tools: ReadonlyArray<FoldTool>
+	readonly hooks: HookConfig
+	readonly systemPrompt: string | ReadonlyArray<string> | null
+}
 
 /** Everything one subagent launch/resume needs, resolved before the run fiber forks. */
 type LaunchSubagentParams = {
@@ -258,14 +264,7 @@ export const makeSubagents = (
 		 * resolve their model binding against the CURRENT profiles map, so fork/resume/continue of a
 		 * role-bound type all see the live binding (a fork clones the caller's binding by definition).
 		 */
-		const agentSnapshotForOrigin = (
-			origin: OriginatingConfig,
-		): Effect.Effect<{
-			readonly model: FoldModel
-			readonly tools: ReadonlyArray<FoldTool>
-			readonly hooks: HookConfig
-			readonly systemPrompt: string | ReadonlyArray<string> | null
-		}> =>
+		const agentSnapshotForOrigin = (origin: OriginatingConfig): Effect.Effect<AgentConfigurationSnapshot> =>
 			origin._tag === 'root'
 				? config.currentRootAgent
 				: resolveModelBinding(origin.entry.model).pipe(
@@ -276,6 +275,30 @@ export const makeSubagents = (
 							systemPrompt: origin.entry.systemPrompt,
 						})),
 					)
+
+		/** Reconstruct one agent's effective configuration, including a persisted fork tool override. */
+		const agentSnapshotForAgent = (
+			entries: ReadonlyArray<LogEntry>,
+			agentId: AgentId,
+		): Effect.Effect<AgentConfigurationSnapshot | null> =>
+			Effect.gen(function* () {
+				const origin = originatingConfigForAgent(entries, agentId)
+				if (origin === null) return null
+
+				const snapshot = yield* agentSnapshotForOrigin(origin)
+				const started = findAgentStarted(entries, agentId)
+				const definitionId = started?.fork?.definitionId
+				if (definitionId === undefined) return snapshot
+
+				const definition = config.registry.resolveForkAgentDefinition(definitionId)
+				if (definition === null) {
+					return yield* Effect.die(
+						new Error(`fork agent definition "${definitionId}" required by ${agentId} is not registered`),
+					)
+				}
+
+				return { ...snapshot, tools: definition.tools }
+			})
 
 		/** Every ancestor of an agent (parent chain from agent_started rows), for the resume self-guard. */
 		const ancestorAgentIds = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): ReadonlySet<AgentId> => {
@@ -294,12 +317,11 @@ export const makeSubagents = (
 
 		/** Load and render a preloaded skill through the dispatcher's own skillTool source (§2.3). */
 		const preloadedSkillMessage = (
-			dispatcherOrigin: OriginatingConfig,
+			dispatcherSnapshot: AgentConfigurationSnapshot,
 			skillName: string,
 		): Effect.Effect<string, SkillNotFoundError> =>
 			Effect.gen(function* () {
-				const snapshot = yield* agentSnapshotForOrigin(dispatcherOrigin)
-				const realized = config.realizeAgentTools(snapshot.tools)
+				const realized = config.realizeAgentTools(dispatcherSnapshot.tools)
 
 				if (realized.skillSource === null) {
 					return yield* new SkillNotFoundError({ name: skillName, availableSkills: [] })
@@ -564,14 +586,12 @@ export const makeSubagents = (
 						return yield* new SubagentNotFoundError({ requested: input.agentId })
 					}
 
-					const targetOrigin = originatingConfigForAgent(entries, input.agentId)
-					if (targetOrigin === null) {
+					const snapshot = yield* agentSnapshotForAgent(entries, input.agentId)
+					if (snapshot === null) {
 						return yield* Effect.die(
 							new Error(`continuation target ${input.agentId} has no resolvable configuration`),
 						)
 					}
-
-					const snapshot = yield* agentSnapshotForOrigin(targetOrigin)
 					const realized = config.realizeAgentTools(snapshot.tools)
 
 					const projected = runtimeForAgent(entries, input.agentId)
@@ -667,13 +687,13 @@ export const makeSubagents = (
 					// Preload resolves through the DISPATCHER's skill source, and fails before any durable
 					// subagent row exists (§2.3 step 6).
 					const entries = yield* collectEntries
-					const dispatcherOrigin = originatingConfigForAgent(entries, dispatcher.agentId)
+					const dispatcherSnapshot = yield* agentSnapshotForAgent(entries, dispatcher.agentId)
 					const preloaded =
 						input.skill === null
 							? null
-							: dispatcherOrigin === null
+							: dispatcherSnapshot === null
 								? yield* new SkillNotFoundError({ name: input.skill, availableSkills: [] })
-								: yield* preloadedSkillMessage(dispatcherOrigin, input.skill)
+								: yield* preloadedSkillMessage(dispatcherSnapshot, input.skill)
 
 					const subagentId = yield* ids.makeAgentId
 					yield* interruptNote.set(interruptedSubagentNote(entry.name, subagentId, 0))
@@ -708,18 +728,27 @@ export const makeSubagents = (
 				const interruptNote = yield* InterruptNote
 
 				const entries = yield* collectEntries
-				const dispatcherOrigin = originatingConfigForAgent(entries, dispatcher.agentId)
-				if (dispatcherOrigin === null) {
+				const dispatcherSnapshot = yield* agentSnapshotForAgent(entries, dispatcher.agentId)
+				if (dispatcherSnapshot === null) {
 					return yield* Effect.die(
 						new Error(`fork dispatcher ${dispatcher.agentId} has no resolvable configuration`),
 					)
 				}
 
 				const preloaded =
-					input.skill === null ? null : yield* preloadedSkillMessage(dispatcherOrigin, input.skill)
+					input.skill === null ? null : yield* preloadedSkillMessage(dispatcherSnapshot, input.skill)
 
-				const snapshot = yield* agentSnapshotForOrigin(dispatcherOrigin)
-				const realized = config.realizeAgentTools(snapshot.tools)
+				const forkDefinition =
+					input.forkAgentDefinitionId === null
+						? null
+						: config.registry.resolveForkAgentDefinition(input.forkAgentDefinitionId)
+				if (input.forkAgentDefinitionId !== null && forkDefinition === null) {
+					return yield* Effect.die(
+						new Error(`fork agent definition "${input.forkAgentDefinitionId}" is not registered`),
+					)
+				}
+				const forkTools = forkDefinition?.tools ?? dispatcherSnapshot.tools
+				const realized = config.realizeAgentTools(forkTools)
 
 				// The fork sees the caller's history up to the head observed here; rows appended by parallel
 				// work after this observation are deliberately outside the fork's view.
@@ -739,10 +768,14 @@ export const makeSubagents = (
 					parentAgentId: dispatcher.agentId,
 					toolCallId: currentCall.toolCallId,
 					mode: 'fork',
-					fork: { fromAgentId: dispatcher.agentId, atSeq: lastEntry.seq },
-					model: snapshot.model,
+					fork: {
+						fromAgentId: dispatcher.agentId,
+						atSeq: lastEntry.seq,
+						...(input.forkAgentDefinitionId === null ? {} : { definitionId: input.forkAgentDefinitionId }),
+					},
+					model: dispatcherSnapshot.model,
 					tools: realized.tools,
-					hooks: snapshot.hooks,
+					hooks: dispatcherSnapshot.hooks,
 					// Forks append no leading system message: the fold carries the caller's blocks (D21).
 					systemPrompt: null,
 					skillParam: input.skill,
@@ -784,22 +817,20 @@ export const makeSubagents = (
 					return yield* new SubagentBusyError({ agentId })
 				}
 
-				const dispatcherOrigin = originatingConfigForAgent(entries, dispatcher.agentId)
+				const dispatcherSnapshot = yield* agentSnapshotForAgent(entries, dispatcher.agentId)
 				const preloaded =
 					input.skill === null
 						? null
-						: dispatcherOrigin === null
+						: dispatcherSnapshot === null
 							? yield* new SkillNotFoundError({ name: input.skill, availableSkills: [] })
-							: yield* preloadedSkillMessage(dispatcherOrigin, input.skill)
+							: yield* preloadedSkillMessage(dispatcherSnapshot, input.skill)
 
 				// The resumed agent's binding: its registry entry when its type is (still) registered,
 				// otherwise its fork-source chain, otherwise the dispatcher's own configuration.
-				const targetOrigin = originatingConfigForAgent(entries, agentId) ?? dispatcherOrigin
-				if (targetOrigin === null) {
+				const snapshot = (yield* agentSnapshotForAgent(entries, agentId)) ?? dispatcherSnapshot
+				if (snapshot === null) {
 					return yield* Effect.die(new Error(`resume target ${agentId} has no resolvable configuration`))
 				}
-
-				const snapshot = yield* agentSnapshotForOrigin(targetOrigin)
 				const realized = config.realizeAgentTools(snapshot.tools)
 
 				const projected = runtimeForAgent(entries, agentId)

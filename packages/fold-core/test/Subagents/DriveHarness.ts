@@ -76,7 +76,7 @@ export const makeDriveTool = (instructions: Ref.Ref<ReadonlyArray<DriveInstructi
 				}
 
 				const result = yield* subagents
-					.fork({ prompt: instruction.prompt, skill: null })
+					.fork({ prompt: instruction.prompt, skill: null, forkAgentDefinitionId: null })
 					.pipe(Effect.mapError(failWith))
 				return { content: renderSubagentResult(result) }
 			}),

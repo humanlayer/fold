@@ -2,6 +2,7 @@ import { Schema } from 'effect'
 import { Prompt, Response } from 'effect/unstable/ai'
 
 import { AgentId, CompactionId, EventId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
+import { ForkAgentDefinitionId } from '../Subagents/ForkAgentDefinition'
 import { UsageEncoded } from './Usage'
 
 /** The sequence number of a log entry. The first entry in a session is seq 0. */
@@ -206,6 +207,8 @@ export type AgentLaunchMode = typeof AgentLaunchMode.Type
 export const AgentFork = Schema.Struct({
 	fromAgentId: AgentId,
 	atSeq: LogSeq,
+	/** Host fork configuration. Absent on legacy and default toolset-inheriting forks. */
+	definitionId: Schema.optionalKey(ForkAgentDefinitionId),
 }).annotate({ identifier: 'AgentFork' })
 export type AgentFork = typeof AgentFork.Type
 

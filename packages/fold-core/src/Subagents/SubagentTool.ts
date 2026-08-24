@@ -8,23 +8,39 @@
  * the tool's instructive failure payload with `catchTag`/`catchTags` - all choreography lives in the
  * deep module, and no error is ever inspected as a value.
  */
-import { Effect } from 'effect'
+import { Effect, Match } from 'effect'
 
 import { defineTool, type FoldTool } from '../Api/ToolDefinition'
 import type { SkillNotFoundError } from '../Skills/SkillSource'
 import { subagentToolContract } from '../Tools/Contracts'
 import { shortAgentId } from './AgentIdRef'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
+import type { ForkAgentDefinition } from './ForkAgentDefinition'
 import { parseSubagentCommand, type SubagentResult } from './Schemas'
 import type { SubagentDefinition } from './SubagentDefinition'
 import { Subagents } from './SubagentsService'
 
-/** Module-internal registry carrying each subagentTool value's roster for the tools-array walk. */
-const rosterBySubagentTool = new WeakMap<FoldTool, ReadonlyArray<SubagentDefinition>>()
+/** Runtime capabilities attached to a model-visible delegation tool. */
+export type SubagentToolCapabilities = {
+	readonly agents: ReadonlyArray<SubagentDefinition>
+	readonly forkAgent?: ForkAgentDefinition
+}
+
+const capabilitiesBySubagentTool = new WeakMap<FoldTool, SubagentToolCapabilities>()
+
+/** Attach Fold's roster and fork behavior to any host-defined model-visible tool. */
+export const withSubagentCapabilities = (tool: FoldTool, capabilities: SubagentToolCapabilities): FoldTool => {
+	capabilitiesBySubagentTool.set(tool, capabilities)
+	return tool
+}
+
+/** Read the capabilities attached to a delegation tool; null for every other tool. */
+export const subagentCapabilitiesOf = (tool: FoldTool): SubagentToolCapabilities | null =>
+	capabilitiesBySubagentTool.get(tool) ?? null
 
 /** Read the roster off a subagentTool value; null for every other tool. */
 export const subagentRosterOf = (tool: FoldTool): ReadonlyArray<SubagentDefinition> | null =>
-	rosterBySubagentTool.get(tool) ?? null
+	subagentCapabilitiesOf(tool)?.agents ?? null
 
 /** Model-facing failure payload of the subagent tool (schema: message + availableAgents). */
 type SubagentToolFailure = {
@@ -121,7 +137,10 @@ const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition>): str
  * the value (`subagentRosterOf`) to build the session registry. Each call creates an independent value;
  * agents sharing one roster should share one value.
  */
-export const subagentTool = (agents: ReadonlyArray<SubagentDefinition>): FoldTool => {
+export const subagentTool = (
+	agents: ReadonlyArray<SubagentDefinition>,
+	options?: { readonly forkAgent?: ForkAgentDefinition },
+): FoldTool => {
 	const allowedAgents = agents.map((agent) => agent.name)
 
 	const tool = defineTool({
@@ -136,58 +155,56 @@ export const subagentTool = (agents: ReadonlyArray<SubagentDefinition>): FoldToo
 					),
 				)
 
-				switch (command._tag) {
-					case 'dispatch': {
-						const result = yield* subagents
-							.dispatch({
-								agent: command.agent,
-								prompt: command.prompt,
-								skill: command.skill,
-								allowedAgents,
-							})
-							.pipe(
-								Effect.catchTags({
-									SubagentTypeNotInRosterError: (error) => Effect.fail(rosterFailure(error)),
-									SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
-								}),
-							)
-
-						return { content: renderSubagentResult(result) }
-					}
-
-					case 'fork': {
-						const result = yield* subagents
-							.fork({ prompt: command.prompt, skill: command.skill })
-							.pipe(
-								Effect.catchTag('SkillNotFoundError', (error) =>
-									Effect.fail(skillFailure(error, allowedAgents)),
+				return yield* Match.value(command).pipe(
+					Match.tagsExhaustive({
+						dispatch: (dispatchCommand) =>
+							subagents
+								.dispatch({
+									agent: dispatchCommand.agent,
+									prompt: dispatchCommand.prompt,
+									skill: dispatchCommand.skill,
+									allowedAgents,
+								})
+								.pipe(
+									Effect.catchTags({
+										SubagentTypeNotInRosterError: (error) => Effect.fail(rosterFailure(error)),
+										SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
+									}),
+									Effect.map((result) => ({ content: renderSubagentResult(result) })),
 								),
-							)
-
-						return { content: renderSubagentResult(result) }
-					}
-
-					case 'resume': {
-						const result = yield* subagents
-							.resume({ agentId: command.agentId, prompt: command.prompt, skill: command.skill })
-							.pipe(
-								Effect.catchTags({
-									SubagentNotFoundError: (error) =>
-										Effect.fail(notFoundFailure(error, allowedAgents)),
-									SubagentBusyError: (error) => Effect.fail(busyFailure(error, allowedAgents)),
-									SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
-								}),
-							)
-
-						return { content: renderSubagentResult(result) }
-					}
-				}
+						fork: (forkCommand) =>
+							subagents
+								.fork({
+									prompt: forkCommand.prompt,
+									skill: forkCommand.skill,
+									forkAgentDefinitionId: options?.forkAgent?.id ?? null,
+								})
+								.pipe(
+									Effect.catchTag('SkillNotFoundError', (error) =>
+										Effect.fail(skillFailure(error, allowedAgents)),
+									),
+									Effect.map((result) => ({ content: renderSubagentResult(result) })),
+								),
+						resume: (resumeCommand) =>
+							subagents
+								.resume({
+									agentId: resumeCommand.agentId,
+									prompt: resumeCommand.prompt,
+									skill: resumeCommand.skill,
+								})
+								.pipe(
+									Effect.catchTags({
+										SubagentNotFoundError: (error) =>
+											Effect.fail(notFoundFailure(error, allowedAgents)),
+										SubagentBusyError: (error) => Effect.fail(busyFailure(error, allowedAgents)),
+										SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
+									}),
+									Effect.map((result) => ({ content: renderSubagentResult(result) })),
+								),
+					}),
+				)
 			}),
 	})
 
-	// Register the roster against the value's identity so the composition root's tools-array walk can
-	// recover it; the value itself stays an ordinary FoldTool.
-	rosterBySubagentTool.set(tool, agents)
-
-	return tool
+	return withSubagentCapabilities(tool, { agents, ...(options?.forkAgent === undefined ? {} : options) })
 }
