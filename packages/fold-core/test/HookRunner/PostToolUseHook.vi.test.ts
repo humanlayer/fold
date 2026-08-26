@@ -34,6 +34,9 @@ describe('HookRunner postToolUse hooks', () => {
 						parentAgentId: null,
 						toolCallId: ToolCallId.create(),
 						toolName: 'echo',
+						originalInput: { text: 'original' },
+						executedInput: { text: 'executed' },
+						handlerResult: { step: 0 },
 						result: { step: 0 },
 						isFailure: false,
 					})
@@ -71,6 +74,9 @@ describe('HookRunner postToolUse hooks', () => {
 						parentAgentId: null,
 						toolCallId: ToolCallId.create(),
 						toolName: 'echo',
+						originalInput: { text: 'original' },
+						executedInput: { text: 'executed' },
+						handlerResult: { original: true },
 						result: { original: true },
 						isFailure: false,
 					})
@@ -112,6 +118,9 @@ describe('HookRunner postToolUse hooks', () => {
 						parentAgentId: null,
 						toolCallId: ToolCallId.create(),
 						toolName: 'echo',
+						originalInput: { text: 'original' },
+						executedInput: { text: 'executed' },
+						handlerResult: { original: true },
 						result: { original: true },
 						isFailure: false,
 					})

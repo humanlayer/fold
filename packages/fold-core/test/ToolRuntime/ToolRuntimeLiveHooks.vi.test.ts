@@ -103,3 +103,62 @@ it.effect('live preToolUse hook can update execution params without changing pro
 		expect(projectedToolResult).not.toHaveProperty('executedInput')
 	}),
 )
+
+it.effect('postToolUse receives original, executed, and handler values while hooks compose in order', () =>
+	Effect.gen(function* () {
+		const recorder = yield* makeEchoRecorder()
+		const observed = yield* Ref.make<ReadonlyArray<unknown>>([])
+		const hookLayer = makeHookRunner({
+			preToolUse: [
+				{
+					name: 'mutate-echo',
+					tools: ['echo'],
+					handler: () => Effect.succeed({ _tag: 'continue' as const, params: { text: 'executed' } }),
+				},
+			],
+			postToolUse: [
+				{
+					name: 'decorate-echo',
+					tools: ['echo'],
+					handler: (input) =>
+						Ref.update(observed, (values) => [...values, input]).pipe(
+							Effect.as({ _tag: 'replace' as const, result: { decorated: true }, isFailure: false }),
+						),
+				},
+				{
+					name: 'observe-decorated-echo',
+					tools: ['echo'],
+					handler: (input) =>
+						Ref.update(observed, (values) => [...values, input]).pipe(Effect.as({ _tag: 'keep' as const })),
+				},
+			],
+		})
+		const layer = toolRuntimeBaseLayer(hookLayer, layerEchoTool(recorder))
+
+		const settlement = yield* Effect.gen(function* () {
+			const runtime = yield* ToolRuntime
+			return yield* runtime.settle({
+				agentId,
+				parentAgentId: null,
+				assistantMessage: makeAssistantToolCall({ text: 'original' }),
+			})
+		}).pipe(Effect.provide(layer))
+
+		const calls = yield* Ref.get(observed)
+		expect(calls).toHaveLength(2)
+		expect(calls[0]).toMatchObject({
+			originalInput: { text: 'original' },
+			executedInput: { text: 'executed' },
+			handlerResult: { echoed: 'executed' },
+			result: { echoed: 'executed' },
+		})
+		expect(calls[1]).toMatchObject({
+			originalInput: { text: 'original' },
+			executedInput: { text: 'executed' },
+			handlerResult: { echoed: 'executed' },
+			result: { decorated: true },
+		})
+		expect(settlement.toolResults[0]?.executedInput).toEqual({ text: 'executed' })
+		expect(settlement.toolResults[0]?.message.content[0]).toMatchObject({ result: { decorated: true } })
+	}),
+)

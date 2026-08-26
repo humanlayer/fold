@@ -70,6 +70,9 @@ export const PostToolUseHookInput = Schema.Struct({
 	parentAgentId: Schema.NullOr(AgentId),
 	toolCallId: ToolCallId,
 	toolName: Schema.String,
+	originalInput: Schema.Unknown,
+	executedInput: Schema.Unknown,
+	handlerResult: Schema.Unknown,
 	result: Schema.Unknown,
 	isFailure: Schema.Boolean,
 }).annotate({ identifier: 'PostToolUseHookInput' })
