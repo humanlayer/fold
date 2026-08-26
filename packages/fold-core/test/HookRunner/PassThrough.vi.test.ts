@@ -48,6 +48,9 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 			parentAgentId: null,
 			toolCallId,
 			toolName: 'echo',
+			originalInput: params,
+			executedInput: params,
+			handlerResult: { echoed: 'hello' },
 			result: { echoed: 'hello' },
 			isFailure: false,
 		})
