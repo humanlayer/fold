@@ -5,19 +5,16 @@
  * write/move/delete steps while holding every target file's mutation lock. Failure messages carry the
  * `apply_patch verification failed:` prefix (opencode/agentlayer convention).
  */
-import { dirname } from 'node:path'
-
 import {
 	applyPatchToolContract,
 	computePatch,
 	defineTool,
 	parsePatch,
+	platformToolDependencies,
 	type PatchOp,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem } from 'effect'
-
-import { cwdFor } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Path } from 'effect'
 import { withFileMutationLocks } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
@@ -34,16 +31,18 @@ const opPaths = (op: PatchOp): ReadonlyArray<string> =>
 export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...applyPatchToolContract,
+		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
-				const cwd = cwdFor(options)
+				const pathService = yield* Path.Path
+				const cwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const ops = yield* parsePatch(params.patch_text).pipe(
 					Effect.mapError((error) => verificationFailed(error.message)),
 				)
 
-				const resolvePath = (path: string): string => resolveToCwd(path, cwd)
-				const touchedPaths = [...new Set(ops.flatMap(opPaths).map(resolvePath))]
+				const resolvePath = (path: string) => resolveToCwd(path, cwd)
+				const touchedPaths = [...new Set(yield* Effect.forEach(ops.flatMap(opPaths), resolvePath))]
 
 				// Hold every target's mutation lock across read-verify-write so parallel mutations of the
 				// same files cannot interleave with the patch.
@@ -56,8 +55,9 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 						for (const op of ops) {
 							if (op._tag === 'add') continue
 							if (!files.has(op.path)) {
+								const source = yield* resolvePath(op.path)
 								const content = yield* fs
-									.readFileString(resolvePath(op.path))
+									.readFileString(source)
 									.pipe(Effect.catch(() => Effect.succeed<string | null>(null)))
 								files.set(op.path, content)
 							}
@@ -71,8 +71,8 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 						for (const step of computed.steps) {
 							switch (step._tag) {
 								case 'write': {
-									const target = resolvePath(step.path)
-									yield* fs.makeDirectory(dirname(target), { recursive: true }).pipe(
+									const target = yield* resolvePath(step.path)
+									yield* fs.makeDirectory(pathService.dirname(target), { recursive: true }).pipe(
 										Effect.mapError((error) => ({
 											message: platformErrorMessage('apply_patch', step.path, error),
 										})),
@@ -86,7 +86,7 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 								}
 
 								case 'delete':
-									yield* fs.remove(resolvePath(step.path)).pipe(
+									yield* fs.remove(yield* resolvePath(step.path)).pipe(
 										Effect.mapError((error) => ({
 											message: platformErrorMessage('apply_patch', step.path, error),
 										})),
@@ -94,8 +94,8 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 									break
 
 								case 'move': {
-									const target = resolvePath(step.toPath)
-									yield* fs.makeDirectory(dirname(target), { recursive: true }).pipe(
+									const target = yield* resolvePath(step.toPath)
+									yield* fs.makeDirectory(pathService.dirname(target), { recursive: true }).pipe(
 										Effect.mapError((error) => ({
 											message: platformErrorMessage('apply_patch', step.toPath, error),
 										})),
@@ -105,7 +105,7 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 											message: platformErrorMessage('apply_patch', step.toPath, error),
 										})),
 									)
-									yield* fs.remove(resolvePath(step.fromPath)).pipe(
+									yield* fs.remove(yield* resolvePath(step.fromPath)).pipe(
 										Effect.mapError((error) => ({
 											message: platformErrorMessage('apply_patch', step.fromPath, error),
 										})),

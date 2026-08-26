@@ -350,6 +350,8 @@ const finalOutputAfterPostToolHooks = (input: {
 	readonly parentAgentId: AgentId | null
 	readonly toolCallId: ToolCallId
 	readonly toolName: string
+	readonly originalInput: unknown
+	readonly executedInput: unknown
 	readonly output: FinalToolOutput
 }): Effect.Effect<FinalToolOutput, HookExecutionError, HookRunner | StopController> =>
 	Effect.gen(function* () {
@@ -361,6 +363,9 @@ const finalOutputAfterPostToolHooks = (input: {
 			parentAgentId: input.parentAgentId,
 			toolCallId: input.toolCallId,
 			toolName: input.toolName,
+			originalInput: input.originalInput,
+			executedInput: input.executedInput,
+			handlerResult: input.output.result,
 			result: input.output.result,
 			isFailure: input.output.isFailure,
 		})
@@ -460,6 +465,8 @@ const settlePreparedToolCall = (input: {
 				parentAgentId: input.parentAgentId,
 				toolCallId,
 				toolName,
+				originalInput: input.prepared.original.params,
+				executedInput: input.prepared.params,
 				output: handlerOutput,
 			})
 

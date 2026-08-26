@@ -4,6 +4,7 @@
  * deltas, tail truncation with spill files, EPIPE-style pipelines, and input validation.
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
@@ -44,6 +45,22 @@ it.live('runs in the provided workdir', () =>
 		const result = yield* runHandler(handlerOf(bashTool())({ command: 'ls', workdir: dir }))
 
 		expect(outputOf(result)).toContain('marker.txt')
+	}),
+)
+
+it.live('expands a home-relative configured working directory', () =>
+	Effect.gen(function* () {
+		const result = yield* runHandler(handlerOf(bashTool({ cwd: '~' }))({ command: 'pwd' }))
+
+		expect(outputOf(result).trim()).toBe(homedir())
+	}),
+)
+
+it.live('expands a home-relative command working directory', () =>
+	Effect.gen(function* () {
+		const result = yield* runHandler(handlerOf(bashTool())({ command: 'pwd', workdir: '~' }))
+
+		expect(outputOf(result).trim()).toBe(homedir())
 	}),
 )
 

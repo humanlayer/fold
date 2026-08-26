@@ -3,12 +3,15 @@
  * directory creation, serialized through the per-file mutation queue. One deliberate deviation from pi
  * (per D18): the success message reports the true UTF-8 byte count, not the UTF-16 code-unit length.
  */
-import { dirname } from 'node:path'
+import {
+	defineTool,
+	platformToolDependencies,
+	utf8ByteLength,
+	writeToolContract,
+	type FoldTool,
+} from '@humanlayer/fold-core'
+import { Effect, FileSystem, Path } from 'effect'
 
-import { defineTool, utf8ByteLength, writeToolContract, type FoldTool } from '@humanlayer/fold-core'
-import { Effect, FileSystem } from 'effect'
-
-import { cwdFor } from '../Fs/DefaultFileSystem'
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
@@ -17,16 +20,19 @@ import { platformErrorMessage } from './ReadTool'
 export const writeTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...writeToolContract,
+		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
-				const absolutePath = resolveToCwd(params.path, cwdFor(options))
+				const pathService = yield* Path.Path
+				const cwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
+				const absolutePath = yield* resolveToCwd(params.path, cwd)
 
 				yield* withFileMutationLock(
 					fs,
 					absolutePath,
 					Effect.gen(function* () {
-						yield* fs.makeDirectory(dirname(absolutePath), { recursive: true }).pipe(
+						yield* fs.makeDirectory(pathService.dirname(absolutePath), { recursive: true }).pipe(
 							Effect.mapError((error) => ({
 								message: platformErrorMessage('write', params.path, error),
 							})),

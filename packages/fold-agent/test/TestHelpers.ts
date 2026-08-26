@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 
+import * as NodeServices from '@effect/platform-node/NodeServices'
 import {
 	AgentId,
 	CurrentAgent,
@@ -37,6 +38,7 @@ export const makeAmbientServices = (): Effect.Effect<{
 
 		return {
 			layer: Layer.mergeAll(
+				NodeServices.layer,
 				Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
 				Layer.succeed(ToolEvents, {
 					emit: (payload) => Ref.update(events, (recorded) => [...recorded, payload]),

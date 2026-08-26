@@ -11,8 +11,9 @@
  * scan into its description and contributes the skills prompt block - do real work in theirs. Sharing
  * the same value across several agents' `tools` arrays shares one init (one scan, one snapshot).
  */
-import { Effect, FileSystem, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 import { Tool } from 'effect/unstable/ai'
+import { ChildProcessSpawner } from 'effect/unstable/process'
 
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { Subagents } from '../Subagents/SubagentsService'
@@ -42,6 +43,15 @@ export type ToolHandlerServices =
 	| InterruptNote
 	| Subagents
 	| FileSystem.FileSystem
+
+type PlatformToolServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+
+/** Neutral platform services used by filesystem and process-backed tools. */
+export const platformToolDependencies = [
+	FileSystem.FileSystem,
+	Path.Path,
+	ChildProcessSpawner.ChildProcessSpawner,
+] as const
 
 /** Handler stored on a tool descriptor, erased to the runtime dispatch shape. */
 export type ErasedToolHandler = (params: unknown) => Effect.Effect<unknown, unknown, ToolHandlerServices>
@@ -91,7 +101,10 @@ export type DefineToolOptions<Params extends Schema.Top, Success extends Schema.
 	readonly success?: Success
 	/** Failure schema for expected, model-visible failures. Defaults to never (handler cannot fail). */
 	readonly failure?: Failure
-	readonly handler: (params: Params['Type']) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices>
+	readonly dependencies?: typeof platformToolDependencies
+	readonly handler: (
+		params: Params['Type'],
+	) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices | PlatformToolServices>
 }
 
 /**
@@ -131,14 +144,20 @@ export const defineTool = <
 			InterruptNote,
 			Subagents,
 			FileSystem.FileSystem,
+			...(options.dependencies ?? []),
 		],
 	}).annotate(Tool.Strict, false)
 
 	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.
-	const handler =
+	const handlerWithDependencies =
 		options.success === undefined
 			? (params: Params['Type']) => options.handler(params).pipe(Effect.asVoid)
 			: options.handler
+	// SAFETY: Effect AI supplies the services declared by `dependencies` before invoking this handler.
+	// The erased Fold dispatch table retains only Fold's per-call services because heterogeneous tools
+	// cannot preserve their individual dependency rows after collection.
+	// oxlint-disable-next-line typescript/consistent-type-assertions
+	const handler = handlerWithDependencies as ErasedToolHandler
 
 	return {
 		name: options.name,

@@ -12,26 +12,23 @@
  * failures carrying the accumulated output; signal-killed commands are successes (pi semantics).
  */
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
 
-import * as NodeChildProcessSpawner from '@effect/platform-node/NodeChildProcessSpawner'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import * as NodePath from '@effect/platform-node/NodePath'
 import {
 	defaultMaxBytes,
 	defineTool,
 	formatSize,
 	CurrentToolCall,
 	InterruptNote,
+	platformToolDependencies,
 	ToolEvents,
 	truncateTail,
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { type Context, Duration, Effect, Fiber, FileSystem, Layer, Option, Random, Ref, Schema, Semaphore, Stream } from 'effect'
-import { ChildProcess, type ChildProcessSpawner } from 'effect/unstable/process'
+import { Duration, Effect, Fiber, FileSystem, Option, Path, Random, Ref, Schema, Semaphore, Stream } from 'effect'
+import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
-import { cwdFor } from '../Fs/DefaultFileSystem'
+import { resolveToCwd } from '../Fs/PathResolve'
 import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
 
@@ -89,26 +86,6 @@ export type BashToolOptions = {
 	readonly spillDir?: string
 	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
 	readonly outputStore?: OutputStoreService
-}
-
-let spawnerContext: Context.Context<ChildProcessSpawner.ChildProcessSpawner> | null = null
-
-/** The process-wide spawner service, built lazily once over the Node platform layers. */
-const defaultSpawner = (): Context.Context<ChildProcessSpawner.ChildProcessSpawner> => {
-	if (spawnerContext === null) {
-		spawnerContext = Effect.runSync(
-			Effect.scoped(
-				// Layer.provide keeps only the spawner in the built context; fs/path stay internal.
-				Layer.build(
-					NodeChildProcessSpawner.layer.pipe(
-						Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
-					),
-				),
-			),
-		)
-	}
-
-	return spawnerContext
 }
 
 type AccumulatorState = {
@@ -263,10 +240,15 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		parameters: BashParameters,
 		success: BashSuccess,
 		failure: BashFailure,
+		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
-				const cwd = params.workdir ?? cwdFor(options)
+				const pathService = yield* Path.Path
+				const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+				const configuredCwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
+				const cwd =
+					params.workdir === undefined ? configuredCwd : yield* resolveToCwd(params.workdir, configuredCwd)
 				const timeoutSeconds = params.timeout ?? defaultTimeoutSeconds
 
 				if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
@@ -288,7 +270,8 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const outputStore = options?.outputStore
 				const spillRef = outputStore?.refFor(currentToolCall.toolCallId)
 				const spillToken = `${(yield* Random.next).toString(36).slice(2)}${(yield* Random.next).toString(36).slice(2)}`
-				const spillPath = spillRef?.path ?? join(options?.spillDir ?? tmpdir(), `fold-bash-${spillToken}.log`)
+				const spillPath =
+					spillRef?.path ?? pathService.join(options?.spillDir ?? tmpdir(), `fold-bash-${spillToken}.log`)
 				const accumulator = yield* makeAccumulator({
 					spillPath,
 					writeSpill: (path, chunk) =>
@@ -346,15 +329,21 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					})
 
 				const run = Effect.gen(function* () {
-					const handle = yield* ChildProcess.make('bash', ['-c', params.command], {
-						cwd,
-						env: { PATH: `${join(homedir(), '.fold', 'bin')}:${process.env.PATH ?? ''}` },
-						extendEnv: true,
-					}).pipe(
-						Effect.mapError((error) => ({
-							message: `Failed to start command: ${platformErrorMessage('bash', params.command, error)}`,
-						})),
-					)
+					const handle = yield* spawner
+						.spawn(
+							ChildProcess.make('bash', ['-c', params.command], {
+								cwd,
+								env: {
+									PATH: `${pathService.join(homedir(), '.fold', 'bin')}:${process.env.PATH ?? ''}`,
+								},
+								extendEnv: true,
+							}),
+						)
+						.pipe(
+							Effect.mapError((error) => ({
+								message: `Failed to start command: ${platformErrorMessage('bash', params.command, error)}`,
+							})),
+						)
 
 					// On interruption the spawner's own finalizer only SIGTERMs the group and awaits exit;
 					// this finalizer runs first (LIFO) and adds the SIGKILL escalation so a TERM-ignoring
@@ -394,7 +383,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				})
 
 				// The scope bounds the child process; interruption triggers the escalating group kill above.
-				const outcome = yield* Effect.scoped(run).pipe(Effect.provideContext(defaultSpawner()))
+				const outcome = yield* Effect.scoped(run)
 
 				const { text, totalLines, lastLineBytes } = yield* accumulator.snapshot
 				const truncation = truncateTail(text)
