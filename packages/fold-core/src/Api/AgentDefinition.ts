@@ -36,7 +36,7 @@ export type AgentDefinition = {
 	 */
 	readonly basePrompts?: Partial<Record<ModelFamily, string>>
 	/**
-	 * Auto-compaction policy (D11). Omitted means disabled. When enabled, every agent in the session -
+	 * Auto-compaction policy (D11). Omitted means enabled with Fold defaults. When enabled, every agent in the session -
 	 * root and subagents alike - compacts near its model's context limit: old history is summarized
 	 * (pi's structured checkpoint template by default; `compactionPrompt` replaces it) into a durable
 	 * `compaction` entry, and subsequent requests see the summary plus only the messages after the cut.

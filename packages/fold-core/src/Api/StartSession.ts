@@ -185,6 +185,10 @@ export type AgentTargetOptions = {
 	readonly agentId?: AgentId | string
 }
 
+export type CompactOptions = {
+	readonly additionalInstructions?: string | null
+}
+
 export type InjectedSkillEntries = {
 	readonly call: AssistantMessageLogEntry
 	readonly result: ToolResultLogEntry
@@ -245,7 +249,7 @@ export type FoldSession = {
 	 */
 	readonly switchModel: (model: FoldModel, options?: SwitchModelOptions) => Effect.Effect<void>
 	/** Force a root-agent compaction now. Returns null when there is nothing safe to summarize. */
-	readonly compact: () => Effect.Effect<CompactionLogEntry | null>
+	readonly compact: (options?: CompactOptions) => Effect.Effect<CompactionLogEntry | null>
 	/**
 	 * Rebind one profile role to a different model (profiles slice). Role-bound subagent types resolve
 	 * their binding at each dispatch/resume, so the swap applies from the very next run. No gating or
@@ -908,8 +912,8 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 			),
 		)
 
-	const compact = (): Effect.Effect<CompactionLogEntry | null> =>
-		gate.withPermit(session.compact().pipe(Effect.orDie))
+	const compact = (options?: CompactOptions): Effect.Effect<CompactionLogEntry | null> =>
+		gate.withPermit(session.compact(options).pipe(Effect.orDie))
 
 	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
 	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.

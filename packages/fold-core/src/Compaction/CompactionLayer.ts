@@ -32,7 +32,6 @@ import {
 } from './CompactionPrompts'
 import {
 	CompactionSummarizeError,
-	noopCompaction,
 	type AutoCompactConfig,
 	type CompactionCheckInput,
 	type CompactionPlan,
@@ -118,17 +117,25 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			const modelOutputLimit = yield* modelOutputLimitFor(input)
 			const maxOutputTokens = Math.min(Math.floor(outputFraction * reserveTokens), modelOutputLimit)
 			const languageModel = yield* LanguageModel.LanguageModel
-			const request = Stream.runCollect(
+			const baseRequest = Stream.runCollect(
 				languageModel.streamText({
 					prompt: Prompt.fromMessages([
 						Prompt.systemMessage({ content: compactionSystemPrompt }),
 						Prompt.userMessage({ content: [Prompt.textPart({ text: requestText })] }),
 					]),
 				}),
-			).pipe(
-				input.model?.providerKind === 'anthropic'
-					? AnthropicLanguageModel.withConfigOverride({ max_tokens: maxOutputTokens })
-					: OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
+			)
+			let configuredRequest = baseRequest
+			if (input.model?.providerKind === 'anthropic') {
+				configuredRequest = baseRequest.pipe(
+					AnthropicLanguageModel.withConfigOverride({ max_tokens: maxOutputTokens }),
+				)
+			} else if (input.model?.providerKind !== 'codex') {
+				configuredRequest = baseRequest.pipe(
+					OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
+				)
+			}
+			const request = configuredRequest.pipe(
 				Effect.mapError((error) => new CompactionSummarizeError({ message: describeSummarizerError(error) })),
 			)
 			const parts = yield* request
@@ -169,12 +176,19 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			)
 
 			const cut = findCompactionCutPlan(conversation, keepRecentTokens)
-			if (cut.firstKeptIndex <= 0) return null
+			const summarizeCompleteConversation =
+				input.trigger === 'manual' && cut.firstKeptIndex <= 0 && conversation.length >= 2
+			if (cut.firstKeptIndex <= 0 && !summarizeCompleteConversation) return null
 
-			const historyEnd = cut.isSplitTurn ? cut.turnStartIndex : cut.firstKeptIndex
+			const firstKeptIndex = summarizeCompleteConversation ? conversation.length : cut.firstKeptIndex
+			const historyEnd = summarizeCompleteConversation
+				? conversation.length
+				: cut.isSplitTurn
+					? cut.turnStartIndex
+					: firstKeptIndex
 			const toSummarize = conversation.slice(0, historyEnd)
-			const turnPrefix = cut.isSplitTurn ? conversation.slice(cut.turnStartIndex, cut.firstKeptIndex) : []
-			const discarded = conversation.slice(0, cut.firstKeptIndex)
+			const turnPrefix = cut.isSplitTurn ? conversation.slice(cut.turnStartIndex, firstKeptIndex) : []
+			const discarded = conversation.slice(0, firstKeptIndex)
 			const lastReplaced = discarded[discarded.length - 1]
 			if (lastReplaced === undefined) return null
 
@@ -190,8 +204,13 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				conversationText: serializeConversation(toSummarize),
 				previousSummary,
 				customPrompt: config.compactionPrompt ?? null,
+				additionalInstructions: input.additionalInstructions ?? null,
 			})
-			const prompt = compactionInstruction({ previousSummary, customPrompt: config.compactionPrompt ?? null })
+			const prompt = compactionInstruction({
+				previousSummary,
+				customPrompt: config.compactionPrompt ?? null,
+				additionalInstructions: input.additionalInstructions ?? null,
+			})
 
 			const historySummary =
 				toSummarize.length > 0
@@ -223,6 +242,10 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 	return { enabled: true, shouldCompact, plan }
 }
 
-/** Resolve an agent definition's `autoCompact` config to the service the session should install. */
-export const compactionServiceFor = (config: AutoCompactConfig | undefined): CompactionService =>
-	config === undefined || !config.enabled ? noopCompaction : makeCompactionService(config)
+/** Resolve an agent definition's automatic policy while retaining an explicit compaction planner. */
+export const compactionServiceFor = (config: AutoCompactConfig | undefined): CompactionService => {
+	const live = makeCompactionService(config?.enabled === true ? config : { enabled: true })
+	if (config?.enabled !== false) return live
+
+	return { ...live, enabled: false, shouldCompact: () => Effect.succeed(false) }
+}

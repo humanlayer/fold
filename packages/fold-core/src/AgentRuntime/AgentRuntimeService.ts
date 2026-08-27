@@ -66,6 +66,7 @@ export type CompactAgentInput = {
 	readonly parentAgentId: AgentId | null
 	readonly toolCallId: ToolCallId | null
 	readonly trigger: CompactionTrigger
+	readonly additionalInstructions?: string | null
 }
 
 /**

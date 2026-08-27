@@ -19,8 +19,8 @@ import type { ActiveModel, LogEntry, LogSeq } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'
 
 /**
- * Auto-compaction configuration on an agent definition. Omitted (`undefined`) means disabled - the
- * D11 disabled-by-default ruling. One config applies to the whole session: the root agent and every
+ * Auto-compaction configuration on an agent definition. Omitted (`undefined`) uses the enabled
+ * defaults. One config applies to the whole session: the root agent and every
  * subagent compact under the same policy, each against its own projection and its own model's
  * context window.
  */
@@ -59,6 +59,8 @@ export type CompactionCheckInput = {
 /** Input for building one compaction: the check input plus what caused it. */
 export type CompactionPlanInput = CompactionCheckInput & {
 	readonly trigger: CompactionTrigger
+	/** Optional guidance appended to the resolved standard instruction for this compaction only. */
+	readonly additionalInstructions?: string | null
 }
 
 /** The payload of one durable `compaction` entry, ready for the loop to append. */
@@ -81,7 +83,8 @@ export class CompactionSummarizeError extends Schema.TaggedError<CompactionSumma
 ) {}
 
 /**
- * Compaction operations consulted by the agent loop each turn.
+ * Compaction operations consulted by the agent loop each turn. `enabled` gates automatic threshold
+ * and overflow recovery only; explicit compaction remains available when it is false.
  *
  * `shouldCompact` is the cheap proactive gate: it compares the agent's last post-compaction
  * API-reported usage against the model's usable budget and never calls a model. `plan` does the
@@ -98,7 +101,7 @@ export type CompactionService = {
 	) => Effect.Effect<CompactionPlan | null, CompactionSummarizeError, LanguageModel.LanguageModel>
 }
 
-/** The disabled default: never compacts, and `plan` is unreachable (the loop gates on the checks). */
+/** Low-level fallback for graphs that do not install an agent policy. */
 export const noopCompaction: CompactionService = {
 	enabled: false,
 	shouldCompact: () => Effect.succeed(false),
@@ -106,9 +109,8 @@ export const noopCompaction: CompactionService = {
 }
 
 /**
- * Compaction service key with the no-op default (D11: optional, disabled by default). Sessions
- * started with `autoCompact: { enabled: true, ... }` provide the live service; everything else -
- * including low-level layer graphs that never mention compaction - resolves the no-op.
+ * Compaction service key with a no-op fallback. Public session composition always installs a live
+ * planner so explicit compaction is available regardless of automatic policy.
  */
 export const Compaction: Context.Reference<CompactionService> = Context.Reference('fold/Compaction', {
 	defaultValue: () => noopCompaction,

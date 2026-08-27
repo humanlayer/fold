@@ -229,10 +229,17 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			entries: ReadonlyArray<LogEntry>,
 			model: ActiveModel | null,
 			trigger: CompactionTrigger,
+			additionalInstructions: string | null = null,
 		): Effect.Effect<CompactionLogEntry | null> =>
 			Effect.gen(function* () {
 				const planned = yield* compaction
-					.plan({ agentId: input.agentId, entries, model, trigger })
+					.plan({
+						agentId: input.agentId,
+						entries,
+						model,
+						trigger,
+						additionalInstructions,
+					})
 					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
 
 				if (Result.isFailure(planned)) {
@@ -655,7 +662,13 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					const entries = yield* collectEntries
 					const runtimeState = runtimeForAgent(entries, input.agentId)
 
-					return yield* performCompaction(input, entries, runtimeState.activeModel, input.trigger)
+					return yield* performCompaction(
+						input,
+						entries,
+						runtimeState.activeModel,
+						input.trigger,
+						input.additionalInstructions ?? null,
+					)
 				}),
 		)
 
