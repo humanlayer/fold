@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { anthropicModel, defineAgent, defineSubagent, startSession, subagentTool } from '@humanlayer/fold-core'
-import { Console, Effect } from 'effect'
+import { Predicate, Console, Effect } from 'effect'
 
 import { bashTool, jsonlEventLog, readTool } from '../src/index'
 
@@ -75,14 +75,16 @@ const makeProgram = (apiKey: string) =>
 
 		// Read the story back off the durable log: one subagent, resumed under a second tool call.
 		const entries = yield* session.entries
-		const subagentStarts = entries.filter((entry) => entry._tag === 'agent_started' && entry.parentAgentId !== null)
-		const researcherId = subagentStarts[0]?._tag === 'agent_started' ? subagentStarts[0].agentId : null
+		const subagentStarts = entries.filter(
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
+		)
+		const researcherId = Predicate.isTagged(subagentStarts[0], 'agent_started') ? subagentStarts[0].agentId : null
 		const researcherTurns = entries.filter(
-			(entry) => entry._tag === 'assistant-message' && entry.agentId === researcherId,
+			(entry) => Predicate.isTagged(entry, 'assistant-message') && entry.agentId === researcherId,
 		).length
 		const researcherCalls = new Set(
 			entries
-				.filter((entry) => entry._tag === 'user-message' && entry.agentId === researcherId)
+				.filter((entry) => Predicate.isTagged(entry, 'user-message') && entry.agentId === researcherId)
 				.map((entry) => entry.toolCallId),
 		).size
 

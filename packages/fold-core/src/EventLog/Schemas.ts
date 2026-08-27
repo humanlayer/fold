@@ -1,4 +1,4 @@
-import { Schema } from 'effect'
+import { Data, Schema } from 'effect'
 import { Prompt, Response } from 'effect/unstable/ai'
 
 import { AgentId, CompactionId, EventId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
@@ -643,6 +643,7 @@ export const LogEntryInput = Schema.Union([
 	ErrorLogEntryInput,
 ]).annotate({ identifier: 'LogEntryInput', discriminator: '_tag' })
 export type LogEntryInput = typeof LogEntryInput.Type
+export const LogEntryInputs = Data.taggedEnum<LogEntryInput>()
 
 /** Frozen wire schema for persisted v1 entries. Add a new schema rather than changing incompatible v1 fields. */
 export const LogEntryV1 = Schema.Union([

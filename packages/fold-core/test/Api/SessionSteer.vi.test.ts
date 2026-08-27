@@ -6,7 +6,7 @@
  * are steerable by agentId, draining between the CHILD's turns with the dispatch envelope.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, Fiber } from 'effect'
+import { Predicate, Effect, Fiber } from 'effect'
 
 import { defineAgent, defineSubagent, startSession, subagentTool, type UserMessageLogEntry } from '../../src/index'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -38,7 +38,7 @@ it.effect('steering a running root drains between turns, exactly where the model
 		const tags = entries.map((entry) => entry._tag)
 		const toolResultIndex = tags.indexOf('tool-result')
 		const steeredIndex = entries.findIndex(
-			(entry) => entry._tag === 'user-message' && JSON.stringify(entry).includes('change course'),
+			(entry) => Predicate.isTagged(entry, 'user-message') && JSON.stringify(entry).includes('change course'),
 		)
 		const finalAssistantIndex = tags.lastIndexOf('assistant-message')
 		expect(steeredIndex).toBeGreaterThan(toolResultIndex)
@@ -151,8 +151,10 @@ it.effect("steering a running subagent drains between the child's turns under th
 		yield* gate.invoked
 
 		const midRun = yield* session.entries
-		const childStarted = midRun.find((entry) => entry._tag === 'agent_started' && entry.parentAgentId !== null)
-		if (childStarted === undefined || childStarted._tag !== 'agent_started') {
+		const childStarted = midRun.find(
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
+		)
+		if (childStarted === undefined || !Predicate.isTagged(childStarted, 'agent_started')) {
 			throw new Error('expected the dispatched subagent to have started')
 		}
 
@@ -165,7 +167,7 @@ it.effect("steering a running subagent drains between the child's turns under th
 		const entries = yield* session.entries
 		const steered = entries.find(
 			(entry): entry is UserMessageLogEntry =>
-				entry._tag === 'user-message' && JSON.stringify(entry).includes('focus on the config file'),
+				Predicate.isTagged(entry, 'user-message') && JSON.stringify(entry).includes('focus on the config file'),
 		)
 		if (steered === undefined) throw new Error('expected the steered user-message')
 		expect(steered.agentId).toBe(childStarted.agentId)

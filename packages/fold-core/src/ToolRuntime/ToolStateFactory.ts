@@ -8,7 +8,7 @@
 import { Effect, Ref, Stream } from 'effect'
 
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
-import type { LogEntry } from '../EventLog/Schemas'
+import { LogEntryInputs, type LogEntry } from '../EventLog/Schemas'
 import { Ids, type AgentId, type IdsService, type ToolCallId } from '../Ids'
 import { toolStateForAgent } from '../Projection/Projection'
 import type { ToolStateService } from './ToolStateService'
@@ -37,16 +37,17 @@ const appendToolStateEntry = (
 	Effect.fn('fold.tool_state.set')((namespace, key, value) =>
 		ids.makeStateId.pipe(
 			Effect.flatMap((stateId) =>
-				eventLog.append({
-					_tag: 'tool_state',
-					agentId: scope.agentId,
-					parentAgentId: scope.parentAgentId,
-					toolCallId: scope.toolCallId,
-					namespace,
-					stateId,
-					key,
-					value,
-				}),
+				eventLog.append(
+					LogEntryInputs['tool_state']({
+						agentId: scope.agentId,
+						parentAgentId: scope.parentAgentId,
+						toolCallId: scope.toolCallId,
+						namespace,
+						stateId,
+						key,
+						value,
+					}),
+				),
 			),
 			Effect.orDie,
 			Effect.asVoid,

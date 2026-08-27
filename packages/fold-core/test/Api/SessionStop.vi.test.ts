@@ -6,7 +6,7 @@
  * the next send begins.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, Fiber } from 'effect'
+import { Predicate, Effect, Fiber } from 'effect'
 
 import { defineAgent, defineSubagent, startSession, subagentTool } from '../../src/index'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -36,7 +36,7 @@ it.effect('stop lets the in-flight batch finish, then ends the run with no furth
 
 		// The batch's results are facts in the log; the second scripted turn was never consumed.
 		const entries = yield* session.entries
-		expect(entries.some((entry) => entry._tag === 'tool-result')).toBe(true)
+		expect(entries.some((entry) => Predicate.isTagged(entry, 'tool-result'))).toBe(true)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(1)
 
 		// The signal clears on the next send: the remaining turn now runs to completion.
@@ -86,21 +86,25 @@ it.effect('stop reaches the whole tree: the running subagent stops, then its dis
 
 		// The child wrote its own stopped marker at ITS batch boundary...
 		const entries = yield* session.entries
-		const childStarted = entries.find((entry) => entry._tag === 'agent_started' && entry.parentAgentId !== null)
-		if (childStarted === undefined || childStarted._tag !== 'agent_started') {
+		const childStarted = entries.find(
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
+		)
+		if (childStarted === undefined || !Predicate.isTagged(childStarted, 'agent_started')) {
 			throw new Error('expected the dispatched subagent to have started')
 		}
 		const childFinished = entries.findLast(
-			(entry) => entry._tag === 'agent-finished' && entry.agentId === childStarted.agentId,
+			(entry) => Predicate.isTagged(entry, 'agent-finished') && entry.agentId === childStarted.agentId,
 		)
-		if (childFinished === undefined || childFinished._tag !== 'agent-finished') {
+		if (childFinished === undefined || !Predicate.isTagged(childFinished, 'agent-finished')) {
 			throw new Error('expected the subagent terminal marker')
 		}
 		expect(childFinished.outcome).toBe('stopped')
 
 		// ...and the dispatcher's rendered result surfaces the stopped outcome honestly. (The child's
 		// own gate tool-result is also in the log; the dispatcher's is the root-owned one.)
-		const dispatchResult = entries.find((entry) => entry._tag === 'tool-result' && entry.parentAgentId === null)
+		const dispatchResult = entries.find(
+			(entry) => Predicate.isTagged(entry, 'tool-result') && entry.parentAgentId === null,
+		)
 		expect(JSON.stringify(dispatchResult)).toContain('stopped early')
 
 		// Neither model consumed its post-stop turn.

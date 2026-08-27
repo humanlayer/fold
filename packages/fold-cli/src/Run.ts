@@ -26,15 +26,16 @@ import type {
 	SessionId,
 	FoldSession,
 } from '@humanlayer/fold-core'
-import { Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
+import { Data, Match, Predicate, Cause, Clock, Effect, Exit, Fiber, Option, Stream, type Scope } from 'effect'
 
-import type { CredentialSummary, OutputRenderer, ResumeCommandFlag, SessionHeader } from './Renderer'
+import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type SessionHeader } from './Renderer'
 
 /**
  * What `--resume` selected: the newest session log for this project, or one exact id. Absent means a
  * fresh session.
  */
 export type ResumeTarget = { readonly _tag: 'latest' } | { readonly _tag: 'id'; readonly sessionId: SessionId }
+export const ResumeTarget = Data.taggedEnum<ResumeTarget>()
 
 /** Shared options for opening a CLI-backed fold session. */
 export type CliSessionOptions = {
@@ -86,9 +87,10 @@ const openSessionFor = (
 ): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids> => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
 
-	return options.resume._tag === 'latest'
-		? resumeLatestSession(launchOptions(options))
-		: resumeSessionById(options.resume.sessionId, launchOptions(options))
+	return Match.valueTags(options.resume, {
+		latest: () => resumeLatestSession(launchOptions(options)),
+		id: ({ sessionId }) => resumeSessionById(sessionId, launchOptions(options)),
+	})
 }
 
 const openSession = (options: CliSessionOptions): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids> =>
@@ -110,7 +112,7 @@ const activeModelFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 	for (let index = entries.length - 1; index >= 0; index -= 1) {
 		const entry = entries[index]
 		if (entry === undefined || entry.agentId !== rootAgentId) continue
-		if (entry._tag === 'model-change' || entry._tag === 'agent_started') return entry.model
+		if (Predicate.isTagged(entry, 'model-change') || Predicate.isTagged(entry, 'agent_started')) return entry.model
 	}
 
 	return null
@@ -118,7 +120,7 @@ const activeModelFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 
 const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions): Effect.Effect<CredentialSummary> =>
 	Effect.gen(function* () {
-		if (model === null) return { _tag: 'unknown', detail: 'no active model row found in the session log' }
+		if (model === null) return CredentialSummary.unknown({ detail: 'no active model row found in the session log' })
 
 		if (model.providerKind === 'codex') {
 			const store = makeCodexAuthStore({
@@ -126,14 +128,16 @@ const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions
 				...(options.foldHome === undefined ? {} : { path: join(options.foldHome, 'auth.json') }),
 			})
 			const token = yield* store.load
-			if (Option.isNone(token)) return { _tag: 'missing', detail: `entry "${model.providerId}" in ${store.path}` }
+			if (Option.isNone(token)) {
+				return CredentialSummary.missing({ detail: `entry "${model.providerId}" in ${store.path}` })
+			}
 
 			const now = yield* Clock.currentTimeMillis
 			const expiry = token.value.isExpired(now) ? 'expired; will refresh on first request' : 'valid'
-			return { _tag: 'found', detail: `${expiry} entry "${model.providerId}" in ${store.path}` }
+			return CredentialSummary.found({ detail: `${expiry} entry "${model.providerId}" in ${store.path}` })
 		}
 
-		return { _tag: 'found', detail: `API key resolved for provider "${model.providerId}"` }
+		return CredentialSummary.found({ detail: `API key resolved for provider "${model.providerId}"` })
 	})
 
 /**

@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import { AgentRuntime, type AssistantMessageLogEntry, type SystemMessageLogEntry } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -37,8 +37,8 @@ it.effect('completes a text-only run with the full log shape', () =>
 			'agent-finished',
 		])
 
-		const assistant = result.entries.find(
-			(entry): entry is AssistantMessageLogEntry => entry._tag === 'assistant-message',
+		const assistant = result.entries.find((entry): entry is AssistantMessageLogEntry =>
+			Predicate.isTagged(entry, 'assistant-message'),
 		)
 		expect(assistant?.finish?.reason).toBe('stop')
 		expect(assistant?.finish?.usage.inputTokens?.total).toBe(10)
@@ -63,7 +63,9 @@ it.effect('persists a multi-block system prompt as one leading entry with one me
 			return yield* collectEntries
 		}).pipe(Effect.provide(layer))
 
-		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry =>
+			Predicate.isTagged(entry, 'system-message'),
+		)
 		expect(systemEntries).toHaveLength(1)
 		const systemEntry = systemEntries[0]
 		expect(systemEntry).toBeDefined()

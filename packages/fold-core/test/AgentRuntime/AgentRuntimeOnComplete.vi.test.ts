@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Predicate, Effect, Ref } from 'effect'
 
 import { AgentRuntime, type HookConfig, type UserMessageLogEntry } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -54,8 +54,8 @@ it.effect('onComplete continueWith appends a continuation user message and loops
 			'agent-finished',
 		])
 
-		const userMessages = result.entries.filter(
-			(entry): entry is UserMessageLogEntry => entry._tag === 'user-message',
+		const userMessages = result.entries.filter((entry): entry is UserMessageLogEntry =>
+			Predicate.isTagged(entry, 'user-message'),
 		)
 		const continuation = userMessages[1]
 		expect(JSON.stringify(continuation?.message.content)).toContain('keep going')

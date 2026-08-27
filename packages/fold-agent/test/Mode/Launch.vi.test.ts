@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
 import { customModel, layerLiveIdFactory, type ActiveModel, type FoldModel } from '@humanlayer/fold-core'
-import { Effect, Stream } from 'effect'
+import { Predicate, Effect, Stream } from 'effect'
 import { LanguageModel, type Response } from 'effect/unstable/ai'
 
 import {
@@ -96,16 +96,16 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 
 				const entries = yield* session.entries
 
-				const started = entries.find((entry) => entry._tag === 'session_started')
+				const started = entries.find((entry) => Predicate.isTagged(entry, 'session_started'))
 				expect(started?._tag).toBe('session_started')
-				if (started?._tag === 'session_started') {
+				if (Predicate.isTagged(started, 'session_started')) {
 					expect(started.cwd).toBe(workspace)
 					expect(started.meta).toMatchObject({ mode: 'coding', rpi: false, profile: 'default' })
 				}
 
 				// The leading system message carries the mode prompt AND the agentfile project_context.
 				const leading = entries.find(
-					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
+					(entry) => Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading',
 				)
 				const leadingJson = JSON.stringify(leading)
 				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
@@ -116,8 +116,8 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 				expect(leadingJson).not.toContain(RPI_HINT_PROMPT)
 
 				// The mode's tool roster reached the agent (family-neutral + skill are always present).
-				const agentStarted = entries.find((entry) => entry._tag === 'agent_started')
-				const tools = agentStarted?._tag === 'agent_started' ? agentStarted.tools : []
+				const agentStarted = entries.find((entry) => Predicate.isTagged(entry, 'agent_started'))
+				const tools = Predicate.isTagged(agentStarted, 'agent_started') ? agentStarted.tools : []
 				expect(tools).toContain('read')
 				expect(tools).toContain('bash')
 				expect(tools).toContain('skill')
@@ -142,14 +142,14 @@ it.effect('launchSession with rpi appends the hint block after the mode prompt',
 				})
 
 				const leading = (yield* session.entries).find(
-					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
+					(entry) => Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading',
 				)
 				const leadingJson = JSON.stringify(leading)
-				const started = (yield* session.entries).find((entry) => entry._tag === 'session_started')
+				const started = (yield* session.entries).find((entry) => Predicate.isTagged(entry, 'session_started'))
 
 				expect(leadingJson).toContain(DEFAULT_CODING_PROMPT)
 				expect(leadingJson).toContain(RPI_HINT_PROMPT)
-				if (started?._tag === 'session_started') expect(started.meta.rpi).toBe(true)
+				if (Predicate.isTagged(started, 'session_started')) expect(started.meta.rpi).toBe(true)
 				// The hint composes AFTER the mode's own system prompt.
 				expect(leadingJson.indexOf(RPI_HINT_PROMPT)).toBeGreaterThan(leadingJson.indexOf(DEFAULT_CODING_PROMPT))
 			}),
@@ -178,11 +178,11 @@ it.effect('switchSessionMode preserves identity and writes one recomposed mode e
 
 				expect(session.sessionId).toBe(sessionId)
 				const entries = yield* session.entries
-				expect(entries.filter((entry) => entry._tag === 'session_started')).toHaveLength(1)
-				expect(entries.findLast((entry) => entry._tag === 'model-change')).toMatchObject({
+				expect(entries.filter((entry) => Predicate.isTagged(entry, 'session_started'))).toHaveLength(1)
+				expect(entries.findLast((entry) => Predicate.isTagged(entry, 'model-change'))).toMatchObject({
 					reason: 'select rlm',
 				})
-				const switchedPrompt = entries.findLast((entry) => entry._tag === 'system-message')
+				const switchedPrompt = entries.findLast((entry) => Predicate.isTagged(entry, 'system-message'))
 				expect(JSON.stringify(switchedPrompt)).toContain(RPI_HINT_PROMPT)
 			}),
 		)
@@ -301,10 +301,10 @@ it.effect('launchSession resolves CLI-style model selection overrides through fo
 					modelSelection: { role: 'fast', model: 'gpt-override', reasoning: 'medium' },
 				})
 				const entries = yield* session.entries
-				const agentStarted = entries.find((entry) => entry._tag === 'agent_started')
+				const agentStarted = entries.find((entry) => Predicate.isTagged(entry, 'agent_started'))
 
 				expect(agentStarted?._tag).toBe('agent_started')
-				if (agentStarted?._tag === 'agent_started') {
+				if (Predicate.isTagged(agentStarted, 'agent_started')) {
 					expect(agentStarted.model.providerKind).toBe('codex')
 					expect(agentStarted.model.modelId).toBe('gpt-override')
 					expect(agentStarted.model.role).toBe('fast')
@@ -341,10 +341,10 @@ it.effect('a direct Codex launch replaces the complete mixed-provider role map',
 					env: () => undefined,
 					modelSelection: { provider: 'codex', model: 'gpt-5.6-sol' },
 				})
-				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+				const started = (yield* session.entries).find((entry) => Predicate.isTagged(entry, 'agent_started'))
 
 				expect(started?._tag).toBe('agent_started')
-				if (started?._tag === 'agent_started') {
+				if (Predicate.isTagged(started, 'agent_started')) {
 					expect(started.model).toMatchObject({
 						providerId: 'codex',
 						modelId: 'gpt-5.6-sol',
@@ -375,7 +375,7 @@ it.effect('launchSession wires session profiles end to end: role-bound roster st
 				// The default roster is role-bound ('smart'/'fast'), so the session starting AT ALL proves
 				// launchSession passed a covering profiles map through startSession's validation.
 				const session = yield* launchSession({ config, cwd: workspace, foldHome })
-				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+				const started = (yield* session.entries).find((entry) => Predicate.isTagged(entry, 'agent_started'))
 				expect(started?._tag).toBe('agent_started')
 
 				// The facade's profile rebinding is reachable and typed on the launched session.
@@ -418,10 +418,10 @@ it.effect('--profile substitutes the profile roles and applies its pinned rlm mo
 					foldHome,
 					catalog: [],
 				})
-				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+				const started = (yield* session.entries).find((entry) => Predicate.isTagged(entry, 'agent_started'))
 
 				expect(started?._tag).toBe('agent_started')
-				if (started?._tag !== 'agent_started') return
+				if (!Predicate.isTagged(started, 'agent_started')) return
 				// The rlm mode pinned by the profile runs the primary on the ORCHESTRATOR role, and its
 				// toolset carries no bash - both prove the profile's roles AND mode were applied.
 				expect(started.model.modelId).toBe('gpt-ultra-orchestrator')
@@ -431,7 +431,7 @@ it.effect('--profile substitutes the profile roles and applies its pinned rlm mo
 				// RLM carries the RPI specialists BY DEFAULT: the hint block lands without any --rpi flag.
 				const entries = yield* session.entries
 				const leading = entries.find(
-					(entry) => entry._tag === 'system-message' && entry.placement === 'leading',
+					(entry) => Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading',
 				)
 				expect(JSON.stringify(leading)).toContain(RPI_HINT_PROMPT)
 			}),
@@ -455,10 +455,10 @@ it.effect('an explicit mode option beats the profile pinned mode', () =>
 					foldHome,
 					catalog: [],
 				})
-				const started = (yield* session.entries).find((entry) => entry._tag === 'agent_started')
+				const started = (yield* session.entries).find((entry) => Predicate.isTagged(entry, 'agent_started'))
 
 				expect(started?._tag).toBe('agent_started')
-				if (started?._tag !== 'agent_started') return
+				if (!Predicate.isTagged(started, 'agent_started')) return
 				// Default mode wins: primary on the profile's SMART binding, bash back in the toolset.
 				expect(started.model.modelId).toBe('gpt-ultra-smart')
 				expect(started.tools).toContain('bash')
@@ -479,7 +479,7 @@ it.effect('an unknown --profile fails with UnknownProfileError naming what exist
 		)
 
 		expect(error._tag).toBe('UnknownProfileError')
-		if (error._tag !== 'UnknownProfileError') return
+		if (!Predicate.isTagged(error, 'UnknownProfileError')) return
 		expect(error.profile).toBe('nope')
 		expect(error.available).toEqual(['ultratest'])
 	}),

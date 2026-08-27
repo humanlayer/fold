@@ -10,7 +10,7 @@ import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
 import { customModel, defineAgent, layerLiveIdFactory, SessionId, startSession } from '@humanlayer/fold-core'
-import { Effect, Stream } from 'effect'
+import { Predicate, Effect, Stream } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
 import {
@@ -86,8 +86,8 @@ it.effect('a prepared log round-trips a session: the filename and session_starte
 		expect(session.sessionId).toBe(prepared.sessionId)
 
 		const entries = yield* session.entries
-		const sessionStarted = entries.find((entry) => entry._tag === 'session_started')
-		if (sessionStarted === undefined || sessionStarted._tag !== 'session_started') {
+		const sessionStarted = entries.find((entry) => Predicate.isTagged(entry, 'session_started'))
+		if (sessionStarted === undefined || !Predicate.isTagged(sessionStarted, 'session_started')) {
 			throw new Error('expected session_started')
 		}
 		expect(sessionStarted.sessionId).toBe(prepared.sessionId)

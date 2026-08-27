@@ -10,7 +10,7 @@
  * those deltas are ephemeral and never persisted. Model provider failures become durable error +
  * agent-finished entries, never service failures.
  */
-import { Array as Arr, Effect, Layer, Predicate, Ref, Result, Schema, Stream } from 'effect'
+import { Array as Arr, Data, Effect, Layer, Predicate, Ref, Result, Schema, Stream } from 'effect'
 import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'effect/unstable/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
@@ -18,13 +18,14 @@ import { CompactionArchiveAccess } from '../Compaction/CompactionArchiveAccess'
 import { isContextOverflowError } from '../Compaction/CompactionEngine'
 import { Compaction, type CompactionService, type CompactionTrigger } from '../Compaction/CompactionService'
 import { EventLog } from '../EventLog/EventLogService'
-import type {
-	ActiveModel,
-	AgentFinishedLogEntry,
-	AgentFinishedOutcome,
-	CompactionLogEntry,
-	LogEntry,
-	LogEntryInput,
+import {
+	LogEntryInputs,
+	type ActiveModel,
+	type AgentFinishedLogEntry,
+	type AgentFinishedOutcome,
+	type CompactionLogEntry,
+	type LogEntry,
+	type LogEntryInput,
 } from '../EventLog/Schemas'
 import { usageFromResponseUsage } from '../EventLog/Usage'
 import { HookRunner } from '../HookRunner/HookRunnerService'
@@ -74,6 +75,7 @@ const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 
 /** Result of one private model/tool turn. */
 type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
+const TurnResult = Data.taggedEnum<TurnResult>()
 
 type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>
 
@@ -152,14 +154,15 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const appendUserMessage = (input: RunAgentInput, text: string): Effect.Effect<void> =>
 			ids.makeMessageId.pipe(
 				Effect.flatMap((messageId) =>
-					appendToEventLog({
-						_tag: 'user-message',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						messageId,
-						message: encodeUserMessage(Prompt.userMessage({ content: [Prompt.textPart({ text })] })),
-					}),
+					appendToEventLog(
+						LogEntryInputs['user-message']({
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							messageId,
+							message: encodeUserMessage(Prompt.userMessage({ content: [Prompt.textPart({ text })] })),
+						}),
+					),
 				),
 				Effect.asVoid,
 			)
@@ -171,17 +174,18 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			reason: string | null,
 		): Effect.Effect<AgentFinishedLogEntry> =>
 			Effect.gen(function* () {
-				const entry = yield* appendToEventLog({
-					_tag: 'agent-finished',
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					outcome,
-					resultText,
-					reason,
-				})
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['agent-finished']({
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						outcome,
+						resultText,
+						reason,
+					}),
+				)
 
-				if (entry._tag === 'agent-finished') return entry
+				if (Predicate.isTagged(entry, 'agent-finished')) return entry
 
 				// Invariant!
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending agent-finished`))
@@ -232,15 +236,16 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
 
 				if (Result.isFailure(planned)) {
-					yield* appendToEventLog({
-						_tag: 'error',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						errorType: 'compaction',
-						message: planned.failure.message,
-						details: { trigger },
-					})
+					yield* appendToEventLog(
+						LogEntryInputs['error']({
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							errorType: 'compaction',
+							message: planned.failure.message,
+							details: { trigger },
+						}),
+					)
 					return null
 				}
 
@@ -251,20 +256,21 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					trigger,
 				})
 
-				const entry = yield* appendToEventLog({
-					_tag: 'compaction',
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					compactionId: yield* ids.makeCompactionId,
-					prompt: planned.success.prompt,
-					summary: planned.success.summary,
-					...(postCompactionInstructions === null ? {} : { postCompactionInstructions }),
-					replacesThroughSeq: planned.success.replacesThroughSeq,
-					tokensBefore: planned.success.tokensBefore,
-				})
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['compaction']({
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						compactionId: yield* ids.makeCompactionId,
+						prompt: planned.success.prompt,
+						summary: planned.success.summary,
+						...(postCompactionInstructions === null ? {} : { postCompactionInstructions }),
+						replacesThroughSeq: planned.success.replacesThroughSeq,
+						tokensBefore: planned.success.tokensBefore,
+					}),
+				)
 
-				if (entry._tag === 'compaction') return entry
+				if (Predicate.isTagged(entry, 'compaction')) return entry
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending compaction`))
 			})
 
@@ -309,7 +315,9 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					.preRequest({ agentId: input.agentId, parentAgentId: input.parentAgentId, prompt })
 					.pipe(Effect.provideService(StopController, stopController), Effect.orDie)
 
-				const requestPrompt = preRequestDecision._tag === 'changed' ? preRequestDecision.prompt : prompt
+				const requestPrompt = Predicate.isTagged(preRequestDecision, 'changed')
+					? preRequestDecision.prompt
+					: prompt
 
 				// Both stop tracks bind before the model call: this run's own StopController (a preRequest
 				// hook requested it) and the session-wide signal (D9 - external Session.stop reaches every
@@ -318,7 +326,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					(yield* Ref.get(stopRef)) ?? (yield* sessionControls.sessionStopReason)
 				if (stopReasonAfterPreRequest !== null) {
 					const entry = yield* appendFinished(input, 'stopped', null, stopReasonAfterPreRequest)
-					return { _tag: 'finished', entry } as const
+					return TurnResult.finished({ entry })
 				}
 
 				// Advertise only the epoch's active toolset (agent_started/tools-change fold): the installed
@@ -383,21 +391,22 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 							runtimeState.activeModel,
 							'overflow',
 						)
-						if (recovered) return { _tag: 'continue' } as const
+						if (recovered) return TurnResult.continue()
 					}
 
-					yield* appendToEventLog({
-						_tag: 'error',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						errorType: 'model',
-						message,
-						details: {},
-					})
+					yield* appendToEventLog(
+						LogEntryInputs['error']({
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							errorType: 'model',
+							message,
+							details: {},
+						}),
+					)
 
 					const entry = yield* appendFinished(input, 'error', null, message)
-					return { _tag: 'finished', entry } as const
+					return TurnResult.finished({ entry })
 				}
 
 				const parts: ReadonlyArray<Response.AnyPart> = modelParts.success
@@ -409,23 +418,24 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 				if (assistantMessage === undefined) {
 					const entry = yield* appendFinished(input, 'completed', null, null)
-					return { _tag: 'finished', entry } as const
+					return TurnResult.finished({ entry })
 				}
 
 				const persistedAssistant = yield* rewriteAssistantToolCallIds(assistantMessage)
 
-				yield* appendToEventLog({
-					_tag: 'assistant-message',
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					messageId: yield* ids.makeMessageId,
-					message: encodeAssistantMessage(persistedAssistant),
-					finish:
-						finishPart === undefined
-							? null
-							: { reason: finishPart.reason, usage: usageFromResponseUsage(finishPart.usage) },
-				})
+				yield* appendToEventLog(
+					LogEntryInputs['assistant-message']({
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						messageId: yield* ids.makeMessageId,
+						message: encodeAssistantMessage(persistedAssistant),
+						finish:
+							finishPart === undefined
+								? null
+								: { reason: finishPart.reason, usage: usageFromResponseUsage(finishPart.usage) },
+					}),
+				)
 
 				const toolCalls = persistedAssistant.content.flatMap((part) =>
 					part.type === 'tool-call' ? [{ name: part.name, params: part.params }] : [],
@@ -444,7 +454,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 					if (settlement.stopRequested) {
 						const entry = yield* appendFinished(input, 'stopped', null, 'a tool or hook requested a stop')
-						return { _tag: 'finished', entry } as const
+						return TurnResult.finished({ entry })
 					}
 
 					// D9: a session-wide stop lets the in-flight batch finish and its results land (above),
@@ -452,15 +462,15 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					const sessionStopAfterBatch = yield* sessionControls.sessionStopReason
 					if (sessionStopAfterBatch !== null) {
 						const entry = yield* appendFinished(input, 'stopped', null, sessionStopAfterBatch)
-						return { _tag: 'finished', entry } as const
+						return TurnResult.finished({ entry })
 					}
 
 					if (doomLoop.reason !== null) {
 						const entry = yield* appendFinished(input, 'stopped', null, doomLoop.reason)
-						return { _tag: 'finished', entry } as const
+						return TurnResult.finished({ entry })
 					}
 
-					return { _tag: 'continue' } as const
+					return TurnResult.continue()
 				}
 
 				yield* Ref.set(doomLoopRef, initialDoomLoopState)
@@ -474,12 +484,12 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const stopReasonAfterComplete = yield* Ref.get(stopRef)
 				if (stopReasonAfterComplete !== null) {
 					const entry = yield* appendFinished(input, 'stopped', resultText, stopReasonAfterComplete)
-					return { _tag: 'finished', entry } as const
+					return TurnResult.finished({ entry })
 				}
 
-				if (onCompleteDecision._tag === 'continueWith') {
+				if (Predicate.isTagged(onCompleteDecision, 'continueWith')) {
 					yield* appendUserMessage(input, onCompleteDecision.text)
-					return { _tag: 'continue' } as const
+					return TurnResult.continue()
 				}
 
 				// D8: follow-ups queued while this agent was running drain exactly where the run would
@@ -489,11 +499,11 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					for (const text of followUps) {
 						yield* appendUserMessage(input, text)
 					}
-					return { _tag: 'continue' } as const
+					return TurnResult.continue()
 				}
 
 				const entry = yield* appendFinished(input, 'completed', resultText, null)
-				return { _tag: 'finished', entry } as const
+				return TurnResult.finished({ entry })
 			})
 
 		/** Shared epoch fields: whose log rows these are, and which model's leading prompt to compose. */
@@ -518,17 +528,18 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const blocks = yield* systemPrompt.compose({ model: input.model, agentBlocks })
 
 				if (Arr.isReadonlyArrayNonEmpty(blocks)) {
-					yield* appendToEventLog({
-						_tag: 'system-message',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						messageId: yield* ids.makeMessageId,
-						messages: Arr.map(blocks, (content, index) =>
-							encodeSystemMessage(leadingSystemMessageFor(content, index === blocks.length - 1)),
-						),
-						placement: 'leading',
-					})
+					yield* appendToEventLog(
+						LogEntryInputs['system-message']({
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							messageId: yield* ids.makeMessageId,
+							messages: Arr.map(blocks, (content, index) =>
+								encodeSystemMessage(leadingSystemMessageFor(content, index === blocks.length - 1)),
+							),
+							placement: 'leading',
+						}),
+					)
 				}
 			})
 
@@ -538,19 +549,20 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// prompt block set once for the starting model; both are recorded durably.
 				const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
 
-				const entry = yield* appendToEventLog({
-					_tag: 'agent_started',
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					mode: input.mode,
-					model: input.model,
-					...(input.promptCacheKey == null ? {} : { promptCacheKey: input.promptCacheKey }),
-					tools: resolvedToolset.names,
-					skill: input.skill,
-					fork: input.fork,
-					agentType: input.agentType,
-				})
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['agent_started']({
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						mode: input.mode,
+						model: input.model,
+						...(input.promptCacheKey == null ? {} : { promptCacheKey: input.promptCacheKey }),
+						tools: resolvedToolset.names,
+						skill: input.skill,
+						fork: input.fork,
+						agentType: input.agentType,
+					}),
+				)
 
 				// A fork appends no leading system message: its projection folds the forked-from agent's
 				// history, leading blocks included, keeping the fork's prompt prefix byte-identical for
@@ -559,7 +571,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					yield* appendLeadingSystemMessage(input)
 				}
 
-				if (entry._tag === 'agent_started') return entry
+				if (Predicate.isTagged(entry, 'agent_started')) return entry
 
 				// Invariant!
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending agent_started`))
@@ -574,40 +586,43 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					// The next run's projection binds them; the caller swaps the LanguageModel layer (D15).
 					const previousLevel = runtimeForAgent(yield* collectEntries, input.agentId).reasoningLevel
 
-					yield* appendToEventLog({
-						_tag: 'model-change',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						model: input.model,
-						reason: input.reason,
-					})
+					yield* appendToEventLog(
+						LogEntryInputs['model-change']({
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							model: input.model,
+							reason: input.reason,
+						}),
+					)
 
 					yield* appendLeadingSystemMessage(input)
 
 					const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
-					yield* appendToEventLog({
-						_tag: 'tools-change',
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						tools: resolvedToolset.names,
-						reason: input.reason,
-					})
+					yield* appendToEventLog(
+						LogEntryInputs['tools-change']({
+							agentId: input.agentId,
+							parentAgentId: input.parentAgentId,
+							toolCallId: input.toolCallId,
+							tools: resolvedToolset.names,
+							reason: input.reason,
+						}),
+					)
 
 					// Reasoning is part of the switched configuration: when the incoming model's requested
 					// level differs from the projected level, the change lands as its own durable fact. The
 					// model-change fold already rebinds the level (D23 - not an epoch boundary), so this entry
 					// is written for log legibility and skipped when nothing changed.
 					if (previousLevel !== input.model.requestedReasoningLevel) {
-						yield* appendToEventLog({
-							_tag: 'thinking-change',
-							agentId: input.agentId,
-							parentAgentId: input.parentAgentId,
-							toolCallId: input.toolCallId,
-							reasoningLevel: input.model.requestedReasoningLevel,
-							reason: input.reason,
-						})
+						yield* appendToEventLog(
+							LogEntryInputs['thinking-change']({
+								agentId: input.agentId,
+								parentAgentId: input.parentAgentId,
+								toolCallId: input.toolCallId,
+								reasoningLevel: input.model.requestedReasoningLevel,
+								reason: input.reason,
+							}),
+						)
 					}
 				}),
 		)
@@ -629,7 +644,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 				while (true) {
 					const turn = yield* runTurn(input, stopController, stopRef, overflowRecoveryRef, doomLoopRef)
-					if (turn._tag === 'finished') return turn.entry
+					if (Predicate.isTagged(turn, 'finished')) return turn.entry
 				}
 			}),
 		)

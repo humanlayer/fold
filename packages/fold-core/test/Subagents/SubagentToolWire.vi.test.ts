@@ -7,7 +7,7 @@
  * unknown agent_id) come back as instructive tool failures the model can correct from.
  */
 import { expect, it } from '@effect/vitest'
-import { Context, Effect, Layer } from 'effect'
+import { Predicate, Context, Effect, Layer } from 'effect'
 
 import {
 	AgentId,
@@ -86,7 +86,8 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 		// Resume through the wire wrote no second agent_started and grouped rows under the resuming call.
 		expect(subagentStartedEntries(entries)).toHaveLength(1)
 		const researcherUserMessages = entries.filter(
-			(entry): entry is UserMessageLogEntry => entry._tag === 'user-message' && entry.agentId === started.agentId,
+			(entry): entry is UserMessageLogEntry =>
+				Predicate.isTagged(entry, 'user-message') && entry.agentId === started.agentId,
 		)
 		expect(researcherUserMessages).toHaveLength(2)
 		expect(researcherUserMessages[1]?.toolCallId).not.toBeNull()
@@ -199,9 +200,9 @@ it.effect('an ambiguous short agent_id comes back as an instructive failure nami
 		})
 
 		const rootStarted = (yield* session.entries).find(
-			(entry) => entry._tag === 'agent_started' && entry.parentAgentId === null,
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId === null,
 		)
-		if (rootStarted?._tag !== 'agent_started') throw new Error('expected the root agent_started row')
+		if (!Predicate.isTagged(rootStarted, 'agent_started')) throw new Error('expected the root agent_started row')
 
 		const twinIds = [
 			AgentId.make(`agent_abcdef11${'0'.repeat(16)}`),

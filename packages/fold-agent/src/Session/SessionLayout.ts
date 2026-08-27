@@ -12,7 +12,7 @@ import { join } from 'node:path'
 
 import { SessionId, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
 import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
-import { Clock, Effect, Exit, Match, Option, Schema, Stream } from 'effect'
+import { Predicate, Clock, Effect, Exit, Match, Option, Schema, Stream } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
@@ -199,26 +199,26 @@ export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<R
 
 // Type-safe entry predicates that narrow the LogEntry union.
 const isSessionStarted = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_started' }> =>
-	entry._tag === 'session_started'
+	Predicate.isTagged(entry, 'session_started')
 
 const isSessionTitle = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_title' }> =>
-	entry._tag === 'session_title'
+	Predicate.isTagged(entry, 'session_title')
 
 const isUserMessage = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'user-message' }> =>
-	entry._tag === 'user-message'
+	Predicate.isTagged(entry, 'user-message')
 
 const isAgentFinished = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'agent-finished' }> =>
-	entry._tag === 'agent-finished'
+	Predicate.isTagged(entry, 'agent-finished')
 
 type ModelCarrier = Extract<LogEntry, { readonly _tag: 'agent_started' | 'model-change' }>
 const carriesModel = (entry: LogEntry): entry is ModelCarrier =>
-	entry._tag === 'agent_started' || entry._tag === 'model-change'
+	Predicate.isTagged(entry, 'agent_started') || Predicate.isTagged(entry, 'model-change')
 
 type FinishedAssistantMessage = Extract<LogEntry, { readonly _tag: 'assistant-message' }> & {
 	readonly finish: NonNullable<Extract<LogEntry, { readonly _tag: 'assistant-message' }>['finish']>
 }
 const isFinishedAssistantMessage = (entry: LogEntry): entry is FinishedAssistantMessage =>
-	entry._tag === 'assistant-message' && entry.finish !== null
+	Predicate.isTagged(entry, 'assistant-message') && entry.finish !== null
 
 const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message' }>): string => {
 	const content = entry.message.content
@@ -233,7 +233,8 @@ const computeStatus = (
 ): SessionSummary['status'] => {
 	// No finish yet, or activity after the last finish → derive from latest activity
 	if (lastFinished === undefined || (latestRootEntry !== undefined && latestRootEntry.seq > lastFinished.seq)) {
-		return latestRootEntry?._tag === 'system-message' || latestRootEntry?._tag === 'agent_started'
+		return Predicate.isTagged(latestRootEntry, 'system-message') ||
+			Predicate.isTagged(latestRootEntry, 'agent_started')
 			? 'ready'
 			: 'running'
 	}
@@ -306,7 +307,7 @@ const isCacheHit = (
 	ref: SessionLogRef,
 ): cached is typeof SummaryIndexRecord.Type =>
 	cached !== undefined &&
-	cached._tag === 'summary' &&
+	Predicate.isTagged(cached, 'summary') &&
 	cached.sourceMtimeMs === ref.mtimeMs &&
 	cached.sourceSize === (ref.size ?? 0)
 
@@ -344,7 +345,11 @@ export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Eff
 						summary === null
 							? Effect.void
 							: appendSessionIndexRecord(
-									{ _tag: 'summary', sourceMtimeMs: ref.mtimeMs, sourceSize: ref.size ?? 0, summary },
+									SummaryIndexRecord.make({
+										sourceMtimeMs: ref.mtimeMs,
+										sourceSize: ref.size ?? 0,
+										summary,
+									}),
 									options,
 								),
 					),
@@ -376,7 +381,7 @@ export const deleteSession = (
 		const outputExists = yield* fs.exists(outputDirectory).pipe(Effect.orDie)
 		yield* fs.remove(logPath).pipe(Effect.orDie)
 		const ts = yield* Clock.currentTimeMillis
-		yield* appendSessionIndexRecord({ _tag: 'deleted', sessionId, ts }, options)
+		yield* appendSessionIndexRecord(DeletedIndexRecord.make({ sessionId, ts }), options)
 		if (!outputExists) return { deleted: true, outputRemoved: true }
 
 		const outputRemoval = yield* Effect.exit(fs.remove(outputDirectory, { recursive: true }))
@@ -417,12 +422,11 @@ export const refreshSessionSummaryIndex = (sessionId: SessionId, options?: Sessi
 					summary === null
 						? Effect.void
 						: appendSessionIndexRecord(
-								{
-									_tag: 'summary',
+								SummaryIndexRecord.make({
 									sourceMtimeMs: ref.mtimeMs,
 									sourceSize: ref.size ?? 0,
 									summary,
-								},
+								}),
 								options,
 							),
 				),

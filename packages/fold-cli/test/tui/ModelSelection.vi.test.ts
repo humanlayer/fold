@@ -1,3 +1,4 @@
+import { Predicate } from 'effect'
 import { describe, expect, it } from 'vitest'
 
 import { requestToLaunchOptions, sessionToLaunchOptions } from '../../src/tui/LaunchRequests'
@@ -24,7 +25,7 @@ const configuration = {
 
 const requirePickerState = (state: ReturnType<typeof advanceModelPicker>): ModelPickerState => {
 	if (state === null) throw new Error('Expected model picker to advance')
-	if (state._tag === 'direct' || (state._tag === 'profile' && 'profile' in state))
+	if (Predicate.isTagged(state, 'direct') || (Predicate.isTagged(state, 'profile') && 'profile' in state))
 		throw new Error('Expected an intermediate model picker state')
 	return state
 }

@@ -8,7 +8,7 @@
  */
 import { AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiLanguageModel } from '@effect/ai-openai'
-import { Context, Layer } from 'effect'
+import { Data, Match, Context, Layer } from 'effect'
 import type { Effect } from 'effect'
 
 import type {
@@ -19,6 +19,10 @@ import type {
 	ReasoningLevel,
 } from '../EventLog/Schemas'
 
+const OpenAiReasoning = Data.taggedEnum<OpenAiReasoningSetting>()
+const CodexReasoning = Data.taggedEnum<CodexReasoningSetting>()
+const AnthropicThinking = Data.taggedEnum<AnthropicThinkingSetting>()
+
 /**
  * Map one reasoning level onto the OpenAI effort scale. `off` disables reasoning config entirely
  * (provider default applies); every other level passes straight through - the wire scale includes
@@ -26,7 +30,7 @@ import type {
  * validation at config time (D23/D25). Direct-SDK callers bypass that validation and own the 400 risk.
  */
 export const resolveOpenAiReasoning = (level: ReasoningLevel): OpenAiReasoningSetting =>
-	level === 'off' ? { _tag: 'disabled' } : { _tag: 'effort', effort: level }
+	level === 'off' ? OpenAiReasoning.disabled() : OpenAiReasoning.effort({ effort: level })
 
 /**
  * Map one reasoning level onto codex reasoning; codex always requests auto summaries (D23). Same
@@ -34,7 +38,7 @@ export const resolveOpenAiReasoning = (level: ReasoningLevel): OpenAiReasoningSe
  * validated at config time, so no level is clamped here.
  */
 export const resolveCodexReasoning = (level: ReasoningLevel): CodexReasoningSetting =>
-	level === 'off' ? { _tag: 'disabled' } : { _tag: 'effort', effort: level, summary: 'auto' }
+	level === 'off' ? CodexReasoning.disabled() : CodexReasoning.effort({ effort: level, summary: 'auto' })
 
 /**
  * Claude models that support adaptive thinking (`thinking: { type: "adaptive" }`): Opus 4.6+,
@@ -79,10 +83,10 @@ export const defaultAnthropicThinkingBudgets: Record<Exclude<ReasoningLevel, 'of
  */
 export const resolveAnthropicThinking = (level: ReasoningLevel, modelId: string): AnthropicThinkingSetting =>
 	level === 'off'
-		? { _tag: 'disabled' }
+		? AnthropicThinking.disabled()
 		: supportsAdaptiveThinking(modelId)
-			? { _tag: 'adaptive' }
-			: { _tag: 'budget', budgetTokens: defaultAnthropicThinkingBudgets[level] }
+			? AnthropicThinking.adaptive()
+			: AnthropicThinking.budget({ budgetTokens: defaultAnthropicThinkingBudgets[level] })
 
 /**
  * Map one reasoning level onto the anthropic per-request effort knob used alongside adaptive
@@ -146,25 +150,31 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 			case 'openai-compatible': {
 				const setting =
 					level === model.requestedReasoningLevel ? model.reasoning : resolveOpenAiReasoning(level)
+				const reasoning = Match.valueTags(setting, {
+					disabled: () => ({}),
+					effort: ({ effort }) => ({ reasoning: { effort } }),
+				})
 
-				return (self) =>
+				return <A, E, R>(self: Effect.Effect<A, E, R>) =>
 					OpenAiLanguageModel.withConfigOverride(self, {
 						model: model.modelId,
 						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
-						...(setting._tag === 'disabled' ? {} : { reasoning: { effort: setting.effort } }),
+						...reasoning,
 					})
 			}
 
 			case 'codex': {
 				const setting = level === model.requestedReasoningLevel ? model.reasoning : resolveCodexReasoning(level)
+				const reasoning = Match.valueTags(setting, {
+					disabled: () => ({}),
+					effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
+				})
 
-				return (self) =>
+				return <A, E, R>(self: Effect.Effect<A, E, R>) =>
 					OpenAiLanguageModel.withConfigOverride(self, {
 						model: model.modelId,
 						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
-						...(setting._tag === 'disabled'
-							? {}
-							: { reasoning: { effort: setting.effort, summary: setting.summary } }),
+						...reasoning,
 					})
 			}
 
@@ -179,21 +189,22 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 				// layer construction until the AgentModels layer seam lands (D15). Tools opt out of strict
 				// structured-output mode at definition time; do not pass the provider's `strictJsonSchema`
 				// config helper here, because this beta provider accidentally forwards it into the API payload.
-				switch (setting._tag) {
-					case 'disabled':
-						return identity
-					case 'adaptive':
-						return (self) =>
+				return Match.valueTags(setting, {
+					disabled: () => identity,
+					adaptive:
+						() =>
+						<A, E, R>(self: Effect.Effect<A, E, R>) =>
 							AnthropicLanguageModel.withConfigOverride(self, {
 								thinking: { type: 'adaptive' },
 								output_config: { effort: anthropicEffortForLevel(level) },
-							})
-					case 'budget':
-						return (self) =>
+							}),
+					budget:
+						(budget) =>
+						<A, E, R>(self: Effect.Effect<A, E, R>) =>
 							AnthropicLanguageModel.withConfigOverride(self, {
-								thinking: { type: 'enabled', budget_tokens: setting.budgetTokens },
-							})
-				}
+								thinking: { type: 'enabled', budget_tokens: budget.budgetTokens },
+							}),
+				})
 			}
 		}
 	},

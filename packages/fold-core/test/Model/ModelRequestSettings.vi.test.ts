@@ -1,7 +1,7 @@
 import { AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiLanguageModel } from '@effect/ai-openai'
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import {
 	defaultAnthropicThinkingBudgets,
@@ -111,8 +111,8 @@ const observedConfigs = (input: WrapModelRequestInput) =>
 		const anthropic = yield* settings.wrap(input)(Effect.serviceOption(AnthropicLanguageModel.Config))
 
 		return {
-			openai: openai._tag === 'Some' ? openai.value : null,
-			anthropic: anthropic._tag === 'Some' ? anthropic.value : null,
+			openai: Predicate.isTagged(openai, 'Some') ? openai.value : null,
+			anthropic: Predicate.isTagged(anthropic, 'Some') ? anthropic.value : null,
 		}
 	}).pipe(Effect.provide(liveModelRequestSettingsLayer))
 

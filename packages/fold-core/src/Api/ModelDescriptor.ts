@@ -4,7 +4,7 @@
  * Session composition root lowers a descriptor to a LanguageModel context when it builds or switches a
  * runtime, so no client or provider layer wiring appears in caller code (D15's provisioning seam).
  */
-import { Redacted } from 'effect'
+import { Data, Redacted } from 'effect'
 import type { Effect, Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'
 
@@ -31,6 +31,8 @@ export type FoldModelProvider =
 			readonly _tag: 'custom'
 			readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope>
 	  }
+
+const FoldModelProvider = Data.taggedEnum<FoldModelProvider>()
 
 /**
  * One model an agent can run on: the resolved ActiveModel snapshot recorded in the durable log plus the
@@ -84,7 +86,10 @@ export const openaiModel = (options: ProviderModelOptions): FoldModel => {
 			requestedReasoningLevel: level,
 			reasoning: resolveOpenAiReasoning(level),
 		},
-		provider: { _tag: 'openai-compatible', apiKey: redact(options.apiKey), baseUrl: options.baseUrl ?? null },
+		provider: FoldModelProvider['openai-compatible']({
+			apiKey: redact(options.apiKey),
+			baseUrl: options.baseUrl ?? null,
+		}),
 	}
 }
 
@@ -102,7 +107,7 @@ export const anthropicModel = (options: AnthropicModelOptions): FoldModel => {
 			requestedReasoningLevel: level,
 			thinking: resolveAnthropicThinking(level, model),
 		},
-		provider: { _tag: 'anthropic', apiKey: redact(options.apiKey), baseUrl: options.baseUrl ?? null },
+		provider: FoldModelProvider.anthropic({ apiKey: redact(options.apiKey), baseUrl: options.baseUrl ?? null }),
 	}
 }
 
@@ -117,5 +122,5 @@ export type CustomModelOptions = {
 /** Describe a model backed by a caller-supplied LanguageModel implementation. */
 export const customModel = (options: CustomModelOptions): FoldModel => ({
 	activeModel: options.activeModel,
-	provider: { _tag: 'custom', make: options.make },
+	provider: FoldModelProvider.custom({ make: options.make }),
 })

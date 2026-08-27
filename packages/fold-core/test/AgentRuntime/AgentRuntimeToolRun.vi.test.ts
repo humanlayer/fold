@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Predicate, Effect, Ref } from 'effect'
 import type { Prompt } from 'effect/unstable/ai'
 
 import { AgentRuntime, type AssistantMessageLogEntry, type ToolResultLogEntry } from '../../src/index'
@@ -43,8 +43,8 @@ it.effect('runs a tool turn end to end, rewriting and restoring provider tool-ca
 		])
 
 		// The persisted assistant tool-call has a minted fold id; the provider id is stashed in options.
-		const assistant = result.entries.find(
-			(entry): entry is AssistantMessageLogEntry => entry._tag === 'assistant-message',
+		const assistant = result.entries.find((entry): entry is AssistantMessageLogEntry =>
+			Predicate.isTagged(entry, 'assistant-message'),
 		)
 		const assistantContent = assistant?.message.content
 		if (typeof assistantContent === 'string' || assistantContent === undefined) {
@@ -58,7 +58,9 @@ it.effect('runs a tool turn end to end, rewriting and restoring provider tool-ca
 		expect(persistedToolCall.options).toMatchObject({ fold: { providerToolCallId: 'provider-call-1' } })
 
 		// The durable tool result is grouped under the minted fold id.
-		const toolResult = result.entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+		const toolResult = result.entries.find((entry): entry is ToolResultLogEntry =>
+			Predicate.isTagged(entry, 'tool-result'),
+		)
 		expect(toolResult?.toolCallId).toBe(persistedToolCall.id)
 
 		// The continuation request restores the provider's original id on both sides of the exchange.

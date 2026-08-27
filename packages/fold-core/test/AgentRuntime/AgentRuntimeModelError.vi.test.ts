@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import { AgentRuntime, type ErrorLogEntry } from '../../src/index'
 import { failureTurn, makeScriptedLanguageModel } from '../TestLayers/ScriptedLanguageModel'
@@ -33,7 +33,7 @@ it.effect('records a model provider failure as durable facts and resolves the ru
 			'agent-finished',
 		])
 
-		const error = result.entries.find((entry): entry is ErrorLogEntry => entry._tag === 'error')
+		const error = result.entries.find((entry): entry is ErrorLogEntry => Predicate.isTagged(entry, 'error'))
 		expect(error?.errorType).toBe('model')
 		expect(error?.message).toContain('boom: provider unavailable')
 	}),

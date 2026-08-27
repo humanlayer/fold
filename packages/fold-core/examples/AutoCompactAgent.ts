@@ -10,7 +10,7 @@
  *
  * Run: OPENAI_API_KEY=... bun packages/fold-core/examples/AutoCompactAgent.ts
  */
-import { Console, Effect } from 'effect'
+import { Predicate, Console, Effect } from 'effect'
 
 import { defineAgent, openaiModel, startSession, type CompactionLogEntry } from '../src/index'
 
@@ -57,7 +57,9 @@ const makeProgram = (key: string) =>
 		yield* Console.log(`  -> ${second.resultText ?? '(no text)'}`)
 
 		const entries = yield* session.entries
-		const compactions = entries.filter((entry): entry is CompactionLogEntry => entry._tag === 'compaction')
+		const compactions = entries.filter((entry): entry is CompactionLogEntry =>
+			Predicate.isTagged(entry, 'compaction'),
+		)
 
 		yield* Console.log(`\nlog: ${entries.map((entry) => entry._tag).join(' -> ')}`)
 

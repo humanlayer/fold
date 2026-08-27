@@ -12,7 +12,7 @@
  * failures degrade to a durable error note, and a resumed log projects the compacted history.
  */
 import { expect, it } from '@effect/vitest'
-import { Context, Effect, Layer } from 'effect'
+import { Predicate, Context, Effect, Layer } from 'effect'
 
 import {
 	defineAgent,
@@ -46,13 +46,13 @@ const compactConfig: AutoCompactConfig = { enabled: true, contextWindow: 10_000,
 const hugeUsage = { inputTokens: 7_000 }
 
 const compactionEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<CompactionLogEntry> =>
-	entries.filter((entry): entry is CompactionLogEntry => entry._tag === 'compaction')
+	entries.filter((entry): entry is CompactionLogEntry => Predicate.isTagged(entry, 'compaction'))
 
 const errorEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<ErrorLogEntry> =>
-	entries.filter((entry): entry is ErrorLogEntry => entry._tag === 'error')
+	entries.filter((entry): entry is ErrorLogEntry => Predicate.isTagged(entry, 'error'))
 
 const userEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<UserMessageLogEntry> =>
-	entries.filter((entry): entry is UserMessageLogEntry => entry._tag === 'user-message')
+	entries.filter((entry): entry is UserMessageLogEntry => Predicate.isTagged(entry, 'user-message'))
 
 it.effect('compacts mid-run at the threshold and keeps running; config from before the cut survives', () =>
 	Effect.gen(function* () {

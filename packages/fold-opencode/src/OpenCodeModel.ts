@@ -3,7 +3,7 @@ import { OpenAiClient as ResponsesClient, OpenAiLanguageModel as ResponsesLangua
 import { OpenAiClient as ChatClient, OpenAiLanguageModel as ChatLanguageModel } from '@effect/ai-openai-compat'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
-import { Context, Effect, Layer, Option, Schema } from 'effect'
+import { Match, Context, Effect, Layer, Option, Schema } from 'effect'
 import type { Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
@@ -124,6 +124,10 @@ export const makeOpenCodeLanguageModel = (
 		)
 		const resolved = resolveOpenCodeModelConfig(providers, requestedModel, options.apiUrl)
 		const reasoning = resolveOpenAiReasoning(options.reasoning ?? 'off')
+		const config = Match.valueTags(reasoning, {
+			disabled: () => ({}),
+			effort: ({ effort }) => ({ reasoning: { effort } }),
+		})
 
 		if (resolved.protocol === 'chat-completions') {
 			const clientContext = yield* Layer.build(ChatClient.layer({ apiUrl: resolved.apiUrl })).pipe(
@@ -131,7 +135,7 @@ export const makeOpenCodeLanguageModel = (
 			)
 			return yield* ChatLanguageModel.make({
 				model: resolved.model,
-				config: reasoning._tag === 'disabled' ? {} : { reasoning: { effort: reasoning.effort } },
+				config,
 			}).pipe(Effect.provideService(ChatClient.OpenAiClient, Context.get(clientContext, ChatClient.OpenAiClient)))
 		}
 
@@ -140,7 +144,7 @@ export const makeOpenCodeLanguageModel = (
 		)
 		return yield* ResponsesLanguageModel.make({
 			model: resolved.model,
-			config: reasoning._tag === 'disabled' ? {} : { reasoning: { effort: reasoning.effort } },
+			config,
 		}).pipe(
 			Effect.provideService(
 				ResponsesClient.OpenAiClient,

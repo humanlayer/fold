@@ -27,7 +27,21 @@
  * e.g. a changed skills roster - D20 rule), the facade writes one epoch transition before the first
  * send.
  */
-import { Cause, Context, Effect, Exit, Fiber, Layer, Ref, Schema, Scope, Semaphore, Stream } from 'effect'
+import {
+	Predicate,
+	Cause,
+	Context,
+	Effect,
+	Exit,
+	Fiber,
+	Layer,
+	Match,
+	Ref,
+	Schema,
+	Scope,
+	Semaphore,
+	Stream,
+} from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
@@ -42,13 +56,14 @@ import { compactionServiceFor } from '../Compaction/CompactionLayer'
 import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLogWithIds } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
-import type {
-	AgentFinishedLogEntry,
-	AssistantMessageLogEntry,
-	CompactionLogEntry,
-	LogEntry,
-	LogSeq,
-	ToolResultLogEntry,
+import {
+	LogEntryInputs,
+	type AgentFinishedLogEntry,
+	type AssistantMessageLogEntry,
+	type CompactionLogEntry,
+	type LogEntry,
+	type LogSeq,
+	type ToolResultLogEntry,
 } from '../EventLog/Schemas'
 import { Ids, layerLiveIdFactory, type AgentId, type IdsService, type SessionId } from '../Ids'
 import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
@@ -85,7 +100,7 @@ import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
 import type { AgentDefinition } from './AgentDefinition'
-import type { FoldEventLog } from './EventLogDescriptor'
+import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
@@ -261,7 +276,10 @@ type SessionAgentConfig = {
 
 /** Lower the event log descriptor to its EventLog layer. */
 const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids> =>
-	log._tag === 'memory' ? layerInMemoryEventLogWithIds : Layer.effect(EventLog, log.make)
+	Match.valueTags(log, {
+		memory: () => layerInMemoryEventLogWithIds,
+		source: ({ make }) => Layer.effect(EventLog, make),
+	})
 
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
@@ -432,7 +450,7 @@ const assembleSessionGraph = (options: {
 		// carries its own agent's hook chains (D16/D21).
 		const idsLayer = layerLiveIdFactory
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? { _tag: 'memory' }).pipe(Layer.provide(idsLayer)),
+			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(idsLayer)),
 			idsLayer,
 			liveAgentEventsLayer,
 		)
@@ -574,16 +592,12 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 		collectEntries.pipe(
 			Effect.flatMap((entries) => {
 				const resolution = resolveAgentIdRef(agentIdsFromEntries(entries), ref)
-				switch (resolution._tag) {
-					case 'resolved':
-						return Effect.succeed(resolution.agentId)
-					case 'not-found':
-						return Effect.fail(new SubagentNotFoundError({ requested: ref }))
-					case 'ambiguous':
-						return Effect.fail(
-							new SubagentNotFoundError({ requested: ref, candidates: resolution.candidates }),
-						)
-				}
+				return Match.valueTags(resolution, {
+					resolved: ({ agentId }) => Effect.succeed(agentId),
+					'not-found': () => Effect.fail(new SubagentNotFoundError({ requested: ref })),
+					ambiguous: ({ candidates }) =>
+						Effect.fail(new SubagentNotFoundError({ requested: ref, candidates })),
+				})
 			}),
 		)
 
@@ -593,7 +607,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 			Effect.flatMap((entries) => {
 				const finished = entries.findLast(
 					(entry): entry is AgentFinishedLogEntry =>
-						entry._tag === 'agent-finished' && entry.agentId === agentId,
+						Predicate.isTagged(entry, 'agent-finished') && entry.agentId === agentId,
 				)
 				return finished === undefined
 					? Effect.die(new Error(`agent ${agentId} has no terminal marker after its run ended`))
@@ -616,20 +630,23 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				const entries = yield* collectEntries
 				const finishedThisRun = entries.some(
 					(entry) =>
-						entry._tag === 'agent-finished' && entry.agentId === rootAgentId && entry.seq > baselineSeq,
+						Predicate.isTagged(entry, 'agent-finished') &&
+						entry.agentId === rootAgentId &&
+						entry.seq > baselineSeq,
 				)
 				if (finishedThisRun) return
 
 				yield* eventLog
-					.append({
-						_tag: 'agent-finished',
-						agentId: rootAgentId,
-						parentAgentId: null,
-						toolCallId: null,
-						outcome: 'interrupted',
-						resultText: null,
-						reason: 'interrupted by the user',
-					})
+					.append(
+						LogEntryInputs['agent-finished']({
+							agentId: rootAgentId,
+							parentAgentId: null,
+							toolCallId: null,
+							outcome: 'interrupted',
+							resultText: null,
+							reason: 'interrupted by the user',
+						}),
+					)
 					.pipe(Effect.orDie, Effect.asVoid)
 			})
 
@@ -742,55 +759,57 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 			const target = options?.agentId === undefined ? rootAgentId : yield* resolveTarget(options.agentId)
 			const toolCallId = yield* ids.makeToolCallId
 			const call = yield* eventLog
-				.append({
-					_tag: 'assistant-message',
-					agentId: target,
-					parentAgentId: null,
-					toolCallId: null,
-					messageId: yield* ids.makeMessageId,
-					message: encodeAssistantMessage(
-						Prompt.assistantMessage({
-							content: [
-								Prompt.toolCallPart({
-									id: toolCallId,
-									name: 'skill',
-									params: { name },
-									providerExecuted: false,
-								}),
-							],
-						}),
-					),
-					finish: null,
-				})
+				.append(
+					LogEntryInputs['assistant-message']({
+						agentId: target,
+						parentAgentId: null,
+						toolCallId: null,
+						messageId: yield* ids.makeMessageId,
+						message: encodeAssistantMessage(
+							Prompt.assistantMessage({
+								content: [
+									Prompt.toolCallPart({
+										id: toolCallId,
+										name: 'skill',
+										params: { name },
+										providerExecuted: false,
+									}),
+								],
+							}),
+						),
+						finish: null,
+					}),
+				)
 				.pipe(Effect.orDie)
-			if (call._tag !== 'assistant-message') {
+			if (!Predicate.isTagged(call, 'assistant-message')) {
 				return yield* Effect.die(new Error(`EventLog returned ${call._tag} while injecting skill call`))
 			}
 
 			const result = yield* eventLog
-				.append({
-					_tag: 'tool-result',
-					agentId: target,
-					parentAgentId: null,
-					toolCallId,
-					messageId: yield* ids.makeMessageId,
-					message: encodeToolMessage(
-						Prompt.toolMessage({
-							content: [
-								Prompt.toolResultPart({
-									id: toolCallId,
-									name: 'skill',
-									result: { content },
-									isFailure: false,
-									providerExecuted: false,
-								}),
-							],
-						}),
-					),
-					executedInput: { name },
-				})
+				.append(
+					LogEntryInputs['tool-result']({
+						agentId: target,
+						parentAgentId: null,
+						toolCallId,
+						messageId: yield* ids.makeMessageId,
+						message: encodeToolMessage(
+							Prompt.toolMessage({
+								content: [
+									Prompt.toolResultPart({
+										id: toolCallId,
+										name: 'skill',
+										result: { content },
+										isFailure: false,
+										providerExecuted: false,
+									}),
+								],
+							}),
+						),
+						executedInput: { name },
+					}),
+				)
 				.pipe(Effect.orDie)
-			if (result._tag !== 'tool-result') {
+			if (!Predicate.isTagged(result, 'tool-result')) {
 				return yield* Effect.die(new Error(`EventLog returned ${result._tag} while injecting skill result`))
 			}
 			return { call, result }
@@ -878,14 +897,15 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 	const setProfile = (role: ProfileRole, model: FoldModel): Effect.Effect<void> => profiles.set(role, model)
 	const setTitle: FoldSession['setTitle'] = (title, provenance) =>
 		graph.eventLog
-			.append({
-				_tag: 'session_title',
-				agentId: null,
-				parentAgentId: null,
-				toolCallId: null,
-				title,
-				...provenance,
-			})
+			.append(
+				LogEntryInputs['session_title']({
+					agentId: null,
+					parentAgentId: null,
+					toolCallId: null,
+					title,
+					...provenance,
+				}),
+			)
 			.pipe(Effect.asVoid, Effect.orDie)
 
 	return {
@@ -947,8 +967,8 @@ export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<Fold
 			Effect.map((collected): ReadonlyArray<LogEntry> => collected),
 		)
 
-		const sessionStarted = entries.find((entry) => entry._tag === 'session_started')
-		if (sessionStarted === undefined || sessionStarted._tag !== 'session_started') {
+		const sessionStarted = entries.find((entry) => Predicate.isTagged(entry, 'session_started'))
+		if (sessionStarted === undefined || !Predicate.isTagged(sessionStarted, 'session_started')) {
 			return yield* Effect.die(
 				new Error('cannot resume: the log has no session_started row (use startSession for a fresh log)'),
 			)
@@ -972,12 +992,12 @@ export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<Fold
 		})
 		const loggedLeading = entries.findLast(
 			(entry) =>
-				entry._tag === 'system-message' &&
+				Predicate.isTagged(entry, 'system-message') &&
 				entry.agentId === identity.rootAgentId &&
 				entry.placement === 'leading',
 		)
 		const loggedBlocks =
-			loggedLeading !== undefined && loggedLeading._tag === 'system-message'
+			loggedLeading !== undefined && Predicate.isTagged(loggedLeading, 'system-message')
 				? loggedLeading.messages.map((message) => message.content)
 				: []
 

@@ -15,7 +15,7 @@ import {
 	type FoldTool,
 	type ToolResultBlock,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, type PlatformError } from 'effect'
+import { Effect, FileSystem, Match, type PlatformError } from 'effect'
 
 import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
@@ -24,16 +24,14 @@ import { processImage } from './Image/Process'
 
 /** Render one platform error as a short, model-actionable failure message. */
 export const platformErrorMessage = (action: string, path: string, error: PlatformError.PlatformError): string => {
-	switch (error.reason._tag) {
-		case 'NotFound':
-			return `${action} failed: file not found: ${path}`
-		case 'PermissionDenied':
-			return `${action} failed: permission denied: ${path}`
-		case 'BadResource':
-			return `${action} failed: not a readable file (is it a directory?): ${path}`
-		default:
-			return `${action} failed (${error.reason._tag}): ${path}`
-	}
+	return Match.value(error.reason).pipe(
+		Match.tags({
+			NotFound: () => `${action} failed: file not found: ${path}`,
+			PermissionDenied: () => `${action} failed: permission denied: ${path}`,
+			BadResource: () => `${action} failed: not a readable file (is it a directory?): ${path}`,
+		}),
+		Match.orElse((reason) => `${action} failed (${reason._tag}): ${path}`),
+	)
 }
 
 /** Extract the POSIX errno code (ENOENT, EACCES, ...) from a platform error, pi's error vocabulary. */
@@ -43,14 +41,10 @@ export const errnoCode = (error: PlatformError.PlatformError): string => {
 		return cause.code
 	}
 
-	switch (error.reason._tag) {
-		case 'NotFound':
-			return 'ENOENT'
-		case 'PermissionDenied':
-			return 'EACCES'
-		default:
-			return error.reason._tag
-	}
+	return Match.value(error.reason).pipe(
+		Match.tags({ NotFound: () => 'ENOENT', PermissionDenied: () => 'EACCES' }),
+		Match.orElse((reason) => reason._tag),
+	)
 }
 
 /** Build the read tool over the default or provided filesystem. */

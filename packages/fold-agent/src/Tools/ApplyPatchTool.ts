@@ -14,7 +14,7 @@ import {
 	type PatchOp,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Path } from 'effect'
+import { Match, Predicate, Effect, FileSystem, Path } from 'effect'
 
 import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { withFileMutationLocks } from '../Fs/MutationQueue'
@@ -27,7 +27,7 @@ const verificationFailed = (detail: string): { message: string } => ({
 
 /** Every path one op touches (move ops touch source and destination). */
 const opPaths = (op: PatchOp): ReadonlyArray<string> =>
-	op._tag === 'update' && op.movePath !== null ? [op.path, op.movePath] : [op.path]
+	Predicate.isTagged(op, 'update') && op.movePath !== null ? [op.path, op.movePath] : [op.path]
 
 /** Build the apply_patch tool over the default or provided filesystem. */
 export const applyPatchTool = (options?: FsToolOptions): FoldTool =>
@@ -55,7 +55,7 @@ export const applyPatchTool = (options?: FsToolOptions): FoldTool =>
 						// Read every referenced file (null = does not exist) for the in-memory dry run.
 						const files = new Map<string, string | null>()
 						for (const op of ops) {
-							if (op._tag === 'add') continue
+							if (Predicate.isTagged(op, 'add')) continue
 							if (!files.has(op.path)) {
 								const source = yield* resolvePath(op.path)
 								const content = yield* fs
@@ -71,50 +71,51 @@ export const applyPatchTool = (options?: FsToolOptions): FoldTool =>
 
 						// Dry run passed: perform the steps. Writes create parent directories.
 						for (const step of computed.steps) {
-							switch (step._tag) {
-								case 'write': {
-									const target = yield* resolvePath(step.path)
-									yield* fs.makeDirectory(pathService.dirname(target), { recursive: true }).pipe(
-										Effect.mapError((error) => ({
-											message: platformErrorMessage('apply_patch', step.path, error),
-										})),
-									)
-									yield* fs.writeFileString(target, step.content).pipe(
-										Effect.mapError((error) => ({
-											message: platformErrorMessage('apply_patch', step.path, error),
-										})),
-									)
-									break
-								}
-
-								case 'delete':
-									yield* fs.remove(yield* resolvePath(step.path)).pipe(
-										Effect.mapError((error) => ({
-											message: platformErrorMessage('apply_patch', step.path, error),
-										})),
-									)
-									break
-
-								case 'move': {
-									const target = yield* resolvePath(step.toPath)
-									yield* fs.makeDirectory(pathService.dirname(target), { recursive: true }).pipe(
-										Effect.mapError((error) => ({
-											message: platformErrorMessage('apply_patch', step.toPath, error),
-										})),
-									)
-									yield* fs.writeFileString(target, step.content).pipe(
-										Effect.mapError((error) => ({
-											message: platformErrorMessage('apply_patch', step.toPath, error),
-										})),
-									)
-									yield* fs.remove(yield* resolvePath(step.fromPath)).pipe(
-										Effect.mapError((error) => ({
-											message: platformErrorMessage('apply_patch', step.fromPath, error),
-										})),
-									)
-									break
-								}
-							}
+							yield* Match.valueTags(step, {
+								write: (write) =>
+									Effect.gen(function* () {
+										const target = yield* resolvePath(write.path)
+										yield* fs.makeDirectory(pathService.dirname(target), { recursive: true }).pipe(
+											Effect.mapError((error) => ({
+												message: platformErrorMessage('apply_patch', write.path, error),
+											})),
+										)
+										yield* fs.writeFileString(target, write.content).pipe(
+											Effect.mapError((error) => ({
+												message: platformErrorMessage('apply_patch', write.path, error),
+											})),
+										)
+									}),
+								delete: (deletion) =>
+									resolvePath(deletion.path).pipe(
+										Effect.flatMap((path) =>
+											fs.remove(path).pipe(
+												Effect.mapError((error) => ({
+													message: platformErrorMessage('apply_patch', deletion.path, error),
+												})),
+											),
+										),
+									),
+								move: (move) =>
+									Effect.gen(function* () {
+										const target = yield* resolvePath(move.toPath)
+										yield* fs.makeDirectory(pathService.dirname(target), { recursive: true }).pipe(
+											Effect.mapError((error) => ({
+												message: platformErrorMessage('apply_patch', move.toPath, error),
+											})),
+										)
+										yield* fs.writeFileString(target, move.content).pipe(
+											Effect.mapError((error) => ({
+												message: platformErrorMessage('apply_patch', move.toPath, error),
+											})),
+										)
+										yield* fs.remove(yield* resolvePath(move.fromPath)).pipe(
+											Effect.mapError((error) => ({
+												message: platformErrorMessage('apply_patch', move.fromPath, error),
+											})),
+										)
+									}),
+							})
 						}
 
 						return { message: `Applied patch.\n${computed.summary.join('\n')}` }

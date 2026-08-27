@@ -35,7 +35,7 @@ import {
 	type FoldTool,
 	type Ids,
 } from '@humanlayer/fold-core'
-import { Effect, Match, Schema, Semaphore, type Scope } from 'effect'
+import { Predicate, Effect, Match, Schema, Semaphore, type Scope } from 'effect'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
@@ -428,9 +428,12 @@ const withGeneratedTitles = (
 									Effect.flatMap((entries) => {
 										const rootUsers = entries.filter(
 											(entry) =>
-												entry._tag === 'user-message' && entry.agentId === session.rootAgentId,
+												Predicate.isTagged(entry, 'user-message') &&
+												entry.agentId === session.rootAgentId,
 										)
-										const lastTitle = entries.findLast((entry) => entry._tag === 'session_title')
+										const lastTitle = entries.findLast((entry) =>
+											Predicate.isTagged(entry, 'session_title'),
+										)
 										const generatedTurns = lastTitle?.rootUserTurns ?? 0
 										if (rootUsers.length <= generatedTurns) return Effect.void
 										return generateSessionTitle(entries, session.rootAgentId, model).pipe(

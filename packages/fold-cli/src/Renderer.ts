@@ -18,7 +18,7 @@ import {
 	type UsageEncoded,
 	type FoldEvent,
 } from '@humanlayer/fold-core'
-import { Effect, Match } from 'effect'
+import { Data, Effect, Match } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
 
@@ -81,6 +81,8 @@ export type CredentialSummary =
 	| { readonly _tag: 'found'; readonly detail: string }
 	| { readonly _tag: 'missing'; readonly detail: string }
 	| { readonly _tag: 'unknown'; readonly detail: string }
+
+export const CredentialSummary = Data.taggedEnum<CredentialSummary>()
 
 /** Mutable renderer state hidden behind a small event-rendering surface. */
 export type OutputRenderer = {
@@ -425,80 +427,68 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const renderAssistantText = (agentId: string, text: string): Effect.Effect<void> =>
 		text.length === 0 ? Effect.void : renderAgentLine(agentId, `${ansi.green('[assistant]')} ${text}`)
 
-	const renderLog = (entry: LogEntry): Effect.Effect<void> => {
-		switch (entry._tag) {
-			case 'session_started':
-			case 'system-message':
-			case 'tool_state':
-			case 'session_title':
-				return Effect.void
-
-			case 'agent_started':
-				agentModels.set(entry.agentId, entry.model)
-				if (entry.parentAgentId === null) rootAgentId = entry.agentId
-				registerAgentLabel(entry)
+	const renderLog = (entry: LogEntry): Effect.Effect<void> =>
+		Match.valueTags(entry, {
+			session_started: () => Effect.void,
+			'system-message': () => Effect.void,
+			tool_state: () => Effect.void,
+			session_title: () => Effect.void,
+			agent_started: (started) => {
+				agentModels.set(started.agentId, started.model)
+				if (started.parentAgentId === null) rootAgentId = started.agentId
+				registerAgentLabel(started)
 				// The id is the /steer//send target, so it is printed on every start line; subagents show
 				// the short form because that is exactly what those commands accept.
-				return entry.parentAgentId === null
-					? renderLine(`${label(ansi, 'agent')} ${entry.agentId} ${modelName(entry)}`)
+				return started.parentAgentId === null
+					? renderLine(`${label(ansi, 'agent')} ${started.agentId} ${modelName(started)}`)
 					: renderAgentLine(
-							entry.agentId,
-							`${label(ansi, 'subagent')} ${displayAgentId(entry.agentId)} ${modelName(entry)}`,
+							started.agentId,
+							`${label(ansi, 'subagent')} ${displayAgentId(started.agentId)} ${modelName(started)}`,
 						)
-
-			case 'user-message': {
-				const text = textContent(entry.message.content)
-				return text.length === 0 ? Effect.void : renderAgentLine(entry.agentId, `${ansi.cyan('>')} ${text}`)
-			}
-
-			case 'assistant-message': {
-				if (entry.finish !== null) {
-					latestUsage.set(entry.agentId, {
-						usage: entry.finish.usage,
-						model: agentModels.get(entry.agentId) ?? headerModel,
+			},
+			'user-message': (message) => {
+				const text = textContent(message.message.content)
+				return text.length === 0 ? Effect.void : renderAgentLine(message.agentId, `${ansi.cyan('>')} ${text}`)
+			},
+			'assistant-message': (message) => {
+				if (message.finish !== null) {
+					latestUsage.set(message.agentId, {
+						usage: message.finish.usage,
+						model: agentModels.get(message.agentId) ?? headerModel,
 					})
 				}
 
-				const text = textContent(entry.message.content)
-				const textEffect = streamedAssistantText.has(entry.agentId)
+				const text = textContent(message.message.content)
+				const textEffect = streamedAssistantText.has(message.agentId)
 					? Effect.void
-					: renderAssistantText(entry.agentId, text)
-				if (text.length > 0) agentsWithText.add(entry.agentId)
-				streamedAssistantText.delete(entry.agentId)
-				assistantLabelOpen.delete(entry.agentId)
+					: renderAssistantText(message.agentId, text)
+				if (text.length > 0) agentsWithText.add(message.agentId)
+				streamedAssistantText.delete(message.agentId)
+				assistantLabelOpen.delete(message.agentId)
 
-				return textEffect.pipe(Effect.andThen(renderToolCalls(entry)))
-			}
-
-			case 'tool-result':
-				return renderToolResult(entry)
-
-			case 'compaction':
-				return renderAgentLine(
-					entry.agentId,
-					`${label(ansi, 'compact')} summarized through seq ${entry.replacesThroughSeq} (${entry.tokensBefore} tokens)`,
-				)
-
-			case 'model-change':
-				agentModels.set(entry.agentId, entry.model)
-				return renderAgentLine(entry.agentId, `${label(ansi, 'model')} ${modelName(entry)}`)
-
-			case 'thinking-change':
-				return renderAgentLine(entry.agentId, `${label(ansi, 'thinking')} ${entry.reasoningLevel}`)
-
-			case 'tools-change':
-				return renderAgentLine(entry.agentId, `${label(ansi, 'tools')} ${entry.tools.join(', ')}`)
-
-			case 'agent-finished':
-				return entry.parentAgentId === null ? Effect.void : renderFinish(entry)
-
-			case 'error':
-				return renderAgentLine(
-					entry.agentId ?? '',
-					`${label(ansi, 'error')} ${ansi.red(entry.errorType)} ${entry.message}`,
-				)
-		}
-	}
+				return textEffect.pipe(Effect.andThen(renderToolCalls(message)))
+			},
+			'tool-result': renderToolResult,
+			compaction: (compaction) =>
+				renderAgentLine(
+					compaction.agentId,
+					`${label(ansi, 'compact')} summarized through seq ${compaction.replacesThroughSeq} (${compaction.tokensBefore} tokens)`,
+				),
+			'model-change': (change) => {
+				agentModels.set(change.agentId, change.model)
+				return renderAgentLine(change.agentId, `${label(ansi, 'model')} ${modelName(change)}`)
+			},
+			'thinking-change': (change) =>
+				renderAgentLine(change.agentId, `${label(ansi, 'thinking')} ${change.reasoningLevel}`),
+			'tools-change': (change) =>
+				renderAgentLine(change.agentId, `${label(ansi, 'tools')} ${change.tools.join(', ')}`),
+			'agent-finished': (finished) => (finished.parentAgentId === null ? Effect.void : renderFinish(finished)),
+			error: (error) =>
+				renderAgentLine(
+					error.agentId ?? '',
+					`${label(ansi, 'error')} ${ansi.red(error.errorType)} ${error.message}`,
+				),
+		})
 
 	/**
 	 * Handle a stream-source change before writing a delta: close any open line and, when the incoming

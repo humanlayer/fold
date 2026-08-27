@@ -4,7 +4,7 @@
  * FileSystem (never touches the real disk).
  */
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import { loadFoldConfig, loadFoldConfigOrNull, parseFoldConfig, stripJsonc } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -68,7 +68,7 @@ it.effect('rejects a role that references an undeclared provider (cross-referenc
 		const error = yield* parseFoldConfig(text).pipe(Effect.flip)
 
 		expect(error._tag).toBe('ConfigDecodeError')
-		if (error._tag === 'ConfigDecodeError') expect(error.message).toContain('missing')
+		if (Predicate.isTagged(error, 'ConfigDecodeError')) expect(error.message).toContain('missing')
 	}),
 )
 

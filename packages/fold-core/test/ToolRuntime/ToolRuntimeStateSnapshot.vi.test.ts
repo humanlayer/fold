@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Deferred, Effect, Layer, Ref, Schema } from 'effect'
+import { Predicate, Deferred, Effect, Layer, Ref, Schema } from 'effect'
 import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
 
 import {
@@ -149,7 +149,7 @@ describe('ToolRuntime handler state snapshots', () => {
 			expect(observed.aAfterBWrote).toBe('a')
 
 			// Both writes are durable facts in the log, and the next batch folds the last writer.
-			const stateEntries = result.entries.filter((entry) => entry._tag === 'tool_state')
+			const stateEntries = result.entries.filter((entry) => Predicate.isTagged(entry, 'tool_state'))
 			expect(stateEntries.map((entry) => entry.value)).toEqual(['a', 'b'])
 			expect(toolStateForAgent(result.entries, agentId, 'probe')).toEqual({ shared: 'b' })
 			expect(result.settlement.toolResults).toHaveLength(2)

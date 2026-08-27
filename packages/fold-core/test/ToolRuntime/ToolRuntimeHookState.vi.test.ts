@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Schema } from 'effect'
+import { Predicate, Effect, Schema } from 'effect'
 
 import { defineToolState, makeHookRunner, toolStateForAgent, ToolRuntime } from '../../src/index'
 import { layerStatefulEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
@@ -59,7 +59,7 @@ it.effect('a preToolUse hook writes durable state in its declared namespace, sep
 			}
 		}).pipe(Effect.provide(layer))
 
-		const stateEntries = result.entries.filter((entry) => entry._tag === 'tool_state')
+		const stateEntries = result.entries.filter((entry) => Predicate.isTagged(entry, 'tool_state'))
 		expect(stateEntries.map((entry) => entry.namespace).sort()).toEqual(['audit', 'echo'])
 
 		const auditEntry = stateEntries.find((entry) => entry.namespace === 'audit')

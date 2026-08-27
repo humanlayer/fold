@@ -6,7 +6,7 @@
  * both sessions one shared EventLog and one shared event spine.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import { defineAgent, startSession, type SessionStartedLogEntry } from '../../src/index'
 import { textTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -41,11 +41,11 @@ it.effect('two sessions in one program share no log, ids, or model runtime', () 
 		const entriesA = yield* sessionA.entries
 		const entriesB = yield* sessionB.entries
 
-		const sessionStartsA = entriesA.filter(
-			(entry): entry is SessionStartedLogEntry => entry._tag === 'session_started',
+		const sessionStartsA = entriesA.filter((entry): entry is SessionStartedLogEntry =>
+			Predicate.isTagged(entry, 'session_started'),
 		)
-		const sessionStartsB = entriesB.filter(
-			(entry): entry is SessionStartedLogEntry => entry._tag === 'session_started',
+		const sessionStartsB = entriesB.filter((entry): entry is SessionStartedLogEntry =>
+			Predicate.isTagged(entry, 'session_started'),
 		)
 		expect(sessionStartsA.map((entry) => entry.sessionId)).toEqual([sessionA.sessionId])
 		expect(sessionStartsB.map((entry) => entry.sessionId)).toEqual([sessionB.sessionId])

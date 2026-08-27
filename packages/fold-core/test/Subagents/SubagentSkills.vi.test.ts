@@ -6,7 +6,7 @@
  * a typed failure before any subagent row is written.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Predicate, Effect, Ref } from 'effect'
 
 import {
 	defineAgent,
@@ -81,7 +81,8 @@ it.effect('a shared skillTool value scans once; the preload rides the dispatcher
 
 		// D21 message order: dispatch prompt first, skill invocation second.
 		const subagentUserMessages = entries.filter(
-			(entry): entry is UserMessageLogEntry => entry._tag === 'user-message' && entry.agentId === started.agentId,
+			(entry): entry is UserMessageLogEntry =>
+				Predicate.isTagged(entry, 'user-message') && entry.agentId === started.agentId,
 		)
 		expect(subagentUserMessages).toHaveLength(2)
 		expect(JSON.stringify(subagentUserMessages[0])).toContain('research it')
@@ -90,7 +91,7 @@ it.effect('a shared skillTool value scans once; the preload rides the dispatcher
 
 		// The subagent's own leading prompt carries the shared skills block.
 		const subagentSystem = entries.find(
-			(entry) => entry._tag === 'system-message' && entry.agentId === started.agentId,
+			(entry) => Predicate.isTagged(entry, 'system-message') && entry.agentId === started.agentId,
 		)
 		expect(JSON.stringify(subagentSystem)).toContain('available_skills')
 	}).pipe(Effect.scoped),
@@ -123,7 +124,7 @@ it.effect('a dispatcher with no skillTool cannot preload: typed failure before a
 		// No subagent was started: the preload failed before any durable subagent row.
 		expect(subagentStartedEntries(entries)).toHaveLength(0)
 
-		const toolResult = entries.find((entry) => entry._tag === 'tool-result')
+		const toolResult = entries.find((entry) => Predicate.isTagged(entry, 'tool-result'))
 		expect(JSON.stringify(toolResult)).toContain('Skill \\"commit-helper\\" not found')
 	}).pipe(Effect.scoped),
 )
