@@ -127,7 +127,9 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			).pipe(
 				input.model?.providerKind === 'anthropic'
 					? AnthropicLanguageModel.withConfigOverride({ max_tokens: maxOutputTokens })
-					: OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
+					: input.model?.providerKind === 'codex'
+						? (effect) => effect
+						: OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
 				Effect.mapError((error) => new CompactionSummarizeError({ message: describeSummarizerError(error) })),
 			)
 			const parts = yield* request

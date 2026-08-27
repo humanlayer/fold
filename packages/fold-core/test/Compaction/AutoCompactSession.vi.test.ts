@@ -36,6 +36,14 @@ import {
 import { failureTurn, textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { echoTool, gptActiveModel, scriptedModel } from './../Api/ApiTestHelpers'
 
+const codexActiveModel = {
+	...gptActiveModel,
+	providerId: 'codex',
+	providerKind: 'codex' as const,
+	requestedReasoningLevel: 'off' as const,
+	reasoning: { _tag: 'disabled' as const },
+}
+
 /**
  * Small-window config for deterministic triggering: usable = 10000 - 2500 - 1250 = 6250 tokens, so
  * a scripted response reporting ~7000 input tokens trips the threshold, and a 10-token keep budget
@@ -335,6 +343,22 @@ it.effect('manual compaction appends host guidance to the standard instruction w
 		expect(JSON.stringify(requests[1]?.prompt)).toContain('Keep the failed migration command.')
 		expect(requests).toHaveLength(2)
 		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('Codex compaction omits the unsupported max output token override', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(codexActiveModel, [
+			textTurn('first answer'),
+			textTurn('Codex summary'),
+		])
+		const session = yield* startSession({ agent: defineAgent({ model }) })
+
+		yield* session.send('preserve the investigation')
+		yield* session.compact()
+
+		const requests = yield* scripted.requests
+		expect(requests[1]?.openAiConfig?.max_output_tokens).toBeUndefined()
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
