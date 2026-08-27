@@ -14,8 +14,10 @@ import { readTool } from './ReadTool'
 import { webTools, type WebToolsOptions } from './WebTools'
 import { writeTool } from './WriteTool'
 
-/** Options for {@link codingTools}: the shared filesystem seam plus bash output-spill configuration. */
-export type CodingToolsOptions = FsToolOptions & Pick<BashToolOptions, 'spillDir' | 'outputStore'> & WebToolsOptions
+/** Options for {@link codingTools}: the shared filesystem seam plus Bash process configuration. */
+export type CodingToolsOptions = FsToolOptions &
+	Pick<BashToolOptions, 'spillDir' | 'outputStore' | 'processEnvironment'> &
+	WebToolsOptions
 
 /**
  * The standard coding toolset: read, write, edit, apply_patch, bash, and web tools. The model-family policy decides

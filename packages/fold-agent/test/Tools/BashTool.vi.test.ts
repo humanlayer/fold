@@ -11,7 +11,7 @@ import { expect, it } from '@effect/vitest'
 import { SessionId, ToolCallId } from '@humanlayer/fold-core'
 import { Duration, Effect, Fiber } from 'effect'
 
-import { bashTool, decodeBashOutputDelta, makeOutputStore, toolOutputPathFor } from '../../src/index'
+import { bashTool, codingTools, decodeBashOutputDelta, makeOutputStore, toolOutputPathFor } from '../../src/index'
 import { handlerOf, makeAmbientServices, messageOf, outputOf, runHandler, tempDir } from '../TestHelpers'
 
 it.live('captures stdout and reports success on exit 0', () =>
@@ -20,6 +20,40 @@ it.live('captures stdout and reports success on exit 0', () =>
 		const result = yield* runHandler(handlerOf(bashTool({ cwd: dir }))({ command: 'echo hello fold' }))
 
 		expect(outputOf(result)).toBe('hello fold\n')
+	}),
+)
+
+it.live('passes host-provided session environment to Bash subprocesses', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		const result = yield* runHandler(
+			handlerOf(
+				bashTool({
+					cwd: dir,
+					processEnvironment: {
+						HUMANLAYER_SESSION_ID: 'session-from-host',
+						HUMANLAYER_SESSION_EXPIRES: '4102444800000',
+					},
+				}),
+			)({ command: 'printf "%s:%s" "$HUMANLAYER_SESSION_ID" "$HUMANLAYER_SESSION_EXPIRES"' }),
+		)
+
+		expect(outputOf(result)).toBe('session-from-host:4102444800000')
+	}),
+)
+
+it.live('forwards host-provided session environment through codingTools', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		const bash = codingTools({
+			cwd: dir,
+			processEnvironment: { HUMANLAYER_SESSION_ID: 'coding-tools-session' },
+		}).find((tool) => tool.name === 'bash')
+		if (bash === undefined) throw new Error('expected codingTools to include Bash')
+
+		const result = yield* runHandler(handlerOf(bash)({ command: 'printf "%s" "$HUMANLAYER_SESSION_ID"' }))
+
+		expect(outputOf(result)).toBe('coding-tools-session')
 	}),
 )
 
