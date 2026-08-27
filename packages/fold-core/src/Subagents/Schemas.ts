@@ -125,21 +125,19 @@ export const parseSubagentCommand = (
 		}
 
 		if (params.agent !== undefined) {
-			return {
-				_tag: 'dispatch',
+			return DispatchSubagentCommand.make({
 				agent: params.agent,
 				...(params.description === undefined ? {} : { description: params.description }),
 				prompt: params.prompt,
 				skill,
-			} as const
+			})
 		}
 		if (params.fork === true) {
-			return {
-				_tag: 'fork',
+			return ForkSubagentCommand.make({
 				...(params.description === undefined ? {} : { description: params.description }),
 				prompt: params.prompt,
 				skill,
-			} as const
+			})
 		}
 
 		const agentId = yield* decodeAgentIdRef(params.agent_id).pipe(
@@ -153,5 +151,5 @@ export const parseSubagentCommand = (
 			),
 		)
 
-		return { _tag: 'resume', agentId, prompt: params.prompt, skill } as const
+		return ResumeSubagentCommand.make({ agentId, prompt: params.prompt, skill })
 	})

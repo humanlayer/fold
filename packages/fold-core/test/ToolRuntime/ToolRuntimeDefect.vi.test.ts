@@ -1,15 +1,15 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Predicate, Effect, Ref } from 'effect'
 
 import { makeHookRunner, messagesForAgent, StopController, ToolRuntime } from '../../src/index'
 import { layerEchoTool, makeEchoRecorder, TestToolkit } from '../TestLayers/TestTools'
 import { agentId, collectEntries, makeAssistantToolCall, toolRuntimeBaseLayer } from './ToolRuntimeTestHelpers'
 
 const projectedToolResultPart = (projected: ReturnType<typeof messagesForAgent>) => {
-	const toolResult = projected.find((message) => message._tag === 'tool-result')
+	const toolResult = projected.find((message) => Predicate.isTagged(message, 'tool-result'))
 
 	expect(toolResult?._tag).toBe('tool-result')
-	if (toolResult?._tag !== 'tool-result') throw new Error('Expected a projected tool-result')
+	if (!Predicate.isTagged(toolResult, 'tool-result')) throw new Error('Expected a projected tool-result')
 
 	const part = toolResult.message.content[0]
 	if (part === undefined || part.type !== 'tool-result') throw new Error('Expected a tool-result content part')

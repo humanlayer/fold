@@ -9,7 +9,7 @@
  * cannot themselves be full ids (4-20 characters - a full cuid segment is 21-32). The 4-char floor
  * matches the CLI renderer's tag suffix, so an id read off a tag is always a valid reference.
  */
-import { Schema } from 'effect'
+import { Data, Predicate, Schema } from 'effect'
 
 import type { LogEntry } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'
@@ -56,6 +56,8 @@ export type AgentIdRefResolution =
 	/** Two or more known ids share the referenced prefix; `candidates` carries their SHORT ids. */
 	| { readonly _tag: 'ambiguous'; readonly candidates: ReadonlyArray<string> }
 
+const AgentIdRefResolution = Data.taggedEnum<AgentIdRefResolution>()
+
 /**
  * Resolve one inbound reference against the known agent ids (the log's `agent_started` rows). An exact
  * full-id match wins immediately; otherwise a reference of 4-20 characters prefix-matches the cuid
@@ -66,19 +68,19 @@ export const resolveAgentIdRef = (knownIds: Iterable<AgentId>, ref: string): Age
 	const ids = [...knownIds]
 
 	const exact = ids.find((id) => id === ref)
-	if (exact !== undefined) return { _tag: 'resolved', agentId: exact }
+	if (exact !== undefined) return AgentIdRefResolution.resolved({ agentId: exact })
 
-	if (!prefixRefPattern.test(ref)) return { _tag: 'not-found' }
+	if (!prefixRefPattern.test(ref)) return AgentIdRefResolution['not-found']()
 
 	const wanted = cuidSegmentOf(ref)
 	const matches = ids.filter((id) => cuidSegmentOf(id).startsWith(wanted))
 	const [single] = matches
-	if (matches.length === 1 && single !== undefined) return { _tag: 'resolved', agentId: single }
-	if (matches.length === 0) return { _tag: 'not-found' }
+	if (matches.length === 1 && single !== undefined) return AgentIdRefResolution.resolved({ agentId: single })
+	if (matches.length === 0) return AgentIdRefResolution['not-found']()
 
-	return { _tag: 'ambiguous', candidates: matches.map(shortAgentId) }
+	return AgentIdRefResolution.ambiguous({ candidates: matches.map(shortAgentId) })
 }
 
 /** The known agent ids of a session log: every `agent_started` row's id, in log order. */
 export const agentIdsFromEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<AgentId> =>
-	entries.flatMap((entry) => (entry._tag === 'agent_started' ? [entry.agentId] : []))
+	entries.flatMap((entry) => (Predicate.isTagged(entry, 'agent_started') ? [entry.agentId] : []))

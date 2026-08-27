@@ -1,6 +1,6 @@
 import type { LogEntry, FoldModel } from '@humanlayer/fold-core'
 import { languageModelLayerFor } from '@humanlayer/fold-core'
-import { Effect, Schema } from 'effect'
+import { Predicate, Effect, Schema } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
 const TitleResult = Schema.Struct({ title: Schema.String })
@@ -9,7 +9,7 @@ const MAX_TRANSCRIPT_CHARS = 12_000
 type MessageEntry = Extract<LogEntry, { readonly _tag: 'user-message' | 'assistant-message' }>
 
 const isMessageEntry = (entry: LogEntry): entry is MessageEntry =>
-	entry._tag === 'user-message' || entry._tag === 'assistant-message'
+	Predicate.isTagged(entry, 'user-message') || Predicate.isTagged(entry, 'assistant-message')
 
 const extractMessageText = (entry: MessageEntry): string =>
 	typeof entry.message.content === 'string'
@@ -30,7 +30,7 @@ export const normalizeSessionTitle = (title: string): string =>
 		.join(' ')
 
 export const fallbackSessionTitle = (entries: ReadonlyArray<LogEntry>, rootAgentId: string): string => {
-	const first = entries.find((entry) => entry._tag === 'user-message' && entry.agentId === rootAgentId)
+	const first = entries.find((entry) => Predicate.isTagged(entry, 'user-message') && entry.agentId === rootAgentId)
 	return normalizeSessionTitle(first === undefined ? '' : messageText(first)) || 'Untitled session'
 }
 
@@ -39,9 +39,10 @@ export const titleTranscript = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 	entries
 		.filter(
 			(entry) =>
-				entry.agentId === rootAgentId && (entry._tag === 'user-message' || entry._tag === 'assistant-message'),
+				entry.agentId === rootAgentId &&
+				(Predicate.isTagged(entry, 'user-message') || Predicate.isTagged(entry, 'assistant-message')),
 		)
-		.map((entry) => `${entry._tag === 'user-message' ? 'User' : 'Assistant'}: ${messageText(entry)}`)
+		.map((entry) => `${Predicate.isTagged(entry, 'user-message') ? 'User' : 'Assistant'}: ${messageText(entry)}`)
 		.join('\n')
 		.slice(0, MAX_TRANSCRIPT_CHARS)
 

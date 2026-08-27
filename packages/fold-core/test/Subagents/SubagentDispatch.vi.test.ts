@@ -5,7 +5,7 @@
  * durable tool result renders the agent_id + turns header and the <subagent_result> body.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import {
 	defineAgent,
@@ -79,7 +79,9 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 		])
 
 		// The subagent's rows carry the dispatching parent and the dispatching tool call (D2 envelope).
-		const startedEntries = entries.filter((entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started')
+		const startedEntries = entries.filter((entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started'),
+		)
 		const rootStarted = startedEntries[0]
 		const subagentStarted = startedEntries[1]
 		if (rootStarted === undefined || subagentStarted === undefined) throw new Error('expected two agent_started')
@@ -113,7 +115,9 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 		expect(JSON.stringify(userContents)).not.toContain('go')
 
 		// The dispatcher's durable tool result carries the id + turns header and the result body.
-		const toolResult = entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+		const toolResult = entries.find((entry): entry is ToolResultLogEntry =>
+			Predicate.isTagged(entry, 'tool-result'),
+		)
 		if (toolResult === undefined) throw new Error('expected a tool-result entry')
 		const rendered = toolResultText(toolResult)
 		expect(rendered).toContain(`agent_id: ${shortAgentId(subagentStarted.agentId)}`)

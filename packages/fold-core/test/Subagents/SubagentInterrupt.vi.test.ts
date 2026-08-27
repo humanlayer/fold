@@ -7,7 +7,7 @@
  * resumable over the same log and completes.
  */
 import { expect, it } from '@effect/vitest'
-import { Deferred, Effect, Fiber } from 'effect'
+import { Predicate, Deferred, Effect, Fiber } from 'effect'
 
 import { defineSubagent, shortAgentId, type LogEntry, type UserMessageLogEntry } from '../../src/index'
 import { claudeActiveModel } from '../Api/ApiTestHelpers'
@@ -60,15 +60,17 @@ it.effect('an interrupted subagent leaves honest durable markers and is resumabl
 
 		// The child-side markers: the interrupt note user-message and the interrupted terminal marker.
 		const markerMessage = entries.filter(
-			(entry): entry is UserMessageLogEntry => entry._tag === 'user-message' && entry.agentId === started.agentId,
+			(entry): entry is UserMessageLogEntry =>
+				Predicate.isTagged(entry, 'user-message') && entry.agentId === started.agentId,
 		)[1]
 		expect(JSON.stringify(markerMessage)).toContain('You were interrupted by the user')
 
 		const finished = entries.findLast(
 			(entry): entry is LogEntry & { readonly outcome: string } =>
-				entry._tag === 'agent-finished' && entry.agentId === started.agentId,
+				Predicate.isTagged(entry, 'agent-finished') && entry.agentId === started.agentId,
 		)
-		if (finished === undefined || finished._tag !== 'agent-finished') throw new Error('expected agent-finished')
+		if (finished === undefined || !Predicate.isTagged(finished, 'agent-finished'))
+			throw new Error('expected agent-finished')
 		expect(finished.outcome).toBe('interrupted')
 
 		// The dispatcher's synthetic tool result carries the enriched InterruptNote: id + turn count.
@@ -80,9 +82,9 @@ it.effect('an interrupted subagent leaves honest durable markers and is resumabl
 		// Slice 2 (D10): the interrupted root run has its own durable terminal marker, written by the
 		// facade's uninterruptible exit finalizer after the child's markers landed.
 		const rootFinished = entries.findLast(
-			(entry) => entry._tag === 'agent-finished' && entry.agentId !== started.agentId,
+			(entry) => Predicate.isTagged(entry, 'agent-finished') && entry.agentId !== started.agentId,
 		)
-		if (rootFinished === undefined || rootFinished._tag !== 'agent-finished') {
+		if (rootFinished === undefined || !Predicate.isTagged(rootFinished, 'agent-finished')) {
 			throw new Error('expected the root interrupt marker')
 		}
 		expect(rootFinished.outcome).toBe('interrupted')

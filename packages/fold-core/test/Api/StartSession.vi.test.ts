@@ -6,7 +6,7 @@
  * SessionIsolation.vi.test.ts.
  */
 import { expect, it } from '@effect/vitest'
-import { Context, Effect, Fiber, Layer, Schema, Stream } from 'effect'
+import { Predicate, Context, Effect, Fiber, Layer, Schema, Stream } from 'effect'
 
 import {
 	defineAgent,
@@ -29,7 +29,7 @@ import { echoTool, gptActiveModel, makeRecordedTool, scriptedModel } from './Api
 
 /** The encoded tool-result content part of the first durable tool-result entry. */
 const firstToolResultPart = (entries: ReadonlyArray<{ readonly _tag: string }>) => {
-	const toolResult = entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+	const toolResult = entries.find((entry): entry is ToolResultLogEntry => Predicate.isTagged(entry, 'tool-result'))
 	if (toolResult === undefined) throw new Error('expected a tool-result entry')
 
 	const part = toolResult.message.content[0]
@@ -73,15 +73,17 @@ it.effect('runs a tool-calling turn end to end from descriptors only', () =>
 			'agent-finished',
 		])
 
-		const sessionStarted = entries.find(
-			(entry): entry is SessionStartedLogEntry => entry._tag === 'session_started',
+		const sessionStarted = entries.find((entry): entry is SessionStartedLogEntry =>
+			Predicate.isTagged(entry, 'session_started'),
 		)
 		expect(sessionStarted?.sessionId).toBe(session.sessionId)
 		expect(sessionStarted?.cwd).toBe('/tmp/facade-demo')
 		expect(sessionStarted?.meta['suite']).toBe('facade')
 		expect(sessionStarted?.meta['agentName']).toBe('facade-demo')
 
-		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started')
+		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started'),
+		)
 		expect(agentStarted?.agentId).toBe(session.rootAgentId)
 		expect(agentStarted?.tools).toEqual(['echo'])
 
@@ -122,7 +124,7 @@ it.effect('injects a skill as a linked synthetic tool call and result without a 
 		if (callPart?.type !== 'tool-call') throw new Error('expected injected skill tool call')
 		if (resultPart?.type !== 'tool-result') throw new Error('expected injected skill tool result')
 
-		expect(entries.some((entry) => entry._tag === 'user-message')).toBe(false)
+		expect(entries.some((entry) => Predicate.isTagged(entry, 'user-message'))).toBe(false)
 		expect(callPart).toMatchObject({
 			type: 'tool-call',
 			name: 'skill',
@@ -177,7 +179,7 @@ it.effect('tool handlers reach ToolState and ToolEvents; session.events carries 
 		// Subscribe before sending: deltas are live-only (durable rows replay from seq 0 regardless).
 		// `startImmediately` + one yield lets the merge's subscription fibers register first.
 		const collector = yield* session.events().pipe(
-			Stream.takeUntil((event) => event.kind === 'log' && event.entry._tag === 'agent-finished'),
+			Stream.takeUntil((event) => event.kind === 'log' && Predicate.isTagged(event.entry, 'agent-finished')),
 			Stream.runCollect,
 			Effect.forkChild({ startImmediately: true }),
 		)
@@ -214,7 +216,7 @@ it.effect('tool handlers reach ToolState and ToolEvents; session.events carries 
 
 		// The handler's ToolState write landed as a durable, namespaced tool_state entry.
 		const entries = yield* session.entries
-		const stateEntry = entries.find((entry): entry is ToolStateLogEntry => entry._tag === 'tool_state')
+		const stateEntry = entries.find((entry): entry is ToolStateLogEntry => Predicate.isTagged(entry, 'tool_state'))
 		expect(stateEntry?.namespace).toBe('progress-echo')
 		expect(stateEntry?.key).toBe('last')
 		expect(stateEntry?.value).toBe('hi')

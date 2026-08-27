@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
-import { Console, Effect } from 'effect'
+import { Predicate, Console, Effect } from 'effect'
 
 import { codingTools } from '../src/index'
 
@@ -41,7 +41,7 @@ const makeProgram = (apiKey: string) =>
 		)
 		const entries = yield* session.entries
 		const toolNames = entries.flatMap((entry) =>
-			entry._tag === 'tool-result'
+			Predicate.isTagged(entry, 'tool-result')
 				? [entry.message.content[0]?.type === 'tool-result' ? entry.message.content[0].name : '']
 				: [],
 		)

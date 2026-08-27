@@ -8,7 +8,7 @@
  * metadata into history. The assistant tool-call params stay exactly as decoded from the persisted
  * assistant message, keeping already-sent prompt bytes stable across turns.
  */
-import { Effect, Option, Schema } from 'effect'
+import { Effect, Match, Option, Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { ProjectedMessage } from '../Projection/Projection'
@@ -223,47 +223,49 @@ export const buildPrompt = (
 		const promptMessages: Array<Prompt.Message> = []
 
 		for (const projected of messages) {
-			switch (projected._tag) {
-				case 'system-message':
-					for (const encoded of projected.messages) {
+			yield* Match.valueTags(projected, {
+				'system-message': (message) =>
+					Effect.gen(function* () {
+						for (const encoded of message.messages) {
+							promptMessages.push(
+								yield* decodeSystemMessage(encoded).pipe(Effect.mapError(decodeErrorFor(message))),
+							)
+						}
+					}),
+				'user-message': (message) =>
+					decodeUserMessage(message.message).pipe(
+						Effect.mapError(decodeErrorFor(message)),
+						Effect.tap((decoded) => Effect.sync(() => promptMessages.push(decoded))),
+					),
+				'assistant-message': (message) =>
+					decodeAssistantMessage(message.message).pipe(
+						Effect.mapError(decodeErrorFor(message)),
+						Effect.tap((decoded) =>
+							Effect.sync(() =>
+								promptMessages.push(restoreAssistantToolCallIds(decoded, providerIdsByFoldId)),
+							),
+						),
+					),
+				'tool-result': (result) =>
+					decodeToolMessage(result.message).pipe(
+						Effect.mapError(decodeErrorFor(result)),
+						Effect.tap((decoded) =>
+							Effect.sync(() => {
+								const { message, followUp } = liftImagesFromToolMessage(
+									restoreToolResultIds(decoded, providerIdsByFoldId),
+								)
+								promptMessages.push(message)
+								if (followUp !== null) promptMessages.push(followUp)
+							}),
+						),
+					),
+				'compaction-summary': (summary) =>
+					Effect.sync(() => {
 						promptMessages.push(
-							yield* decodeSystemMessage(encoded).pipe(Effect.mapError(decodeErrorFor(projected))),
+							compactionSummaryMessage(summary.summary, summary.postCompactionInstructions),
 						)
-					}
-					break
-
-				case 'user-message':
-					promptMessages.push(
-						yield* decodeUserMessage(projected.message).pipe(Effect.mapError(decodeErrorFor(projected))),
-					)
-					break
-
-				case 'assistant-message': {
-					const decoded = yield* decodeAssistantMessage(projected.message).pipe(
-						Effect.mapError(decodeErrorFor(projected)),
-					)
-					promptMessages.push(restoreAssistantToolCallIds(decoded, providerIdsByFoldId))
-					break
-				}
-
-				case 'tool-result': {
-					const decoded = yield* decodeToolMessage(projected.message).pipe(
-						Effect.mapError(decodeErrorFor(projected)),
-					)
-					const { message, followUp } = liftImagesFromToolMessage(
-						restoreToolResultIds(decoded, providerIdsByFoldId),
-					)
-					promptMessages.push(message)
-					if (followUp !== null) promptMessages.push(followUp)
-					break
-				}
-
-				case 'compaction-summary':
-					promptMessages.push(
-						compactionSummaryMessage(projected.summary, projected.postCompactionInstructions),
-					)
-					break
-			}
+					}),
+			})
 		}
 
 		return Prompt.fromMessages(markLatestUserSideCacheBreakpoint(promptMessages))

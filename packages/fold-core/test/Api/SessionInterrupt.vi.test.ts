@@ -5,7 +5,7 @@
  * tool result as an interrupted-outcome result while the dispatcher keeps running.
  */
 import { expect, it } from '@effect/vitest'
-import { Deferred, Effect, Fiber } from 'effect'
+import { Predicate, Deferred, Effect, Fiber } from 'effect'
 
 import { defineAgent, defineSubagent, shortAgentId, startSession, subagentTool } from '../../src/index'
 import { makeHangOnceModel } from '../Subagents/DriveHarness'
@@ -33,8 +33,8 @@ it.effect('interrupt discards partial assistant text, writes the root marker, an
 
 		expect(JSON.stringify(entries)).not.toContain('I was thinking about the answer')
 
-		const rootFinished = entries.findLast((entry) => entry._tag === 'agent-finished')
-		if (rootFinished === undefined || rootFinished._tag !== 'agent-finished') {
+		const rootFinished = entries.findLast((entry) => Predicate.isTagged(entry, 'agent-finished'))
+		if (rootFinished === undefined || !Predicate.isTagged(rootFinished, 'agent-finished')) {
 			throw new Error('expected the root terminal marker')
 		}
 		expect(rootFinished.outcome).toBe('interrupted')
@@ -79,8 +79,10 @@ it.effect('a targeted subagent interrupt folds into the dispatcher, which keeps 
 		yield* Deferred.await(hangOnce.firstRequestStarted)
 
 		const midRun = yield* session.entries
-		const childStarted = midRun.find((entry) => entry._tag === 'agent_started' && entry.parentAgentId !== null)
-		if (childStarted === undefined || childStarted._tag !== 'agent_started') {
+		const childStarted = midRun.find(
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
+		)
+		if (childStarted === undefined || !Predicate.isTagged(childStarted, 'agent_started')) {
 			throw new Error('expected the dispatched subagent to have started')
 		}
 
@@ -94,14 +96,14 @@ it.effect('a targeted subagent interrupt folds into the dispatcher, which keeps 
 
 		const entries = yield* session.entries
 		const childFinished = entries.findLast(
-			(entry) => entry._tag === 'agent-finished' && entry.agentId === childStarted.agentId,
+			(entry) => Predicate.isTagged(entry, 'agent-finished') && entry.agentId === childStarted.agentId,
 		)
-		if (childFinished === undefined || childFinished._tag !== 'agent-finished') {
+		if (childFinished === undefined || !Predicate.isTagged(childFinished, 'agent-finished')) {
 			throw new Error('expected the subagent terminal marker')
 		}
 		expect(childFinished.outcome).toBe('interrupted')
 
-		const toolResult = entries.find((entry) => entry._tag === 'tool-result')
+		const toolResult = entries.find((entry) => Predicate.isTagged(entry, 'tool-result'))
 		const rendered = JSON.stringify(toolResult)
 		expect(rendered).toContain(`agent_id: ${shortAgentId(childStarted.agentId)}`)
 		expect(rendered).toContain('This subagent was interrupted')

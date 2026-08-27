@@ -63,9 +63,9 @@ const conversationOf = (
 	for (const message of projected) {
 		// The leading block set is configuration, not conversation: it survives compaction untouched
 		// (projection re-inserts it above the summary), so it is neither summarized nor kept-counted.
-		if (message._tag === 'system-message' && message.placement === 'leading') continue
+		if (Predicate.isTagged(message, 'system-message') && message.placement === 'leading') continue
 
-		if (message._tag === 'compaction-summary') {
+		if (Predicate.isTagged(message, 'compaction-summary')) {
 			previousSummary = message.summary
 			continue
 		}

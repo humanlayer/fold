@@ -7,7 +7,7 @@
  * the child loops - is real.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, Ref, Schema } from 'effect'
+import { Predicate, Effect, Ref, Schema } from 'effect'
 
 import {
 	defineAgent,
@@ -104,13 +104,15 @@ const makeDriveSession = (input: {
 
 const subagentStartedEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<AgentStartedLogEntry> =>
 	entries.filter(
-		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.parentAgentId !== null,
+		(entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
 	)
 
 const renderedDriveResult = (entries: ReadonlyArray<LogEntry>, occurrence: number): string => {
-	const results = entries.filter((entry) => entry._tag === 'tool-result')
+	const results = entries.filter((entry) => Predicate.isTagged(entry, 'tool-result'))
 	const entry = results[occurrence]
-	if (entry === undefined || entry._tag !== 'tool-result') throw new Error('expected a tool-result entry')
+	if (entry === undefined || !Predicate.isTagged(entry, 'tool-result'))
+		throw new Error('expected a tool-result entry')
 	return JSON.stringify(entry.message.content[0])
 }
 
@@ -142,7 +144,8 @@ it.effect('resumes a completed subagent: no new agent_started, rows under the re
 
 		// The resumed run's rows group under the RESUMING tool call (per-dispatch envelope, D2).
 		const subagentUserMessages = entries.filter(
-			(entry): entry is UserMessageLogEntry => entry._tag === 'user-message' && entry.agentId === started.agentId,
+			(entry): entry is UserMessageLogEntry =>
+				Predicate.isTagged(entry, 'user-message') && entry.agentId === started.agentId,
 		)
 		expect(subagentUserMessages).toHaveLength(2)
 		const dispatchCall = subagentUserMessages[0]?.toolCallId
@@ -189,9 +192,10 @@ it.effect('a subagent that errored is a result and remains resumable (model fail
 
 		// The subagent's own log carries the error facts.
 		const subagentFinished = afterDispatch.findLast(
-			(entry) => entry._tag === 'agent-finished' && entry.agentId === started.agentId,
+			(entry) => Predicate.isTagged(entry, 'agent-finished') && entry.agentId === started.agentId,
 		)
-		if (subagentFinished?._tag !== 'agent-finished') throw new Error('expected the subagent to have finished')
+		if (!Predicate.isTagged(subagentFinished, 'agent-finished'))
+			throw new Error('expected the subagent to have finished')
 		expect(subagentFinished.outcome).toBe('error')
 
 		// The dispatcher's rendered result names the id, the error, and the resume guidance.
@@ -251,9 +255,10 @@ it.effect('a subagent that died from a defect is flattened into an error result 
 
 		// The exit finalizer wrote the durable error marker for the dead subagent.
 		const subagentFinished = afterDispatch.findLast(
-			(entry) => entry._tag === 'agent-finished' && entry.agentId === started.agentId,
+			(entry) => Predicate.isTagged(entry, 'agent-finished') && entry.agentId === started.agentId,
 		)
-		if (subagentFinished?._tag !== 'agent-finished') throw new Error('expected the subagent to have finished')
+		if (!Predicate.isTagged(subagentFinished, 'agent-finished'))
+			throw new Error('expected the subagent to have finished')
 		expect(subagentFinished.outcome).toBe('error')
 		expect(subagentFinished.reason).toContain('explode-once')
 

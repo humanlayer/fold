@@ -34,7 +34,7 @@ import { type CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
 import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode } from './Renderer'
-import { runPrompt, type CliSessionOptions, type ResumeTarget } from './Run'
+import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
 
 declare const FOLD_VERSION: string
 const version = typeof FOLD_VERSION === 'string' ? FOLD_VERSION : '0.0.0'
@@ -88,11 +88,11 @@ export const shouldOpenBrowserForCodexLogin = (input: {
  */
 export const parseResumeFlag = (raw: string): Effect.Effect<ResumeTarget, InvalidSessionIdError> => {
 	const value = raw.trim()
-	if (value === RESUME_LATEST) return Effect.succeed({ _tag: 'latest' })
+	if (value === RESUME_LATEST) return Effect.succeed(ResumeTarget.latest())
 
 	const decoded = decodeSessionId(value)
 	return Option.isSome(decoded)
-		? Effect.succeed({ _tag: 'id', sessionId: decoded.value })
+		? Effect.succeed(ResumeTarget.id({ sessionId: decoded.value }))
 		: Effect.fail(new InvalidSessionIdError({ value: raw }))
 }
 

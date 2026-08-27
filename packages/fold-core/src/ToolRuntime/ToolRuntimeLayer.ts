@@ -4,11 +4,11 @@
  * per-call ToolState, ToolEvents, and StopController services while handlers run, then persists one durable
  * tool-result entry per call, including synthetic interruption results when a tool fiber is interrupted.
  */
-import { Cause, Effect, Layer, Ref, Schema, Stream } from 'effect'
+import { Data, Match, Predicate, Cause, Effect, Layer, Ref, Schema, Stream } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
-import type { LogEntry, ToolResultLogEntry } from '../EventLog/Schemas'
+import { LogEntryInputs, type LogEntry, type ToolResultLogEntry } from '../EventLog/Schemas'
 import { isHookExecutionError, type HookExecutionError } from '../HookRunner/Errors'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, ToolCallId, type AgentId } from '../Ids'
@@ -41,6 +41,8 @@ type PreparedToolCall =
 			readonly result: unknown
 			readonly isFailure: boolean
 	  }
+
+const PreparedToolCall = Data.taggedEnum<PreparedToolCall>()
 
 type FinalToolOutput = {
 	readonly result: unknown
@@ -118,18 +120,19 @@ const appendToolResultToEventLog = (input: {
 		const message = yield* encodedToolResultMessage(input)
 
 		const entry = yield* eventLog
-			.append({
-				_tag: 'tool-result',
-				agentId: input.agentId,
-				parentAgentId: input.parentAgentId,
-				toolCallId: input.toolCallId,
-				messageId: yield* ids.makeMessageId,
-				message,
-				...(input.executedInput === undefined ? {} : { executedInput: input.executedInput }),
-			})
+			.append(
+				LogEntryInputs['tool-result']({
+					agentId: input.agentId,
+					parentAgentId: input.parentAgentId,
+					toolCallId: input.toolCallId,
+					messageId: yield* ids.makeMessageId,
+					message,
+					...(input.executedInput === undefined ? {} : { executedInput: input.executedInput }),
+				}),
+			)
 			.pipe(Effect.orDie)
 
-		if (entry._tag === 'tool-result') return entry
+		if (Predicate.isTagged(entry, 'tool-result')) return entry
 
 		// Invariant!
 		return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending tool-result`))
@@ -211,32 +214,30 @@ const toolCallPreparedByPreToolHooks = (input: {
 			params: input.toolCall.params,
 		})
 
-		switch (decision._tag) {
-			case 'replaceResult':
-				return {
-					_tag: 'replaceResult' as const,
+		return Match.valueTags(decision, {
+			replaceResult: (replacement) =>
+				PreparedToolCall.replaceResult({
 					original: input.toolCall,
-					result: decision.result,
-					isFailure: decision.isFailure,
-				}
-
-			case 'continue':
-				return {
-					_tag: 'execute' as const,
+					result: replacement.result,
+					isFailure: replacement.isFailure,
+				}),
+			continue: (continuation) =>
+				PreparedToolCall.execute({
 					original: input.toolCall,
-					params: decision.params,
-				}
-		}
+					params: continuation.params,
+				}),
+		})
 	}).pipe(
 		Effect.catchCause((cause) =>
-			Effect.succeed({
-				_tag: 'replaceResult' as const,
-				original: input.toolCall,
-				result: Cause.hasInterrupts(cause)
-					? interruptedToolResult
-					: failureResultFromCause(input.toolCall.name, cause),
-				isFailure: true,
-			}),
+			Effect.succeed(
+				PreparedToolCall.replaceResult({
+					original: input.toolCall,
+					result: Cause.hasInterrupts(cause)
+						? interruptedToolResult
+						: failureResultFromCause(input.toolCall.name, cause),
+					isFailure: true,
+				}),
+			),
 		),
 	)
 
@@ -369,16 +370,10 @@ const finalOutputAfterPostToolHooks = (input: {
 			isFailure: input.output.isFailure,
 		})
 
-		switch (decision._tag) {
-			case 'keep':
-				return input.output
-
-			case 'replace':
-				return {
-					result: decision.result,
-					isFailure: decision.isFailure,
-				}
-		}
+		return Match.valueTags(decision, {
+			keep: () => input.output,
+			replace: ({ isFailure, result }) => ({ result, isFailure }),
+		})
 	})
 
 /** Execute or replace one prepared tool call and persist exactly one tool-result entry. */
@@ -442,7 +437,7 @@ const settlePreparedToolCall = (input: {
 			| InterruptNote
 			| Subagents
 		> = Effect.gen(function* () {
-			if (input.prepared._tag === 'replaceResult') {
+			if (Predicate.isTagged(input.prepared, 'replaceResult')) {
 				return {
 					result: input.prepared.result,
 					isFailure: input.prepared.isFailure,

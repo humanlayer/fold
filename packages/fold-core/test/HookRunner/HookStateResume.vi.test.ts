@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Layer, Schema } from 'effect'
+import { Predicate, Effect, Layer, Schema } from 'effect'
 
 import {
 	AgentId,
@@ -80,7 +80,7 @@ it.effect('a hook reproduces its state from tool_state entries already persisted
 
 		expect(result.decision).toEqual({ _tag: 'continue', params: { count: 42 } })
 
-		const stateEntries = result.entries.filter((entry) => entry._tag === 'tool_state')
+		const stateEntries = result.entries.filter((entry) => Predicate.isTagged(entry, 'tool_state'))
 		expect(stateEntries.map((entry) => entry.value)).toEqual([41, 42])
 		expect(stateEntries[1]).toMatchObject({ namespace: 'guard', key: 'count', toolCallId })
 	}),

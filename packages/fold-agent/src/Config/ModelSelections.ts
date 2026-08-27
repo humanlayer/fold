@@ -2,7 +2,7 @@ import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Effect, Match } from 'effect'
+import { Predicate, Effect, Match } from 'effect'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
@@ -169,7 +169,7 @@ export const resolveConfiguredModelSelection = (
 	const rootRole = roleForMode(mode)
 	return Effect.gen(function* () {
 		let roles = config.roles
-		if (selection._tag === 'profile') {
+		if (Predicate.isTagged(selection, 'profile')) {
 			const profileRoles = rolesForProfile(config, selection.profile)
 			if (profileRoles === null) {
 				return yield* new RoleResolutionError({

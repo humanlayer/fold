@@ -14,7 +14,7 @@
  * `setProfile` swap binds on the very next run and the existing transition diff sees only concrete
  * models.
  */
-import { Cause, Effect, Exit, Fiber, Ref, Schema, Stream } from 'effect'
+import { Data, Match, Predicate, Cause, Effect, Exit, Fiber, Ref, Schema, Stream } from 'effect'
 import type { Array as Arr } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
@@ -22,15 +22,16 @@ import type { FoldModel } from '../Api/ModelDescriptor'
 import { AgentProvisioner } from '../Api/Provisioning'
 import type { RealizedFoldTool, FoldTool } from '../Api/ToolDefinition'
 import { EventLog } from '../EventLog/EventLogService'
-import type {
-	AgentFinishedLogEntry,
-	AgentFork,
-	AgentLaunchMode,
-	AgentStartedLogEntry,
-	AssistantMessageLogEntry,
-	LogEntry,
-	LogEntryInput,
-	LogSeq,
+import {
+	LogEntryInputs,
+	type AgentFinishedLogEntry,
+	type AgentFork,
+	type AgentLaunchMode,
+	type AgentStartedLogEntry,
+	type AssistantMessageLogEntry,
+	type LogEntry,
+	type LogEntryInput,
+	type LogSeq,
 } from '../EventLog/Schemas'
 import type { HookConfig } from '../HookRunner/Types'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
@@ -90,6 +91,7 @@ export type SubagentsConfig = {
 
 /** Where an agent's configuration comes from: a registered type, or the root agent. */
 type OriginatingConfig = { readonly _tag: 'entry'; readonly entry: RegisteredAgentType } | { readonly _tag: 'root' }
+const OriginatingConfig = Data.taggedEnum<OriginatingConfig>()
 
 type AgentConfigurationSnapshot = {
 	readonly model: FoldModel
@@ -129,6 +131,8 @@ type LaunchSubagentParams = {
 	readonly interruptNote: InterruptNoteService
 }
 
+const SubagentLaunch = Data.taggedEnum<LaunchSubagentParams['launch']>()
+
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
 	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
@@ -155,7 +159,8 @@ const interruptedSubagentNote = (agentLabel: string, subagentId: AgentId, turnsT
 
 const findAgentStarted = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): AgentStartedLogEntry | null =>
 	entries.find(
-		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.agentId === agentId,
+		(entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started') && entry.agentId === agentId,
 	) ?? null
 
 /** Count assistant turns for one subagent: this dispatch/resume (by toolCallId) and lifetime total. */
@@ -165,7 +170,8 @@ const countAssistantTurns = (
 	toolCallId: ToolCallId,
 ): { readonly thisRun: TurnCount; readonly total: TurnCount } => {
 	const own = entries.filter(
-		(entry): entry is AssistantMessageLogEntry => entry._tag === 'assistant-message' && entry.agentId === agentId,
+		(entry): entry is AssistantMessageLogEntry =>
+			Predicate.isTagged(entry, 'assistant-message') && entry.agentId === agentId,
 	)
 
 	return {
@@ -182,7 +188,9 @@ const lastAssistantTextForRun = (
 ): string | null => {
 	const lastAssistant = entries.findLast(
 		(entry): entry is AssistantMessageLogEntry =>
-			entry._tag === 'assistant-message' && entry.agentId === agentId && entry.toolCallId === toolCallId,
+			Predicate.isTagged(entry, 'assistant-message') &&
+			entry.agentId === agentId &&
+			entry.toolCallId === toolCallId,
 	)
 	if (lastAssistant === undefined) return null
 
@@ -262,12 +270,12 @@ export const makeSubagents = (
 
 			if (started.agentType !== null) {
 				const entry = config.registry.resolveAgentType(started.agentType)
-				return entry === null ? null : { _tag: 'entry', entry }
+				return entry === null ? null : OriginatingConfig.entry({ entry })
 			}
 			if (started.mode === 'fork' && started.fork !== null) {
 				return originatingConfigForAgent(entries, started.fork.fromAgentId, new Set([...seen, agentId]))
 			}
-			if (started.parentAgentId === null) return { _tag: 'root' }
+			if (started.parentAgentId === null) return OriginatingConfig.root()
 
 			return null
 		}
@@ -278,17 +286,19 @@ export const makeSubagents = (
 		 * role-bound type all see the live binding (a fork clones the caller's binding by definition).
 		 */
 		const agentSnapshotForOrigin = (origin: OriginatingConfig): Effect.Effect<AgentConfigurationSnapshot> =>
-			origin._tag === 'root'
-				? config.currentRootAgent
-				: resolveModelBinding(origin.entry.model).pipe(
+			Match.valueTags(origin, {
+				root: () => config.currentRootAgent,
+				entry: ({ entry }) =>
+					resolveModelBinding(entry.model).pipe(
 						Effect.map((model) => ({
 							model,
 							promptCacheKey: null,
-							tools: origin.entry.tools,
-							hooks: origin.entry.hooks,
-							systemPrompt: origin.entry.systemPrompt,
+							tools: entry.tools,
+							hooks: entry.hooks,
+							systemPrompt: entry.systemPrompt,
 						})),
-					)
+					),
+			})
 
 		/** Reconstruct one agent's effective configuration, including a persisted fork tool override. */
 		const agentSnapshotForAgent = (
@@ -364,48 +374,51 @@ export const makeSubagents = (
 					const entries = yield* collectEntries
 					const finishedThisRun = entries.some(
 						(entry) =>
-							entry._tag === 'agent-finished' &&
+							Predicate.isTagged(entry, 'agent-finished') &&
 							entry.agentId === params.subagentId &&
 							entry.toolCallId === params.toolCallId,
 					)
 
 					if (!finishedThisRun) {
 						if (Cause.hasInterrupts(cause)) {
-							yield* appendToEventLog({
-								_tag: 'user-message',
-								agentId: params.subagentId,
-								parentAgentId: params.parentAgentId,
-								toolCallId: params.toolCallId,
-								messageId: yield* ids.makeMessageId,
-								message: encodeUserMessage(
-									Prompt.userMessage({
-										content: [
-											Prompt.textPart({
-												text: '<system-information>You were interrupted by the user before completing this work.</system-information>',
-											}),
-										],
-									}),
-								),
-							})
-							yield* appendToEventLog({
-								_tag: 'agent-finished',
-								agentId: params.subagentId,
-								parentAgentId: params.parentAgentId,
-								toolCallId: params.toolCallId,
-								outcome: 'interrupted',
-								resultText: null,
-								reason: 'interrupted by the user',
-							})
+							yield* appendToEventLog(
+								LogEntryInputs['user-message']({
+									agentId: params.subagentId,
+									parentAgentId: params.parentAgentId,
+									toolCallId: params.toolCallId,
+									messageId: yield* ids.makeMessageId,
+									message: encodeUserMessage(
+										Prompt.userMessage({
+											content: [
+												Prompt.textPart({
+													text: '<system-information>You were interrupted by the user before completing this work.</system-information>',
+												}),
+											],
+										}),
+									),
+								}),
+							)
+							yield* appendToEventLog(
+								LogEntryInputs['agent-finished']({
+									agentId: params.subagentId,
+									parentAgentId: params.parentAgentId,
+									toolCallId: params.toolCallId,
+									outcome: 'interrupted',
+									resultText: null,
+									reason: 'interrupted by the user',
+								}),
+							)
 						} else {
-							yield* appendToEventLog({
-								_tag: 'agent-finished',
-								agentId: params.subagentId,
-								parentAgentId: params.parentAgentId,
-								toolCallId: params.toolCallId,
-								outcome: 'error',
-								resultText: null,
-								reason: modelVisibleErrorDetailsFromCause(cause),
-							})
+							yield* appendToEventLog(
+								LogEntryInputs['agent-finished']({
+									agentId: params.subagentId,
+									parentAgentId: params.parentAgentId,
+									toolCallId: params.toolCallId,
+									outcome: 'error',
+									resultText: null,
+									reason: modelVisibleErrorDetailsFromCause(cause),
+								}),
+							)
 						}
 					}
 				})
@@ -460,7 +473,7 @@ export const makeSubagents = (
 						hooks: params.hooks,
 					})
 
-					if (params.launch._tag === 'start') {
+					if (SubagentLaunch.$is('start')(params.launch)) {
 						yield* agentRuntimeForSubagent.start({
 							agentId: params.subagentId,
 							parentAgentId: params.parentAgentId,
@@ -508,7 +521,7 @@ export const makeSubagents = (
 						yield* eventLog.subscribe().pipe(
 							Stream.filter(
 								(entry) =>
-									entry._tag === 'assistant-message' &&
+									Predicate.isTagged(entry, 'assistant-message') &&
 									entry.agentId === params.subagentId &&
 									entry.toolCallId === params.toolCallId,
 							),
@@ -554,46 +567,51 @@ export const makeSubagents = (
 					const entries = yield* collectEntries
 					const finishedThisRun = entries.some(
 						(entry) =>
-							entry._tag === 'agent-finished' && entry.agentId === agentId && entry.seq > baselineSeq,
+							Predicate.isTagged(entry, 'agent-finished') &&
+							entry.agentId === agentId &&
+							entry.seq > baselineSeq,
 					)
 					if (finishedThisRun) return
 
 					if (Cause.hasInterrupts(exit.cause)) {
-						yield* appendToEventLog({
-							_tag: 'user-message',
-							agentId,
-							parentAgentId: null,
-							toolCallId: null,
-							messageId: yield* ids.makeMessageId,
-							message: encodeUserMessage(
-								Prompt.userMessage({
-									content: [
-										Prompt.textPart({
-											text: '<system-information>You were interrupted by the user before completing this work.</system-information>',
-										}),
-									],
-								}),
-							),
-						})
-						yield* appendToEventLog({
-							_tag: 'agent-finished',
-							agentId,
-							parentAgentId: null,
-							toolCallId: null,
-							outcome: 'interrupted',
-							resultText: null,
-							reason: 'interrupted by the user',
-						})
+						yield* appendToEventLog(
+							LogEntryInputs['user-message']({
+								agentId,
+								parentAgentId: null,
+								toolCallId: null,
+								messageId: yield* ids.makeMessageId,
+								message: encodeUserMessage(
+									Prompt.userMessage({
+										content: [
+											Prompt.textPart({
+												text: '<system-information>You were interrupted by the user before completing this work.</system-information>',
+											}),
+										],
+									}),
+								),
+							}),
+						)
+						yield* appendToEventLog(
+							LogEntryInputs['agent-finished']({
+								agentId,
+								parentAgentId: null,
+								toolCallId: null,
+								outcome: 'interrupted',
+								resultText: null,
+								reason: 'interrupted by the user',
+							}),
+						)
 					} else {
-						yield* appendToEventLog({
-							_tag: 'agent-finished',
-							agentId,
-							parentAgentId: null,
-							toolCallId: null,
-							outcome: 'error',
-							resultText: null,
-							reason: modelVisibleErrorDetailsFromCause(exit.cause),
-						})
+						yield* appendToEventLog(
+							LogEntryInputs['agent-finished']({
+								agentId,
+								parentAgentId: null,
+								toolCallId: null,
+								outcome: 'error',
+								resultText: null,
+								reason: modelVisibleErrorDetailsFromCause(exit.cause),
+							}),
+						)
 					}
 				})
 
@@ -668,7 +686,7 @@ export const makeSubagents = (
 							const after = yield* collectEntries
 							const finished = after.findLast(
 								(entry): entry is AgentFinishedLogEntry =>
-									entry._tag === 'agent-finished' && entry.agentId === input.agentId,
+									Predicate.isTagged(entry, 'agent-finished') && entry.agentId === input.agentId,
 							)
 							if (finished === undefined) {
 								return yield* Effect.die(
@@ -741,7 +759,7 @@ export const makeSubagents = (
 						systemPrompt: leadingBlocksFor(entry.systemPrompt, realized),
 						skillParam: input.skill,
 						messages: preloaded === null ? [input.prompt] : [input.prompt, preloaded],
-						launch: { _tag: 'start' },
+						launch: SubagentLaunch.start(),
 						interruptNote,
 					}).pipe(Effect.catchTag('SubagentBusyError', dieOnBusy))
 				}),
@@ -812,7 +830,7 @@ export const makeSubagents = (
 					systemPrompt: null,
 					skillParam: input.skill,
 					messages: preloaded === null ? [input.prompt] : [input.prompt, preloaded],
-					launch: { _tag: 'start' },
+					launch: SubagentLaunch.start(),
 					interruptNote,
 				}).pipe(Effect.catchTag('SubagentBusyError', dieOnBusy))
 			}),
@@ -828,16 +846,12 @@ export const makeSubagents = (
 				// The wire carries a reference (full id or unique short prefix); resolve it against every
 				// started agent before anything else. Ambiguity is a not-found carrying the candidates.
 				const resolution = resolveAgentIdRef(agentIdsFromEntries(entries), input.agentId)
-				if (resolution._tag === 'not-found') {
-					return yield* new SubagentNotFoundError({ requested: input.agentId })
-				}
-				if (resolution._tag === 'ambiguous') {
-					return yield* new SubagentNotFoundError({
-						requested: input.agentId,
-						candidates: resolution.candidates,
-					})
-				}
-				const agentId = resolution.agentId
+				const agentId = yield* Match.valueTags(resolution, {
+					resolved: ({ agentId }) => Effect.succeed(agentId),
+					'not-found': () => Effect.fail(new SubagentNotFoundError({ requested: input.agentId })),
+					ambiguous: ({ candidates }) =>
+						Effect.fail(new SubagentNotFoundError({ requested: input.agentId, candidates })),
+				})
 
 				const started = findAgentStarted(entries, agentId)
 				if (started === null) {
@@ -888,7 +902,7 @@ export const makeSubagents = (
 					systemPrompt: null,
 					skillParam: input.skill,
 					messages: preloaded === null ? [input.prompt] : [input.prompt, preloaded],
-					launch: { _tag: 'resume', modelTransition },
+					launch: SubagentLaunch.resume({ modelTransition }),
 					interruptNote,
 				})
 			}),

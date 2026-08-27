@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Stream } from 'effect'
+import { Predicate, Effect, Layer, Stream } from 'effect'
 
 import {
 	AgentId,
@@ -72,7 +72,9 @@ describe('handler ToolState snapshot semantics', () => {
 			const afterOwnClear = yield* state.get('probe', 'shared')
 
 			const entries = yield* collectLogEntries
-			const stateValues = entries.filter((entry) => entry._tag === 'tool_state').map((entry) => entry.value)
+			const stateValues = entries
+				.filter((entry) => Predicate.isTagged(entry, 'tool_state'))
+				.map((entry) => entry.value)
 
 			expect(seeded).toBe('seeded')
 			expect(afterExternal).toBe('seeded')

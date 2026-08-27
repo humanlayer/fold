@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Ref, Schema } from 'effect'
+import { Predicate, Effect, Layer, Ref, Schema } from 'effect'
 
 import {
 	AgentId,
@@ -82,7 +82,7 @@ describe('HookRunner hook scope services', () => {
 			expect(result.first).toEqual({ _tag: 'continue', params: { text: 'one' } })
 			expect(result.second).toEqual({ _tag: 'continue', params: { text: 'two' } })
 
-			const stateEntries = result.entries.filter((entry) => entry._tag === 'tool_state')
+			const stateEntries = result.entries.filter((entry) => Predicate.isTagged(entry, 'tool_state'))
 			expect(stateEntries).toHaveLength(2)
 			expect(stateEntries[0]).toMatchObject({
 				namespace: 'guard',
@@ -136,7 +136,7 @@ describe('HookRunner hook scope services', () => {
 
 			expect(result.decision).toEqual({ _tag: 'complete' })
 
-			const stateEntries = result.entries.filter((entry) => entry._tag === 'tool_state')
+			const stateEntries = result.entries.filter((entry) => Predicate.isTagged(entry, 'tool_state'))
 			expect(stateEntries).toHaveLength(1)
 			expect(stateEntries[0]).toMatchObject({
 				namespace: 'judge',

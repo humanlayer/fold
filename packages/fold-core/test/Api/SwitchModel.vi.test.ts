@@ -6,7 +6,7 @@
  * log and the requests the scripted per-epoch models actually received.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, Schema } from 'effect'
+import { Predicate, Effect, Schema } from 'effect'
 
 import {
 	defineAgent,
@@ -84,18 +84,26 @@ it.effect('switchModel continues the same log on a new provider and records the 
 		])
 
 		// The durable transition binds the new model, the recomposed family prompt, and the re-resolved toolset.
-		const modelChange = entries.find((entry): entry is ModelChangeLogEntry => entry._tag === 'model-change')
+		const modelChange = entries.find((entry): entry is ModelChangeLogEntry =>
+			Predicate.isTagged(entry, 'model-change'),
+		)
 		expect(modelChange?.model.modelId).toBe('claude-scripted')
 		expect(modelChange?.reason).toBe('switch providers')
 
-		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+		const systemEntries = entries.filter((entry): entry is SystemMessageLogEntry =>
+			Predicate.isTagged(entry, 'system-message'),
+		)
 		expect(systemEntries[0]?.messages.map((message) => message.content)).toEqual(['GPT base.', 'Agent block.'])
 		expect(systemEntries[1]?.messages.map((message) => message.content)).toEqual(['Claude base.', 'Agent block.'])
 
-		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started')
+		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started'),
+		)
 		expect(agentStarted?.tools).toEqual(['echo', 'apply_patch'])
 
-		const toolsChange = entries.find((entry): entry is ToolsChangeLogEntry => entry._tag === 'tools-change')
+		const toolsChange = entries.find((entry): entry is ToolsChangeLogEntry =>
+			Predicate.isTagged(entry, 'tools-change'),
+		)
 		expect(toolsChange?.tools).toEqual(['echo'])
 
 		// The new epoch's request advertises the re-resolved toolset and the recomposed leading prompt.
@@ -135,7 +143,7 @@ it.effect('switchModel can replace the agent prompt blocks, and the replacement 
 
 		const entries = yield* session.entries
 		const leadingBlocks = entries
-			.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+			.filter((entry): entry is SystemMessageLogEntry => Predicate.isTagged(entry, 'system-message'))
 			.map((entry) => entry.messages.map((message) => message.content))
 		expect(leadingBlocks).toEqual([
 			['GPT base.', 'Original block.'],
@@ -177,9 +185,11 @@ it.effect('switchModel can replace the installed tools; the new tool executes an
 
 		// Durable facts: the epoch transition recorded the newly installed toolset...
 		const entries = yield* session.entries
-		const toolsChange = entries.find((entry): entry is ToolsChangeLogEntry => entry._tag === 'tools-change')
+		const toolsChange = entries.find((entry): entry is ToolsChangeLogEntry =>
+			Predicate.isTagged(entry, 'tools-change'),
+		)
 		expect(toolsChange?.tools).toEqual(['lookup'])
-		expect(entries.some((entry) => entry._tag === 'tool-result')).toBe(true)
+		expect(entries.some((entry) => Predicate.isTagged(entry, 'tool-result'))).toBe(true)
 
 		// ...and each epoch's request advertised its own toolset.
 		expect((yield* first.scripted.requests)[0]?.toolNames).toEqual(['echo'])
@@ -225,8 +235,8 @@ it.effect('switchModel records thinking-change when the reasoning level changes 
 			'agent-finished',
 		])
 
-		const thinkingChange = entries.find(
-			(entry): entry is ThinkingChangeLogEntry => entry._tag === 'thinking-change',
+		const thinkingChange = entries.find((entry): entry is ThinkingChangeLogEntry =>
+			Predicate.isTagged(entry, 'thinking-change'),
 		)
 		expect(thinkingChange?.reasoningLevel).toBe('high')
 		expect(thinkingChange?.reason).toBe('raise reasoning')
@@ -272,7 +282,11 @@ it.effect('switchModel extends the subagent registry at the switch boundary', ()
 		yield* session.send('turn two')
 
 		const entries = yield* session.entries
-		expect(entries.find((entry) => entry._tag === 'tools-change')).toMatchObject({ tools: ['subagent'] })
-		expect(entries.find((entry) => entry._tag === 'model-change')).toMatchObject({ reason: 'new roster' })
+		expect(entries.find((entry) => Predicate.isTagged(entry, 'tools-change'))).toMatchObject({
+			tools: ['subagent'],
+		})
+		expect(entries.find((entry) => Predicate.isTagged(entry, 'model-change'))).toMatchObject({
+			reason: 'new roster',
+		})
 	}).pipe(Effect.scoped),
 )
