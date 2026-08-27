@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { SessionId, ToolCallId } from '@humanlayer/fold-core'
 import { Duration, Effect, Fiber } from 'effect'
@@ -205,7 +206,7 @@ it.live('uses OutputStore for deterministic bash spill paths when provided', () 
 		const dir = yield* tempDir
 		const sessionId = SessionId.make('sess_eeeeeeeeeeeeeeeeeeeeeeee')
 		const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
-		const outputStore = makeOutputStore({ sessionId, foldHome: dir })
+		const outputStore = yield* makeOutputStore({ sessionId, foldHome: dir })
 		const ambient = yield* makeAmbientServices()
 
 		const result = yield* handlerOf(bashTool({ cwd: dir, outputStore }))({ command: 'seq 1 3000' }).pipe(
@@ -216,7 +217,7 @@ it.live('uses OutputStore for deterministic bash spill paths when provided', () 
 		expect(outputOf(result)).toContain(`Full output: ${expectedPath}`)
 		expect(readFileSync(expectedPath, 'utf-8')).toContain('1\n2\n3\n')
 		expect(readFileSync(expectedPath, 'utf-8')).toContain('2999\n3000\n')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.live('byte-limit truncation reports the size-limited notice with the spill path', () =>

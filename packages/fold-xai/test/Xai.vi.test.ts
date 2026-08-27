@@ -1,5 +1,6 @@
 import { readdir, rm } from 'node:fs/promises'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option } from 'effect'
 
@@ -27,7 +28,7 @@ describe('xAI OAuth', () => {
 	it.effect('persists xAI tokens under its provider key and clears without losing peers', () =>
 		Effect.gen(function* () {
 			const path = `${process.cwd()}/.tmp-xai-auth-${crypto.randomUUID()}.json`
-			const store = makeXaiAuthStore({ path })
+			const store = yield* makeXaiAuthStore({ path })
 			const token = new XaiTokenData({ type: 'oauth', access: 'access', refresh: 'refresh', expires: 42 })
 			yield* store.save(token)
 			const loaded = yield* store.load
@@ -41,6 +42,7 @@ describe('xAI OAuth', () => {
 					await Promise.all(files.map((file) => rm(file, { force: true })))
 				}),
 			),
+			Effect.provide(NodeFileSystem.layer),
 		),
 	)
 })

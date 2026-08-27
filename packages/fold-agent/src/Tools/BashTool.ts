@@ -28,7 +28,6 @@ import {
 import { Duration, Effect, Fiber, FileSystem, Option, Path, Random, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
-import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { resolveToCwd } from '../Fs/PathResolve'
 import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
@@ -80,7 +79,9 @@ const killGrace = Duration.millis(200)
 const inMemoryRetentionBytes = 4 * defaultMaxBytes
 
 /** Options for {@link bashTool}. */
-export type BashToolOptions = FsToolOptions & {
+export type BashToolOptions = {
+	/** Working directory for resolving relative paths. Defaults to `process.cwd()` at call time. */
+	readonly cwd?: string
 	/** Base directory for spill files holding full untruncated output. Defaults to `os.tmpdir()`. */
 	readonly spillDir?: string
 	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
@@ -244,7 +245,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = options?.fileSystem ?? (yield* FileSystem.FileSystem)
+				const fs = yield* FileSystem.FileSystem
 				const pathService = yield* Path.Path
 				const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 				const configuredCwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())

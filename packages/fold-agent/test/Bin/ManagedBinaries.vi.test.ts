@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
@@ -99,7 +100,7 @@ it.effect('a system alias hit short-circuits the ladder without downloading', ()
 		expect(status?.path).toBe('/usr/bin/fdfind')
 		expect(status?.detail).toContain('fdfind')
 		expect(download.urls).toEqual([])
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('requireManagedInstall installs the canonical managed binary even when a system binary exists', () =>
@@ -122,7 +123,7 @@ it.effect('requireManagedInstall installs the canonical managed binary even when
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
 		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(true)
 		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('requireManagedInstall plus disabled downloads can still report a usable system binary', () =>
@@ -141,7 +142,7 @@ it.effect('requireManagedInstall plus disabled downloads can still report a usab
 		expect(status?.resolution).toBe('system')
 		expect(status?.path).toBe('/opt/homebrew/bin/rg')
 		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(false)
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a system binary below the version floor falls through past the system rung', () =>
@@ -160,7 +161,7 @@ it.effect('a system binary below the version floor falls through past the system
 		// Not 'system': the old binary was rejected; with downloads disabled the ladder ends unavailable.
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('downloads disabled')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an already-installed managed binary resolves without downloading', () =>
@@ -182,7 +183,7 @@ it.effect('an already-installed managed binary resolves without downloading', ()
 		expect(status?.resolution).toBe('managed')
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
 		expect(download.urls).toEqual([])
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a missing binary downloads, extracts, and installs into <foldHome>/bin', () =>
@@ -204,7 +205,7 @@ it.effect('a missing binary downloads, extracts, and installs into <foldHome>/bi
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
 		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(true)
 		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a sha256 mismatch degrades to unavailable and writes nothing', () =>
@@ -232,7 +233,7 @@ it.effect('a sha256 mismatch degrades to unavailable and writes nothing', () =>
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('sha256 mismatch')
 		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(false)
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('the env kill switch skips downloads entirely', () =>
@@ -251,7 +252,7 @@ it.effect('the env kill switch skips downloads entirely', () =>
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(download.urls).toEqual([])
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('one failing binary never blocks the rest (ensure never fails)', () =>
@@ -271,7 +272,7 @@ it.effect('one failing binary never blocks the rest (ensure never fails)', () =>
 
 		expect(statuses.map((status) => status.resolution)).toEqual(['unavailable', 'system'])
 		expect(statuses[0]?.detail).toContain('network down')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an exec failure during extraction also degrades to unavailable', () =>
@@ -292,7 +293,7 @@ it.effect('an exec failure during extraction also degrades to unavailable', () =
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('exploded')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('memoized ensures share one resolution pass per (foldHome, mode)', () =>
@@ -315,7 +316,7 @@ it.effect('memoized ensures share one resolution pass per (foldHome, mode)', () 
 		expect(second[0]?.resolution).toBe('installed-now')
 		// One download despite two ensure calls: the memoized run was shared.
 		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it('parseBinaryVersion pulls the first semver triple out of arbitrary --version output', () => {

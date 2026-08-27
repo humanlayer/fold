@@ -6,6 +6,7 @@
  * hang-once scripted model for interrupt scenarios: its first request signals a Deferred and never
  * produces output; later requests (the resume) serve scripted turns.
  */
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Predicate, Deferred, Effect, Ref, Schema, Stream } from 'effect'
 import { AiError, LanguageModel } from 'effect/unstable/ai'
 
@@ -121,7 +122,7 @@ export const makeDriveSession = (input: {
 			queue(instruction).pipe(Effect.flatMap(() => session.send('next')))
 
 		return { session, drive, queue, rootScripted }
-	})
+	}).pipe(Effect.provide(NodeFileSystem.layer))
 
 /** The agent_started rows of dispatched subagents (parented rows), in log order. */
 export const subagentStartedEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<AgentStartedLogEntry> =>

@@ -6,7 +6,6 @@
  */
 import type { FoldTool } from '@humanlayer/fold-core'
 
-import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { applyPatchTool } from './ApplyPatchTool'
 import { bashTool, type BashToolOptions } from './BashTool'
 import { editTool } from './EditTool'
@@ -14,9 +13,8 @@ import { readTool } from './ReadTool'
 import { webTools, type WebToolsOptions } from './WebTools'
 import { writeTool } from './WriteTool'
 
-/** Options for {@link codingTools}: the shared filesystem seam plus Bash process configuration. */
-export type CodingToolsOptions = FsToolOptions &
-	Pick<BashToolOptions, 'spillDir' | 'outputStore' | 'processEnvironment'> &
+/** Options for {@link codingTools}: the shared cwd plus bash output-spill configuration. */
+export type CodingToolsOptions = Pick<BashToolOptions, 'cwd' | 'spillDir' | 'outputStore' | 'processEnvironment'> &
 	WebToolsOptions
 
 /**

@@ -11,6 +11,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, defineSubagent, startSession, subagentTool } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
@@ -91,7 +92,7 @@ const makeProgram = (apiKey: string) =>
 		yield* Console.log(`\nlog: ${entries.length} rows persisted to ${logPath}`)
 		yield* Console.log(`subagents started: ${subagentStarts.length} (researcher: ${researcherId ?? 'none'})`)
 		yield* Console.log(`researcher turns: ${researcherTurns} across ${researcherCalls} dispatch/resume calls`)
-	}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set ANTHROPIC_API_KEY to run this example.')

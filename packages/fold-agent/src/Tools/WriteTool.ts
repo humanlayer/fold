@@ -12,19 +12,18 @@ import {
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Path } from 'effect'
 
-import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
 
-/** Build the write tool over the default or provided filesystem. */
-export const writeTool = (options?: FsToolOptions): FoldTool =>
+/** Build the write tool over the ambient FileSystem service. */
+export const writeTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...writeToolContract,
 		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = options?.fileSystem ?? (yield* FileSystem.FileSystem)
+				const fs = yield* FileSystem.FileSystem
 				const pathService = yield* Path.Path
 				const cwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const absolutePath = yield* resolveToCwd(params.path, cwd)

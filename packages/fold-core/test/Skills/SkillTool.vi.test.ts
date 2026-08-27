@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer, Ref } from 'effect'
 
@@ -32,6 +33,7 @@ const ambientServices = Layer.mergeAll(
 		resume: () => Effect.die(new Error('Subagents not available in this test')),
 		continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
 	}),
+	NodeFileSystem.layer,
 )
 
 const skillContentOf = (result: unknown): string => {
@@ -59,7 +61,7 @@ describe('makeSkillTool', () => {
 
 			expect(tool.name).toBe('skill')
 			expect(realized.tool.description).toContain('Available skills: commit-helper, reviewer.')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('loads a skill and wraps its content', () =>
@@ -73,7 +75,7 @@ describe('makeSkillTool', () => {
 			expect(result).toEqual({
 				content: '<skill name="commit-helper">\nWrite conventional commits.\n</skill>',
 			})
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('returns an instructive failure with the roster for unknown skills', () =>
@@ -88,7 +90,7 @@ describe('makeSkillTool', () => {
 				message: 'Skill "missing" not found. Available skills: commit-helper, reviewer',
 				availableSkills: ['commit-helper', 'reviewer'],
 			})
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('refresh reports skills added after the session-start snapshot', () =>
@@ -118,7 +120,7 @@ describe('makeSkillTool', () => {
 			expect(content).toContain('<skill name="commit-helper">')
 			expect(content).toContain('<system-information>')
 			expect(content).toContain('Skills added since session start:\n- late-arrival: Added mid-session')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('refresh reports an unchanged roster', () =>
@@ -131,7 +133,7 @@ describe('makeSkillTool', () => {
 			const content = skillContentOf(result)
 
 			expect(content).toContain('The skill list has not changed since this session started.')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 
 	it.effect('an empty snapshot steers the model toward refresh', () =>
@@ -140,6 +142,6 @@ describe('makeSkillTool', () => {
 			const realized = yield* makeSkillTool({ source, snapshot: [] }).init
 
 			expect(realized.tool.description).toContain('No skills were available when this session started')
-		}),
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 })

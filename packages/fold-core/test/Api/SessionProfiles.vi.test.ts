@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade tests for session profiles: `startSession({ profiles })` seeds the session-wide role->model
  * map and `FoldSession.setProfile` rebinds one role mid-session - children provision per dispatch, so
@@ -40,7 +41,7 @@ it.effect('setProfile rebinds a role for the very next dispatch of the same type
 		expect(yield* fastB.scripted.remainingTurns).toBe(0)
 		expect(yield* fastA.scripted.requests).toHaveLength(1)
 		expect(yield* fastB.scripted.requests).toHaveLength(1)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a failed atomic model switch leaves the complete profiles map unchanged', () =>
@@ -70,5 +71,5 @@ it.effect('a failed atomic model switch leaves the complete profiles map unchang
 		expect(started.at(-1)?.model.modelId).toBe('fast-before')
 		expect(yield* fastA.scripted.requests).toHaveLength(1)
 		expect(yield* fastB.scripted.requests).toHaveLength(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

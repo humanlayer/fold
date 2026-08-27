@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for role-bound subagent models (profiles slice): a registry entry may bind `model` to a
  * profile role name instead of a concrete descriptor, resolved through the session's mutable profiles
@@ -36,7 +37,7 @@ it.effect('a role-bound subagent dispatches on the profiles-bound model', () =>
 		expect(started?.agentType).toBe('researcher')
 		expect(started?.model.modelId).toBe('fast-bound')
 		expect(yield* fastScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('resuming a subagent dispatched before a setProfile swap writes the child model-change', () =>
@@ -74,7 +75,7 @@ it.effect('resuming a subagent dispatched before a setProfile swap writes the ch
 		const resumedPrompt = JSON.stringify((yield* fastB.scripted.prompts)[0])
 		expect(resumedPrompt).toContain('first findings')
 		expect(resumedPrompt).toContain('keep going')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an orchestrator-bound subagent falls back to the smart profile when orchestrator is unbound', () =>
@@ -94,7 +95,7 @@ it.effect('an orchestrator-bound subagent falls back to the smart profile when o
 		const entries = yield* session.entries
 		expect(subagentStartedEntries(entries)[0]?.model.modelId).toBe('smart-bound')
 		expect(yield* smartScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a role-bound roster with no covering profile binding defects at session start', () =>
@@ -110,7 +111,7 @@ it.effect('a role-bound roster with no covering profile binding defects at sessi
 		const rendered = String(Cause.squash(exit.cause))
 		expect(rendered).toContain('subagent type "researcher" binds model role "fast"')
 		expect(rendered).toContain('profiles.fast')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an orchestrator binding is only covered by orchestrator or smart profiles', () =>
@@ -125,7 +126,7 @@ it.effect('an orchestrator binding is only covered by orchestrator or smart prof
 
 		if (!Exit.isFailure(exit)) throw new Error('expected session start to defect')
 		expect(String(Cause.squash(exit.cause))).toContain('profiles.orchestrator (or profiles.smart)')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('concrete model bindings keep working with no profiles passed (regression)', () =>
@@ -143,5 +144,5 @@ it.effect('concrete model bindings keep working with no profiles passed (regress
 		const entries = yield* session.entries
 		expect(subagentStartedEntries(entries)[0]?.model.modelId).toBe('concrete')
 		expect(yield* concreteScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

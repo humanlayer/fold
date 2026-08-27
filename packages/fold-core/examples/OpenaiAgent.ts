@@ -5,6 +5,7 @@
  *
  * Run: OPENAI_API_KEY=... bun packages/fold-core/examples/OpenaiAgent.ts
  */
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Console, Effect, Schema } from 'effect'
 
 import { defineAgent, defineTool, openaiModel, startSession } from '../src/index'
@@ -40,7 +41,7 @@ const makeProgram = (apiKey: string) =>
 		yield* Console.log(`finished: ${finished.outcome}`)
 		yield* Console.log(`result: ${finished.resultText ?? '(no text)'}`)
 		yield* Console.log(`log: ${entries.map((entry) => entry._tag).join(' -> ')}`)
-	}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set OPENAI_API_KEY to run this example.')

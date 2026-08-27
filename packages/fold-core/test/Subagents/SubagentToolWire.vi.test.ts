@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for the REAL subagent tool wire (D21): the model dispatches and resumes subagents by
  * calling the `subagent` tool with its flat wire parameters - no test-only drive tool in the loop - so
@@ -108,7 +109,7 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('malformed wire commands come back as instructive tool failures the model can correct from', () =>
@@ -165,7 +166,7 @@ it.effect('malformed wire commands come back as instructive tool failures the mo
 		expect(renderedDriveResult(entries, 2)).toContain('No subagent with agent_id')
 
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an ambiguous short agent_id comes back as an instructive failure naming the candidate short ids', () =>
@@ -242,5 +243,5 @@ it.effect('an ambiguous short agent_id comes back as an instructive failure nami
 		// Nothing resumed: the failure fired before any subagent run.
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

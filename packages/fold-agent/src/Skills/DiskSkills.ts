@@ -21,10 +21,10 @@ import {
 	type SkillSourceService,
 	type FoldSkills,
 } from '@humanlayer/fold-core'
-import { Effect, type FileSystem } from 'effect'
+import { Effect, FileSystem } from 'effect'
 import { parse as parseYaml } from 'yaml'
 
-import { cwdFor, fileSystemFor } from '../Fs/DefaultFileSystem'
+import { cwdFor } from '../Fs/DefaultFileSystem'
 
 /** Options for {@link skillsFromDisk}. */
 export type DiskSkillsOptions = {
@@ -32,8 +32,6 @@ export type DiskSkillsOptions = {
 	readonly cwd?: string
 	/** Home directory for global `~/.claude/skills` and `~/.fold/skills`. Defaults to `os.homedir()`. */
 	readonly home?: string
-	/** FileSystem implementation override. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FileSystem.FileSystem
 	/** Extra scan roots appended after the standard chain (highest shadowing precedence). */
 	readonly extraPaths?: ReadonlyArray<string>
 }
@@ -175,9 +173,10 @@ const scanRoots = (
 	})
 
 /** Build the disk SkillSource service. Each list/load runs a fresh scan (refresh sees new skills). */
-export const makeDiskSkillSource = (options?: DiskSkillsOptions): Effect.Effect<SkillSourceService> =>
-	Effect.sync(() => {
-		const fs = fileSystemFor(options)
+export const makeDiskSkillSource = (
+	options?: DiskSkillsOptions,
+): Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> =>
+	Effect.map(FileSystem.FileSystem, (fs) => {
 		const cwd = cwdFor(options)
 		const home = options?.home ?? homedir()
 		const extraPaths = options?.extraPaths ?? []

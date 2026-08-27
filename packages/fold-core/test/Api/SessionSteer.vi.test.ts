@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Slice-2 steering tests (D8): `steer` queues onto a RUNNING agent and drains between that agent's
  * turns - after the in-flight batch, before the next model call - landing as an ordinary user-message
@@ -48,7 +49,7 @@ it.effect('steering a running root drains between turns, exactly where the model
 		const prompts = yield* rootScripted.scripted.prompts
 		expect(JSON.stringify(prompts[0])).not.toContain('change course')
 		expect(JSON.stringify(prompts[1])).toContain('change course')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('one-at-a-time steering drains one message per turn boundary', () =>
@@ -78,7 +79,7 @@ it.effect('one-at-a-time steering drains one message per turn boundary', () =>
 		expect(JSON.stringify(prompts[1])).toContain('first steer')
 		expect(JSON.stringify(prompts[1])).not.toContain('second steer')
 		expect(JSON.stringify(prompts[2])).toContain('second steer')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect("steering mode 'all' drains the whole queue at one boundary", () =>
@@ -104,7 +105,7 @@ it.effect("steering mode 'all' drains the whole queue at one boundary", () =>
 		const nextPrompt = JSON.stringify((yield* rootScripted.scripted.prompts)[1])
 		expect(nextPrompt).toContain('first steer')
 		expect(nextPrompt).toContain('second steer')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('steering an idle agent fails typed, pointing at send', () =>
@@ -115,7 +116,7 @@ it.effect('steering an idle agent fails typed, pointing at send', () =>
 		const failure = yield* session.steer('too late').pipe(Effect.flip)
 		expect(failure._tag).toBe('AgentNotRunningError')
 		expect(failure.message).toContain('send(message, { agentId')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect("steering a running subagent drains between the child's turns under the dispatch envelope", () =>
@@ -178,5 +179,5 @@ it.effect("steering a running subagent drains between the child's turns under th
 		expect(JSON.stringify(childPrompts[1])).toContain('focus on the config file')
 		const rootPrompts = yield* rootScripted.scripted.prompts
 		expect(JSON.stringify(rootPrompts)).not.toContain('focus on the config file')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

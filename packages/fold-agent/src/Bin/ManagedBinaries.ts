@@ -24,9 +24,8 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { Cause, Effect, Schema, type FileSystem } from 'effect'
+import { Cause, Effect, FileSystem, Schema } from 'effect'
 
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { managedBinaryRegistry, type ManagedBinaryAsset, type ManagedBinaryDefinition } from './Registry'
 
 /** Environment variable that, when set (non-empty), disables managed-binary downloads entirely. */
@@ -88,8 +87,8 @@ export type ExecSeam = (
 export type EnsureManagedBinariesOptions = {
 	/** The fold home directory; binaries install into `<foldHome>/bin`. */
 	readonly foldHome: string
-	/** FileSystem override for hermetic tests. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
+	/** @deprecated FileSystem is now provided through the Effect R channel. */
+	readonly fileSystem?: FileSystem.FileSystem
 	/** Environment lookup for {@link FOLD_DISABLE_BINARY_DOWNLOADS} and PATH. Defaults to `process.env`. */
 	readonly env?: (name: string) => string | undefined
 	/** PATH lookup seam. Defaults to scanning the env seam's PATH for an executable file. */
@@ -438,14 +437,17 @@ const resolveOneNeverFailing = (
 		}),
 	)
 
-const ensureOnce = (options: EnsureManagedBinariesOptions): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>> =>
+const ensureOnce = (
+	options: EnsureManagedBinariesOptions,
+): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
 		const env = options.env ?? ((name: string) => process.env[name])
 		const platform = options.platform ?? process.platform
 		const disableFlag = env(FOLD_DISABLE_BINARY_DOWNLOADS)
 		const context: ResolveContext = {
 			foldHome: options.foldHome,
-			fs: fileSystemFor(options.fileSystem === undefined ? {} : { fileSystem: options.fileSystem }),
+			fs,
 			env,
 			which: options.which ?? defaultWhich(env, platform),
 			download: options.download ?? defaultDownload,
@@ -463,7 +465,7 @@ const ensureOnce = (options: EnsureManagedBinariesOptions): Effect.Effect<Readon
 		})
 	})
 
-const memoizedRuns = new Map<string, Effect.Effect<ReadonlyArray<ManagedBinaryStatus>>>()
+const memoizedResults = new Map<string, ReadonlyArray<ManagedBinaryStatus>>()
 
 /**
  * Ensure every managed binary is resolvable, returning one status per registry entry (in registry
@@ -472,18 +474,22 @@ const memoizedRuns = new Map<string, Effect.Effect<ReadonlyArray<ManagedBinarySt
  */
 export const ensureManagedBinaries = (
 	options: EnsureManagedBinariesOptions,
-): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>> =>
+): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem> =>
 	Effect.suspend(() => {
 		if (options.memoize === false) return ensureOnce(options)
 
 		const key = `${options.foldHome} ${options.disableDownloads === true} ${options.requireManagedInstall === true}`
-		const existing = memoizedRuns.get(key)
-		if (existing !== undefined) return existing
+		const existing = memoizedResults.get(key)
+		if (existing !== undefined) return Effect.succeed(existing)
 
-		// Effect.cached construction is synchronous; the Map get/set pair runs without a yield point in
-		// between, so concurrent callers cannot race past each other into two resolution passes.
-		const run = Effect.runSync(Effect.cached(ensureOnce(options)))
-		memoizedRuns.set(key, run)
-
-		return run
+		// Run once and cache the result. The suspend boundary is synchronous so concurrent
+		// callers cannot race past the get into two resolution passes; the second caller's
+		// ensureOnce is idempotent in the unlikely event of an async interleave.
+		return ensureOnce(options).pipe(
+			Effect.tap((result) =>
+				Effect.sync(() => {
+					memoizedResults.set(key, result)
+				}),
+			),
+		)
 	})

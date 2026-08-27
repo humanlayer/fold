@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Cross-session isolation: startSession builds with session-fresh memo maps, so two sessions started
  * inside one program never share module-level layers. This is the regression test for the v4
@@ -56,5 +57,5 @@ it.effect('two sessions in one program share no log, ids, or model runtime', () 
 		// Sequence numbers restart per log - interleaving into one shared log would break this.
 		expect(entriesA.map((entry) => entry.seq)).toEqual(entriesA.map((_, index) => index))
 		expect(entriesB.map((entry) => entry.seq)).toEqual(entriesB.map((_, index) => index))
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

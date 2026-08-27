@@ -42,6 +42,7 @@ export type ToolHandlerServices =
 	| CurrentToolCall
 	| InterruptNote
 	| Subagents
+	| FileSystem.FileSystem
 
 type PlatformToolServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
 
@@ -80,7 +81,7 @@ export type SessionToolContribution = {
 export type FoldTool = {
 	readonly name: string
 	/** Run ONCE per distinct value per session by the composition root; contributions are reused. */
-	readonly init: Effect.Effect<SessionToolContribution>
+	readonly init: Effect.Effect<SessionToolContribution, never, FileSystem.FileSystem>
 }
 
 /** One realized tool ready to install into a Toolset: the composition-internal, post-init stage. */
@@ -142,6 +143,7 @@ export const defineTool = <
 			CurrentToolCall,
 			InterruptNote,
 			Subagents,
+			FileSystem.FileSystem,
 			...(options.dependencies ?? []),
 		],
 	}).annotate(Tool.Strict, false)

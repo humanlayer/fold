@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Slice-2 session-stop tests (D9): `stop` raises a session-wide graceful-stop signal every agent's
  * loop observes at its batch boundaries - the in-flight batch finishes and its results land, then the
@@ -43,7 +44,7 @@ it.effect('stop lets the in-flight batch finish, then ends the run with no furth
 		const next = yield* session.send('carry on')
 		expect(next.outcome).toBe('completed')
 		expect(next.resultText).toBe('never requested')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('stop reaches the whole tree: the running subagent stops, then its dispatcher stops', () =>
@@ -110,5 +111,5 @@ it.effect('stop reaches the whole tree: the running subagent stops, then its dis
 		// Neither model consumed its post-stop turn.
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(1)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(1)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

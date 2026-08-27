@@ -16,7 +16,6 @@ import {
 } from '@humanlayer/fold-core'
 import { Match, Predicate, Effect, FileSystem, Path } from 'effect'
 
-import type { FsToolOptions } from '../Fs/DefaultFileSystem'
 import { withFileMutationLocks } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
@@ -29,14 +28,14 @@ const verificationFailed = (detail: string): { message: string } => ({
 const opPaths = (op: PatchOp): ReadonlyArray<string> =>
 	Predicate.isTagged(op, 'update') && op.movePath !== null ? [op.path, op.movePath] : [op.path]
 
-/** Build the apply_patch tool over the default or provided filesystem. */
-export const applyPatchTool = (options?: FsToolOptions): FoldTool =>
+/** Build the apply_patch tool over the ambient FileSystem service. */
+export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...applyPatchToolContract,
 		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const fs = options?.fileSystem ?? (yield* FileSystem.FileSystem)
+				const fs = yield* FileSystem.FileSystem
 				const pathService = yield* Path.Path
 				const cwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const ops = yield* parsePatch(params.patch_text).pipe(

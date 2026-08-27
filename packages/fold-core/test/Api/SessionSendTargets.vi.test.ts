@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Slice-2 send-targeting tests (D8): `send` on a RUNNING agent queues a follow-up that joins the run
  * at its natural completion boundary (both senders resolve with the same final entry); a follow-up the
@@ -60,7 +61,7 @@ it.effect('send while running joins the run as a follow-up; both senders get the
 		const followUpPrompt = JSON.stringify(prompts[2])
 		expect(followUpPrompt).toContain('first answer')
 		expect(followUpPrompt).toContain('one more thing')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a follow-up the stopped run never consumed starts its own fresh run', () =>
@@ -91,7 +92,7 @@ it.effect('a follow-up the stopped run never consumed starts its own fresh run',
 
 		const entries = yield* session.entries
 		expect(entries.filter((entry) => Predicate.isTagged(entry, 'agent-finished'))).toHaveLength(2)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('send targeting a finished subagent continues it directly under a null envelope', () =>
@@ -149,7 +150,7 @@ it.effect('send targeting a finished subagent continues it directly under a null
 		expect(continuedPrompt).toContain('map the module')
 		expect(continuedPrompt).toContain('first findings')
 		expect(continuedPrompt).toContain('quote the title line')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('send to an unknown agent id fails typed', () =>
@@ -161,7 +162,7 @@ it.effect('send to an unknown agent id fails typed', () =>
 			.send('hello?', { agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa') })
 			.pipe(Effect.flip)
 		expect(failure._tag).toBe('SubagentNotFoundError')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('send targeting a finished subagent by its SHORT id continues it like the full id', () =>
@@ -202,7 +203,7 @@ it.effect('send targeting a finished subagent by its SHORT id continues it like 
 		expect(continued.agentId).toBe(started.agentId)
 		expect(continued.resultText).toBe('continued findings')
 		expect(continued.toolCallId).toBeNull()
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('send with an ambiguous short reference fails typed, naming the candidate short ids', () =>
@@ -242,5 +243,5 @@ it.effect('send with an ambiguous short reference fails typed, naming the candid
 		expect(failure._tag).toBe('SubagentNotFoundError')
 		expect(failure.requested).toBe('agent_abcdef')
 		expect(failure.candidates).toEqual(['agent_abcdef11', 'agent_abcdef22'])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

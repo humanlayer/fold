@@ -4,7 +4,7 @@ import {
 	type ConfigInitOptions,
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
-import { Cause, Effect, Exit } from 'effect'
+import { Cause, Effect, Exit, type FileSystem } from 'effect'
 
 export type TuiConfigBootstrapResult = {
 	readonly config: FoldConfig | null
@@ -12,7 +12,9 @@ export type TuiConfigBootstrapResult = {
 }
 
 /** Bootstrap first, and only load a config after bootstrap has completed successfully. */
-export const bootstrapTuiConfig = (options: ConfigInitOptions): Effect.Effect<TuiConfigBootstrapResult> =>
+export const bootstrapTuiConfig = (
+	options: ConfigInitOptions,
+): Effect.Effect<TuiConfigBootstrapResult, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const bootstrapExit = yield* Effect.exit(bootstrapFoldHome(options))
 		if (Exit.isFailure(bootstrapExit))

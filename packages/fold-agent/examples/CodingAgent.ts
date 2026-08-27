@@ -10,6 +10,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, startSession } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
@@ -49,7 +50,7 @@ const makeProgram = (apiKey: string) =>
 		yield* Console.log(
 			`tools used: ${entries.filter((entry) => Predicate.isTagged(entry, 'tool-result')).length} tool results`,
 		)
-	}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set ANTHROPIC_API_KEY to run this example.')

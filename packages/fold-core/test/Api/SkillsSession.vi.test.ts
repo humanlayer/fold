@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade tests for skills (D20/D24): the roster is read once at session start and rendered into the
  * leading system prompt plus the skill tool's description; the tool serves content on demand; adding a
@@ -75,7 +76,7 @@ it.effect('renders the skills block into the leading prompt and installs the ski
 		if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(JSON.stringify(part.result)).toContain('<skill name=')
 		expect(JSON.stringify(part.result)).toContain('Write conventional commits.')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('adding a skill mid-session never changes rendered prompt bytes; refresh reveals it', () =>
@@ -130,7 +131,7 @@ it.effect('adding a skill mid-session never changes rendered prompt bytes; refre
 		if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(JSON.stringify(part.result)).toContain('Skills added since session start')
 		expect(JSON.stringify(part.result)).toContain('late-arrival')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a model switch carries the session-start skills block and skill tool into the new epoch', () =>
@@ -162,5 +163,5 @@ it.effect('a model switch carries the session-start skills block and skill tool 
 		// The new epoch still advertises the skill tool.
 		const secondRequests = yield* second.scripted.requests
 		expect(secondRequests[0]?.toolNames).toContain('skill')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )

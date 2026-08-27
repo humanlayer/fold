@@ -1,9 +1,8 @@
 import { join } from 'node:path'
 
 import { SessionId } from '@humanlayer/fold-core'
-import { Clock, Effect, Option, Schema } from 'effect'
+import { Clock, Effect, FileSystem, Option, Schema } from 'effect'
 
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
 import { sessionsDirFor, type SessionLayoutOptions } from './SessionLayout'
 
 const ViewedChangeRecord = Schema.Struct({
@@ -23,37 +22,38 @@ const viewedChangesPath = (options?: SessionLayoutOptions): string =>
 export const loadViewedPatchHashes = (
 	sessionId: SessionId,
 	options?: SessionLayoutOptions,
-): Effect.Effect<ViewedPatchHashes> => {
-	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
-	return fs.readFileString(viewedChangesPath(options)).pipe(
-		Effect.map((contents) => {
-			const viewed: Record<string, string> = {}
-			for (const line of contents.split('\n')) {
-				if (line.trim().length === 0) continue
-				try {
-					const record = decodeViewedChangeRecord(JSON.parse(line))
-					if (Option.isSome(record) && record.value.sessionId === sessionId) {
-						viewed[record.value.changeKey] = record.value.patchHash
+): Effect.Effect<ViewedPatchHashes, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		return yield* fs.readFileString(viewedChangesPath(options)).pipe(
+			Effect.map((contents) => {
+				const viewed: Record<string, string> = {}
+				for (const line of contents.split('\n')) {
+					if (line.trim().length === 0) continue
+					try {
+						const record = decodeViewedChangeRecord(JSON.parse(line))
+						if (Option.isSome(record) && record.value.sessionId === sessionId) {
+							viewed[record.value.changeKey] = record.value.patchHash
+						}
+					} catch {
+						// A partial record does not invalidate the rest of this derived UI index.
 					}
-				} catch {
-					// A partial record does not invalidate the rest of this derived UI index.
 				}
-			}
-			return viewed
-		}),
-		Effect.catch(() => Effect.succeed({})),
-	)
-}
+				return viewed
+			}),
+			Effect.catch(() => Effect.succeed({})),
+		)
+	})
 
 export const saveViewedPatchHash = (
 	sessionId: SessionId,
 	changeKey: string,
 	patchHash: string,
 	options?: SessionLayoutOptions,
-): Effect.Effect<void> => {
-	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
-	const directory = sessionsDirFor(options)
-	return Effect.gen(function* () {
+): Effect.Effect<void, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const directory = sessionsDirFor(options)
 		const ts = yield* Clock.currentTimeMillis
 		const record = { sessionId, changeKey, patchHash, ts }
 		yield* fs.makeDirectory(directory, { recursive: true })
@@ -63,4 +63,3 @@ export const saveViewedPatchHash = (
 			Effect.logWarning(`could not save viewed change for session ${sessionId}: ${error.message}`),
 		),
 	)
-}

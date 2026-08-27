@@ -11,6 +11,7 @@ import { mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { codingTools, jsonlEventLog } from '@humanlayer/fold-agent'
 import { defineAgent, startSession } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
@@ -49,7 +50,7 @@ const program = Effect.gen(function* () {
 	yield* Console.log(
 		`tools used: ${entries.filter((entry) => Predicate.isTagged(entry, 'tool-result')).length} tool results`,
 	)
-}).pipe(Effect.scoped)
+}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 Effect.runPromise(program).catch((error) => {
 	console.error(`Set up codex credentials in ${join(homedir(), '.fold', 'auth.json')} before running.`)

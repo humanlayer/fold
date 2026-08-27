@@ -70,7 +70,7 @@ const defaultOnBrowserUrl = (url: string): Effect.Effect<void> =>
 
 /** Build a CodexAuth service over the ambient HttpClient. */
 export const makeCodexAuth = Effect.fnUntraced(function* (options?: MakeCodexAuthOptions) {
-	const store = options?.store ?? makeCodexAuthStore()
+	const store = options?.store ?? (yield* makeCodexAuthStore())
 	const issuerClient = makeIssuerHttpClient(yield* HttpClient.HttpClient)
 	const semaphore = Semaphore.makeUnsafe(1)
 

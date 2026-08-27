@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import {
 	makeDiskSkillSource,
 	modeForName,
@@ -163,6 +164,7 @@ export const makeHostedTuiSession = (
 							else setTargetNotice({ agentId, text })
 						}),
 					),
+					Effect.provide(NodeFileSystem.layer),
 				),
 			)
 		}
@@ -200,6 +202,7 @@ export const makeHostedTuiSession = (
 						}),
 					),
 					Effect.catchCause((cause) => Effect.sync(() => setNotice(Cause.pretty(cause)))),
+					Effect.provide(NodeFileSystem.layer),
 				),
 			)
 		}

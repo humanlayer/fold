@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Subagent auto-compaction tests (D11 x D21): the session-wide compaction policy applies to every
  * agent, but each agent compacts against its OWN projection with its own model - a dispatched
@@ -116,7 +117,7 @@ it.effect('a dispatched subagent compacts its own context; the parent projection
 
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a fork compacts history including the parent folded range without touching the parent view', () =>
@@ -191,5 +192,5 @@ it.effect('a fork compacts history including the parent folded range without tou
 		).toBe(false)
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

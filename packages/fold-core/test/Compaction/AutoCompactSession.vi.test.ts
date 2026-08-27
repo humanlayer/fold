@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade-level auto-compaction tests (D11): sessions configured with `autoCompact` compact at the
  * top-of-turn threshold and on reactive provider overflow, write durable `compaction` entries, and
@@ -135,7 +136,7 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 		expect(runtime.activeTools).toEqual(['echo'])
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect(
@@ -204,7 +205,7 @@ it.effect(
 			expect(thirdSend).toContain('third topic')
 
 			expect(yield* scripted.remainingTurns).toBe(0)
-		}).pipe(Effect.scoped),
+		}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('stale pre-compaction usage never re-triggers: no second compaction without a fresh response', () =>
@@ -241,7 +242,7 @@ it.effect('stale pre-compaction usage never re-triggers: no second compaction wi
 		expect(thirdSend).not.toContain('topic one anchor text')
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('compaction is off by default and with enabled: false, even under huge reported usage', () =>
@@ -273,7 +274,7 @@ it.effect('compaction is off by default and with enabled: false, even under huge
 
 		yield* runWithout(undefined)
 		yield* runWithout({ enabled: false })
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('manual facade compaction delegates through the provisioned root runtime', () =>
@@ -302,7 +303,7 @@ it.effect('manual facade compaction delegates through the provisioned root runti
 		expect(requests).toHaveLength(2)
 		expect(JSON.stringify(requests[1]?.prompt)).toContain('manual compact anchor')
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('split-turn compaction separately summarizes a coherent discarded prefix and keeps its suffix', () =>
@@ -336,7 +337,7 @@ it.effect('split-turn compaction separately summarizes a coherent discarded pref
 		expect(projected.map((message) => message._tag)).toEqual(['compaction-summary', 'assistant-message'])
 		expect(JSON.stringify(projected[1])).toContain('kept suffix')
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a configured compactionPrompt replaces the default instruction template', () =>
@@ -367,7 +368,7 @@ it.effect('a configured compactionPrompt replaces the default instruction templa
 		expect(summarizeRequest).not.toContain('structured context checkpoint summary')
 		// The framing around the instruction is fixed: the transcript still rides in <conversation>.
 		expect(summarizeRequest).toContain('<conversation>')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a summarizer failure degrades to a durable error note; the run proceeds uncompacted', () =>
@@ -400,7 +401,7 @@ it.effect('a summarizer failure degrades to a durable error note; the run procee
 		// Uncompacted means the full history reached the model.
 		const finalRequest = JSON.stringify((yield* scripted.requests)[2]?.prompt)
 		expect(finalRequest).toContain('anchor question one')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('reactive overflow: compact and retry the turn once, then the run completes cleanly', () =>
@@ -434,7 +435,7 @@ it.effect('reactive overflow: compact and retry the turn once, then the run comp
 		expect(retriedRequest).toContain('now do the follow-up')
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('overflow recovery runs once per run: a second overflow becomes the durable error outcome', () =>
@@ -463,7 +464,7 @@ it.effect('overflow recovery runs once per run: a second overflow becomes the du
 		expect(errors[0]?.message).toContain('context_length_exceeded again')
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 /** A catalog row for the scripted model with deterministic context and output limits. */
@@ -516,7 +517,7 @@ it.effect('a session-provided catalog supplies the compaction context window (no
 		expect(secondSend).not.toContain('catalog topic one anchor')
 
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an explicit autoCompact.contextWindow beats the catalog entry', () =>
@@ -544,7 +545,7 @@ it.effect('an explicit autoCompact.contextWindow beats the catalog entry', () =>
 		expect(finished.outcome).toBe('completed')
 		expect(compactionEntries(entries)).toHaveLength(1)
 		expect(yield* scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a resumed log projects the compacted history: summary plus post-cut messages only', () =>
@@ -590,5 +591,5 @@ it.effect('a resumed log projects the compacted history: summary plus post-cut m
 		expect(resumedRequest).toContain('answer two')
 		expect(resumedRequest).toContain('continue')
 		expect(resumedRequest).not.toContain('secret phrase is xyzzy')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

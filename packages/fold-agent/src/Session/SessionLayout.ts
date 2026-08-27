@@ -12,10 +12,9 @@ import { join } from 'node:path'
 
 import { SessionId, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
 import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
-import { Predicate, Clock, Effect, Exit, Match, Option, Schema, Stream } from 'effect'
+import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
 
 /** Options shared by the layout helpers. */
@@ -24,8 +23,6 @@ export type SessionLayoutOptions = {
 	readonly cwd?: string
 	/** The fold home directory. Defaults to `~/.fold`. */
 	readonly foldHome?: string
-	/** Filesystem override for discovery (tests); defaults to the Node platform filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
 }
 
 /** One discovered session log. */
@@ -107,20 +104,24 @@ type SessionIndexRecord = typeof SessionIndexRecordSchema.Type
 
 const decodeIndexRecord = Schema.decodeUnknownOption(SessionIndexRecordSchema)
 
-const appendSessionIndexRecord = (record: SessionIndexRecord, options?: SessionLayoutOptions): Effect.Effect<void> => {
-	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
-	const directory = sessionsDirFor(options)
-	return fs.makeDirectory(directory, { recursive: true }).pipe(
-		Effect.andThen(
-			fs.writeFileString(join(directory, 'index.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a' }),
-		),
-		Effect.catch((error) =>
-			Effect.logWarning(
-				`could not append session index record at ${join(directory, 'index.jsonl')}: ${error.message}`,
+const appendSessionIndexRecord = (
+	record: SessionIndexRecord,
+	options?: SessionLayoutOptions,
+): Effect.Effect<void, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const directory = sessionsDirFor(options)
+		yield* fs.makeDirectory(directory, { recursive: true }).pipe(
+			Effect.andThen(
+				fs.writeFileString(join(directory, 'index.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a' }),
 			),
-		),
-	)
-}
+			Effect.catch((error) =>
+				Effect.logWarning(
+					`could not append session index record at ${join(directory, 'index.jsonl')}: ${error.message}`,
+				),
+			),
+		)
+	})
 
 const sessionIdFromIndexRecord = Match.type<SessionIndexRecord>().pipe(
 	Match.tag('summary', ({ summary }) => summary.sessionId),
@@ -128,25 +129,28 @@ const sessionIdFromIndexRecord = Match.type<SessionIndexRecord>().pipe(
 	Match.exhaustive,
 )
 
-const loadSessionIndex = (options?: SessionLayoutOptions): Effect.Effect<Map<SessionId, SessionIndexRecord>> => {
-	const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
-	return fs.readFileString(join(sessionsDirFor(options), 'index.jsonl')).pipe(
-		Effect.map((contents) => {
-			const latest = new Map<SessionId, SessionIndexRecord>()
-			for (const line of contents.split('\n')) {
-				if (line.trim().length === 0) continue
-				try {
-					const record = decodeIndexRecord(JSON.parse(line))
-					if (Option.isSome(record)) latest.set(sessionIdFromIndexRecord(record.value), record.value)
-				} catch {
-					// A partial/corrupt cache row is independently recoverable from the source log.
+const loadSessionIndex = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<Map<SessionId, SessionIndexRecord>, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		return yield* fs.readFileString(join(sessionsDirFor(options), 'index.jsonl')).pipe(
+			Effect.map((contents) => {
+				const latest = new Map<SessionId, SessionIndexRecord>()
+				for (const line of contents.split('\n')) {
+					if (line.trim().length === 0) continue
+					try {
+						const record = decodeIndexRecord(JSON.parse(line))
+						if (Option.isSome(record)) latest.set(sessionIdFromIndexRecord(record.value), record.value)
+					} catch {
+						// A partial/corrupt cache row is independently recoverable from the source log.
+					}
 				}
-			}
-			return latest
-		}),
-		Effect.catch(() => Effect.succeed(new Map<SessionId, SessionIndexRecord>())),
-	)
-}
+				return latest
+			}),
+			Effect.catch(() => Effect.succeed(new Map<SessionId, SessionIndexRecord>())),
+		)
+	})
 
 /**
  * Mint a session id and prepare its log location: the directory exists, the path is derived from the
@@ -155,9 +159,13 @@ const loadSessionIndex = (options?: SessionLayoutOptions): Effect.Effect<Map<Ses
  */
 export const prepareSessionLog = (
 	options?: SessionLayoutOptions,
-): Effect.Effect<{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog }, never, Ids> =>
+): Effect.Effect<
+	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog },
+	never,
+	Ids | FileSystem.FileSystem
+> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const sessionId = yield* makeSessionId
 		const directory = sessionsDirFor(options)
 		yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie)
@@ -167,9 +175,11 @@ export const prepareSessionLog = (
 	})
 
 /** Discover this project's session logs, newest first (by file mtime). */
-export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<ReadonlyArray<SessionLogRef>> =>
+export const listSessionLogs = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<ReadonlyArray<SessionLogRef>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
 
 		const names = yield* fs
@@ -286,7 +296,7 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 	}
 }
 
-const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | null> =>
+const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | null, never, FileSystem.FileSystem> =>
 	Match.value(jsonlEventLog(ref.path)).pipe(
 		Match.tag('source', (descriptor) =>
 			Effect.exit(
@@ -312,13 +322,15 @@ const isCacheHit = (
 	cached.sourceSize === (ref.size ?? 0)
 
 /** Read the one-file picker cache, rebuilding only stale/missing records from authoritative logs. */
-export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Effect<ReadonlyArray<SessionSummary>> =>
+export const listSessionSummaries = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<ReadonlyArray<SessionSummary>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const refs = yield* listSessionLogs(options)
 		const index = yield* loadSessionIndex(options)
 		const summaries = yield* Effect.forEach(
 			refs,
-			(ref): Effect.Effect<SessionSummary | null> => {
+			(ref): Effect.Effect<SessionSummary | null, never, FileSystem.FileSystem> => {
 				const cached = index.get(ref.sessionId)
 				if (isCacheHit(cached, ref)) {
 					// Explicitly construct to ensure size conforms to SessionLogRef's optional semantics.
@@ -369,9 +381,9 @@ export type DeleteSessionResult = {
 export const deleteSession = (
 	sessionId: SessionId,
 	options?: SessionLayoutOptions,
-): Effect.Effect<DeleteSessionResult> =>
+): Effect.Effect<DeleteSessionResult, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const logPath = sessionLogPathFor(sessionId, options)
 		const exists = yield* fs.exists(logPath).pipe(Effect.orDie)
 		if (!exists) return { deleted: false, outputRemoved: true }
@@ -389,16 +401,18 @@ export const deleteSession = (
 	})
 
 /** The newest session log for this project, or null when none exist ("resume latest" - D5). */
-export const latestSessionLog = (options?: SessionLayoutOptions): Effect.Effect<SessionLogRef | null> =>
+export const latestSessionLog = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<SessionLogRef | null, never, FileSystem.FileSystem> =>
 	listSessionLogs(options).pipe(Effect.map((refs) => refs[0] ?? null))
 
 /** Resolve an exact session id under this project's session directory, or null when it is absent. */
 export const sessionLogById = (
 	sessionId: SessionId,
 	options?: SessionLayoutOptions,
-): Effect.Effect<SessionLogRef | null> =>
+): Effect.Effect<SessionLogRef | null, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const path = sessionLogPathFor(sessionId, options)
 		const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
 
@@ -413,7 +427,10 @@ export const sessionLogById = (
 	})
 
 /** Rebuild and append one authoritative summary after session metadata changes. */
-export const refreshSessionSummaryIndex = (sessionId: SessionId, options?: SessionLayoutOptions): Effect.Effect<void> =>
+export const refreshSessionSummaryIndex = (
+	sessionId: SessionId,
+	options?: SessionLayoutOptions,
+): Effect.Effect<void, never, FileSystem.FileSystem> =>
 	sessionLogById(sessionId, options).pipe(
 		Effect.flatMap((ref) => {
 			if (ref === null) return Effect.void

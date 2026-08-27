@@ -1,5 +1,6 @@
 /** FoldModel factory for xAI's OpenAI-compatible inference API authenticated with OAuth. */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai-compat'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Context, Effect, Layer } from 'effect'
@@ -37,7 +38,7 @@ export const makeXaiLanguageModel = (
 		return yield* OpenAiLanguageModel.make({ model: options.model ?? DEFAULT_XAI_MODEL_ID }).pipe(
 			Effect.provideService(OpenAiClient.OpenAiClient, Context.get(clientContext, OpenAiClient.OpenAiClient)),
 		)
-	})
+	}).pipe(Effect.provide(NodeFileSystem.layer))
 
 /** Describe an xAI OAuth-backed model compatible with Fold sessions and switching. */
 export const xaiModel = (options: XaiModelOptions = {}): FoldModel => {

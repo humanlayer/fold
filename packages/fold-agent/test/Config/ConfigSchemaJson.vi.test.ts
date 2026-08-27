@@ -5,7 +5,7 @@
  * existing config. All filesystem work is over an in-memory FileSystem.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, JsonSchema } from 'effect'
+import { Effect, FileSystem, JsonSchema, Layer } from 'effect'
 
 import {
 	configInit,
@@ -62,11 +62,10 @@ it.effect('the starter config is valid against the schema (round-trips through t
 	}),
 )
 
-it.effect('configInit writes the schema and a starter config, then never clobbers the config', () =>
-	Effect.gen(function* () {
-		const fs = memoryFileSystem({})
-
-		const first = yield* configInit({ foldHome: '/home/user/.fold', fileSystem: fs })
+it.effect('configInit writes the schema and a starter config, then never clobbers the config', () => {
+	const fs = memoryFileSystem({})
+	return Effect.gen(function* () {
+		const first = yield* configInit({ foldHome: '/home/user/.fold' })
 		expect(first.createdConfig).toBe(true)
 		expect(first.configPath).toBe('/home/user/.fold/config.jsonc')
 		expect(first.schemaPath).toBe('/home/user/.fold/config.schema.json')
@@ -102,12 +101,12 @@ it.effect('configInit writes the schema and a starter config, then never clobber
 		// A user edits their config and logs in; a second init refreshes the generated files but leaves both alone.
 		yield* fs.writeFileString('/home/user/.fold/config.jsonc', '{ "edited": true }').pipe(Effect.orDie)
 		yield* fs.writeFileString('/home/user/.fold/auth.json', '{ "codex": { "access": "tok" } }').pipe(Effect.orDie)
-		const second = yield* configInit({ foldHome: '/home/user/.fold', fileSystem: fs })
+		const second = yield* configInit({ foldHome: '/home/user/.fold' })
 		expect(second.createdConfig).toBe(false)
 		expect(second.createdAuth).toBe(false)
 
 		const configFile = yield* memoryFileFor(fs, second.configPath)
 		expect(configFile).toBe('{ "edited": true }')
 		expect(yield* memoryFileFor(fs, second.authPath)).toBe('{ "codex": { "access": "tok" } }')
-	}),
-)
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+})

@@ -10,6 +10,7 @@
  *
  * Run: OPENAI_API_KEY=... bun packages/fold-core/examples/AutoCompactAgent.ts
  */
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Predicate, Console, Effect } from 'effect'
 
 import { defineAgent, openaiModel, startSession, type CompactionLogEntry } from '../src/index'
@@ -77,7 +78,7 @@ const makeProgram = (key: string) =>
 		yield* Console.log('\nsend 3: the session keeps running on the compacted context...')
 		const third = yield* session.send('And what were we told about the dedupe window?')
 		yield* Console.log(`  -> ${third.resultText ?? '(no text)'}`)
-	}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set OPENAI_API_KEY to run this example.')

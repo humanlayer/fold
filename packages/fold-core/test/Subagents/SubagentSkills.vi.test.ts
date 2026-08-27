@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for skills in the subagent slice (D20/D21, round-five shape): a skillTool VALUE shared
  * by reference between agents is initialized once (one scan, one snapshot) and gives both the same
@@ -94,7 +95,7 @@ it.effect('a shared skillTool value scans once; the preload rides the dispatcher
 			(entry) => Predicate.isTagged(entry, 'system-message') && entry.agentId === started.agentId,
 		)
 		expect(JSON.stringify(subagentSystem)).toContain('available_skills')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a dispatcher with no skillTool cannot preload: typed failure before any subagent row', () =>
@@ -126,5 +127,5 @@ it.effect('a dispatcher with no skillTool cannot preload: typed failure before a
 
 		const toolResult = entries.find((entry) => Predicate.isTagged(entry, 'tool-result'))
 		expect(JSON.stringify(toolResult)).toContain('Skill \\"commit-helper\\" not found')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

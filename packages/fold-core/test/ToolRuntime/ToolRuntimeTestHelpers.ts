@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Layer, Ref, Stream } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
@@ -74,6 +75,7 @@ export const toolRuntimeBaseLayer = (
 				hookLayer.pipe(Layer.provide(hookDeps)),
 				eventLayer,
 				Layer.succeed(Subagents, noSubagentsStub),
+				NodeFileSystem.layer,
 			),
 		),
 	)

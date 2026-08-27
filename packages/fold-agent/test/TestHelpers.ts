@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import {
 	AgentId,
@@ -60,6 +61,7 @@ export const makeAmbientServices = (): Effect.Effect<{
 					resume: () => Effect.die(new Error('Subagents not available in this test')),
 					continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
 				}),
+				NodeFileSystem.layer,
 			),
 			emitted: Ref.get(events),
 			interruptNote: Ref.get(note),

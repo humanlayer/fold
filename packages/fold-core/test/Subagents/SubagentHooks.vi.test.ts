@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for per-subagent hooks (round-four ruling 6) and per-agent state isolation (D4): each
  * agent runs its OWN hook chains (the root's hooks never fire for a subagent's tool calls and vice
@@ -89,5 +90,5 @@ it.effect('root and subagent run their own hook chains, and hook state stays per
 
 		expect(toolStateForAgent(entries, rootStarted.agentId, 'probe')).toEqual({ marker: 'from-root' })
 		expect(toolStateForAgent(entries, subagentStarted.agentId, 'probe')).toEqual({ marker: 'from-subagent' })
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

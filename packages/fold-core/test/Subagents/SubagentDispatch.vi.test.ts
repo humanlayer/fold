@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for fresh subagent dispatch (D21) through the public facade: the subagent runs its own
  * scripted model on the SAME session log, every one of its rows carries the dispatching parent id and
@@ -129,5 +130,5 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 		// Both scripts fully consumed: the subagent ran exactly one turn, the root exactly two.
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

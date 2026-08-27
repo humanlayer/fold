@@ -10,8 +10,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Context, Effect, FileSystem, Layer, Option, Schema } from 'effect'
+import { Effect, FileSystem, Option, Schema } from 'effect'
 
 /** Milliseconds before nominal expiry a token is already treated as expired (clanka parity). */
 export const TOKEN_EXPIRY_BUFFER_MS = 30_000
@@ -55,25 +54,6 @@ export type MakeCodexAuthStoreOptions = {
 	readonly path?: string
 	/** Key of this provider's entry in the document. Defaults to `codex`. */
 	readonly providerId?: string
-	/** FileSystem implementation override. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FileSystem.FileSystem
-}
-
-let nodeFileSystem: FileSystem.FileSystem | null = null
-
-/** The process-wide Node FileSystem service, built lazily once (layer construction is synchronous). */
-export const defaultNodeFileSystem = (): FileSystem.FileSystem => {
-	if (nodeFileSystem === null) {
-		nodeFileSystem = Effect.runSync(
-			Effect.scoped(
-				Layer.build(NodeFileSystem.layer).pipe(
-					Effect.map((context) => Context.get(context, FileSystem.FileSystem)),
-				),
-			),
-		)
-	}
-
-	return nodeFileSystem
 }
 
 /** The auth document is provider-keyed; entries other than ours are opaque and preserved verbatim. */
@@ -92,67 +72,69 @@ const encodeToken = (token: CodexTokenData): Record<string, unknown> => ({
 })
 
 /** Build a file-backed Codex credential store. */
-export const makeCodexAuthStore = (options?: MakeCodexAuthStoreOptions): CodexAuthStore => {
-	const fs = options?.fileSystem ?? defaultNodeFileSystem()
-	const path = options?.path ?? defaultAuthStorePath()
-	const providerId = options?.providerId ?? 'codex'
+export const makeCodexAuthStore = (
+	options?: MakeCodexAuthStoreOptions,
+): Effect.Effect<CodexAuthStore, never, FileSystem.FileSystem> =>
+	Effect.map(FileSystem.FileSystem, (fs) => {
+		const path = options?.path ?? defaultAuthStorePath()
+		const providerId = options?.providerId ?? 'codex'
 
-	const readDocument: Effect.Effect<Record<string, unknown>> = fs.readFileString(path).pipe(
-		Effect.flatMap((content) => {
-			const document = decodeDocument(content)
-			return Option.isSome(document)
-				? Effect.succeed(document.value)
-				: Effect.logWarning(`Auth store ${path} is not a JSON object; treating it as empty`).pipe(
-						Effect.as<Record<string, unknown>>({}),
-					)
-		}),
-		// A missing (or unreadable) document is simply "no credentials stored yet".
-		Effect.catch(() => Effect.succeed<Record<string, unknown>>({})),
-	)
-
-	const writeDocument = (document: Record<string, unknown>): Effect.Effect<void, CodexAuthStoreError> =>
-		Effect.gen(function* () {
-			yield* fs.makeDirectory(dirname(path), { recursive: true })
-			yield* fs.writeFileString(path, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 })
-			// writeFileString's mode only applies on creation; force 0600 on pre-existing documents too.
-			yield* fs.chmod(path, 0o600)
-		}).pipe(
-			Effect.mapError(
-				(cause) =>
-					new CodexAuthStoreError({
-						reason: 'WriteFailed',
-						message: `Failed to write the auth store at ${path}`,
-						cause,
-					}),
-			),
+		const readDocument: Effect.Effect<Record<string, unknown>> = fs.readFileString(path).pipe(
+			Effect.flatMap((content) => {
+				const document = decodeDocument(content)
+				return Option.isSome(document)
+					? Effect.succeed(document.value)
+					: Effect.logWarning(`Auth store ${path} is not a JSON object; treating it as empty`).pipe(
+							Effect.as<Record<string, unknown>>({}),
+						)
+			}),
+			// A missing (or unreadable) document is simply "no credentials stored yet".
+			Effect.catch(() => Effect.succeed<Record<string, unknown>>({})),
 		)
 
-	const load = Effect.gen(function* () {
-		const document = yield* readDocument
-		const entry = document[providerId]
-		if (entry === undefined) return Option.none<CodexTokenData>()
+		const writeDocument = (document: Record<string, unknown>): Effect.Effect<void, CodexAuthStoreError> =>
+			Effect.gen(function* () {
+				yield* fs.makeDirectory(dirname(path), { recursive: true })
+				yield* fs.writeFileString(path, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 })
+				// writeFileString's mode only applies on creation; force 0600 on pre-existing documents too.
+				yield* fs.chmod(path, 0o600)
+			}).pipe(
+				Effect.mapError(
+					(cause) =>
+						new CodexAuthStoreError({
+							reason: 'WriteFailed',
+							message: `Failed to write the auth store at ${path}`,
+							cause,
+						}),
+				),
+			)
 
-		const token = decodeToken(entry)
-		if (Option.isNone(token)) {
-			yield* Effect.logWarning(`Ignoring invalid "${providerId}" entry in ${path}`)
-		}
-
-		return token
-	}).pipe(Effect.withSpan('fold.codexAuthStore.load'))
-
-	const save = (token: CodexTokenData) =>
-		Effect.gen(function* () {
+		const load = Effect.gen(function* () {
 			const document = yield* readDocument
-			yield* writeDocument({ ...document, [providerId]: encodeToken(token) })
+			const entry = document[providerId]
+			if (entry === undefined) return Option.none<CodexTokenData>()
+
+			const token = decodeToken(entry)
+			if (Option.isNone(token)) {
+				yield* Effect.logWarning(`Ignoring invalid "${providerId}" entry in ${path}`)
+			}
+
 			return token
-		}).pipe(Effect.withSpan('fold.codexAuthStore.save'))
+		}).pipe(Effect.withSpan('fold.codexAuthStore.load'))
 
-	const clear = Effect.gen(function* () {
-		const document = yield* readDocument
-		if (document[providerId] === undefined) return
-		const { [providerId]: _removed, ...rest } = document
-		yield* writeDocument(rest)
-	}).pipe(Effect.withSpan('fold.codexAuthStore.clear'))
+		const save = (token: CodexTokenData) =>
+			Effect.gen(function* () {
+				const document = yield* readDocument
+				yield* writeDocument({ ...document, [providerId]: encodeToken(token) })
+				return token
+			}).pipe(Effect.withSpan('fold.codexAuthStore.save'))
 
-	return { path, load, save, clear }
-}
+		const clear = Effect.gen(function* () {
+			const document = yield* readDocument
+			if (document[providerId] === undefined) return
+			const { [providerId]: _removed, ...rest } = document
+			yield* writeDocument(rest)
+		}).pipe(Effect.withSpan('fold.codexAuthStore.clear'))
+
+		return { path, load, save, clear }
+	})

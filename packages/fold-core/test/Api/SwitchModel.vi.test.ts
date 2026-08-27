@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade switch tests: `FoldSession.switchModel` re-provisions the runtime for a new provider and
  * durably records the full configuration change - `model-change`, the recomposed leading
@@ -114,7 +115,7 @@ it.effect('switchModel continues the same log on a new provider and records the 
 		// The old epoch really advertised the gpt-family toolset.
 		const gptRequest = (yield* first.scripted.requests)[0]
 		expect(gptRequest?.toolNames).toEqual(['echo', 'apply_patch'])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('switchModel can replace the agent prompt blocks, and the replacement sticks for later switches', () =>
@@ -155,7 +156,7 @@ it.effect('switchModel can replace the agent prompt blocks, and the replacement 
 		expect(systemContents((yield* first.scripted.requests)[0])).toEqual(['GPT base.', 'Original block.'])
 		expect(systemContents((yield* second.scripted.requests)[0])).toEqual(['Claude base.', 'Replacement block.'])
 		expect(systemContents((yield* third.scripted.requests)[0])).toEqual(['GPT base.', 'Replacement block.'])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('switchModel can replace the installed tools; the new tool executes and the change lands durably', () =>
@@ -194,7 +195,7 @@ it.effect('switchModel can replace the installed tools; the new tool executes an
 		// ...and each epoch's request advertised its own toolset.
 		expect((yield* first.scripted.requests)[0]?.toolNames).toEqual(['echo'])
 		expect((yield* second.scripted.requests)[0]?.toolNames).toEqual(['lookup'])
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('switchModel records thinking-change when the reasoning level changes and binds it on the next request', () =>
@@ -247,7 +248,7 @@ it.effect('switchModel records thinking-change when the reasoning level changes 
 			model: 'gpt-scripted-high',
 			reasoning: { effort: 'high' },
 		})
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('switchModel rejects duplicate tool names in the replacement toolset as a defect', () =>
@@ -262,7 +263,7 @@ it.effect('switchModel rejects duplicate tool names in the replacement toolset a
 
 		expect(exit._tag).toBe('Failure')
 		expect(String(exit)).toContain('duplicate tool names: echo')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('switchModel extends the subagent registry at the switch boundary', () =>
@@ -288,5 +289,5 @@ it.effect('switchModel extends the subagent registry at the switch boundary', ()
 		expect(entries.find((entry) => Predicate.isTagged(entry, 'model-change'))).toMatchObject({
 			reason: 'new roster',
 		})
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
 import { Predicate, Deferred, Effect, Layer, Ref, Schema } from 'effect'
 import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
@@ -62,6 +63,7 @@ const probeRuntimeLayer = (
 				hookLayer.pipe(Layer.provide(hookDeps)),
 				layerNoopToolEvents,
 				Layer.succeed(Subagents, noSubagentsStub),
+				NodeFileSystem.layer,
 			),
 		),
 	)

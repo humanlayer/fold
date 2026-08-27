@@ -18,9 +18,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { Effect, type FileSystem, Schema } from 'effect'
-
-import { fileSystemFor, type FsToolOptions } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Schema } from 'effect'
 
 /** One loaded agentfile. */
 export const MemoryFile = Schema.Struct({
@@ -36,8 +34,6 @@ export type AgentFilesOptions = {
 	readonly cwd?: string
 	/** Home directory for the global chain. Defaults to `os.homedir()`. */
 	readonly home?: string
-	/** FileSystem override for hermetic tests. Defaults to the Node platform filesystem. */
-	readonly fileSystem?: FsToolOptions['fileSystem']
 }
 
 /** Per-directory base filenames, in preference order (first existing wins). */
@@ -73,9 +69,11 @@ const fileExists = (fs: FileSystem.FileSystem, path: string): Effect.Effect<bool
  * Load agentfiles for a working directory in render order (global, then root..cwd; base then local
  * overlay within each directory). Deduped by path.
  */
-export const loadMemoryFiles = (options?: AgentFilesOptions): Effect.Effect<ReadonlyArray<MemoryFile>> =>
+export const loadMemoryFiles = (
+	options?: AgentFilesOptions,
+): Effect.Effect<ReadonlyArray<MemoryFile>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options?.fileSystem === undefined ? {} : { fileSystem: options.fileSystem })
+		const fs = yield* FileSystem.FileSystem
 		const cwd = options?.cwd ?? process.cwd()
 		const home = options?.home ?? homedir()
 
@@ -136,5 +134,7 @@ export const renderMemoryFiles = (files: ReadonlyArray<MemoryFile>): string | nu
 }
 
 /** Load and render the agentfiles for a working directory as one leading prompt block (null when none). */
-export const memoryPromptBlock = (options?: AgentFilesOptions): Effect.Effect<string | null> =>
+export const memoryPromptBlock = (
+	options?: AgentFilesOptions,
+): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
 	loadMemoryFiles(options).pipe(Effect.map(renderMemoryFiles))

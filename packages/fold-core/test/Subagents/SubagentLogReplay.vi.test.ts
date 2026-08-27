@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine test for resume-across-restart by log replay (D21): session A dispatches a subagent over a
  * shared EventLog and CLOSES; session B - a fresh session instance with no in-memory state from A -
@@ -139,7 +140,7 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 		expect(rendered).toContain(`agent_id: ${shortAgentId(dispatched.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (2 total)')
 		expect(rendered).toContain('resumed findings')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('replay restores a configured fork toolset before resuming the child', () =>
@@ -202,5 +203,5 @@ it.effect('replay restores a configured fork toolset before resuming the child',
 		expect(started[1]?.fork?.definitionId).toBe('leaf-fork')
 		expect(started[1]?.parentAgentId).toBe(dispatched)
 		expect(started[1]?.tools).not.toContain('subagent')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

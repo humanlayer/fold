@@ -1,5 +1,6 @@
 import { existsSync, utimesSync } from 'node:fs'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { SessionId, ToolCallId } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
@@ -12,7 +13,7 @@ it.effect('stores tool output at a deterministic session/tool-call path', () =>
 		const root = yield* tempDir
 		const sessionId = SessionId.make('sess_aaaaaaaaaaaaaaaaaaaaaaaa')
 		const toolCallId = ToolCallId.make('tool_call_bbbbbbbbbbbbbbbbbbbbbbbb')
-		const store = makeOutputStore({ sessionId, foldHome: root })
+		const store = yield* makeOutputStore({ sessionId, foldHome: root })
 		const expectedPath = toolOutputPathFor({ sessionId, toolCallId, foldHome: root })
 
 		const first = yield* store.append(toolCallId, 'one\n')
@@ -22,7 +23,7 @@ it.effect('stores tool output at a deterministic session/tool-call path', () =>
 		expect(second.path).toBe(expectedPath)
 		expect(yield* store.read(first)).toBe('one\ntwo\nthree')
 		expect(yield* store.read(first, { offset: 2, limit: 1 })).toBe('two')
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.live('sweeps old stored output files best-effort', () =>
@@ -30,7 +31,7 @@ it.live('sweeps old stored output files best-effort', () =>
 		const root = yield* tempDir
 		const sessionId = SessionId.make('sess_cccccccccccccccccccccccc')
 		const toolCallId = ToolCallId.make('tool_call_dddddddddddddddddddddddd')
-		const store = makeOutputStore({ sessionId, foldHome: root, retentionMs: 1 })
+		const store = yield* makeOutputStore({ sessionId, foldHome: root, retentionMs: 1 })
 
 		const ref = yield* store.append(toolCallId, 'old output')
 		const old = new Date(0)
@@ -39,5 +40,5 @@ it.live('sweeps old stored output files best-effort', () =>
 
 		yield* store.sweep
 		expect(existsSync(ref.path)).toBe(false)
-	}),
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )

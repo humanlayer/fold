@@ -655,7 +655,9 @@ const openCodeCommands = Command.make('opencode').pipe(
 
 const xaiLogin = (flow: ResolvedCodexLoginFlow, input: ProviderLoginInput) =>
 	Effect.gen(function* () {
-		const store = makeXaiAuthStore(providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'))
+		const store = yield* makeXaiAuthStore(
+			providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
+		)
 		const xaiAuth = yield* makeXaiAuth({
 			store,
 			onDeviceCode: (prompt) =>
@@ -722,7 +724,7 @@ const xaiCommands = Command.make('xai').pipe(
 		xaiExplicitLoginCommand('device'),
 		Command.make('status', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
-				const store = makeXaiAuthStore(
+				const store = yield* makeXaiAuthStore(
 					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
 				)
 				const token = yield* store.load
@@ -738,7 +740,7 @@ const xaiCommands = Command.make('xai').pipe(
 		).pipe(Command.withDescription('Show the stored xAI credential status')),
 		Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
-				const store = makeXaiAuthStore(
+				const store = yield* makeXaiAuthStore(
 					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
 				)
 				const service = yield* makeXaiAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
@@ -791,7 +793,7 @@ const auth = Command.make('auth').pipe(
 								noOpen: input.noOpen,
 								stdoutIsTTY: process.stdout.isTTY === true,
 							})
-							const store = makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
+							const store = yield* makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
 							const codexAuth = yield* makeCodexAuth({
 								store,
 								onDeviceCode: (prompt) =>
@@ -840,7 +842,7 @@ const auth = Command.make('auth').pipe(
 					(input) =>
 						Effect.gen(function* () {
 							const foldHome = optionValue(input.foldHome)
-							const store = makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
+							const store = yield* makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
 							if (input.refresh) {
 								const codexAuth = yield* makeCodexAuth({ store }).pipe(
 									Effect.provide(FetchHttpClient.layer),
@@ -876,7 +878,7 @@ const auth = Command.make('auth').pipe(
 				Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 					Effect.gen(function* () {
 						const foldHome = optionValue(input.foldHome)
-						const store = makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
+						const store = yield* makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
 						const codexAuth = yield* makeCodexAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
 						yield* codexAuth.logout
 						yield* Console.log(`Removed Codex credential from ${store.path}`)

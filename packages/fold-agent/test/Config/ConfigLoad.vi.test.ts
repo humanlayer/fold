@@ -4,7 +4,7 @@
  * FileSystem (never touches the real disk).
  */
 import { expect, it } from '@effect/vitest'
-import { Predicate, Effect } from 'effect'
+import { Effect, FileSystem, Layer, Predicate } from 'effect'
 
 import { loadFoldConfig, loadFoldConfigOrNull, parseFoldConfig, stripJsonc } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -79,22 +79,22 @@ it.effect('fails with ConfigParseError on malformed JSON', () =>
 	}),
 )
 
-it.effect('loads and decodes the config file from the fold home', () =>
-	Effect.gen(function* () {
-		const fs = memoryFileSystem({ '/home/user/.fold/config.jsonc': validConfig })
-		const config = yield* loadFoldConfig({ foldHome: '/home/user/.fold', fileSystem: fs })
+it.effect('loads and decodes the config file from the fold home', () => {
+	const fs = memoryFileSystem({ '/home/user/.fold/config.jsonc': validConfig })
+	return Effect.gen(function* () {
+		const config = yield* loadFoldConfig({ foldHome: '/home/user/.fold' })
 
 		expect(config.roles.smart.model).toBe('claude-opus-4-8')
-	}),
-)
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+})
 
-it.effect('fails with ConfigFileNotFoundError when the file is absent; OrNull returns null', () =>
-	Effect.gen(function* () {
-		const fs = memoryFileSystem({})
-		const error = yield* loadFoldConfig({ foldHome: '/home/user/.fold', fileSystem: fs }).pipe(Effect.flip)
+it.effect('fails with ConfigFileNotFoundError when the file is absent; OrNull returns null', () => {
+	const fs = memoryFileSystem({})
+	return Effect.gen(function* () {
+		const error = yield* loadFoldConfig({ foldHome: '/home/user/.fold' }).pipe(Effect.flip)
 		expect(error._tag).toBe('ConfigFileNotFoundError')
 
-		const orNull = yield* loadFoldConfigOrNull({ foldHome: '/home/user/.fold', fileSystem: fs })
+		const orNull = yield* loadFoldConfigOrNull({ foldHome: '/home/user/.fold' })
 		expect(orNull).toBeNull()
-	}),
-)
+	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+})

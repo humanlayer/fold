@@ -15,6 +15,7 @@
  */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
 import type * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
@@ -289,7 +290,7 @@ export const makeCodexLanguageModel = (
 				...reasoningConfig,
 			},
 		}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
-	})
+	}).pipe(Effect.provide(NodeFileSystem.layer))
 
 /**
  * Describe a model served by the ChatGPT Codex backend using stored Codex OAuth credentials. Plugs

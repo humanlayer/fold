@@ -34,6 +34,7 @@ import {
 	Effect,
 	Exit,
 	Fiber,
+	FileSystem,
 	Layer,
 	Match,
 	Ref,
@@ -275,7 +276,7 @@ type SessionAgentConfig = {
 }
 
 /** Lower the event log descriptor to its EventLog layer. */
-const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids> =>
+const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids | FileSystem.FileSystem> =>
 	Match.valueTags(log, {
 		memory: () => layerInMemoryEventLogWithIds,
 		source: ({ make }) => Layer.effect(EventLog, make),
@@ -301,7 +302,9 @@ type SessionGraph = {
 		profiles: SessionProfiles,
 	) => Effect.Effect<void>
 	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
-	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
+	readonly ensureToolContributions: (
+		tools: ReadonlyArray<FoldTool>,
+	) => Effect.Effect<void, never, FileSystem.FileSystem>
 	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
@@ -309,6 +312,7 @@ type SessionGraph = {
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
 	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
+	readonly fileSystem: FileSystem.FileSystem
 	readonly leadingPromptFor: (
 		systemPrompt: string | ReadonlyArray<string> | null,
 		tools: ReadonlyArray<FoldTool>,
@@ -327,7 +331,7 @@ const assembleSessionGraph = (options: {
 	readonly profiles?: SessionProfiles
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}): Effect.Effect<SessionGraph, never, Scope.Scope> =>
+}): Effect.Effect<SessionGraph, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const agent = options.agent
 		const rootTools = agent.tools ?? []
@@ -372,7 +376,9 @@ const assembleSessionGraph = (options: {
 		// leading-prompt block, skill source - is reused by every agent listing that value, across
 		// epochs, and by every subagent dispatch (D20's one-snapshot law).
 		const toolContributions = new Map<FoldTool, SessionToolContribution>()
-		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
+		const ensureToolContributions = (
+			tools: ReadonlyArray<FoldTool>,
+		): Effect.Effect<void, never, FileSystem.FileSystem> =>
 			Effect.forEach(
 				tools.filter((tool) => !toolContributions.has(tool)),
 				(tool) => tool.init.pipe(Effect.map((contribution) => toolContributions.set(tool, contribution))),
@@ -448,14 +454,17 @@ const assembleSessionGraph = (options: {
 		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
 		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
 		// carries its own agent's hook chains (D16/D21).
+		const fileSystem = yield* FileSystem.FileSystem
 		const idsLayer = layerLiveIdFactory
+		const fsLayer = Layer.succeed(FileSystem.FileSystem, fileSystem)
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(idsLayer)),
+			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(Layer.mergeAll(idsLayer, fsLayer))),
 			idsLayer,
 			liveAgentEventsLayer,
 		)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
+			fsLayer,
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
@@ -569,6 +578,7 @@ const assembleSessionGraph = (options: {
 			provisionRootRuntime,
 			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
 			currentProvisionedRuntime: Ref.get(runtimeRef),
+			fileSystem,
 			leadingPromptFor,
 		}
 	})
@@ -830,63 +840,72 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 
 	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
 		gate.withPermit(
-			Effect.gen(function* () {
-				const current = yield* Ref.get(configRef)
-				const currentProfiles = yield* profiles.snapshot
-				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
-				const next: SessionAgentConfig = {
-					model,
-					promptCacheKey: current.promptCacheKey,
-					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
-					tools: switchOptions?.tools ?? current.tools,
-				}
-				yield* validateToolNames(next.tools)
+			Effect.provideService(
+				FileSystem.FileSystem,
+				graph.fileSystem,
+			)(
+				Effect.gen(function* () {
+					const current = yield* Ref.get(configRef)
+					const currentProfiles = yield* profiles.snapshot
+					const candidateProfiles = switchOptions?.profiles ?? currentProfiles
+					const next: SessionAgentConfig = {
+						model,
+						promptCacheKey: current.promptCacheKey,
+						systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+						tools: switchOptions?.tools ?? current.tools,
+					}
+					yield* validateToolNames(next.tools)
 
-				// A switch may introduce new session-initialized tools and subagent types. The switch gate
-				// is the sole extension boundary, so dispatch can never observe a partially installed graph.
-				yield* graph.ensureToolContributions(next.tools)
-				const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
-				yield* Effect.forEach(introduced.subagents, (definition) => validateToolNames(definition.tools ?? []), {
-					discard: true,
-				})
-				yield* Effect.forEach(
-					introduced.subagents,
-					(definition) => graph.ensureToolContributions(definition.tools ?? []),
-					{
+					// A switch may introduce new session-initialized tools and subagent types. The switch gate
+					// is the sole extension boundary, so dispatch can never observe a partially installed graph.
+					yield* graph.ensureToolContributions(next.tools)
+					const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
+					yield* Effect.forEach(
+						introduced.subagents,
+						(definition) => validateToolNames(definition.tools ?? []),
+						{
+							discard: true,
+						},
+					)
+					yield* Effect.forEach(
+						introduced.subagents,
+						(definition) => graph.ensureToolContributions(definition.tools ?? []),
+						{
+							discard: true,
+						},
+					)
+					yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
 						discard: true,
-					},
-				)
-				yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
-					discard: true,
-				})
-				yield* Effect.forEach(
-					introduced.forkAgents,
-					(definition) => graph.ensureToolContributions(definition.tools),
-					{ discard: true },
-				)
-				yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
-
-				// Provision against the new toolset before writing the transition, so the durable
-				// tools-change below resolves over the newly installed tools. Nothing can run in
-				// between: root runs wait on the same gate.
-				const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
-				const previousRuntime = yield* graph.currentProvisionedRuntime
-				yield* graph.setProvisionedRuntime(nextRuntime)
-				const transition = yield* session
-					.switchModel({
-						model: model.activeModel,
-						systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
-						reason: switchOptions?.reason ?? null,
 					})
-					.pipe(Effect.orDie, Effect.exit)
-				if (Exit.isFailure(transition)) {
-					yield* graph.setProvisionedRuntime(previousRuntime)
-					return yield* Effect.failCause(transition.cause)
-				}
-				graph.extendSubagentRegistry(introduced)
-				yield* profiles.replace(candidateProfiles)
-				yield* Ref.set(configRef, next)
-			}),
+					yield* Effect.forEach(
+						introduced.forkAgents,
+						(definition) => graph.ensureToolContributions(definition.tools),
+						{ discard: true },
+					)
+					yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
+
+					// Provision against the new toolset before writing the transition, so the durable
+					// tools-change below resolves over the newly installed tools. Nothing can run in
+					// between: root runs wait on the same gate.
+					const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
+					const previousRuntime = yield* graph.currentProvisionedRuntime
+					yield* graph.setProvisionedRuntime(nextRuntime)
+					const transition = yield* session
+						.switchModel({
+							model: model.activeModel,
+							systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
+							reason: switchOptions?.reason ?? null,
+						})
+						.pipe(Effect.orDie, Effect.exit)
+					if (Exit.isFailure(transition)) {
+						yield* graph.setProvisionedRuntime(previousRuntime)
+						return yield* Effect.failCause(transition.cause)
+					}
+					graph.extendSubagentRegistry(introduced)
+					yield* profiles.replace(candidateProfiles)
+					yield* Ref.set(configRef, next)
+				}),
+			),
 		)
 
 	const compact = (): Effect.Effect<CompactionLogEntry | null> =>
@@ -930,7 +949,9 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const startSession = (
+	options: StartSessionOptions,
+): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const config = yield* Ref.get(graph.configRef)
@@ -959,7 +980,9 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSe
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const resumeSession = (
+	options: ResumeSessionOptions,
+): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(

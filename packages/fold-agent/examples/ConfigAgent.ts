@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Config-driven coding agent (D25/D27): the batteries-included launch path the CLI/OpenTUI will use.
  * Loads `~/.fold/config.jsonc` (writing a commented starter on first run), resolves the mode's `smart`
@@ -9,7 +10,7 @@
  * Then:       bun packages/fold-agent/examples/ConfigAgent.ts "your prompt"
  */
 import { layerLiveIdFactory } from '@humanlayer/fold-core'
-import { Console, Effect } from 'effect'
+import { Console, Effect, Layer } from 'effect'
 
 import { configInit, launchSession, loadFoldConfigOrNull } from '../src/index'
 
@@ -29,7 +30,7 @@ const program = Effect.gen(function* () {
 
 	const finished = yield* session.send(prompt)
 	yield* Console.log(`\n[${finished.outcome}] ${finished.resultText ?? '(no text)'}`)
-}).pipe(Effect.provide(layerLiveIdFactory), Effect.scoped)
+}).pipe(Effect.provide(Layer.mergeAll(layerLiveIdFactory, NodeFileSystem.layer)), Effect.scoped)
 
 Effect.runPromise(program).catch((error) => {
 	console.error(error)

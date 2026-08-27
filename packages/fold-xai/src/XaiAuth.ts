@@ -35,7 +35,7 @@ const browserPrompt = (url: string) => Effect.log(`Open this URL to authenticate
 
 /** Construct xAI auth over the ambient HttpClient. Interactive flows are explicit methods. */
 export const makeXaiAuth = Effect.fnUntraced(function* (options?: MakeXaiAuthOptions) {
-	const store = options?.store ?? makeXaiAuthStore()
+	const store = options?.store ?? (yield* makeXaiAuthStore())
 	const client = makeXaiIssuerClient(yield* HttpClient.HttpClient)
 	const semaphore = Semaphore.makeUnsafe(1)
 	let current = yield* store.load

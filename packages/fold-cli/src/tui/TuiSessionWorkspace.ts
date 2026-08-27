@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import {
 	deleteSession,
 	launchSession,
@@ -13,7 +14,7 @@ import {
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
 import { layerLiveIdFactory, lookupCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import { Cause, Duration, Effect, Match, Option, Scope } from 'effect'
+import { Cause, Duration, Effect, type FileSystem, Match, Option, Scope } from 'effect'
 import { createSignal, type Accessor } from 'solid-js'
 
 import { makeHostedTuiSession, type HostedTuiSession, type HostedTuiSessionMetadata } from './HostedTuiSession'
@@ -68,7 +69,7 @@ export const makeTuiSessionWorkspace = (options: {
 	readonly config: Accessor<FoldConfig | null> | FoldConfig | null
 	readonly configNotice: string | null
 	readonly loadSummariesOnStart: boolean
-}): Effect.Effect<TuiSessionWorkspace, never, Scope.Scope> =>
+}): Effect.Effect<TuiSessionWorkspace, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const parentScope = yield* Scope.Scope
 		const configOption = options.config
@@ -132,6 +133,7 @@ export const makeTuiSessionWorkspace = (options: {
 					Effect.tap((value) => Effect.sync(() => setSummaries(value))),
 					Effect.catchCause((cause) => Effect.logWarning(Cause.pretty(cause))),
 					Effect.ensuring(Effect.sync(() => (refreshScheduled = false))),
+					Effect.provide(NodeFileSystem.layer),
 				),
 			)
 		}
@@ -142,11 +144,12 @@ export const makeTuiSessionWorkspace = (options: {
 		}))
 		yield* Effect.addFinalizer(() => host.closeAll)
 		const acquire = <E>(
-			session: Effect.Effect<FoldSession, E, Scope.Scope>,
+			session: Effect.Effect<FoldSession, E, Scope.Scope | FileSystem.FileSystem>,
 			metadata: HostedTuiSessionMetadata,
 			focused: boolean,
 		) =>
 			session.pipe(
+				Effect.provide(NodeFileSystem.layer),
 				Effect.flatMap((value) =>
 					makeHostedTuiSession(value, {
 						metadata,
@@ -162,6 +165,7 @@ export const makeTuiSessionWorkspace = (options: {
 			)
 		const finish = (hosted: HostedTuiSession) =>
 			loadSummaries.pipe(
+				Effect.provide(NodeFileSystem.layer),
 				Effect.tap((value) => Effect.sync(() => setSummaries(value))),
 				Effect.tap(() =>
 					Effect.sync(() => {
@@ -274,7 +278,7 @@ export const makeTuiSessionWorkspace = (options: {
 								? 'SESSION AND STORED OUTPUT DELETED'
 								: 'SESSION DELETED · STORED OUTPUT CLEANUP FAILED',
 					)
-				}),
+				}).pipe(Effect.provide(NodeFileSystem.layer)),
 			)
 		return {
 			sessions: () => projectSessionRows(summaries(), host.snapshots()),

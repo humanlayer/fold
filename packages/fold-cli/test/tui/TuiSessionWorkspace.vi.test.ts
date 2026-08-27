@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { SessionId } from '@humanlayer/fold-core'
 import { Effect, Option, Schema } from 'effect'
 import { describe, expect, it } from 'vitest'
@@ -35,7 +36,7 @@ describe('TuiSessionWorkspace', () => {
 					expect(workspace.opening()).toBe(false)
 					expect(router.route()).toEqual({ _tag: 'picker' })
 				}),
-			),
+			).pipe(Effect.provide(NodeFileSystem.layer)),
 		)
 	})
 })

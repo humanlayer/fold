@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for subagent resume (D21): a previously dispatched subagent - completed, errored, or
  * dead from a defect - is resumable by agent_id with its full prior context, new rows grouping under
@@ -166,7 +167,7 @@ it.effect('resumes a completed subagent: no new agent_started, rows under the re
 		expect(rendered).toContain(`agent_id: ${shortAgentId(started.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (2 total)')
 		expect(rendered).toContain('resumed findings')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a subagent that errored is a result and remains resumable (model failure path)', () =>
@@ -216,7 +217,7 @@ it.effect('a subagent that errored is a result and remains resumable (model fail
 		const prompts = yield* flakyScripted.scripted.prompts
 		expect(JSON.stringify(prompts[1])).toContain('try it')
 		expect(JSON.stringify(prompts[1])).toContain('try again')
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a subagent that died from a defect is flattened into an error result and remains resumable', () =>
@@ -275,5 +276,5 @@ it.effect('a subagent that died from a defect is flattened into an error result 
 		const entries = yield* session.entries
 		expect(renderedDriveResult(entries, 1)).toContain('recovered after defect')
 		expect(yield* workerScripted.scripted.remainingTurns).toBe(0)
-	}).pipe(Effect.scoped),
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
