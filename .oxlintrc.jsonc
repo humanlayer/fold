@@ -16,6 +16,7 @@
 		"automation/no-silent-error-swallow": "error",
 		"automation/no-manual-tag-comparison": "error",
 		"automation/no-manual-tagged-construction": "error",
+		"automation/no-service-option": "error",
 		"automation/prefer-effect-match": "error",
 		"automation/prefer-tagged-error-handling": "error",
 		"automation/no-ambient-nondeterminism": "error",
@@ -78,6 +79,7 @@
 				"automation/no-silent-error-swallow": "off",
 				"automation/no-manual-tag-comparison": "off",
 				"automation/no-manual-tagged-construction": "off",
+				"automation/no-service-option": "off",
 				"automation/prefer-effect-match": "off",
 				"automation/prefer-tagged-error-handling": "off",
 				"automation/no-ambient-nondeterminism": "off",
@@ -97,6 +99,14 @@
 			],
 			"rules": {
 				"automation/no-manual-tagged-construction": "off",
+			},
+		},
+		{
+			// Tests may inspect whether optional provider override services are present in context. This verifies
+			// request-scoping behavior; it does not model an optional production dependency.
+			"files": ["packages/*/test/**"],
+			"rules": {
+				"automation/no-service-option": "off",
 			},
 		},
 		{
