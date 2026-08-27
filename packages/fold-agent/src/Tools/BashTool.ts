@@ -85,6 +85,8 @@ export type BashToolOptions = FsToolOptions & {
 	readonly spillDir?: string
 	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
 	readonly outputStore?: OutputStoreService
+	/** Environment entries inherited by every Bash subprocess created by this tool. */
+	readonly processEnvironment?: Readonly<Record<string, string>>
 }
 
 type AccumulatorState = {
@@ -328,12 +330,14 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					})
 
 				const run = Effect.gen(function* () {
+					const inheritedPath = options?.processEnvironment?.PATH ?? process.env.PATH ?? ''
 					const handle = yield* spawner
 						.spawn(
 							ChildProcess.make('bash', ['-c', params.command], {
 								cwd,
 								env: {
-									PATH: `${pathService.join(homedir(), '.fold', 'bin')}:${process.env.PATH ?? ''}`,
+									...options?.processEnvironment,
+									PATH: `${pathService.join(homedir(), '.fold', 'bin')}:${inheritedPath}`,
 								},
 								extendEnv: true,
 							}),
