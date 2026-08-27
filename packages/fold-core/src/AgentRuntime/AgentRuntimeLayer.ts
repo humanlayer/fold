@@ -77,7 +77,7 @@ const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
 const TurnResult = Data.taggedEnum<TurnResult>()
 
-type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId' | 'additionalInstructions'>
+type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>
 
 /** Derive a short human-readable message from a model provider failure. */
 const describeModelError = (error: unknown): string => {
@@ -229,6 +229,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			entries: ReadonlyArray<LogEntry>,
 			model: ActiveModel | null,
 			trigger: CompactionTrigger,
+			additionalInstructions: string | null = null,
 		): Effect.Effect<CompactionLogEntry | null> =>
 			Effect.gen(function* () {
 				const planned = yield* compaction
@@ -237,9 +238,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						entries,
 						model,
 						trigger,
-						...(input.additionalInstructions === undefined
-							? {}
-							: { additionalInstructions: input.additionalInstructions }),
+						additionalInstructions,
 					})
 					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
 
@@ -663,7 +662,13 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					const entries = yield* collectEntries
 					const runtimeState = runtimeForAgent(entries, input.agentId)
 
-					return yield* performCompaction(input, entries, runtimeState.activeModel, input.trigger)
+					return yield* performCompaction(
+						input,
+						entries,
+						runtimeState.activeModel,
+						input.trigger,
+						input.additionalInstructions ?? null,
+					)
 				}),
 		)
 

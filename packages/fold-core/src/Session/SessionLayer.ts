@@ -158,9 +158,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 					parentAgentId: null,
 					toolCallId: null,
 					trigger: 'manual',
-					...(options?.additionalInstructions === undefined
-						? {}
-						: { additionalInstructions: options.additionalInstructions }),
+					additionalInstructions: options?.additionalInstructions ?? null,
 				})
 			}),
 		)

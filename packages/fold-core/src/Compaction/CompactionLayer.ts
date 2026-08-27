@@ -204,16 +204,12 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				conversationText: serializeConversation(toSummarize),
 				previousSummary,
 				customPrompt: config.compactionPrompt ?? null,
-				...(input.additionalInstructions === undefined
-					? {}
-					: { additionalInstructions: input.additionalInstructions }),
+				additionalInstructions: input.additionalInstructions ?? null,
 			})
 			const prompt = compactionInstruction({
 				previousSummary,
 				customPrompt: config.compactionPrompt ?? null,
-				...(input.additionalInstructions === undefined
-					? {}
-					: { additionalInstructions: input.additionalInstructions }),
+				additionalInstructions: input.additionalInstructions ?? null,
 			})
 
 			const historySummary =
