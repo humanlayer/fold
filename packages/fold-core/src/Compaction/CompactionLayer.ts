@@ -117,19 +117,25 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			const modelOutputLimit = yield* modelOutputLimitFor(input)
 			const maxOutputTokens = Math.min(Math.floor(outputFraction * reserveTokens), modelOutputLimit)
 			const languageModel = yield* LanguageModel.LanguageModel
-			const request = Stream.runCollect(
+			const baseRequest = Stream.runCollect(
 				languageModel.streamText({
 					prompt: Prompt.fromMessages([
 						Prompt.systemMessage({ content: compactionSystemPrompt }),
 						Prompt.userMessage({ content: [Prompt.textPart({ text: requestText })] }),
 					]),
 				}),
-			).pipe(
-				input.model?.providerKind === 'anthropic'
-					? AnthropicLanguageModel.withConfigOverride({ max_tokens: maxOutputTokens })
-					: input.model?.providerKind === 'codex'
-						? (effect) => effect
-						: OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
+			)
+			let configuredRequest = baseRequest
+			if (input.model?.providerKind === 'anthropic') {
+				configuredRequest = baseRequest.pipe(
+					AnthropicLanguageModel.withConfigOverride({ max_tokens: maxOutputTokens }),
+				)
+			} else if (input.model?.providerKind !== 'codex') {
+				configuredRequest = baseRequest.pipe(
+					OpenAiLanguageModel.withConfigOverride({ max_output_tokens: maxOutputTokens }),
+				)
+			}
+			const request = configuredRequest.pipe(
 				Effect.mapError((error) => new CompactionSummarizeError({ message: describeSummarizerError(error) })),
 			)
 			const parts = yield* request
