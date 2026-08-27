@@ -77,7 +77,7 @@ const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
 const TurnResult = Data.taggedEnum<TurnResult>()
 
-type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>
+type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId' | 'additionalInstructions'>
 
 /** Derive a short human-readable message from a model provider failure. */
 const describeModelError = (error: unknown): string => {
@@ -232,7 +232,15 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		): Effect.Effect<CompactionLogEntry | null> =>
 			Effect.gen(function* () {
 				const planned = yield* compaction
-					.plan({ agentId: input.agentId, entries, model, trigger })
+					.plan({
+						agentId: input.agentId,
+						entries,
+						model,
+						trigger,
+						...(input.additionalInstructions === undefined
+							? {}
+							: { additionalInstructions: input.additionalInstructions }),
+					})
 					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
 
 				if (Result.isFailure(planned)) {

@@ -145,7 +145,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 				}),
 		)
 
-		const compact: SessionService['compact'] = Effect.fn('fold.session.compact')(() =>
+		const compact: SessionService['compact'] = Effect.fn('fold.session.compact')((options) =>
 			Effect.gen(function* () {
 				const started = yield* Ref.get(startedRef)
 
@@ -158,6 +158,9 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 					parentAgentId: null,
 					toolCallId: null,
 					trigger: 'manual',
+					...(options?.additionalInstructions === undefined
+						? {}
+						: { additionalInstructions: options.additionalInstructions }),
 				})
 			}),
 		)

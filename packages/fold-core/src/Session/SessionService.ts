@@ -38,6 +38,10 @@ export type SwitchSessionModelInput = {
 	readonly reason?: string | null
 }
 
+export type CompactSessionOptions = {
+	readonly additionalInstructions?: string | null
+}
+
 /**
  * Public SDK facade for one session.
  *
@@ -55,7 +59,9 @@ export type SessionService = {
 	readonly adopt: (input: StartedSession) => Effect.Effect<StartedSession, SessionAlreadyStartedError>
 	readonly send: (input: { readonly text: string }) => Effect.Effect<AgentFinishedLogEntry, SessionNotStartedError>
 	readonly switchModel: (input: SwitchSessionModelInput) => Effect.Effect<void, SessionNotStartedError>
-	readonly compact: () => Effect.Effect<CompactionLogEntry | null, SessionNotStartedError>
+	readonly compact: (
+		options?: CompactSessionOptions,
+	) => Effect.Effect<CompactionLogEntry | null, SessionNotStartedError>
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<FoldEvent>
 }
 

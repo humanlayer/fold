@@ -245,36 +245,48 @@ it.effect('stale pre-compaction usage never re-triggers: no second compaction wi
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('compaction is off by default and with enabled: false, even under huge reported usage', () =>
+it.effect('enabled: false disables automatic compaction while leaving explicit compaction available', () =>
 	Effect.gen(function* () {
-		const runWithout = (autoCompact: AutoCompactConfig | undefined) =>
-			Effect.gen(function* () {
-				const { model, scripted } = yield* scriptedModel(gptActiveModel, [
-					textTurn('first', hugeUsage),
-					textTurn('second'),
-				])
-				const session = yield* startSession({
-					agent: defineAgent({
-						model,
-						...(autoCompact === undefined ? {} : { autoCompact }),
-					}),
-				})
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			textTurn('first', hugeUsage),
+			textTurn('second'),
+			textTurn('manual summary'),
+		])
+		const session = yield* startSession({
+			agent: defineAgent({ model, autoCompact: { enabled: false } }),
+		})
 
-				yield* session.send('one: the anchor phrase')
-				const finished = yield* session.send('two')
-				const entries = yield* session.entries
+		yield* session.send('one: the anchor phrase')
+		const finished = yield* session.send('two')
+		expect(finished.outcome).toBe('completed')
+		expect(compactionEntries(yield* session.entries)).toHaveLength(0)
 
-				expect(finished.outcome).toBe('completed')
-				expect(compactionEntries(entries)).toHaveLength(0)
+		const compacted = yield* session.compact()
+		expect(compacted?.summary).toBe('manual summary')
+		expect(compactionEntries(yield* session.entries)).toHaveLength(1)
 
-				// The full history still reaches the model - nothing was cut or summarized.
-				const requests = yield* scripted.requests
-				expect(JSON.stringify(requests[1]?.prompt)).toContain('one: the anchor phrase')
-			}).pipe(Effect.scoped)
+		const requests = yield* scripted.requests
+		expect(JSON.stringify(requests[1]?.prompt)).toContain('one: the anchor phrase')
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
 
-		yield* runWithout(undefined)
-		yield* runWithout({ enabled: false })
-	}).pipe(Effect.provide(NodeFileSystem.layer)),
+it.effect('automatic compaction is enabled when the definition omits autoCompact', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			textTurn(`first ${'x'.repeat(100_000)}`, { inputTokens: 120_000 }),
+			textTurn('default policy summary'),
+			textTurn('second'),
+		])
+		const session = yield* startSession({ agent: defineAgent({ model }) })
+
+		yield* session.send('one')
+		const finished = yield* session.send('two')
+
+		expect(finished.outcome).toBe('completed')
+		expect(compactionEntries(yield* session.entries)).toHaveLength(1)
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('manual facade compaction delegates through the provisioned root runtime', () =>
@@ -302,6 +314,26 @@ it.effect('manual facade compaction delegates through the provisioned root runti
 		const requests = yield* scripted.requests
 		expect(requests).toHaveLength(2)
 		expect(JSON.stringify(requests[1]?.prompt)).toContain('manual compact anchor')
+		expect(yield* scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('manual compaction appends host guidance to the standard instruction without a follow-up turn', () =>
+	Effect.gen(function* () {
+		const { model, scripted } = yield* scriptedModel(gptActiveModel, [
+			textTurn('first answer'),
+			textTurn('guided summary'),
+		])
+		const session = yield* startSession({ agent: defineAgent({ model }) })
+
+		yield* session.send('preserve the migration investigation')
+		const compacted = yield* session.compact({ additionalInstructions: 'Keep the failed migration command.' })
+
+		expect(compacted?.prompt).toContain('Additional user guidance for this compaction:')
+		expect(compacted?.prompt?.endsWith('Keep the failed migration command.')).toBe(true)
+		const requests = yield* scripted.requests
+		expect(JSON.stringify(requests[1]?.prompt)).toContain('Keep the failed migration command.')
+		expect(requests).toHaveLength(2)
 		expect(yield* scripted.remainingTurns).toBe(0)
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
