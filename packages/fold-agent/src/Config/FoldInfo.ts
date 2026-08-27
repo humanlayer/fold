@@ -10,6 +10,7 @@
 import { join } from 'node:path'
 
 import { Effect, FileSystem } from 'effect'
+
 import type { ConfigInitOptions } from './ConfigSchemaJson'
 import { defaultFoldHome } from './Load'
 

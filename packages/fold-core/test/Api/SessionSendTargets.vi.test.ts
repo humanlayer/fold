@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Slice-2 send-targeting tests (D8): `send` on a RUNNING agent queues a follow-up that joins the run
  * at its natural completion boundary (both senders resolve with the same final entry); a follow-up the
@@ -6,8 +7,7 @@
  * agent_started, full prior context. Unknown ids fail typed.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Context, Effect, Fiber, Layer } from 'effect'
+import { Predicate, Context, Effect, Fiber, Layer } from 'effect'
 
 import {
 	AgentId,
@@ -54,7 +54,7 @@ it.effect('send while running joins the run as a follow-up; both senders get the
 		expect(secondFinished.seq).toBe(firstFinished.seq)
 
 		const entries = yield* session.entries
-		expect(entries.filter((entry) => entry._tag === 'agent-finished')).toHaveLength(1)
+		expect(entries.filter((entry) => Predicate.isTagged(entry, 'agent-finished'))).toHaveLength(1)
 
 		// The follow-up's model call saw the whole run including the first answer.
 		const prompts = yield* rootScripted.scripted.prompts
@@ -91,7 +91,7 @@ it.effect('a follow-up the stopped run never consumed starts its own fresh run',
 		expect(secondFinished.resultText).toBe('fresh run answer')
 
 		const entries = yield* session.entries
-		expect(entries.filter((entry) => entry._tag === 'agent-finished')).toHaveLength(2)
+		expect(entries.filter((entry) => Predicate.isTagged(entry, 'agent-finished'))).toHaveLength(2)
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
@@ -139,7 +139,8 @@ it.effect('send targeting a finished subagent continues it directly under a null
 		const entries = yield* session.entries
 		expect(subagentStartedEntries(entries)).toHaveLength(1)
 		const continuationMessage = entries.findLast(
-			(entry): entry is UserMessageLogEntry => entry._tag === 'user-message' && entry.agentId === started.agentId,
+			(entry): entry is UserMessageLogEntry =>
+				Predicate.isTagged(entry, 'user-message') && entry.agentId === started.agentId,
 		)
 		expect(continuationMessage?.toolCallId).toBeNull()
 

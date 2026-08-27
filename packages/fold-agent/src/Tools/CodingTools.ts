@@ -14,7 +14,8 @@ import { webTools, type WebToolsOptions } from './WebTools'
 import { writeTool } from './WriteTool'
 
 /** Options for {@link codingTools}: the shared cwd plus bash output-spill configuration. */
-export type CodingToolsOptions = Pick<BashToolOptions, 'cwd' | 'spillDir' | 'outputStore'> & WebToolsOptions
+export type CodingToolsOptions = Pick<BashToolOptions, 'cwd' | 'spillDir' | 'outputStore' | 'processEnvironment'> &
+	WebToolsOptions
 
 /**
  * The standard coding toolset: read, write, edit, apply_patch, bash, and web tools. The model-family policy decides

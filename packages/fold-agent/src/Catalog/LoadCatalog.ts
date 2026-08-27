@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path'
 
 import { ModelCatalogEntry } from '@humanlayer/fold-core'
 import { Clock, Effect, FileSystem, Predicate, Schema } from 'effect'
+
 import { bakedModelCatalog } from './BakedCatalog'
 import { decodeModelsDevModels, ModelsDevDecodeError } from './ModelsDevSchema'
 import { modelCatalogEntriesFromModelsDev } from './Normalize'
@@ -150,7 +151,9 @@ const fetchCatalogEntries = (
  * Load the model catalog entries for a launch. Never fails: fresh cache, else fetch-and-cache, else
  * stale cache, else the baked snapshot.
  */
-export const loadModelCatalog = (options: LoadModelCatalogOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
+export const loadModelCatalog = (
+	options: LoadModelCatalogOptions,
+): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const env = options.env ?? ((name: string) => process.env[name])

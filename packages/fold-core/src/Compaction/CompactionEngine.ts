@@ -1,3 +1,5 @@
+import { Match, Predicate } from 'effect'
+
 /**
  * This file is the pure auto-compaction engine (D11): the threshold arithmetic over API-reported
  * usage, the interim per-model context windows (until ModelCatalog owns limits - D15), the
@@ -85,11 +87,12 @@ export const contextTokensFromUsage = (usage: UsageEncoded): number | null => {
  * one compaction per reported response, never two without a new response in between.
  */
 export const latestReportedContextTokens = (visibleEntries: ReadonlyArray<LogEntry>): number | null => {
-	const compactionSeq = visibleEntries.findLast((entry) => entry._tag === 'compaction')?.seq ?? -1
+	const compactionSeq = visibleEntries.findLast((entry) => Predicate.isTagged(entry, 'compaction'))?.seq ?? -1
 
 	for (let index = visibleEntries.length - 1; index >= 0; index -= 1) {
 		const entry = visibleEntries[index]
-		if (entry === undefined || entry._tag !== 'assistant-message' || entry.seq <= compactionSeq) continue
+		if (entry === undefined || !Predicate.isTagged(entry, 'assistant-message') || entry.seq <= compactionSeq)
+			continue
 		if (entry.finish === null) continue
 
 		return contextTokensFromUsage(entry.finish.usage)
@@ -142,19 +145,18 @@ const estimatePartChars = (part: EncodedPart): number => {
 
 /** Estimate one projected message's token footprint (chars/4 heuristic; image parts weigh 4800 chars). */
 export const estimateMessageTokens = (message: ProjectedMessage): number => {
-	if (message._tag === 'compaction-summary') return Math.max(1, Math.ceil(message.summary.length / 4))
+	if (Predicate.isTagged(message, 'compaction-summary')) return Math.max(1, Math.ceil(message.summary.length / 4))
 
-	const chars =
-		message._tag === 'system-message'
-			? message.messages.reduce((total, systemMessage) => total + systemMessage.content.length, 0)
-			: contentParts(message.message.content).reduce((total, part) => total + estimatePartChars(part), 0)
+	const chars = Predicate.isTagged(message, 'system-message')
+		? message.messages.reduce((total, systemMessage) => total + systemMessage.content.length, 0)
+		: contentParts(message.message.content).reduce((total, part) => total + estimatePartChars(part), 0)
 
 	return Math.max(1, Math.ceil(chars / 4))
 }
 
 /** A message where a compaction cut may land: the first KEPT message must open a coherent exchange. */
 const isValidCutMessage = (message: ProjectedMessage): boolean =>
-	message._tag === 'user-message' || message._tag === 'assistant-message'
+	Predicate.isTagged(message, 'user-message') || Predicate.isTagged(message, 'assistant-message')
 
 /** The selected compaction boundary, including split-turn context needed by the summarizer. */
 export type CompactionCut = {
@@ -168,7 +170,7 @@ export type CompactionCut = {
 
 const turnStartBefore = (messages: ReadonlyArray<ProjectedMessage>, index: number): number => {
 	for (let candidate = index; candidate >= 0; candidate -= 1) {
-		if (messages[candidate]?._tag === 'user-message') return candidate
+		if (Predicate.isTagged(messages[candidate], 'user-message')) return candidate
 	}
 
 	return -1
@@ -208,7 +210,7 @@ export const findCompactionCutPlan = (
 		const message = messages[index]
 		if (message === undefined || !isValidCutMessage(message)) continue
 
-		const isSplitTurn = message._tag !== 'user-message'
+		const isSplitTurn = !Predicate.isTagged(message, 'user-message')
 		const turnStartIndex = isSplitTurn ? turnStartBefore(messages, index) : -1
 		return {
 			firstKeptIndex: index,
@@ -221,7 +223,7 @@ export const findCompactionCutPlan = (
 		const message = messages[index]
 		if (message === undefined || !isValidCutMessage(message)) continue
 
-		const isSplitTurn = message._tag !== 'user-message'
+		const isSplitTurn = !Predicate.isTagged(message, 'user-message')
 		const turnStartIndex = isSplitTurn ? turnStartBefore(messages, index) : -1
 		return {
 			firstKeptIndex: index,
@@ -266,13 +268,12 @@ export const serializeConversation = (messages: ReadonlyArray<ProjectedMessage>)
 	const lines: Array<string> = []
 
 	for (const message of messages) {
-		switch (message._tag) {
-			case 'user-message':
-				lines.push(`[User]: ${serializeUserContent(message.message.content)}`)
-				break
-
-			case 'assistant-message': {
-				const parts = contentParts(message.message.content)
+		Match.valueTags(message, {
+			'user-message': (entry) => {
+				lines.push(`[User]: ${serializeUserContent(entry.message.content)}`)
+			},
+			'assistant-message': (entry) => {
+				const parts = contentParts(entry.message.content)
 				const reasoning = parts.filter((part) => part.type === 'reasoning')
 				const text = parts.filter((part) => part.type === 'text')
 				const toolCalls = parts.filter((part) => part.type === 'tool-call')
@@ -290,28 +291,24 @@ export const serializeConversation = (messages: ReadonlyArray<ProjectedMessage>)
 							.join('; ')}`,
 					)
 				}
-				break
-			}
-
-			case 'tool-result':
-				for (const part of contentParts(message.message.content)) {
+			},
+			'tool-result': (entry) => {
+				for (const part of contentParts(entry.message.content)) {
 					if (part.type !== 'tool-result') continue
 					lines.push(`[Tool result]: ${truncateToolResult(safeStringify(part.result))}`)
 				}
-				break
-
-			case 'system-message':
+			},
+			'system-message': (entry) => {
 				// Only inline system notes reach serialization; the leading block set is config, not
 				// conversation, and the caller excludes it.
-				for (const systemMessage of message.messages) {
+				for (const systemMessage of entry.messages) {
 					lines.push(`[System note]: ${systemMessage.content}`)
 				}
-				break
-
-			case 'compaction-summary':
+			},
+			'compaction-summary': () => {
 				// Excluded by the caller: the previous summary travels in <previous-summary> instead.
-				break
-		}
+			},
+		})
 	}
 
 	return lines.join('\n')

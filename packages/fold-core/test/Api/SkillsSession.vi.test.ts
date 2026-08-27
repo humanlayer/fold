@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade tests for skills (D20/D24): the roster is read once at session start and rendered into the
  * leading system prompt plus the skill tool's description; the tool serves content on demand; adding a
@@ -5,8 +6,7 @@
  * switch carries the same session-start block into the new epoch's leading system message.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Effect, Ref } from 'effect'
+import { Predicate, Effect, Ref } from 'effect'
 
 import {
 	defineAgent,
@@ -29,7 +29,7 @@ const demoSkills = [
 
 const leadingSystemBlocks = (entries: ReadonlyArray<{ readonly _tag: string }>): ReadonlyArray<string> =>
 	entries
-		.filter((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+		.filter((entry): entry is SystemMessageLogEntry => Predicate.isTagged(entry, 'system-message'))
 		.filter((entry) => entry.placement === 'leading')
 		.map((entry) => entry.messages.map((message) => message.content).join('\n---\n'))
 
@@ -61,13 +61,17 @@ it.effect('renders the skills block into the leading prompt and installs the ski
 		expect(blocks[0]).toContain('<name>commit-helper</name>')
 
 		// The skill tool is installed and advertised to the model.
-		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started')
+		const agentStarted = entries.find((entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started'),
+		)
 		expect(agentStarted?.tools).toContain('skill')
 		const requests = yield* scripted.requests
 		expect(requests[0]?.toolNames).toContain('skill')
 
 		// The tool served the wrapped skill content.
-		const toolResult = entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+		const toolResult = entries.find((entry): entry is ToolResultLogEntry =>
+			Predicate.isTagged(entry, 'tool-result'),
+		)
 		const part = toolResult?.message.content[0]
 		if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(JSON.stringify(part.result)).toContain('<skill name=')
@@ -120,7 +124,9 @@ it.effect('adding a skill mid-session never changes rendered prompt bytes; refre
 
 		// The refresh path reports the addition inside the tool result instead.
 		const entries = yield* session.entries
-		const toolResult = entries.find((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+		const toolResult = entries.find((entry): entry is ToolResultLogEntry =>
+			Predicate.isTagged(entry, 'tool-result'),
+		)
 		const part = toolResult?.message.content[0]
 		if (part === undefined || part.type !== 'tool-result') throw new Error('expected a tool-result part')
 		expect(JSON.stringify(part.result)).toContain('Skills added since session start')

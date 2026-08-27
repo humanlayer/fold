@@ -10,7 +10,7 @@ import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
 import { AgentRuntime } from '../AgentRuntime/AgentRuntimeService'
 import { EventLog } from '../EventLog/EventLogService'
-import type { LogSeq } from '../EventLog/Schemas'
+import { LogEntryInputs, type LogSeq } from '../EventLog/Schemas'
 import { Ids } from '../Ids'
 import { SessionAlreadyStartedError, SessionNotStartedError } from './Errors'
 import {
@@ -57,16 +57,17 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 
 				// `session_started` is the first durable row and carries the freshly minted root agent id.
 				yield* eventLog
-					.append({
-						_tag: 'session_started',
-						agentId: null,
-						parentAgentId: null,
-						toolCallId: null,
-						cwd: input.cwd ?? null,
-						sessionId,
-						rootAgentId,
-						meta: input.meta ?? {},
-					})
+					.append(
+						LogEntryInputs['session_started']({
+							agentId: null,
+							parentAgentId: null,
+							toolCallId: null,
+							cwd: input.cwd ?? null,
+							sessionId,
+							rootAgentId,
+							meta: input.meta ?? {},
+						}),
+					)
 					.pipe(Effect.orDie)
 
 				yield* agentRuntime.start({

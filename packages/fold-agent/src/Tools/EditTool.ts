@@ -13,6 +13,7 @@ import {
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem } from 'effect'
+
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { errnoCode, platformErrorMessage } from './ReadTool'

@@ -6,7 +6,7 @@
  * 4-pass line matcher (exact, rstrip, trim, unicode-fold) - plus clanka's strict superset of accepting
  * raw git/unified diffs. Failures are typed tagged errors, not defects (contrast clanka's orDie).
  */
-import { Effect, Schema } from 'effect'
+import { Data, Effect, Match, Schema } from 'effect'
 
 /** The patch text could not be parsed into file operations. */
 export class PatchParseError extends Schema.TaggedError<PatchParseError>()('PatchParseError', {
@@ -46,6 +46,8 @@ export type PatchOp =
 			readonly movePath: string | null
 			readonly chunks: ReadonlyArray<PatchChunk>
 	  }
+
+const PatchOp = Data.taggedEnum<PatchOp>()
 
 const beginMarker = '*** Begin Patch'
 const endMarker = '*** End Patch'
@@ -194,12 +196,12 @@ const parseV4A = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Pat
 					if (contentLine.startsWith('+')) content.push(contentLine.slice(1))
 					index += 1
 				}
-				ops.push({ _tag: 'add', path, content: content.join('\n') })
+				ops.push(PatchOp.add({ path, content: content.join('\n') }))
 				continue
 			}
 
 			if (line.startsWith(deleteMarker)) {
-				ops.push({ _tag: 'delete', path: line.slice(deleteMarker.length).trim() })
+				ops.push(PatchOp.delete({ path: line.slice(deleteMarker.length).trim() }))
 				index += 1
 				continue
 			}
@@ -236,7 +238,7 @@ const parseV4A = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Pat
 				}
 				flushChunk(state)
 
-				ops.push({ _tag: 'update', path, movePath, chunks: state.chunks })
+				ops.push(PatchOp.update({ path, movePath, chunks: state.chunks }))
 				continue
 			}
 
@@ -311,11 +313,11 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 				if (fromPath === null && toPath !== null) {
 					// Zero hunks means an empty file (clanka, the git-diff authority).
 					const content = state.chunks.chunks.flatMap((chunk) => chunk.newLines)
-					ops.push({ _tag: 'add', path: toPath, content: content.join('\n') })
+					ops.push(PatchOp.add({ path: toPath, content: content.join('\n') }))
 					return
 				}
 				if (toPath === null && fromPath !== null) {
-					ops.push({ _tag: 'delete', path: fromPath })
+					ops.push(PatchOp.delete({ path: fromPath }))
 					return
 				}
 				if (fromPath === null || toPath === null) return
@@ -324,7 +326,7 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 				if (state.chunks.chunks.length === 0 && movePath === null) {
 					return yield* new PatchParseError({ message: `no hunks found for ${fromPath}` })
 				}
-				ops.push({ _tag: 'update', path: fromPath, movePath, chunks: state.chunks.chunks })
+				ops.push(PatchOp.update({ path: fromPath, movePath, chunks: state.chunks.chunks }))
 			})
 
 		for (const line of lines) {
@@ -511,6 +513,8 @@ export type PatchStep =
 	| { readonly _tag: 'delete'; readonly path: string }
 	| { readonly _tag: 'move'; readonly fromPath: string; readonly toPath: string; readonly content: string }
 
+const PatchStep = Data.taggedEnum<PatchStep>()
+
 /** Result of computing a whole patch: the steps to perform and a human summary per op. */
 export type ComputedPatch = {
 	readonly steps: ReadonlyArray<PatchStep>
@@ -544,42 +548,47 @@ export const computePatch = (input: {
 		}
 
 		for (const op of input.ops) {
-			switch (op._tag) {
-				case 'add': {
-					// Ensure exactly one trailing newline; content ending in a bare `+` line already has one.
-					const content =
-						op.content.length === 0 || op.content.endsWith('\n') ? op.content : `${op.content}\n`
-					state.set(op.path, content)
-					steps.push({ _tag: 'write', path: op.path, content })
-					summary.push(`Added: ${op.path}`)
-					break
-				}
+			yield* Match.valueTags(op, {
+				add: (addition) =>
+					Effect.sync(() => {
+						// Ensure exactly one trailing newline; content ending in a bare `+` line already has one.
+						const content =
+							addition.content.length === 0 || addition.content.endsWith('\n')
+								? addition.content
+								: `${addition.content}\n`
+						state.set(addition.path, content)
+						steps.push(PatchStep.write({ path: addition.path, content }))
+						summary.push(`Added: ${addition.path}`)
+					}),
+				delete: (deletion) =>
+					readFor(deletion.path, 'delete').pipe(
+						Effect.tap(() =>
+							Effect.sync(() => {
+								state.set(deletion.path, null)
+								steps.push(PatchStep.delete({ path: deletion.path }))
+								summary.push(`Deleted: ${deletion.path}`)
+							}),
+						),
+					),
+				update: (update) =>
+					Effect.gen(function* () {
+						const current = yield* readFor(update.path, 'update')
+						const next = yield* applyChunks({ content: current, chunks: update.chunks, path: update.path })
 
-				case 'delete': {
-					yield* readFor(op.path, 'delete')
-					state.set(op.path, null)
-					steps.push({ _tag: 'delete', path: op.path })
-					summary.push(`Deleted: ${op.path}`)
-					break
-				}
-
-				case 'update': {
-					const current = yield* readFor(op.path, 'update')
-					const next = yield* applyChunks({ content: current, chunks: op.chunks, path: op.path })
-
-					if (op.movePath === null) {
-						state.set(op.path, next)
-						steps.push({ _tag: 'write', path: op.path, content: next })
-						summary.push(`Updated: ${op.path}`)
-					} else {
-						state.set(op.path, null)
-						state.set(op.movePath, next)
-						steps.push({ _tag: 'move', fromPath: op.path, toPath: op.movePath, content: next })
-						summary.push(`Updated: ${op.path} (moved to ${op.movePath})`)
-					}
-					break
-				}
-			}
+						if (update.movePath === null) {
+							state.set(update.path, next)
+							steps.push(PatchStep.write({ path: update.path, content: next }))
+							summary.push(`Updated: ${update.path}`)
+						} else {
+							state.set(update.path, null)
+							state.set(update.movePath, next)
+							steps.push(
+								PatchStep.move({ fromPath: update.path, toPath: update.movePath, content: next }),
+							)
+							summary.push(`Updated: ${update.path} (moved to ${update.movePath})`)
+						}
+					}),
+			})
 		}
 
 		return { steps, summary }

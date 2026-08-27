@@ -170,7 +170,7 @@ it.effect('jsonl layer replays assistant usage when cache fields are absent', ()
 			const entry = entries[0]
 
 			expect(entry?._tag).toBe('assistant-message')
-			if (entry?._tag !== 'assistant-message') return
+			if (!Predicate.isTagged(entry, 'assistant-message')) return
 			expect(entry.finish?.usage.inputTokens?.cacheWrite).toBeUndefined()
 			expect(entry.finish?.usage.inputTokens?.cacheRead).toBe(0)
 			expect(entry.finish?.usage.outputTokens?.total).toBe(2)

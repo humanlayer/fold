@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /** @jsxImportSource @opentui/solid */
 import {
 	configureProvider,
@@ -13,7 +14,6 @@ import {
 	type ViewedPatchHashes,
 } from '@humanlayer/fold-agent'
 import { makeCodexAuth, makeCodexAuthStore } from '@humanlayer/fold-codex'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import type { SessionId } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore } from '@humanlayer/fold-opencode'
 import { ALL_FX_ON, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
@@ -54,7 +54,11 @@ export type { TuiOptions } from './TuiSessionOptions'
 
 export const runTui = (
 	options: TuiOptions,
-): Effect.Effect<void, TuiRequiresTtyError | TuiRendererError | TuiInitialSessionError, Scope.Scope | FileSystem.FileSystem> =>
+): Effect.Effect<
+	void,
+	TuiRequiresTtyError | TuiRendererError | TuiInitialSessionError,
+	Scope.Scope | FileSystem.FileSystem
+> =>
 	Effect.gen(function* () {
 		if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return yield* new TuiRequiresTtyError()
 		const quit = yield* Deferred.make<void>()

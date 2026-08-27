@@ -25,6 +25,7 @@ import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { Cause, Effect, FileSystem, Schema } from 'effect'
+
 import { managedBinaryRegistry, type ManagedBinaryAsset, type ManagedBinaryDefinition } from './Registry'
 
 /** Environment variable that, when set (non-empty), disables managed-binary downloads entirely. */
@@ -436,7 +437,9 @@ const resolveOneNeverFailing = (
 		}),
 	)
 
-const ensureOnce = (options: EnsureManagedBinariesOptions): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem> =>
+const ensureOnce = (
+	options: EnsureManagedBinariesOptions,
+): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const env = options.env ?? ((name: string) => process.env[name])
@@ -483,6 +486,10 @@ export const ensureManagedBinaries = (
 		// callers cannot race past the get into two resolution passes; the second caller's
 		// ensureOnce is idempotent in the unlikely event of an async interleave.
 		return ensureOnce(options).pipe(
-			Effect.tap((result) => Effect.sync(() => { memoizedResults.set(key, result) })),
+			Effect.tap((result) =>
+				Effect.sync(() => {
+					memoizedResults.set(key, result)
+				}),
+			),
 		)
 	})

@@ -6,6 +6,7 @@
  * edge) and with a shorter shared prefix whose candidates stay distinguishable.
  */
 import { expect, it } from '@effect/vitest'
+import { Predicate } from 'effect'
 
 import { AgentId, isAgentIdRef, resolveAgentIdRef, shortAgentId } from '../../src/index'
 
@@ -53,7 +54,7 @@ it('an unknown reference and a full-length non-member are both not-found (no pre
 it('two agents sharing the referenced prefix are ambiguous, carrying the candidate short ids', () => {
 	const resolution = resolveAgentIdRef([twinOne, twinTwo, beta], 'agent_abcdef')
 	expect(resolution._tag).toBe('ambiguous')
-	if (resolution._tag !== 'ambiguous') return
+	if (!Predicate.isTagged(resolution, 'ambiguous')) return
 	// Both twins share the full 8-char short id - the candidates report one entry per match.
 	expect(resolution.candidates).toEqual(['agent_abcdefgh', 'agent_abcdefgh'])
 })
@@ -63,6 +64,6 @@ it('candidates stay distinguishable when the shared prefix is shorter than the s
 	const nearTwo = idWithCuid('abcdef22')
 	const resolution = resolveAgentIdRef([nearOne, nearTwo], 'agent_abcdef')
 	expect(resolution._tag).toBe('ambiguous')
-	if (resolution._tag !== 'ambiguous') return
+	if (!Predicate.isTagged(resolution, 'ambiguous')) return
 	expect(resolution.candidates).toEqual(['agent_abcdef11', 'agent_abcdef22'])
 })

@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Predicate, Effect, Ref } from 'effect'
 
 import { makeHookRunner, messagesForAgent, ToolRuntime } from '../../src/index'
 import { layerEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
@@ -99,7 +99,7 @@ it.effect('live preToolUse hook can update execution params without changing pro
 			params: { text: 'original' },
 		})
 
-		const projectedToolResult = result.projected.find((message) => message._tag === 'tool-result')
+		const projectedToolResult = result.projected.find((message) => Predicate.isTagged(message, 'tool-result'))
 		expect(projectedToolResult).not.toHaveProperty('executedInput')
 	}),
 )

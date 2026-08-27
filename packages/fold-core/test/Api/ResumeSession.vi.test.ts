@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Slice-2 resume tests: `resumeSession` ADOPTS an existing log - identity recovered from the replayed
  * `session_started`, no new session/agent rows - and the facade writes ONE epoch transition exactly
@@ -6,8 +7,7 @@
  * roster changes the block). An unchanged configuration writes nothing.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Cause, Context, Effect, Exit, Layer } from 'effect'
+import { Predicate, Cause, Context, Effect, Exit, Layer } from 'effect'
 
 import {
 	defineAgent,
@@ -58,9 +58,9 @@ it.effect('resume adopts the log: same ids, no new rows, full continuity - and n
 		expect(session.rootAgentId).toBe(first.rootAgentId)
 
 		const beforeSend = yield* session.entries
-		expect(beforeSend.filter((entry) => entry._tag === 'session_started')).toHaveLength(1)
-		expect(beforeSend.filter((entry) => entry._tag === 'agent_started')).toHaveLength(1)
-		expect(beforeSend.some((entry) => entry._tag === 'model-change')).toBe(false)
+		expect(beforeSend.filter((entry) => Predicate.isTagged(entry, 'session_started'))).toHaveLength(1)
+		expect(beforeSend.filter((entry) => Predicate.isTagged(entry, 'agent_started'))).toHaveLength(1)
+		expect(beforeSend.some((entry) => Predicate.isTagged(entry, 'model-change'))).toBe(false)
 
 		// The next send continues the SAME agent over the replayed history.
 		const finished = yield* session.send('continue where we left off')
@@ -88,13 +88,13 @@ it.effect('resume with a different model binding writes one epoch transition (D1
 		})
 
 		const beforeSend = yield* session.entries
-		const modelChange = beforeSend.findLast((entry) => entry._tag === 'model-change')
-		if (modelChange === undefined || modelChange._tag !== 'model-change') {
+		const modelChange = beforeSend.findLast((entry) => Predicate.isTagged(entry, 'model-change'))
+		if (modelChange === undefined || !Predicate.isTagged(modelChange, 'model-change')) {
 			throw new Error('expected the resume model-change entry')
 		}
 		expect(modelChange.model.modelId).toBe('gpt-scripted')
 		expect(modelChange.reason).toContain('resume')
-		expect(beforeSend.some((entry) => entry._tag === 'tools-change')).toBe(true)
+		expect(beforeSend.some((entry) => Predicate.isTagged(entry, 'tools-change'))).toBe(true)
 
 		const finished = yield* session.send('continue')
 		expect(finished.resultText).toBe('answered by the new model')
@@ -115,8 +115,8 @@ it.effect('resume with changed leading blocks transitions too (D20 resume rule)'
 		})
 
 		const beforeSend = yield* session.entries
-		expect(beforeSend.some((entry) => entry._tag === 'model-change')).toBe(true)
-		const newLeading = beforeSend.findLast((entry) => entry._tag === 'system-message')
+		expect(beforeSend.some((entry) => Predicate.isTagged(entry, 'model-change'))).toBe(true)
+		const newLeading = beforeSend.findLast((entry) => Predicate.isTagged(entry, 'system-message'))
 		expect(JSON.stringify(newLeading)).toContain('prompt v2')
 
 		// The new epoch's leading blocks bind on the resumed send.

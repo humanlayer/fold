@@ -1,3 +1,5 @@
+import { Data, Match, Predicate } from 'effect'
+
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -69,6 +71,8 @@ export type ProjectedMessage =
 	| ProjectedToolResult
 	| ProjectedCompactionSummary
 
+const ProjectedMessage = Data.taggedEnum<ProjectedMessage>()
+
 /** Tool-owned key/value state for one agent namespace, built by folding tool_state entries in log order. */
 export type ToolStateProjection = Readonly<Record<string, unknown>>
 
@@ -77,12 +81,14 @@ const ownEntriesForAgent = (entries: ReadonlyArray<LogEntry>, agentId: AgentId):
 
 const findAgentStarted = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): AgentStartedLogEntry | null =>
 	entries.find(
-		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.agentId === agentId,
+		(entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started') && entry.agentId === agentId,
 	) ?? null
 
 const findAgentFinished = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): AgentFinishedLogEntry | null =>
 	entries.findLast(
-		(entry): entry is AgentFinishedLogEntry => entry._tag === 'agent-finished' && entry.agentId === agentId,
+		(entry): entry is AgentFinishedLogEntry =>
+			Predicate.isTagged(entry, 'agent-finished') && entry.agentId === agentId,
 	) ?? null
 
 const compareSeq = (left: LogEntry, right: LogEntry) => left.seq - right.seq
@@ -93,13 +99,13 @@ const userMessageText = (entry: UserMessageLogEntry): string =>
 		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 
 const isInjectedSkillMessage = (entry: LogEntry): boolean => {
-	if (entry._tag !== 'user-message') return false
+	if (!Predicate.isTagged(entry, 'user-message')) return false
 	const content = userMessageText(entry).trim()
 	return /^<skill(?:\s|>)/.test(content) && content.endsWith('</skill>')
 }
 
 const isSettledAssistantText = (entry: LogEntry): boolean => {
-	if (entry._tag !== 'assistant-message') return false
+	if (!Predicate.isTagged(entry, 'assistant-message')) return false
 	if (typeof entry.message.content === 'string') return entry.message.content.trim().length > 0
 	return entry.message.content.length > 0 && entry.message.content.every((part) => part.type === 'text')
 }
@@ -108,13 +114,15 @@ const eligibleForkHistory = (
 	entries: ReadonlyArray<LogEntry>,
 	history: 'all' | 'none' | number,
 ): ReadonlyArray<LogEntry> => {
-	const leadingSystem = entries.filter((entry) => entry._tag === 'system-message' && entry.placement === 'leading')
+	const leadingSystem = entries.filter(
+		(entry) => Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading',
+	)
 	if (history === 'none') return leadingSystem
 
 	let invokingTurnStart = entries.length
 	for (let index = entries.length - 1; index >= 0; index -= 1) {
 		const entry = entries[index]
-		if (entry?._tag === 'user-message' && !isInjectedSkillMessage(entry)) {
+		if (Predicate.isTagged(entry, 'user-message') && !isInjectedSkillMessage(entry)) {
 			invokingTurnStart = index
 			break
 		}
@@ -124,8 +132,8 @@ const eligibleForkHistory = (
 		.slice(0, invokingTurnStart)
 		.filter(
 			(entry) =>
-				(entry._tag === 'system-message' && entry.placement === 'leading') ||
-				entry._tag === 'user-message' ||
+				(Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading') ||
+				Predicate.isTagged(entry, 'user-message') ||
 				isSettledAssistantText(entry),
 		)
 	if (history === 'all') return eligible
@@ -133,10 +141,13 @@ const eligibleForkHistory = (
 	let userTurns = 0
 	for (let index = eligible.length - 1; index >= 0; index -= 1) {
 		const entry = eligible[index]
-		if (entry?._tag !== 'user-message' || isInjectedSkillMessage(entry)) continue
+		if (!Predicate.isTagged(entry, 'user-message') || isInjectedSkillMessage(entry)) continue
 		userTurns += 1
 		if (userTurns === history)
-			return [...leadingSystem, ...eligible.slice(index).filter((item) => item._tag !== 'system-message')]
+			return [
+				...leadingSystem,
+				...eligible.slice(index).filter((item) => !Predicate.isTagged(item, 'system-message')),
+			]
 	}
 	return eligible
 }
@@ -197,24 +208,27 @@ export const runtimeForAgent = (entries: ReadonlyArray<LogEntry>, agentId: Agent
 	let promptCacheKey: string | null = null
 
 	for (const entry of visibleEntries) {
-		switch (entry._tag) {
-			case 'agent_started':
-				activeModel = entry.model
-				activeTools = entry.tools
-				reasoningLevel = entry.model.requestedReasoningLevel
-				promptCacheKey = entry.promptCacheKey ?? null
-				break
-			case 'model-change':
-				activeModel = entry.model
-				reasoningLevel = entry.model.requestedReasoningLevel
-				break
-			case 'thinking-change':
-				reasoningLevel = entry.reasoningLevel
-				break
-			case 'tools-change':
-				activeTools = entry.tools
-				break
-		}
+		Match.value(entry).pipe(
+			Match.tags({
+				agent_started: (started) => {
+					activeModel = started.model
+					activeTools = started.tools
+					reasoningLevel = started.model.requestedReasoningLevel
+					promptCacheKey = started.promptCacheKey ?? null
+				},
+				'model-change': (change) => {
+					activeModel = change.model
+					reasoningLevel = change.model.requestedReasoningLevel
+				},
+				'thinking-change': (change) => {
+					reasoningLevel = change.reasoningLevel
+				},
+				'tools-change': (change) => {
+					activeTools = change.tools
+				},
+			}),
+			Match.orElse(() => undefined),
+		)
 	}
 
 	return {
@@ -235,7 +249,7 @@ export const toolStateForAgent = (
 	const state: Record<string, unknown> = {}
 
 	for (const entry of ownEntriesForAgent(entries, agentId)) {
-		if (entry._tag !== 'tool_state' || entry.namespace !== namespace) continue
+		if (!Predicate.isTagged(entry, 'tool_state') || entry.namespace !== namespace) continue
 
 		if (entry.value === null) {
 			delete state[entry.key]
@@ -249,11 +263,12 @@ export const toolStateForAgent = (
 
 const latestLeadingSystemMessage = (entries: ReadonlyArray<LogEntry>): SystemMessageLogEntry | null =>
 	entries.findLast(
-		(entry): entry is SystemMessageLogEntry => entry._tag === 'system-message' && entry.placement === 'leading',
+		(entry): entry is SystemMessageLogEntry =>
+			Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading',
 	) ?? null
 
 const latestCompaction = (entries: ReadonlyArray<LogEntry>): CompactionLogEntry | null =>
-	entries.findLast((entry): entry is CompactionLogEntry => entry._tag === 'compaction') ?? null
+	entries.findLast((entry): entry is CompactionLogEntry => Predicate.isTagged(entry, 'compaction')) ?? null
 
 const toolCallIdsForAssistantMessage = (message: AssistantMessageEncoded): ReadonlyArray<string> => {
 	if (typeof message.content === 'string') return []
@@ -276,7 +291,7 @@ const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): R
 		ordered.push(message)
 		index += 1
 
-		if (message._tag !== 'assistant-message') continue
+		if (!Predicate.isTagged(message, 'assistant-message')) continue
 
 		const toolCallIds = toolCallIdsForAssistantMessage(message.message)
 		if (toolCallIds.length === 0) continue
@@ -284,7 +299,7 @@ const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): R
 		const toolResults: Array<ProjectedToolResult> = []
 		while (true) {
 			const toolResult = messages[index]
-			if (toolResult?._tag !== 'tool-result') break
+			if (!Predicate.isTagged(toolResult, 'tool-result')) break
 
 			toolResults.push(toolResult)
 			index += 1
@@ -310,36 +325,38 @@ const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): R
 
 /** Translate one durable message entry into the projection shape used by prompt construction. */
 const projectMessageEntry = (entry: LogEntry): ProjectedMessage | null => {
-	switch (entry._tag) {
-		case 'system-message':
-			return {
-				_tag: 'system-message',
-				sourceSeq: entry.seq,
-				messageId: entry.messageId,
-				placement: entry.placement,
-				messages: entry.messages,
-			}
-		case 'user-message':
-			return { _tag: 'user-message', sourceSeq: entry.seq, messageId: entry.messageId, message: entry.message }
-		case 'assistant-message':
-			return {
-				_tag: 'assistant-message',
-				sourceSeq: entry.seq,
-				messageId: entry.messageId,
-				message: entry.message,
-				finish: entry.finish,
-			}
-		case 'tool-result':
-			return {
-				_tag: 'tool-result',
-				sourceSeq: entry.seq,
-				toolCallId: entry.toolCallId,
-				messageId: entry.messageId,
-				message: entry.message,
-			}
-	}
-
-	return null
+	return Match.value(entry).pipe(
+		Match.tags({
+			'system-message': (message) =>
+				ProjectedMessage['system-message']({
+					sourceSeq: message.seq,
+					messageId: message.messageId,
+					placement: message.placement,
+					messages: message.messages,
+				}),
+			'user-message': (message) =>
+				ProjectedMessage['user-message']({
+					sourceSeq: message.seq,
+					messageId: message.messageId,
+					message: message.message,
+				}),
+			'assistant-message': (message) =>
+				ProjectedMessage['assistant-message']({
+					sourceSeq: message.seq,
+					messageId: message.messageId,
+					message: message.message,
+					finish: message.finish,
+				}),
+			'tool-result': (message) =>
+				ProjectedMessage['tool-result']({
+					sourceSeq: message.seq,
+					toolCallId: message.toolCallId,
+					messageId: message.messageId,
+					message: message.message,
+				}),
+		}),
+		Match.orElse(() => null),
+	)
 }
 
 /**
@@ -360,32 +377,34 @@ export const messagesForAgent = (
 	const projected: Array<ProjectedMessage> = []
 
 	if (leading !== null) {
-		projected.push({
-			_tag: 'system-message',
-			sourceSeq: leading.seq,
-			messageId: leading.messageId,
-			placement: leading.placement,
-			messages: leading.messages,
-		})
+		projected.push(
+			ProjectedMessage['system-message']({
+				sourceSeq: leading.seq,
+				messageId: leading.messageId,
+				placement: leading.placement,
+				messages: leading.messages,
+			}),
+		)
 	}
 
 	if (compaction !== null) {
-		projected.push({
-			_tag: 'compaction-summary',
-			sourceSeq: compaction.seq,
-			compactionId: compaction.compactionId,
-			replacesThroughSeq: compaction.replacesThroughSeq,
-			summary: compaction.summary,
-			...(compaction.postCompactionInstructions === undefined
-				? {}
-				: { postCompactionInstructions: compaction.postCompactionInstructions }),
-			tokensBefore: compaction.tokensBefore,
-		})
+		projected.push(
+			ProjectedMessage['compaction-summary']({
+				sourceSeq: compaction.seq,
+				compactionId: compaction.compactionId,
+				replacesThroughSeq: compaction.replacesThroughSeq,
+				summary: compaction.summary,
+				...(compaction.postCompactionInstructions === undefined
+					? {}
+					: { postCompactionInstructions: compaction.postCompactionInstructions }),
+				tokensBefore: compaction.tokensBefore,
+			}),
+		)
 	}
 
 	for (const entry of visibleEntries) {
 		if (entry.seq <= cutSeq) continue
-		if (entry._tag === 'system-message' && entry.placement === 'leading') continue
+		if (Predicate.isTagged(entry, 'system-message') && entry.placement === 'leading') continue
 
 		const message = projectMessageEntry(entry)
 		if (message !== null) projected.push(message)

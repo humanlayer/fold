@@ -12,7 +12,7 @@ import { join } from 'node:path'
 
 import { SessionId, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
 import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
-import { Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
+import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
@@ -104,7 +104,10 @@ type SessionIndexRecord = typeof SessionIndexRecordSchema.Type
 
 const decodeIndexRecord = Schema.decodeUnknownOption(SessionIndexRecordSchema)
 
-const appendSessionIndexRecord = (record: SessionIndexRecord, options?: SessionLayoutOptions): Effect.Effect<void, never, FileSystem.FileSystem> =>
+const appendSessionIndexRecord = (
+	record: SessionIndexRecord,
+	options?: SessionLayoutOptions,
+): Effect.Effect<void, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
@@ -126,7 +129,9 @@ const sessionIdFromIndexRecord = Match.type<SessionIndexRecord>().pipe(
 	Match.exhaustive,
 )
 
-const loadSessionIndex = (options?: SessionLayoutOptions): Effect.Effect<Map<SessionId, SessionIndexRecord>, never, FileSystem.FileSystem> =>
+const loadSessionIndex = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<Map<SessionId, SessionIndexRecord>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		return yield* fs.readFileString(join(sessionsDirFor(options), 'index.jsonl')).pipe(
@@ -154,7 +159,11 @@ const loadSessionIndex = (options?: SessionLayoutOptions): Effect.Effect<Map<Ses
  */
 export const prepareSessionLog = (
 	options?: SessionLayoutOptions,
-): Effect.Effect<{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog }, never, Ids | FileSystem.FileSystem> =>
+): Effect.Effect<
+	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog },
+	never,
+	Ids | FileSystem.FileSystem
+> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const sessionId = yield* makeSessionId
@@ -166,7 +175,9 @@ export const prepareSessionLog = (
 	})
 
 /** Discover this project's session logs, newest first (by file mtime). */
-export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<ReadonlyArray<SessionLogRef>, never, FileSystem.FileSystem> =>
+export const listSessionLogs = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<ReadonlyArray<SessionLogRef>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
@@ -198,26 +209,26 @@ export const listSessionLogs = (options?: SessionLayoutOptions): Effect.Effect<R
 
 // Type-safe entry predicates that narrow the LogEntry union.
 const isSessionStarted = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_started' }> =>
-	entry._tag === 'session_started'
+	Predicate.isTagged(entry, 'session_started')
 
 const isSessionTitle = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_title' }> =>
-	entry._tag === 'session_title'
+	Predicate.isTagged(entry, 'session_title')
 
 const isUserMessage = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'user-message' }> =>
-	entry._tag === 'user-message'
+	Predicate.isTagged(entry, 'user-message')
 
 const isAgentFinished = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'agent-finished' }> =>
-	entry._tag === 'agent-finished'
+	Predicate.isTagged(entry, 'agent-finished')
 
 type ModelCarrier = Extract<LogEntry, { readonly _tag: 'agent_started' | 'model-change' }>
 const carriesModel = (entry: LogEntry): entry is ModelCarrier =>
-	entry._tag === 'agent_started' || entry._tag === 'model-change'
+	Predicate.isTagged(entry, 'agent_started') || Predicate.isTagged(entry, 'model-change')
 
 type FinishedAssistantMessage = Extract<LogEntry, { readonly _tag: 'assistant-message' }> & {
 	readonly finish: NonNullable<Extract<LogEntry, { readonly _tag: 'assistant-message' }>['finish']>
 }
 const isFinishedAssistantMessage = (entry: LogEntry): entry is FinishedAssistantMessage =>
-	entry._tag === 'assistant-message' && entry.finish !== null
+	Predicate.isTagged(entry, 'assistant-message') && entry.finish !== null
 
 const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message' }>): string => {
 	const content = entry.message.content
@@ -232,7 +243,8 @@ const computeStatus = (
 ): SessionSummary['status'] => {
 	// No finish yet, or activity after the last finish → derive from latest activity
 	if (lastFinished === undefined || (latestRootEntry !== undefined && latestRootEntry.seq > lastFinished.seq)) {
-		return latestRootEntry?._tag === 'system-message' || latestRootEntry?._tag === 'agent_started'
+		return Predicate.isTagged(latestRootEntry, 'system-message') ||
+			Predicate.isTagged(latestRootEntry, 'agent_started')
 			? 'ready'
 			: 'running'
 	}
@@ -305,12 +317,14 @@ const isCacheHit = (
 	ref: SessionLogRef,
 ): cached is typeof SummaryIndexRecord.Type =>
 	cached !== undefined &&
-	cached._tag === 'summary' &&
+	Predicate.isTagged(cached, 'summary') &&
 	cached.sourceMtimeMs === ref.mtimeMs &&
 	cached.sourceSize === (ref.size ?? 0)
 
 /** Read the one-file picker cache, rebuilding only stale/missing records from authoritative logs. */
-export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Effect<ReadonlyArray<SessionSummary>, never, FileSystem.FileSystem> =>
+export const listSessionSummaries = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<ReadonlyArray<SessionSummary>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const refs = yield* listSessionLogs(options)
 		const index = yield* loadSessionIndex(options)
@@ -343,7 +357,11 @@ export const listSessionSummaries = (options?: SessionLayoutOptions): Effect.Eff
 						summary === null
 							? Effect.void
 							: appendSessionIndexRecord(
-									{ _tag: 'summary', sourceMtimeMs: ref.mtimeMs, sourceSize: ref.size ?? 0, summary },
+									SummaryIndexRecord.make({
+										sourceMtimeMs: ref.mtimeMs,
+										sourceSize: ref.size ?? 0,
+										summary,
+									}),
 									options,
 								),
 					),
@@ -375,7 +393,7 @@ export const deleteSession = (
 		const outputExists = yield* fs.exists(outputDirectory).pipe(Effect.orDie)
 		yield* fs.remove(logPath).pipe(Effect.orDie)
 		const ts = yield* Clock.currentTimeMillis
-		yield* appendSessionIndexRecord({ _tag: 'deleted', sessionId, ts }, options)
+		yield* appendSessionIndexRecord(DeletedIndexRecord.make({ sessionId, ts }), options)
 		if (!outputExists) return { deleted: true, outputRemoved: true }
 
 		const outputRemoval = yield* Effect.exit(fs.remove(outputDirectory, { recursive: true }))
@@ -383,7 +401,9 @@ export const deleteSession = (
 	})
 
 /** The newest session log for this project, or null when none exist ("resume latest" - D5). */
-export const latestSessionLog = (options?: SessionLayoutOptions): Effect.Effect<SessionLogRef | null, never, FileSystem.FileSystem> =>
+export const latestSessionLog = (
+	options?: SessionLayoutOptions,
+): Effect.Effect<SessionLogRef | null, never, FileSystem.FileSystem> =>
 	listSessionLogs(options).pipe(Effect.map((refs) => refs[0] ?? null))
 
 /** Resolve an exact session id under this project's session directory, or null when it is absent. */
@@ -407,7 +427,10 @@ export const sessionLogById = (
 	})
 
 /** Rebuild and append one authoritative summary after session metadata changes. */
-export const refreshSessionSummaryIndex = (sessionId: SessionId, options?: SessionLayoutOptions): Effect.Effect<void, never, FileSystem.FileSystem> =>
+export const refreshSessionSummaryIndex = (
+	sessionId: SessionId,
+	options?: SessionLayoutOptions,
+): Effect.Effect<void, never, FileSystem.FileSystem> =>
 	sessionLogById(sessionId, options).pipe(
 		Effect.flatMap((ref) => {
 			if (ref === null) return Effect.void
@@ -416,12 +439,11 @@ export const refreshSessionSummaryIndex = (sessionId: SessionId, options?: Sessi
 					summary === null
 						? Effect.void
 						: appendSessionIndexRecord(
-								{
-									_tag: 'summary',
+								SummaryIndexRecord.make({
 									sourceMtimeMs: ref.mtimeMs,
 									sourceSize: ref.size ?? 0,
 									summary,
-								},
+								}),
 								options,
 							),
 				),

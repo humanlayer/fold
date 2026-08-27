@@ -109,87 +109,90 @@ const lineSlice = (content: string, options?: OutputStoreReadOptions): string =>
 }
 
 /** Construct a file-backed OutputStore service for one session. */
-export const makeOutputStore = (options: MakeOutputStoreOptions): Effect.Effect<OutputStoreService, never, FileSystem.FileSystem> =>
+export const makeOutputStore = (
+	options: MakeOutputStoreOptions,
+): Effect.Effect<OutputStoreService, never, FileSystem.FileSystem> =>
 	Effect.map(FileSystem.FileSystem, (fs) => {
-	const foldHome = options.foldHome ?? defaultFoldHome()
-	const sessionId = options.sessionId
-	const directory = toolOutputSessionDirFor({ sessionId, foldHome })
-	const retentionMs = options.retentionMs ?? 7 * dayMs
+		const foldHome = options.foldHome ?? defaultFoldHome()
+		const sessionId = options.sessionId
+		const directory = toolOutputSessionDirFor({ sessionId, foldHome })
+		const retentionMs = options.retentionMs ?? 7 * dayMs
 
-	const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
-		new OutputStoreRef({
-			sessionId,
-			toolCallId,
-			path: toolOutputPathFor({ sessionId, toolCallId, foldHome }),
-		})
+		const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
+			new OutputStoreRef({
+				sessionId,
+				toolCallId,
+				path: toolOutputPathFor({ sessionId, toolCallId, foldHome }),
+			})
 
-	const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-		const ref = refFor(toolCallId)
-		return fs.makeDirectory(directory, { recursive: true }).pipe(
-			Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
-			Effect.as(ref),
-			Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
-			Effect.tapError(logStoreError),
-			Effect.withSpan('output_store.prepare', {
-				attributes: { sessionId, toolCallId, path: ref.path },
-			}),
-		)
-	}
+		const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+			const ref = refFor(toolCallId)
+			return fs.makeDirectory(directory, { recursive: true }).pipe(
+				Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
+				Effect.as(ref),
+				Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
+				Effect.tapError(logStoreError),
+				Effect.withSpan('output_store.prepare', {
+					attributes: { sessionId, toolCallId, path: ref.path },
+				}),
+			)
+		}
 
-	const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-		const ref = refFor(toolCallId)
-		return fs.makeDirectory(directory, { recursive: true }).pipe(
-			Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
-			Effect.as(ref),
-			Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
-			Effect.tapError(logStoreError),
-			Effect.withSpan('output_store.append', {
-				attributes: { sessionId, toolCallId, path: ref.path, bytes: chunk.length },
-			}),
-		)
-	}
+		const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+			const ref = refFor(toolCallId)
+			return fs.makeDirectory(directory, { recursive: true }).pipe(
+				Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
+				Effect.as(ref),
+				Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
+				Effect.tapError(logStoreError),
+				Effect.withSpan('output_store.append', {
+					attributes: { sessionId, toolCallId, path: ref.path, bytes: chunk.length },
+				}),
+			)
+		}
 
-	const read = (ref: OutputStoreRef, options?: OutputStoreReadOptions): Effect.Effect<string, OutputStoreError> =>
-		fs.readFileString(ref.path).pipe(
-			Effect.map((content) => lineSlice(content, options)),
-			Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
-			Effect.tapError(logStoreError),
-			Effect.withSpan('output_store.read', {
-				attributes: { sessionId: ref.sessionId, toolCallId: ref.toolCallId, path: ref.path },
-			}),
-		)
+		const read = (ref: OutputStoreRef, options?: OutputStoreReadOptions): Effect.Effect<string, OutputStoreError> =>
+			fs.readFileString(ref.path).pipe(
+				Effect.map((content) => lineSlice(content, options)),
+				Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
+				Effect.tapError(logStoreError),
+				Effect.withSpan('output_store.read', {
+					attributes: { sessionId: ref.sessionId, toolCallId: ref.toolCallId, path: ref.path },
+				}),
+			)
 
-	const sweep = Effect.gen(function* () {
-		const root = toolOutputRootFor({ foldHome })
-		const now = yield* Clock.currentTimeMillis
-		const sessions = yield* fs
-			.readDirectory(root)
-			.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
-
-		for (const sessionName of sessions) {
-			const sessionDir = join(root, sessionName)
-			const files = yield* fs
-				.readDirectory(sessionDir)
+		const sweep = Effect.gen(function* () {
+			const root = toolOutputRootFor({ foldHome })
+			const now = yield* Clock.currentTimeMillis
+			const sessions = yield* fs
+				.readDirectory(root)
 				.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
 
-			for (const file of files) {
-				if (!file.endsWith('.txt')) continue
-				const path = join(sessionDir, file)
-				const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
-				if (info === null || info.type !== 'File') continue
+			for (const sessionName of sessions) {
+				const sessionDir = join(root, sessionName)
+				const files = yield* fs
+					.readDirectory(sessionDir)
+					.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
 
-				const mtime = Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })
-				if (now - mtime > retentionMs) yield* fs.remove(path).pipe(Effect.ignore)
+				for (const file of files) {
+					if (!file.endsWith('.txt')) continue
+					const path = join(sessionDir, file)
+					const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+					if (info === null || info.type !== 'File') continue
+
+					const mtime = Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })
+					if (now - mtime > retentionMs) yield* fs.remove(path).pipe(Effect.ignore)
+				}
 			}
-		}
-	}).pipe(
-		Effect.catchCause((cause) => Effect.logWarning(`OutputStore sweep failed: ${Cause.pretty(cause)}`)),
-		Effect.withSpan('output_store.sweep', { attributes: { sessionId, directory } }),
-	)
+		}).pipe(
+			Effect.catchCause((cause) => Effect.logWarning(`OutputStore sweep failed: ${Cause.pretty(cause)}`)),
+			Effect.withSpan('output_store.sweep', { attributes: { sessionId, directory } }),
+		)
 
-	return { sessionId, directory, refFor, prepare, append, read, sweep }
+		return { sessionId, directory, refFor, prepare, append, read, sweep }
 	})
 
 /** Layer constructor for hosts that want OutputStore in `R`. */
-export const outputStoreLayer = (options: MakeOutputStoreOptions): Layer.Layer<OutputStore, never, FileSystem.FileSystem> =>
-	Layer.effect(OutputStore, makeOutputStore(options))
+export const outputStoreLayer = (
+	options: MakeOutputStoreOptions,
+): Layer.Layer<OutputStore, never, FileSystem.FileSystem> => Layer.effect(OutputStore, makeOutputStore(options))

@@ -35,7 +35,7 @@ import {
 	type FoldTool,
 	type Ids,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, Match, Schema, Semaphore, type Scope } from 'effect'
+import { Predicate, Effect, FileSystem, Layer, Match, Schema, Semaphore, type Scope } from 'effect'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
@@ -420,53 +420,60 @@ const withGeneratedTitles = (
 		const fs = yield* FileSystem.FileSystem
 		const fsLayer = Layer.succeed(FileSystem.FileSystem, fs)
 		return yield* Semaphore.make(1).pipe(
-		Effect.map((titleLock) => ({
-			...session,
-			send: (text: string, target?: Parameters<FoldSession['send']>[1]) =>
-				session.send(text, target).pipe(
-					Effect.tap(() => {
-						if (target?.agentId !== undefined && target.agentId !== session.rootAgentId) return Effect.void
-						return titleLock.withPermit(
-							Effect.exit(
-								session.entries.pipe(
-									Effect.flatMap((entries) => {
-										const rootUsers = entries.filter(
-											(entry) =>
-												entry._tag === 'user-message' && entry.agentId === session.rootAgentId,
-										)
-										const lastTitle = entries.findLast((entry) => entry._tag === 'session_title')
-										const generatedTurns = lastTitle?.rootUserTurns ?? 0
-										if (rootUsers.length <= generatedTurns) return Effect.void
-										return generateSessionTitle(entries, session.rootAgentId, model).pipe(
-											Effect.flatMap((title) => {
-												const generatedThroughSeq = entries.at(-1)?.seq
-												return session
-													.setTitle(title, {
-														...(generatedThroughSeq === undefined
-															? {}
-															: { generatedThroughSeq }),
-														rootUserTurns: rootUsers.length,
-													})
-													.pipe(
-														Effect.andThen(
-															refreshSessionSummaryIndex(session.sessionId, options).pipe(
-																Effect.provide(fsLayer),
+			Effect.map((titleLock) => ({
+				...session,
+				send: (text: string, target?: Parameters<FoldSession['send']>[1]) =>
+					session.send(text, target).pipe(
+						Effect.tap(() => {
+							if (target?.agentId !== undefined && target.agentId !== session.rootAgentId)
+								return Effect.void
+							return titleLock.withPermit(
+								Effect.exit(
+									session.entries.pipe(
+										Effect.flatMap((entries) => {
+											const rootUsers = entries.filter(
+												(entry) =>
+													Predicate.isTagged(entry, 'user-message') &&
+													entry.agentId === session.rootAgentId,
+											)
+											const lastTitle = entries.findLast((entry) =>
+												Predicate.isTagged(entry, 'session_title'),
+											)
+											const generatedTurns = lastTitle?.rootUserTurns ?? 0
+											if (rootUsers.length <= generatedTurns) return Effect.void
+											return generateSessionTitle(entries, session.rootAgentId, model).pipe(
+												Effect.flatMap((title) => {
+													const generatedThroughSeq = entries.at(-1)?.seq
+													return session
+														.setTitle(title, {
+															...(generatedThroughSeq === undefined
+																? {}
+																: { generatedThroughSeq }),
+															rootUserTurns: rootUsers.length,
+														})
+														.pipe(
+															Effect.andThen(
+																refreshSessionSummaryIndex(
+																	session.sessionId,
+																	options,
+																).pipe(Effect.provide(fsLayer)),
 															),
-														),
-													)
-											}),
-										)
-									}),
-								),
-							).pipe(Effect.asVoid),
-						)
-					}),
-				),
-		})),
-	)
+														)
+												}),
+											)
+										}),
+									),
+								).pipe(Effect.asVoid),
+							)
+						}),
+					),
+			})),
+		)
 	})
 
-const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<FoldConfig | null, LaunchModelError, FileSystem.FileSystem> => {
+const runtimeConfigFor = (
+	options: LaunchSessionOptions,
+): Effect.Effect<FoldConfig | null, LaunchModelError, FileSystem.FileSystem> => {
 	if (options.config !== undefined) return Effect.succeed(options.config)
 	if (options.model !== undefined) return Effect.succeed(null)
 
@@ -474,7 +481,9 @@ const runtimeConfigFor = (options: LaunchSessionOptions): Effect.Effect<FoldConf
 }
 
 /** The catalog for a launch: the caller's (the CLI loads once), else a fresh load (never fails). */
-const catalogFor = (options: LaunchSessionOptions): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
+const catalogFor = (
+	options: LaunchSessionOptions,
+): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
 	options.catalog !== undefined
 		? Effect.succeed(options.catalog)
 		: loadModelCatalog({

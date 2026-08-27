@@ -173,7 +173,9 @@ const scanRoots = (
 	})
 
 /** Build the disk SkillSource service. Each list/load runs a fresh scan (refresh sees new skills). */
-export const makeDiskSkillSource = (options?: DiskSkillsOptions): Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> =>
+export const makeDiskSkillSource = (
+	options?: DiskSkillsOptions,
+): Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> =>
 	Effect.map(FileSystem.FileSystem, (fs) => {
 		const cwd = cwdFor(options)
 		const home = options?.home ?? homedir()

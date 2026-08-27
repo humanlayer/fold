@@ -78,7 +78,11 @@ it.effect('a fresh cache short-circuits the fetch', () =>
 
 		expect(entries).toEqual([cachedEntry])
 		expect(yield* fetch.calls).toBe(0)
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - hourMs) })))),
+	}).pipe(
+		Effect.provide(
+			Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - hourMs) })),
+		),
+	),
 )
 
 it.effect('a stale cache refetches, returns the live entries, and rewrites the cache', () =>
@@ -100,7 +104,11 @@ it.effect('a stale cache refetches, returns the live entries, and rewrites the c
 		// The cache was rewritten with the fresh fetch time and the normalized entries.
 		const written: unknown = JSON.parse(yield* fs.readFileString(cachePath))
 		expect(written).toEqual({ version: 1, fetchedAt: fixedNow, entries })
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })))),
+	}).pipe(
+		Effect.provide(
+			Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })),
+		),
+	),
 )
 
 it.effect('a fetch failure degrades to the stale cache with a warning', () =>
@@ -115,7 +123,11 @@ it.effect('a fetch failure degrades to the stale cache with a warning', () =>
 
 		expect(yield* fetch.calls).toBe(1)
 		expect(entries).toEqual([cachedEntry])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })))),
+	}).pipe(
+		Effect.provide(
+			Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) })),
+		),
+	),
 )
 
 it.effect('no cache plus a fetch failure degrades to the baked snapshot', () =>
@@ -142,7 +154,14 @@ it.effect('FOLD_DISABLE_MODELS_FETCH skips the fetch: stale cache when present, 
 			env,
 			fetchJson: fetchA.fetchJson,
 			now: Effect.succeed(fixedNow),
-		}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) }))))
+		}).pipe(
+			Effect.provide(
+				Layer.succeed(
+					FileSystem.FileSystem,
+					memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) }),
+				),
+			),
+		)
 		expect(staleEntries).toEqual([cachedEntry])
 		expect(yield* fetchA.calls).toBe(0)
 

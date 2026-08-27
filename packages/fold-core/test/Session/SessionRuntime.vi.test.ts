@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import {
 	Session,
@@ -44,8 +44,8 @@ it.effect('starts a session and completes a text-only send with the full log sha
 			'agent-finished',
 		])
 
-		const sessionStarted = result.entries.find(
-			(entry): entry is SessionStartedLogEntry => entry._tag === 'session_started',
+		const sessionStarted = result.entries.find((entry): entry is SessionStartedLogEntry =>
+			Predicate.isTagged(entry, 'session_started'),
 		)
 		expect(sessionStarted?.seq).toBe(0)
 		expect(sessionStarted?.sessionId).toBe(result.started.sessionId)
@@ -53,8 +53,8 @@ it.effect('starts a session and completes a text-only send with the full log sha
 		expect(sessionStarted?.cwd).toBe('/test')
 		expect(sessionStarted?.version).toBe(1)
 
-		const agentStarted = result.entries.find(
-			(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started',
+		const agentStarted = result.entries.find((entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started'),
 		)
 		expect(agentStarted?.agentId).toBe(result.started.rootAgentId)
 	}),
@@ -73,8 +73,8 @@ it.effect('records a null cwd when the host has none', () =>
 			return yield* collectEntries
 		}).pipe(Effect.provide(layer))
 
-		const sessionStarted = entries.find(
-			(entry): entry is SessionStartedLogEntry => entry._tag === 'session_started',
+		const sessionStarted = entries.find((entry): entry is SessionStartedLogEntry =>
+			Predicate.isTagged(entry, 'session_started'),
 		)
 		expect(sessionStarted?.cwd).toBeNull()
 	}),
@@ -113,6 +113,6 @@ it.effect('fails a second start with SessionAlreadyStartedError and appends no s
 		}).pipe(Effect.provide(layer))
 
 		expect(result.error).toBeInstanceOf(SessionAlreadyStartedError)
-		expect(result.entries.filter((entry) => entry._tag === 'session_started')).toHaveLength(1)
+		expect(result.entries.filter((entry) => Predicate.isTagged(entry, 'session_started'))).toHaveLength(1)
 	}),
 )

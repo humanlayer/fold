@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade tests for session profiles: `startSession({ profiles })` seeds the session-wide role->model
  * map and `FoldSession.setProfile` rebinds one role mid-session - children provision per dispatch, so
@@ -5,7 +6,6 @@
  * runs keep their durable rows on the model that actually served them.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect } from 'effect'
 
 import { defineSubagent } from '../../src/index'

@@ -1,5 +1,5 @@
-import { describe, expect, it } from '@effect/vitest'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer, Ref } from 'effect'
 
 import {

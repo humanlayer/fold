@@ -11,7 +11,7 @@
  */
 import { AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiLanguageModel } from '@effect/ai-openai'
-import { Effect, Layer, Ref, Stream } from 'effect'
+import { Predicate, Effect, Layer, Ref, Stream } from 'effect'
 import { AiError, LanguageModel, type Prompt, type Response } from 'effect/unstable/ai'
 
 /** Optional shaping for a scripted turn's finish part. */
@@ -136,8 +136,8 @@ export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): E
 					{
 						prompt: options.prompt,
 						toolNames: options.tools.map((tool) => tool.name),
-						openAiConfig: openAiConfig._tag === 'Some' ? openAiConfig.value : null,
-						anthropicConfig: anthropicConfig._tag === 'Some' ? anthropicConfig.value : null,
+						openAiConfig: Predicate.isTagged(openAiConfig, 'Some') ? openAiConfig.value : null,
+						anthropicConfig: Predicate.isTagged(anthropicConfig, 'Some') ? anthropicConfig.value : null,
 					},
 				])
 
@@ -160,7 +160,7 @@ export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): E
 				Stream.unwrap(
 					nextTurn(options).pipe(
 						Effect.map((turn) =>
-							turn._tag === 'failure'
+							Predicate.isTagged(turn, 'failure')
 								? Stream.fail(scriptedFailure(turn.message))
 								: Stream.fromIterable(turn.parts),
 						),

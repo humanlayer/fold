@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { describe, expect, it } from '@effect/vitest'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Schema } from 'effect'
 
 import { CodexTokenData, makeCodexAuthStore, TOKEN_EXPIRY_BUFFER_MS } from '../src/index'

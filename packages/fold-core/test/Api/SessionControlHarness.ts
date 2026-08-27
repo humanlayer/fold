@@ -5,7 +5,7 @@
  * hangs forever (the interruption target for the partial-assistant-flush assertions), while later
  * requests serve ordinary scripted turns.
  */
-import { Deferred, Effect, Ref, Schema, Stream } from 'effect'
+import { Predicate, Deferred, Effect, Ref, Schema, Stream } from 'effect'
 import { AiError, LanguageModel } from 'effect/unstable/ai'
 import type { Response } from 'effect/unstable/ai'
 
@@ -106,7 +106,7 @@ export const makePartialHangModel = (
 						}
 						yield* Ref.set(turnsRef, remaining.slice(1))
 
-						return turn._tag === 'failure'
+						return Predicate.isTagged(turn, 'failure')
 							? Stream.fail(
 									AiError.make({
 										module: 'PartialHangModel',

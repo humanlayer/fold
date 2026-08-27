@@ -1,6 +1,6 @@
-import { expect, it } from '@effect/vitest'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Deferred, Effect, Fiber, Layer, Schema } from 'effect'
+import { expect, it } from '@effect/vitest'
+import { Predicate, Deferred, Effect, Fiber, Layer, Schema } from 'effect'
 import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
 
 import {
@@ -87,7 +87,7 @@ it.effect('writes a synthetic interrupted tool-result when a running tool fiber 
 
 		const toolResult = entries[0]
 		expect(toolResult?._tag).toBe('tool-result')
-		if (toolResult?._tag !== 'tool-result') return
+		if (!Predicate.isTagged(toolResult, 'tool-result')) return
 
 		expect(toolResult.message.content[0]).toMatchObject({
 			type: 'tool-result',
@@ -97,7 +97,9 @@ it.effect('writes a synthetic interrupted tool-result when a running tool fiber 
 			result: '<system-information>The user interrupted the execution of this tool call.</system-information>',
 		})
 
-		const projectedToolResult = messagesForAgent(entries, agentId).find((message) => message._tag === 'tool-result')
+		const projectedToolResult = messagesForAgent(entries, agentId).find((message) =>
+			Predicate.isTagged(message, 'tool-result'),
+		)
 		expect(projectedToolResult?.message.content[0]).toMatchObject({
 			type: 'tool-result',
 			id: 'tool_call_aaaaaaaaaaaaaaaaaaaaaaaa',

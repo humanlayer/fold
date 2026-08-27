@@ -27,7 +27,22 @@
  * e.g. a changed skills roster - D20 rule), the facade writes one epoch transition before the first
  * send.
  */
-import { Cause, Context, Effect, Exit, Fiber, FileSystem, Layer, Ref, Schema, Scope, Semaphore, Stream } from 'effect'
+import {
+	Predicate,
+	Cause,
+	Context,
+	Effect,
+	Exit,
+	Fiber,
+	FileSystem,
+	Layer,
+	Match,
+	Ref,
+	Schema,
+	Scope,
+	Semaphore,
+	Stream,
+} from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
@@ -42,13 +57,14 @@ import { compactionServiceFor } from '../Compaction/CompactionLayer'
 import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLogWithIds } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
-import type {
-	AgentFinishedLogEntry,
-	AssistantMessageLogEntry,
-	CompactionLogEntry,
-	LogEntry,
-	LogSeq,
-	ToolResultLogEntry,
+import {
+	LogEntryInputs,
+	type AgentFinishedLogEntry,
+	type AssistantMessageLogEntry,
+	type CompactionLogEntry,
+	type LogEntry,
+	type LogSeq,
+	type ToolResultLogEntry,
 } from '../EventLog/Schemas'
 import { Ids, layerLiveIdFactory, type AgentId, type IdsService, type SessionId } from '../Ids'
 import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
@@ -85,7 +101,7 @@ import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
 import type { AgentDefinition } from './AgentDefinition'
-import type { FoldEventLog } from './EventLogDescriptor'
+import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
@@ -260,10 +276,11 @@ type SessionAgentConfig = {
 }
 
 /** Lower the event log descriptor to its EventLog layer. */
-const eventLogLayerFor = (
-	log: FoldEventLog,
-): Layer.Layer<EventLog, unknown, Ids | FileSystem.FileSystem> =>
-	log._tag === 'memory' ? layerInMemoryEventLogWithIds : Layer.effect(EventLog, log.make)
+const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids | FileSystem.FileSystem> =>
+	Match.valueTags(log, {
+		memory: () => layerInMemoryEventLogWithIds,
+		source: ({ make }) => Layer.effect(EventLog, make),
+	})
 
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
@@ -285,7 +302,9 @@ type SessionGraph = {
 		profiles: SessionProfiles,
 	) => Effect.Effect<void>
 	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
-	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void, never, FileSystem.FileSystem>
+	readonly ensureToolContributions: (
+		tools: ReadonlyArray<FoldTool>,
+	) => Effect.Effect<void, never, FileSystem.FileSystem>
 	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
@@ -357,7 +376,9 @@ const assembleSessionGraph = (options: {
 		// leading-prompt block, skill source - is reused by every agent listing that value, across
 		// epochs, and by every subagent dispatch (D20's one-snapshot law).
 		const toolContributions = new Map<FoldTool, SessionToolContribution>()
-		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void, never, FileSystem.FileSystem> =>
+		const ensureToolContributions = (
+			tools: ReadonlyArray<FoldTool>,
+		): Effect.Effect<void, never, FileSystem.FileSystem> =>
 			Effect.forEach(
 				tools.filter((tool) => !toolContributions.has(tool)),
 				(tool) => tool.init.pipe(Effect.map((contribution) => toolContributions.set(tool, contribution))),
@@ -437,15 +458,13 @@ const assembleSessionGraph = (options: {
 		const idsLayer = layerLiveIdFactory
 		const fsLayer = Layer.succeed(FileSystem.FileSystem, fileSystem)
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? { _tag: 'memory' }).pipe(
-				Layer.provide(Layer.mergeAll(idsLayer, fsLayer)),
-			),
+			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(Layer.mergeAll(idsLayer, fsLayer))),
 			idsLayer,
 			liveAgentEventsLayer,
 		)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
-			Layer.succeed(FileSystem.FileSystem, fileSystem),
+			fsLayer,
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
@@ -554,12 +573,12 @@ const assembleSessionGraph = (options: {
 			extendSubagentRegistry: (definitions) => {
 				registry.extend(definitions)
 			},
-			fileSystem,
 			ensureToolContributions,
 			collectNewSubagentDefinitions: (tools) => collectAgentDefinitions(tools),
 			provisionRootRuntime,
 			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
 			currentProvisionedRuntime: Ref.get(runtimeRef),
+			fileSystem,
 			leadingPromptFor,
 		}
 	})
@@ -583,16 +602,12 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 		collectEntries.pipe(
 			Effect.flatMap((entries) => {
 				const resolution = resolveAgentIdRef(agentIdsFromEntries(entries), ref)
-				switch (resolution._tag) {
-					case 'resolved':
-						return Effect.succeed(resolution.agentId)
-					case 'not-found':
-						return Effect.fail(new SubagentNotFoundError({ requested: ref }))
-					case 'ambiguous':
-						return Effect.fail(
-							new SubagentNotFoundError({ requested: ref, candidates: resolution.candidates }),
-						)
-				}
+				return Match.valueTags(resolution, {
+					resolved: ({ agentId }) => Effect.succeed(agentId),
+					'not-found': () => Effect.fail(new SubagentNotFoundError({ requested: ref })),
+					ambiguous: ({ candidates }) =>
+						Effect.fail(new SubagentNotFoundError({ requested: ref, candidates })),
+				})
 			}),
 		)
 
@@ -602,7 +617,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 			Effect.flatMap((entries) => {
 				const finished = entries.findLast(
 					(entry): entry is AgentFinishedLogEntry =>
-						entry._tag === 'agent-finished' && entry.agentId === agentId,
+						Predicate.isTagged(entry, 'agent-finished') && entry.agentId === agentId,
 				)
 				return finished === undefined
 					? Effect.die(new Error(`agent ${agentId} has no terminal marker after its run ended`))
@@ -625,20 +640,23 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				const entries = yield* collectEntries
 				const finishedThisRun = entries.some(
 					(entry) =>
-						entry._tag === 'agent-finished' && entry.agentId === rootAgentId && entry.seq > baselineSeq,
+						Predicate.isTagged(entry, 'agent-finished') &&
+						entry.agentId === rootAgentId &&
+						entry.seq > baselineSeq,
 				)
 				if (finishedThisRun) return
 
 				yield* eventLog
-					.append({
-						_tag: 'agent-finished',
-						agentId: rootAgentId,
-						parentAgentId: null,
-						toolCallId: null,
-						outcome: 'interrupted',
-						resultText: null,
-						reason: 'interrupted by the user',
-					})
+					.append(
+						LogEntryInputs['agent-finished']({
+							agentId: rootAgentId,
+							parentAgentId: null,
+							toolCallId: null,
+							outcome: 'interrupted',
+							resultText: null,
+							reason: 'interrupted by the user',
+						}),
+					)
 					.pipe(Effect.orDie, Effect.asVoid)
 			})
 
@@ -751,55 +769,57 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 			const target = options?.agentId === undefined ? rootAgentId : yield* resolveTarget(options.agentId)
 			const toolCallId = yield* ids.makeToolCallId
 			const call = yield* eventLog
-				.append({
-					_tag: 'assistant-message',
-					agentId: target,
-					parentAgentId: null,
-					toolCallId: null,
-					messageId: yield* ids.makeMessageId,
-					message: encodeAssistantMessage(
-						Prompt.assistantMessage({
-							content: [
-								Prompt.toolCallPart({
-									id: toolCallId,
-									name: 'skill',
-									params: { name },
-									providerExecuted: false,
-								}),
-							],
-						}),
-					),
-					finish: null,
-				})
+				.append(
+					LogEntryInputs['assistant-message']({
+						agentId: target,
+						parentAgentId: null,
+						toolCallId: null,
+						messageId: yield* ids.makeMessageId,
+						message: encodeAssistantMessage(
+							Prompt.assistantMessage({
+								content: [
+									Prompt.toolCallPart({
+										id: toolCallId,
+										name: 'skill',
+										params: { name },
+										providerExecuted: false,
+									}),
+								],
+							}),
+						),
+						finish: null,
+					}),
+				)
 				.pipe(Effect.orDie)
-			if (call._tag !== 'assistant-message') {
+			if (!Predicate.isTagged(call, 'assistant-message')) {
 				return yield* Effect.die(new Error(`EventLog returned ${call._tag} while injecting skill call`))
 			}
 
 			const result = yield* eventLog
-				.append({
-					_tag: 'tool-result',
-					agentId: target,
-					parentAgentId: null,
-					toolCallId,
-					messageId: yield* ids.makeMessageId,
-					message: encodeToolMessage(
-						Prompt.toolMessage({
-							content: [
-								Prompt.toolResultPart({
-									id: toolCallId,
-									name: 'skill',
-									result: { content },
-									isFailure: false,
-									providerExecuted: false,
-								}),
-							],
-						}),
-					),
-					executedInput: { name },
-				})
+				.append(
+					LogEntryInputs['tool-result']({
+						agentId: target,
+						parentAgentId: null,
+						toolCallId,
+						messageId: yield* ids.makeMessageId,
+						message: encodeToolMessage(
+							Prompt.toolMessage({
+								content: [
+									Prompt.toolResultPart({
+										id: toolCallId,
+										name: 'skill',
+										result: { content },
+										isFailure: false,
+										providerExecuted: false,
+									}),
+								],
+							}),
+						),
+						executedInput: { name },
+					}),
+				)
 				.pipe(Effect.orDie)
-			if (result._tag !== 'tool-result') {
+			if (!Predicate.isTagged(result, 'tool-result')) {
 				return yield* Effect.die(new Error(`EventLog returned ${result._tag} while injecting skill result`))
 			}
 			return { call, result }
@@ -820,63 +840,72 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 
 	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
 		gate.withPermit(
-			Effect.provideService(FileSystem.FileSystem, graph.fileSystem)(Effect.gen(function* () {
-				const current = yield* Ref.get(configRef)
-				const currentProfiles = yield* profiles.snapshot
-				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
-				const next: SessionAgentConfig = {
-					model,
-					promptCacheKey: current.promptCacheKey,
-					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
-					tools: switchOptions?.tools ?? current.tools,
-				}
-				yield* validateToolNames(next.tools)
+			Effect.provideService(
+				FileSystem.FileSystem,
+				graph.fileSystem,
+			)(
+				Effect.gen(function* () {
+					const current = yield* Ref.get(configRef)
+					const currentProfiles = yield* profiles.snapshot
+					const candidateProfiles = switchOptions?.profiles ?? currentProfiles
+					const next: SessionAgentConfig = {
+						model,
+						promptCacheKey: current.promptCacheKey,
+						systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+						tools: switchOptions?.tools ?? current.tools,
+					}
+					yield* validateToolNames(next.tools)
 
-				// A switch may introduce new session-initialized tools and subagent types. The switch gate
-				// is the sole extension boundary, so dispatch can never observe a partially installed graph.
-				yield* graph.ensureToolContributions(next.tools)
-				const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
-				yield* Effect.forEach(introduced.subagents, (definition) => validateToolNames(definition.tools ?? []), {
-					discard: true,
-				})
-				yield* Effect.forEach(
-					introduced.subagents,
-					(definition) => graph.ensureToolContributions(definition.tools ?? []),
-					{
+					// A switch may introduce new session-initialized tools and subagent types. The switch gate
+					// is the sole extension boundary, so dispatch can never observe a partially installed graph.
+					yield* graph.ensureToolContributions(next.tools)
+					const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
+					yield* Effect.forEach(
+						introduced.subagents,
+						(definition) => validateToolNames(definition.tools ?? []),
+						{
+							discard: true,
+						},
+					)
+					yield* Effect.forEach(
+						introduced.subagents,
+						(definition) => graph.ensureToolContributions(definition.tools ?? []),
+						{
+							discard: true,
+						},
+					)
+					yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
 						discard: true,
-					},
-				)
-				yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
-					discard: true,
-				})
-				yield* Effect.forEach(
-					introduced.forkAgents,
-					(definition) => graph.ensureToolContributions(definition.tools),
-					{ discard: true },
-				)
-				yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
-
-				// Provision against the new toolset before writing the transition, so the durable
-				// tools-change below resolves over the newly installed tools. Nothing can run in
-				// between: root runs wait on the same gate.
-				const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
-				const previousRuntime = yield* graph.currentProvisionedRuntime
-				yield* graph.setProvisionedRuntime(nextRuntime)
-				const transition = yield* session
-					.switchModel({
-						model: model.activeModel,
-						systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
-						reason: switchOptions?.reason ?? null,
 					})
-					.pipe(Effect.orDie, Effect.exit)
-				if (Exit.isFailure(transition)) {
-					yield* graph.setProvisionedRuntime(previousRuntime)
-					return yield* Effect.failCause(transition.cause)
-				}
-				graph.extendSubagentRegistry(introduced)
-				yield* profiles.replace(candidateProfiles)
-				yield* Ref.set(configRef, next)
-			})),
+					yield* Effect.forEach(
+						introduced.forkAgents,
+						(definition) => graph.ensureToolContributions(definition.tools),
+						{ discard: true },
+					)
+					yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
+
+					// Provision against the new toolset before writing the transition, so the durable
+					// tools-change below resolves over the newly installed tools. Nothing can run in
+					// between: root runs wait on the same gate.
+					const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
+					const previousRuntime = yield* graph.currentProvisionedRuntime
+					yield* graph.setProvisionedRuntime(nextRuntime)
+					const transition = yield* session
+						.switchModel({
+							model: model.activeModel,
+							systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
+							reason: switchOptions?.reason ?? null,
+						})
+						.pipe(Effect.orDie, Effect.exit)
+					if (Exit.isFailure(transition)) {
+						yield* graph.setProvisionedRuntime(previousRuntime)
+						return yield* Effect.failCause(transition.cause)
+					}
+					graph.extendSubagentRegistry(introduced)
+					yield* profiles.replace(candidateProfiles)
+					yield* Ref.set(configRef, next)
+				}),
+			),
 		)
 
 	const compact = (): Effect.Effect<CompactionLogEntry | null> =>
@@ -887,14 +916,15 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 	const setProfile = (role: ProfileRole, model: FoldModel): Effect.Effect<void> => profiles.set(role, model)
 	const setTitle: FoldSession['setTitle'] = (title, provenance) =>
 		graph.eventLog
-			.append({
-				_tag: 'session_title',
-				agentId: null,
-				parentAgentId: null,
-				toolCallId: null,
-				title,
-				...provenance,
-			})
+			.append(
+				LogEntryInputs['session_title']({
+					agentId: null,
+					parentAgentId: null,
+					toolCallId: null,
+					title,
+					...provenance,
+				}),
+			)
 			.pipe(Effect.asVoid, Effect.orDie)
 
 	return {
@@ -919,7 +949,9 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
+export const startSession = (
+	options: StartSessionOptions,
+): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const config = yield* Ref.get(graph.configRef)
@@ -948,7 +980,9 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSe
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
+export const resumeSession = (
+	options: ResumeSessionOptions,
+): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(
@@ -956,8 +990,8 @@ export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<Fold
 			Effect.map((collected): ReadonlyArray<LogEntry> => collected),
 		)
 
-		const sessionStarted = entries.find((entry) => entry._tag === 'session_started')
-		if (sessionStarted === undefined || sessionStarted._tag !== 'session_started') {
+		const sessionStarted = entries.find((entry) => Predicate.isTagged(entry, 'session_started'))
+		if (sessionStarted === undefined || !Predicate.isTagged(sessionStarted, 'session_started')) {
 			return yield* Effect.die(
 				new Error('cannot resume: the log has no session_started row (use startSession for a fresh log)'),
 			)
@@ -981,12 +1015,12 @@ export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<Fold
 		})
 		const loggedLeading = entries.findLast(
 			(entry) =>
-				entry._tag === 'system-message' &&
+				Predicate.isTagged(entry, 'system-message') &&
 				entry.agentId === identity.rootAgentId &&
 				entry.placement === 'leading',
 		)
 		const loggedBlocks =
-			loggedLeading !== undefined && loggedLeading._tag === 'system-message'
+			loggedLeading !== undefined && Predicate.isTagged(loggedLeading, 'system-message')
 				? loggedLeading.messages.map((message) => message.content)
 				: []
 

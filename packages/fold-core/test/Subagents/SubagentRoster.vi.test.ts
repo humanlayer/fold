@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for per-agent rosters (D21, round-five shape): the roster is the subagentTool value's
  * argument - each value advertises exactly its own roster and its closure is the dispatch authority -
@@ -6,8 +7,7 @@
  * distinct definitions are a session-start defect.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Cause, Effect, Exit, Schema } from 'effect'
+import { Predicate, Cause, Effect, Exit, Schema } from 'effect'
 
 import {
 	defineAgent,
@@ -108,7 +108,9 @@ it.effect('nested rosters give depth; out-of-roster dispatch fails instructively
 		expect(grandchildStarted?.parentAgentId).toBe(generalStarted?.agentId)
 
 		// The out-of-roster attempt came back schema-encoded with the caller's available list.
-		const toolResults = entries.filter((entry): entry is ToolResultLogEntry => entry._tag === 'tool-result')
+		const toolResults = entries.filter((entry): entry is ToolResultLogEntry =>
+			Predicate.isTagged(entry, 'tool-result'),
+		)
 		const selfDispatchResult = toolResults.find(
 			(entry) => entry.agentId === generalStarted?.agentId && JSON.stringify(entry).includes('not available'),
 		)

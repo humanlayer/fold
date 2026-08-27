@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Subagent auto-compaction tests (D11 x D21): the session-wide compaction policy applies to every
  * agent, but each agent compacts against its OWN projection with its own model - a dispatched
@@ -6,8 +7,7 @@
  * the parent's own view (global seq keeps the cut coherent - the worked D21 claim).
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import {
 	defineAgent,
@@ -28,11 +28,12 @@ const compactConfig: AutoCompactConfig = { enabled: true, contextWindow: 10_000,
 const hugeUsage = { inputTokens: 7_000 }
 
 const compactionEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<CompactionLogEntry> =>
-	entries.filter((entry): entry is CompactionLogEntry => entry._tag === 'compaction')
+	entries.filter((entry): entry is CompactionLogEntry => Predicate.isTagged(entry, 'compaction'))
 
 const subagentStarted = (entries: ReadonlyArray<LogEntry>): AgentStartedLogEntry => {
 	const started = entries.find(
-		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.parentAgentId !== null,
+		(entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
 	)
 	if (started === undefined) throw new Error('expected a subagent agent_started entry')
 	return started
@@ -107,8 +108,12 @@ it.effect('a dispatched subagent compacts its own context; the parent projection
 		expect(rootFinal).not.toContain('<conversation-summary>')
 
 		// Projection read models agree per agent.
-		expect(messagesForAgent(entries, session.rootAgentId).some((m) => m._tag === 'compaction-summary')).toBe(false)
-		expect(messagesForAgent(entries, child.agentId).some((m) => m._tag === 'compaction-summary')).toBe(true)
+		expect(
+			messagesForAgent(entries, session.rootAgentId).some((m) => Predicate.isTagged(m, 'compaction-summary')),
+		).toBe(false)
+		expect(messagesForAgent(entries, child.agentId).some((m) => Predicate.isTagged(m, 'compaction-summary'))).toBe(
+			true,
+		)
 
 		expect(yield* researcherScripted.scripted.remainingTurns).toBe(0)
 		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
@@ -182,7 +187,9 @@ it.effect('a fork compacts history including the parent folded range without tou
 		const rootClosing = JSON.stringify(prompts[6])
 		expect(rootClosing).toContain('launch code is 4242')
 		expect(rootClosing).not.toContain('<conversation-summary>')
-		expect(messagesForAgent(entries, session.rootAgentId).some((m) => m._tag === 'compaction-summary')).toBe(false)
+		expect(
+			messagesForAgent(entries, session.rootAgentId).some((m) => Predicate.isTagged(m, 'compaction-summary')),
+		).toBe(false)
 
 		expect(yield* scripted.remainingTurns).toBe(0)
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),

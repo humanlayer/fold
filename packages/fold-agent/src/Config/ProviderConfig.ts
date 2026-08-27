@@ -9,6 +9,7 @@ import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
 import { Clock, Effect, FileSystem, Match, Random, Schema } from 'effect'
+
 import type { FoldConfig, ProviderKind } from './ConfigSchema'
 import {
 	configPathFor,

@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for role-bound subagent models (profiles slice): a registry entry may bind `model` to a
  * profile role name instead of a concrete descriptor, resolved through the session's mutable profiles
@@ -7,8 +8,7 @@
  * defects at session start, and concrete bindings keep working with no profiles passed at all.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Cause, Effect, Exit } from 'effect'
+import { Predicate, Cause, Effect, Exit } from 'effect'
 
 import { defineAgent, defineSubagent, startSession, subagentTool, type ModelChangeLogEntry } from '../../src/index'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from '../Api/ApiTestHelpers'
@@ -65,7 +65,8 @@ it.effect('resuming a subagent dispatched before a setProfile swap writes the ch
 		// the durable D17 transition for the CHILD agent before re-entering its loop.
 		const entries = yield* session.entries
 		const childModelChange = entries.find(
-			(entry): entry is ModelChangeLogEntry => entry._tag === 'model-change' && entry.agentId === started.agentId,
+			(entry): entry is ModelChangeLogEntry =>
+				Predicate.isTagged(entry, 'model-change') && entry.agentId === started.agentId,
 		)
 		expect(childModelChange?.model.modelId).toBe('fast-b')
 

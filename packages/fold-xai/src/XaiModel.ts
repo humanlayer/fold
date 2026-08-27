@@ -1,8 +1,8 @@
 /** FoldModel factory for xAI's OpenAI-compatible inference API authenticated with OAuth. */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai-compat'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Context, Effect, Layer } from 'effect'
 import type { Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'

@@ -1,6 +1,6 @@
-import { expect, it } from '@effect/vitest'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Effect, Layer, Schema } from 'effect'
+import { expect, it } from '@effect/vitest'
+import { Predicate, Effect, Layer, Schema } from 'effect'
 import { Tool, Toolkit } from 'effect/unstable/ai'
 import type { LanguageModel } from 'effect/unstable/ai'
 
@@ -258,7 +258,9 @@ it.effect('openai agents start with the gpt base prompt, apply_patch toolset, an
 
 		expect(result.started.tools).toEqual(['apply_patch'])
 
-		const leading = result.entries.find((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+		const leading = result.entries.find((entry): entry is SystemMessageLogEntry =>
+			Predicate.isTagged(entry, 'system-message'),
+		)
 		expect(leading?.messages.map((message) => message.content)).toEqual(['GPT BASE PROMPT', 'agent rules'])
 
 		const requests = yield* scripted.requests
@@ -288,7 +290,9 @@ it.effect('anthropic agents start with the claude base prompt, write/edit toolse
 
 		expect(result.started.tools).toEqual(['write', 'edit'])
 
-		const leading = result.entries.find((entry): entry is SystemMessageLogEntry => entry._tag === 'system-message')
+		const leading = result.entries.find((entry): entry is SystemMessageLogEntry =>
+			Predicate.isTagged(entry, 'system-message'),
+		)
 		expect(leading?.messages.map((message) => message.content)).toEqual(['CLAUDE BASE PROMPT', 'agent rules'])
 
 		const requests = yield* scripted.requests
@@ -392,7 +396,7 @@ it.effect('switchModel appends thinking-change when the requested level changes 
 			'thinking-change',
 		])
 
-		const thinkingChange = entries.find((entry) => entry._tag === 'thinking-change')
+		const thinkingChange = entries.find((entry) => Predicate.isTagged(entry, 'thinking-change'))
 		expect(thinkingChange).toMatchObject({ reasoningLevel: 'high', reason: 'test raises reasoning' })
 
 		// The projected level binds the very next request through the per-request provider config.

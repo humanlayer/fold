@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Cause, Effect, Exit, Result } from 'effect'
+import { Predicate, Cause, Effect, Exit, Result } from 'effect'
 
 import {
 	renderSkillContent,
@@ -52,7 +52,8 @@ describe('skillSourceFromData', () => {
 
 			if (!Result.isFailure(result)) throw new Error('expected load to fail')
 			expect(result.failure).toBeInstanceOf(SkillNotFoundError)
-			if (result.failure._tag !== 'SkillNotFoundError') throw new Error('expected SkillNotFoundError')
+			if (!Predicate.isTagged(result.failure, 'SkillNotFoundError'))
+				throw new Error('expected SkillNotFoundError')
 			expect(result.failure.availableSkills).toEqual(['commit-helper', 'pdf-report'])
 		}),
 	)

@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine tests for per-subagent hooks (round-four ruling 6) and per-agent state isolation (D4): each
  * agent runs its OWN hook chains (the root's hooks never fire for a subagent's tool calls and vice
@@ -5,8 +6,7 @@
  * invisible in another agent's fold of the same namespace.
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Effect, Ref, Schema } from 'effect'
+import { Predicate, Effect, Ref, Schema } from 'effect'
 
 import {
 	defineAgent,
@@ -80,9 +80,11 @@ it.effect('root and subagent run their own hook chains, and hook state stays per
 
 		// Per-agent KV isolation (D4): each agent's probe namespace holds only its own marker.
 		const entries = yield* session.entries
-		const rootStarted = entries.find((entry) => entry._tag === 'agent_started' && entry.parentAgentId === null)
+		const rootStarted = entries.find(
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId === null,
+		)
 		const subagentStarted = subagentStartedEntries(entries)[0]
-		if (rootStarted?._tag !== 'agent_started' || subagentStarted === undefined) {
+		if (!Predicate.isTagged(rootStarted, 'agent_started') || subagentStarted === undefined) {
 			throw new Error('expected both agents to have started')
 		}
 

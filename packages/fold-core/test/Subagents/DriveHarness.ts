@@ -7,7 +7,7 @@
  * produces output; later requests (the resume) serve scripted turns.
  */
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Deferred, Effect, Ref, Schema, Stream } from 'effect'
+import { Predicate, Deferred, Effect, Ref, Schema, Stream } from 'effect'
 import { AiError, LanguageModel } from 'effect/unstable/ai'
 
 import {
@@ -127,14 +127,16 @@ export const makeDriveSession = (input: {
 /** The agent_started rows of dispatched subagents (parented rows), in log order. */
 export const subagentStartedEntries = (entries: ReadonlyArray<LogEntry>): ReadonlyArray<AgentStartedLogEntry> =>
 	entries.filter(
-		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.parentAgentId !== null,
+		(entry): entry is AgentStartedLogEntry =>
+			Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId !== null,
 	)
 
 /** The nth durable tool-result's rendered content, JSON-stringified for substring assertions. */
 export const renderedDriveResult = (entries: ReadonlyArray<LogEntry>, occurrence: number): string => {
-	const results = entries.filter((entry) => entry._tag === 'tool-result')
+	const results = entries.filter((entry) => Predicate.isTagged(entry, 'tool-result'))
 	const entry = results[occurrence]
-	if (entry === undefined || entry._tag !== 'tool-result') throw new Error('expected a tool-result entry')
+	if (entry === undefined || !Predicate.isTagged(entry, 'tool-result'))
+		throw new Error('expected a tool-result entry')
 	return JSON.stringify(entry.message.content[0])
 }
 
@@ -182,7 +184,7 @@ export const makeHangOnceModel = (
 						}
 						yield* Ref.set(turnsRef, remaining.slice(1))
 
-						return turn._tag === 'failure'
+						return Predicate.isTagged(turn, 'failure')
 							? Stream.fail(
 									AiError.make({
 										module: 'HangOnceModel',

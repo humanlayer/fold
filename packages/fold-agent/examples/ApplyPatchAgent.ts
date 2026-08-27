@@ -10,9 +10,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Console, Effect } from 'effect'
+import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
+import { Predicate, Console, Effect } from 'effect'
 
 import { codingTools } from '../src/index'
 
@@ -42,7 +42,7 @@ const makeProgram = (apiKey: string) =>
 		)
 		const entries = yield* session.entries
 		const toolNames = entries.flatMap((entry) =>
-			entry._tag === 'tool-result'
+			Predicate.isTagged(entry, 'tool-result')
 				? [entry.message.content[0]?.type === 'tool-result' ? entry.message.content[0].name : '']
 				: [],
 		)

@@ -18,7 +18,8 @@
  */
 import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
-import { Context, Effect, type FileSystem, Layer, type Scope, Stream } from 'effect'
+import { Context, Effect, Layer, Match, Stream } from 'effect'
+import type { FileSystem, Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
@@ -98,29 +99,26 @@ export type SessionProvisioningServices =
 export const languageModelLayerFor = (model: FoldModel): Layer.Layer<LanguageModel.LanguageModel> => {
 	const provider = model.provider
 
-	switch (provider._tag) {
-		case 'openai-compatible': {
+	return Match.valueTags(provider, {
+		'openai-compatible': (connection) => {
 			const clientLayer = OpenAiClient.layer({
-				apiKey: provider.apiKey,
-				...(provider.baseUrl === null ? {} : { apiUrl: provider.baseUrl }),
+				apiKey: connection.apiKey,
+				...(connection.baseUrl === null ? {} : { apiUrl: connection.baseUrl }),
 			}).pipe(Layer.provide(FetchHttpClient.layer))
 
 			return OpenAiLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
-		}
-
-		case 'anthropic': {
+		},
+		anthropic: (connection) => {
 			const clientLayer = AnthropicClient.layer({
-				apiKey: provider.apiKey,
+				apiKey: connection.apiKey,
 				transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
-				...(provider.baseUrl === null ? {} : { apiUrl: provider.baseUrl }),
+				...(connection.baseUrl === null ? {} : { apiUrl: connection.baseUrl }),
 			}).pipe(Layer.provide(FetchHttpClient.layer))
 
 			return AnthropicLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
-		}
-
-		case 'custom':
-			return Layer.effect(LanguageModel.LanguageModel, provider.make)
-	}
+		},
+		custom: (connection) => Layer.effect(LanguageModel.LanguageModel, connection.make),
+	})
 }
 
 /** Assemble realized tool descriptors into the installed Toolset layer for one provisioned runtime. */

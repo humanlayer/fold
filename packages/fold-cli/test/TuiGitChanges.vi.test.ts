@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 import { describe, expect, it } from 'vitest'
 
 import { loadGitSnapshot, parsePorcelainV1Z, TREE_SITTER_GRAMMAR_CACHE_STATUS } from '../src/tui/GitChanges'
@@ -28,7 +28,7 @@ describe('git changes snapshot', () => {
 
 		const snapshot = await Effect.runPromise(loadGitSnapshot(root))
 		expect(snapshot._tag).toBe('ready')
-		if (snapshot._tag !== 'ready') return
+		if (!Predicate.isTagged(snapshot, 'ready')) return
 		expect(snapshot.files.map(({ group, path }) => `${group}:${path}`)).toEqual([
 			'staged:both.txt',
 			'unstaged:both.txt',
@@ -47,7 +47,7 @@ describe('git changes snapshot', () => {
 		await writeFile(`${root}/both.txt`, 'one\ntwo\nthree\n')
 		const refreshed = await Effect.runPromise(loadGitSnapshot(root))
 		expect(refreshed._tag).toBe('ready')
-		if (refreshed._tag !== 'ready') return
+		if (!Predicate.isTagged(refreshed, 'ready')) return
 		expect(refreshed.files.find((file) => file.key === 'unstaged:both.txt')?.patchHash).not.toBe(previousHash)
 	})
 

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 
 import { SessionId } from '@humanlayer/fold-core'
 import { Clock, Effect, FileSystem, Option, Schema } from 'effect'
+
 import { sessionsDirFor, type SessionLayoutOptions } from './SessionLayout'
 
 const ViewedChangeRecord = Schema.Struct({

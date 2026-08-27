@@ -5,7 +5,7 @@
  * asserted for real against the scripted model's recorded prompts).
  */
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import { shortAgentId, type AgentStartedLogEntry, type AssistantMessageLogEntry } from '../../src/index'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -60,19 +60,20 @@ it.effect('a fork clones the caller: shared history prefix, no new leading promp
 		expect(forkStarted.mode).toBe('fork')
 		expect(forkStarted.agentType).toBeNull()
 		const rootStarted = entries.find(
-			(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.parentAgentId === null,
+			(entry): entry is AgentStartedLogEntry =>
+				Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId === null,
 		)
 		if (rootStarted === undefined) throw new Error('expected the root agent_started')
 		expect(forkStarted.fork?.fromAgentId).toBe(rootStarted.agentId)
 		const dispatchingAssistantRow = entries.find(
 			(entry): entry is AssistantMessageLogEntry =>
-				entry._tag === 'assistant-message' && entry.agentId === rootStarted.agentId,
+				Predicate.isTagged(entry, 'assistant-message') && entry.agentId === rootStarted.agentId,
 		)
 		expect(forkStarted.fork?.atSeq).toBe(dispatchingAssistantRow?.seq)
 
 		// No new leading system message for the fork: the fold carries the caller's blocks.
 		const forkSystemMessages = entries.filter(
-			(entry) => entry._tag === 'system-message' && entry.agentId === forkStarted.agentId,
+			(entry) => Predicate.isTagged(entry, 'system-message') && entry.agentId === forkStarted.agentId,
 		)
 		expect(forkSystemMessages).toHaveLength(0)
 

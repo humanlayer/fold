@@ -15,10 +15,10 @@
  */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
 import type * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
+import { Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
 import type { Scope } from 'effect'
 import { AiError } from 'effect/unstable/ai'
 import type { LanguageModel } from 'effect/unstable/ai'
@@ -277,15 +277,17 @@ export const makeCodexLanguageModel = (
 		})
 
 		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
+		const reasoningConfig = Match.valueTags(reasoning, {
+			disabled: () => ({}),
+			effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
+		})
 
 		return yield* OpenAiLanguageModel.make({
 			model: options.model ?? DEFAULT_CODEX_MODEL_ID,
 			config: {
 				// The ChatGPT backend does no server-side response storage (clanka parity).
 				store: false,
-				...(reasoning._tag === 'disabled'
-					? {}
-					: { reasoning: { effort: reasoning.effort, summary: reasoning.summary } }),
+				...reasoningConfig,
 			},
 		}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
 	}).pipe(Effect.provide(NodeFileSystem.layer))

@@ -2,7 +2,7 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 
-import { Clock, Crypto, Deferred, Duration, Effect, Schedule, Schema } from 'effect'
+import { Clock, Crypto, Deferred, Duration, Effect, Result, Schedule, Schema } from 'effect'
 import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
 import { XaiTokenData } from './AuthStore'
@@ -170,7 +170,7 @@ export const runXaiDeviceFlow = Effect.fn('fold.xaiAuth.deviceFlow')(function* (
 			Effect.result,
 		)
 		const result = yield* poll
-		if (result._tag === 'Success')
+		if (Result.isSuccess(result))
 			return yield* decodeToken(result.success, 'DeviceFlowFailed', 'Failed to decode the xAI device token')
 		const body: typeof DeviceError.Type =
 			result.failure.response === undefined

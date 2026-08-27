@@ -12,7 +12,9 @@ export type TuiConfigBootstrapResult = {
 }
 
 /** Bootstrap first, and only load a config after bootstrap has completed successfully. */
-export const bootstrapTuiConfig = (options: ConfigInitOptions): Effect.Effect<TuiConfigBootstrapResult, never, FileSystem.FileSystem> =>
+export const bootstrapTuiConfig = (
+	options: ConfigInitOptions,
+): Effect.Effect<TuiConfigBootstrapResult, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const bootstrapExit = yield* Effect.exit(bootstrapFoldHome(options))
 		if (Exit.isFailure(bootstrapExit))

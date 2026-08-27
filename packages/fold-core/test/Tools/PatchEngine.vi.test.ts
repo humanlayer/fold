@@ -40,12 +40,12 @@ describe('parsePatch (V4A)', () => {
 
 			expect(ops.map((op) => op._tag)).toEqual(['add', 'update', 'delete'])
 			const add = ops[0]
-			if (add?._tag !== 'add') throw new Error('expected add')
+			if (!Predicate.isTagged(add, 'add')) throw new Error('expected add')
 			expect(add.path).toBe('new.txt')
 			expect(add.content).toBe('hello\nworld')
 
 			const update = ops[1]
-			if (update?._tag !== 'update') throw new Error('expected update')
+			if (!Predicate.isTagged(update, 'update')) throw new Error('expected update')
 			expect(update.path).toBe('src/app.ts')
 			expect(update.movePath).toBe('src/main.ts')
 			expect(update.chunks).toHaveLength(1)
@@ -110,7 +110,7 @@ describe('parsePatch (V4A)', () => {
 			)
 
 			const update = ops[0]
-			if (update?._tag !== 'update') throw new Error('expected update')
+			if (!Predicate.isTagged(update, 'update')) throw new Error('expected update')
 			expect(update.chunks[0]?.isEndOfFile).toBe(true)
 		}),
 	)
@@ -130,7 +130,7 @@ describe('parsePatch (V4A)', () => {
 			)
 
 			const update = ops[0]
-			if (update?._tag !== 'update') throw new Error('expected update')
+			if (!Predicate.isTagged(update, 'update')) throw new Error('expected update')
 			expect(update.chunks[0]?.oldLines).toEqual(['old'])
 			expect(update.chunks[0]?.newLines).toEqual(['new'])
 		}),
@@ -154,7 +154,7 @@ describe('parsePatch (git/unified diffs - clanka superset)', () => {
 			)
 
 			const update = ops[0]
-			if (update?._tag !== 'update') throw new Error('expected update')
+			if (!Predicate.isTagged(update, 'update')) throw new Error('expected update')
 			expect(update.path).toBe('src/x.ts')
 			expect(update.movePath).toBeNull()
 			expect(update.chunks[0]?.oldLines).toEqual(['keep', 'remove'])
@@ -184,7 +184,7 @@ describe('parsePatch (git/unified diffs - clanka superset)', () => {
 
 			expect(ops.map((op) => op._tag)).toEqual(['add', 'delete'])
 			const add = ops[0]
-			if (add?._tag !== 'add') throw new Error('expected add')
+			if (!Predicate.isTagged(add, 'add')) throw new Error('expected add')
 			expect(add.content).toBe('first\nsecond')
 		}),
 	)
@@ -206,7 +206,7 @@ describe('parsePatch (git/unified diffs - clanka superset)', () => {
 			)
 
 			const update = ops[0]
-			if (update?._tag !== 'update') throw new Error('expected update')
+			if (!Predicate.isTagged(update, 'update')) throw new Error('expected update')
 			expect(update.path).toBe('old-name.ts')
 			expect(update.movePath).toBe('new-name.ts')
 		}),
@@ -219,7 +219,7 @@ describe('parsePatch (git/unified diffs - clanka superset)', () => {
 			)
 
 			const update = ops[0]
-			if (update?._tag !== 'update') throw new Error('expected update')
+			if (!Predicate.isTagged(update, 'update')) throw new Error('expected update')
 			expect(update.path).toBe('f.txt')
 		}),
 	)

@@ -26,10 +26,10 @@ const queueKey = (fs: FileSystem.FileSystem, path: string): Effect.Effect<string
 	const resolved = resolve(path)
 
 	return fs.realPath(resolved).pipe(
-		Effect.catchIf(
-			(error) => error.reason._tag === 'NotFound' || error.reason._tag === 'BadResource',
-			() => Effect.succeed(resolved),
-		),
+		Effect.catchReasons('PlatformError', {
+			NotFound: () => Effect.succeed(resolved),
+			BadResource: () => Effect.succeed(resolved),
+		}),
 	)
 }
 

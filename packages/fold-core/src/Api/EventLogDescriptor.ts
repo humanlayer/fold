@@ -5,7 +5,7 @@
  * SQLite/Durable Object backends) contribute an EventLog service implementation without any layer
  * appearing in a public signature.
  */
-import type { Effect, FileSystem, Scope } from 'effect'
+import { Data, type Effect, type FileSystem, type Scope } from 'effect'
 
 import type { EventLogService } from '../EventLog/EventLogService'
 
@@ -17,8 +17,10 @@ export type FoldEventLog =
 			readonly make: Effect.Effect<EventLogService, unknown, Scope.Scope | FileSystem.FileSystem>
 	  }
 
+const FoldEventLog = Data.taggedEnum<FoldEventLog>()
+
 /** Keep the session log in memory: fast, isolated, and gone when the session scope closes. */
-export const memoryEventLog = (): FoldEventLog => ({ _tag: 'memory' })
+export const memoryEventLog = (): FoldEventLog => FoldEventLog.memory()
 
 /**
  * Back the session log with a caller-supplied EventLog service implementation. The effect runs once in
@@ -27,7 +29,4 @@ export const memoryEventLog = (): FoldEventLog => ({ _tag: 'memory' })
  */
 export const eventLogSource = (
 	make: Effect.Effect<EventLogService, unknown, Scope.Scope | FileSystem.FileSystem>,
-): FoldEventLog => ({
-	_tag: 'source',
-	make,
-})
+): FoldEventLog => FoldEventLog.source({ make })

@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import {
 	makeDiskSkillSource,
 	modeForName,
@@ -6,7 +7,6 @@ import {
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
 import { renderSkillContent, type ModelCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Cause, Duration, Effect, type Scope, Stream } from 'effect'
 import { batch, createSignal, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'

@@ -5,7 +5,7 @@
  * handling, and baseDir wiring.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem, Layer, Predicate } from 'effect'
 
 import { makeDiskSkillSource } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -133,7 +133,7 @@ it.effect('load fails with the roster for unknown names', () => {
 		const failure = yield* source.load('absent').pipe(Effect.flip)
 
 		expect(failure._tag).toBe('SkillNotFoundError')
-		if (failure._tag !== 'SkillNotFoundError') throw new Error('expected SkillNotFoundError')
+		if (!Predicate.isTagged(failure, 'SkillNotFoundError')) throw new Error('expected SkillNotFoundError')
 		expect(failure.availableSkills).toEqual(['present'])
 	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
 })

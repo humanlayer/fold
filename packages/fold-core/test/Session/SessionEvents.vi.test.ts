@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Fiber, Stream } from 'effect'
+import { Predicate, Effect, Fiber, Stream } from 'effect'
 
 import { Session } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -39,7 +39,7 @@ it.effect('surfaces durable rows and one ephemeral tool-progress delta on Sessio
 			// runs. Scheduling is cooperative and deterministic, so no wall-clock sleep is needed. Durable log
 			// rows still replay from seq 0, so pre-subscription rows are not missed either.
 			const collector = yield* session.events().pipe(
-				Stream.takeUntil((event) => event.kind === 'log' && event.entry._tag === 'agent-finished'),
+				Stream.takeUntil((event) => event.kind === 'log' && Predicate.isTagged(event.entry, 'agent-finished')),
 				Stream.runCollect,
 				Effect.forkChild({ startImmediately: true }),
 			)

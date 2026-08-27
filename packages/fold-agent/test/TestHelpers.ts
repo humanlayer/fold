@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, normalize } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import {
 	AgentId,
@@ -22,7 +23,6 @@ import {
 	type FoldTool,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */

@@ -8,8 +8,8 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { expect, it } from '@effect/vitest'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
 import {

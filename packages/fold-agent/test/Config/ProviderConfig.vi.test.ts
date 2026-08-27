@@ -2,9 +2,9 @@ import { statSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Effect, FileSystem, Layer } from 'effect'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 
 import { configureProvider, describeModelConfiguration, loadFoldConfig, starterConfigJsonc } from '../../src/index'
 import { memoryFileSystem, tempDir } from '../TestHelpers'

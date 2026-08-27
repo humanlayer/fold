@@ -13,6 +13,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { Effect, FileSystem, Predicate, Schema } from 'effect'
+
 import { FoldConfig } from './ConfigSchema'
 
 /** The config file could not be found at the resolved path. */

@@ -10,7 +10,7 @@
  */
 import { expect, it } from '@effect/vitest'
 import type { ModelCatalogEntry } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Predicate, Effect } from 'effect'
 
 import { agentModelsFromConfig, bakedModelCatalog, parseFoldConfig } from '../../src/index'
 
@@ -81,7 +81,7 @@ it.effect('resolves an explicit orchestrator (openai-compat) with inline key + b
 		expect(model.activeModel.providerKind).toBe('openai-compatible')
 		expect(model.activeModel.role).toBe('orchestrator')
 		expect(model.provider._tag).toBe('openai-compatible')
-		if (model.provider._tag === 'openai-compatible') {
+		if (Predicate.isTagged(model.provider, 'openai-compatible')) {
 			expect(model.provider.baseUrl).toBe('https://proxy.example/v1')
 		}
 	}),

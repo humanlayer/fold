@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Engine test for resume-across-restart by log replay (D21): session A dispatches a subagent over a
  * shared EventLog and CLOSES; session B - a fresh session instance with no in-memory state from A -
@@ -6,8 +7,7 @@
  * process-restart story at the storage seam (fold-agent's JSONL backend persists the same seam to disk).
  */
 import { expect, it } from '@effect/vitest'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Context, Effect, Layer } from 'effect'
+import { Predicate, Context, Effect, Layer } from 'effect'
 
 import {
 	defineAgent,
@@ -110,7 +110,7 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 		const entries = yield* sessionB.entries
 
 		// Two session_started rows (an honest restart marker), but still exactly ONE subagent start.
-		expect(entries.filter((entry) => entry._tag === 'session_started')).toHaveLength(2)
+		expect(entries.filter((entry) => Predicate.isTagged(entry, 'session_started'))).toHaveLength(2)
 		expect(subagentStartedEntries(entries)).toHaveLength(1)
 
 		// The resumed model call reconstructed A's context purely from the log rows.
@@ -123,13 +123,13 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 
 		// The resumed rows carry session B's dispatcher as parent, under the RESUMING tool call.
 		const rootStartedRows = entries.filter(
-			(entry) => entry._tag === 'agent_started' && entry.parentAgentId === null,
+			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId === null,
 		)
 		const rootB = rootStartedRows[1]
-		if (rootB?._tag !== 'agent_started') throw new Error("expected session B's root agent_started")
+		if (!Predicate.isTagged(rootB, 'agent_started')) throw new Error("expected session B's root agent_started")
 		const researcherUserMessages = entries.filter(
 			(entry): entry is UserMessageLogEntry =>
-				entry._tag === 'user-message' && entry.agentId === (dispatched.agentId satisfies AgentId),
+				Predicate.isTagged(entry, 'user-message') && entry.agentId === (dispatched.agentId satisfies AgentId),
 		)
 		expect(researcherUserMessages).toHaveLength(2)
 		expect(researcherUserMessages[1]?.parentAgentId).toBe(rootB.agentId)

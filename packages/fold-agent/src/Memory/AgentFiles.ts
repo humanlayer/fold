@@ -69,7 +69,9 @@ const fileExists = (fs: FileSystem.FileSystem, path: string): Effect.Effect<bool
  * Load agentfiles for a working directory in render order (global, then root..cwd; base then local
  * overlay within each directory). Deduped by path.
  */
-export const loadMemoryFiles = (options?: AgentFilesOptions): Effect.Effect<ReadonlyArray<MemoryFile>, never, FileSystem.FileSystem> =>
+export const loadMemoryFiles = (
+	options?: AgentFilesOptions,
+): Effect.Effect<ReadonlyArray<MemoryFile>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const cwd = options?.cwd ?? process.cwd()
@@ -132,5 +134,7 @@ export const renderMemoryFiles = (files: ReadonlyArray<MemoryFile>): string | nu
 }
 
 /** Load and render the agentfiles for a working directory as one leading prompt block (null when none). */
-export const memoryPromptBlock = (options?: AgentFilesOptions): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
+export const memoryPromptBlock = (
+	options?: AgentFilesOptions,
+): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
 	loadMemoryFiles(options).pipe(Effect.map(renderMemoryFiles))

@@ -1,9 +1,9 @@
 import { existsSync, utimesSync } from 'node:fs'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { SessionId, ToolCallId } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 
 import { makeOutputStore, toolOutputPathFor } from '../../src/OutputStore/OutputStore'
 import { tempDir } from '../TestHelpers'

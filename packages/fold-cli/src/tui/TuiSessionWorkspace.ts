@@ -1,3 +1,4 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import {
 	deleteSession,
 	launchSession,
@@ -13,7 +14,6 @@ import {
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
 import { layerLiveIdFactory, lookupCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Cause, Duration, Effect, type FileSystem, Match, Option, Scope } from 'effect'
 import { createSignal, type Accessor } from 'solid-js'
 

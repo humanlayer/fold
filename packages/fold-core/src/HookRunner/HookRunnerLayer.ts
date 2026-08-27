@@ -4,7 +4,7 @@
  * the namespace of each read or write comes from the hook's own defineToolState declaration, not its name.
  * The caller of each hook point provides StopController from the surrounding run or batch.
  */
-import { Cause, Effect, Layer } from 'effect'
+import { Data, Predicate, Cause, Effect, Layer } from 'effect'
 
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import { Ids, type AgentId, type IdsService, type ToolCallId } from '../Ids'
@@ -13,8 +13,20 @@ import { toolStateServiceForToolCall } from '../ToolRuntime/ToolStateFactory'
 import { ToolState } from '../ToolRuntime/ToolStateService'
 import { HookExecutionError, type HookPhase } from './Errors'
 import { HookRunner, type HookRunnerService } from './HookRunnerService'
-import type { OnCompleteHookInput, PostToolUseHookInput, PreRequestHookInput, PreToolUseHookInput } from './Schema'
+import type {
+	OnCompleteHookDecision,
+	OnCompleteHookInput,
+	PostToolUseHookDecision,
+	PostToolUseHookInput,
+	PreRequestHookDecision,
+	PreRequestHookInput,
+	PreToolUseHookDecision,
+	PreToolUseHookInput,
+} from './Schema'
 import type { HookScope, OnCompleteHook, PostToolUseHook, PreRequestHook, PreToolUseHook, HookConfig } from './Types.ts'
+
+type HookDecision = PreRequestHookDecision | PreToolUseHookDecision | PostToolUseHookDecision | OnCompleteHookDecision
+const HookDecision = Data.taggedEnum<HookDecision>()
 
 const isHookConfiguredForTool = (hook: { readonly tools?: ReadonlyArray<string> }, toolName: string): boolean =>
 	hook.tools === undefined || hook.tools.includes(toolName)
@@ -137,13 +149,13 @@ export const makeHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never
 						for (const hook of hooks.preRequest ?? []) {
 							const decision = yield* runPreRequestHook(hook, { ...input, prompt })
 
-							if (decision._tag === 'changed') {
+							if (Predicate.isTagged(decision, 'changed')) {
 								prompt = decision.prompt
 								changed = true
 							}
 						}
 
-						return changed ? { _tag: 'changed' as const, prompt } : { _tag: 'unchanged' as const }
+						return changed ? HookDecision.changed({ prompt }) : HookDecision.unchanged()
 					}).pipe(
 						Effect.withSpan('fold.hook_runner.pre_request', {
 							attributes: preRequestSpanAttributes(input),
@@ -159,12 +171,12 @@ export const makeHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never
 
 							const decision = yield* runPreToolUseHook(hook, { ...input, params })
 
-							if (decision._tag === 'replaceResult') return decision
+							if (Predicate.isTagged(decision, 'replaceResult')) return decision
 
 							params = decision.params
 						}
 
-						return { _tag: 'continue' as const, params }
+						return HookDecision.continue({ params })
 					}).pipe(
 						Effect.withSpan('fold.hook_runner.pre_tool_use', {
 							attributes: preToolUseSpanAttributes(input),
@@ -182,14 +194,14 @@ export const makeHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never
 
 							const decision = yield* runPostToolUseHook(hook, { ...input, result, isFailure })
 
-							if (decision._tag === 'replace') {
+							if (Predicate.isTagged(decision, 'replace')) {
 								result = decision.result
 								isFailure = decision.isFailure
 								replaced = true
 							}
 						}
 
-						return replaced ? { _tag: 'replace' as const, result, isFailure } : { _tag: 'keep' as const }
+						return replaced ? HookDecision.replace({ result, isFailure }) : HookDecision.keep()
 					}).pipe(
 						Effect.withSpan('fold.hook_runner.post_tool_use', {
 							attributes: postToolUseSpanAttributes(input),
@@ -201,10 +213,10 @@ export const makeHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never
 						for (const hook of hooks.onComplete ?? []) {
 							const decision = yield* runOnCompleteHook(hook, input)
 
-							if (decision._tag === 'continueWith') return decision
+							if (Predicate.isTagged(decision, 'continueWith')) return decision
 						}
 
-						return { _tag: 'complete' as const }
+						return HookDecision.complete()
 					}).pipe(
 						Effect.withSpan('fold.hook_runner.on_complete', {
 							attributes: onCompleteSpanAttributes(input),

@@ -14,7 +14,10 @@
 		"automation/no-shadowed-standard-array-static": "error",
 		"automation/no-disable-validation": "error",
 		"automation/no-silent-error-swallow": "error",
+		"automation/no-manual-tag-comparison": "error",
+		"automation/no-manual-tagged-construction": "error",
 		"automation/prefer-effect-match": "error",
+		"automation/prefer-tagged-error-handling": "error",
 		"automation/no-ambient-nondeterminism": "error",
 		"anti-slop/no-reflect-apply": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
@@ -73,8 +76,27 @@
 				"automation/no-disable-validation": "off",
 				"automation/no-shadowed-standard-array-static": "off",
 				"automation/no-silent-error-swallow": "off",
+				"automation/no-manual-tag-comparison": "off",
+				"automation/no-manual-tagged-construction": "off",
 				"automation/prefer-effect-match": "off",
+				"automation/prefer-tagged-error-handling": "off",
 				"automation/no-ambient-nondeterminism": "off",
+			},
+		},
+		{
+			// Runtime tagged values in tests, fixtures, and examples are often deliberate raw inputs.
+			"files": [
+				"**/test/**",
+				"**/tests/**",
+				"**/*.test.ts",
+				"**/*.test.tsx",
+				"**/*.vi.test.ts",
+				"**/*.vi.test.tsx",
+				"**/fixtures/**",
+				"**/examples/**",
+			],
+			"rules": {
+				"automation/no-manual-tagged-construction": "off",
 			},
 		},
 		{

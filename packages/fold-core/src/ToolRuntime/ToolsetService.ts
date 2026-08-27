@@ -41,7 +41,13 @@ export type ToolsetService = {
 		Stream.Stream<
 			ToolHandlerOutput,
 			unknown,
-			ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | FileSystem.FileSystem
+			| ToolState
+			| ToolEvents
+			| StopController
+			| CurrentAgent
+			| CurrentToolCall
+			| InterruptNote
+			| FileSystem.FileSystem
 		>
 	>
 }

@@ -11,8 +11,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/fold-core'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/fold-core'
 import { Console, Effect } from 'effect'
 
 import { skillsFromDisk } from '../src/index'

@@ -11,6 +11,7 @@
 import { join } from 'node:path'
 
 import { JsonSchema, Effect, FileSystem, Schema } from 'effect'
+
 import { FoldConfig } from './ConfigSchema'
 import { writeFoldInfo } from './FoldInfo'
 import { defaultConfigPath, defaultFoldHome } from './Load'
@@ -121,7 +122,9 @@ export type ConfigInitOptions = {
 }
 
 /** Write `config.schema.json` under the fold home, creating the directory if needed. Returns its path. */
-export const writeFoldConfigSchema = (options?: ConfigInitOptions): Effect.Effect<string, never, FileSystem.FileSystem> =>
+export const writeFoldConfigSchema = (
+	options?: ConfigInitOptions,
+): Effect.Effect<string, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const home = options?.foldHome ?? defaultFoldHome()
@@ -155,7 +158,9 @@ export type ConfigInitResult = {
  * `foldcode auth codex login` runs or the `apiKeyEnv` variables are exported. Only the two generated
  * files are ever overwritten.
  */
-export const bootstrapFoldHome = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult, never, FileSystem.FileSystem> =>
+export const bootstrapFoldHome = (
+	options?: ConfigInitOptions,
+): Effect.Effect<ConfigInitResult, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const schemaPath = yield* writeFoldConfigSchema(options)
@@ -185,4 +190,6 @@ export const bootstrapFoldHome = (options?: ConfigInitOptions): Effect.Effect<Co
 	})
 
 /** `foldcode config init`: the same bootstrap, kept under its command-facing name. */
-export const configInit = (options?: ConfigInitOptions): Effect.Effect<ConfigInitResult, never, FileSystem.FileSystem> => bootstrapFoldHome(options)
+export const configInit = (
+	options?: ConfigInitOptions,
+): Effect.Effect<ConfigInitResult, never, FileSystem.FileSystem> => bootstrapFoldHome(options)
