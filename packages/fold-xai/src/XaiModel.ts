@@ -8,7 +8,7 @@ import type {
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
-import { Context, Effect, Layer, Option, Schema, Stream } from 'effect'
+import { Context, Effect, Layer, Option, Predicate, Schema, Stream } from 'effect'
 import type { Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
@@ -20,7 +20,7 @@ import { DEFAULT_XAI_MODEL_ID } from './XaiModelCatalog'
 export const XAI_API_URL = 'https://api.x.ai/v1'
 
 const TokenCount = Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))
-const XaiCompletionTokenDetails = Schema.Struct({ reasoning_tokens: Schema.optional(TokenCount) })
+const XaiCompletionTokenDetails = Schema.Struct({ reasoning_tokens: TokenCount })
 const decodeXaiCompletionTokenDetails = Schema.decodeUnknownOption(XaiCompletionTokenDetails)
 
 type XaiUsage = NonNullable<CreateResponse200['usage']>
@@ -29,24 +29,24 @@ type XaiUsage = NonNullable<CreateResponse200['usage']>
  * xAI reports `completion_tokens` as text-only while putting reasoning tokens in
  * `completion_tokens_details`. OpenAI-compatible clients expect `completion_tokens` to include both.
  */
-export const normalizeXaiChatCompletionUsage = (usage: XaiUsage | null | undefined): XaiUsage | null | undefined => {
-	if (usage === null || usage === undefined) return usage
-
+export const normalizeXaiChatCompletionUsage = (usage: XaiUsage): XaiUsage => {
 	const details = decodeXaiCompletionTokenDetails(usage.completion_tokens_details)
-	const reasoningTokens = Option.isSome(details) ? details.value.reasoning_tokens : undefined
-	if (reasoningTokens === undefined) return usage
-
-	const inclusiveOutputTokens = usage.completion_tokens + reasoningTokens
-	if (usage.total_tokens !== usage.prompt_tokens + inclusiveOutputTokens) return usage
-
-	return { ...usage, completion_tokens: inclusiveOutputTokens }
+	return Option.match(details, {
+		onNone: () => usage,
+		onSome: ({ reasoning_tokens: reasoningTokens }) => {
+			const inclusiveOutputTokens = usage.completion_tokens + reasoningTokens
+			return usage.total_tokens === usage.prompt_tokens + inclusiveOutputTokens
+				? { ...usage, completion_tokens: inclusiveOutputTokens }
+				: usage
+		},
+	})
 }
 
 const normalizeXaiResponse = <Response extends CreateResponse200 | ChatCompletionChunk>(
 	response: Response,
 ): Response => {
-	const usage = normalizeXaiChatCompletionUsage(response.usage)
-	return usage === undefined ? response : { ...response, usage }
+	if (Predicate.isNullish(response.usage)) return response
+	return { ...response, usage: normalizeXaiChatCompletionUsage(response.usage) }
 }
 
 const normalizeXaiStreamResponse = (response: CreateResponse200Sse): CreateResponse200Sse =>
