@@ -1,9 +1,14 @@
 /** FoldModel factory for xAI's OpenAI-compatible inference API authenticated with OAuth. */
 import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai-compat'
+import type {
+	ChatCompletionChunk,
+	CreateResponse200,
+	CreateResponse200Sse,
+} from '@effect/ai-openai-compat/OpenAiClient'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
-import { Context, Effect, Layer } from 'effect'
+import { Context, Effect, Layer, Option, Schema, Stream } from 'effect'
 import type { Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
@@ -13,6 +18,50 @@ import { makeXaiAuth, withXaiAuth } from './XaiAuth'
 import { DEFAULT_XAI_MODEL_ID } from './XaiModelCatalog'
 
 export const XAI_API_URL = 'https://api.x.ai/v1'
+
+const TokenCount = Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))
+const XaiCompletionTokenDetails = Schema.Struct({ reasoning_tokens: Schema.optional(TokenCount) })
+const decodeXaiCompletionTokenDetails = Schema.decodeUnknownOption(XaiCompletionTokenDetails)
+
+type XaiUsage = NonNullable<CreateResponse200['usage']>
+
+/**
+ * xAI reports `completion_tokens` as text-only while putting reasoning tokens in
+ * `completion_tokens_details`. OpenAI-compatible clients expect `completion_tokens` to include both.
+ */
+export const normalizeXaiChatCompletionUsage = (usage: XaiUsage | null | undefined): XaiUsage | null | undefined => {
+	if (usage === null || usage === undefined) return usage
+
+	const details = decodeXaiCompletionTokenDetails(usage.completion_tokens_details)
+	const reasoningTokens = Option.isSome(details) ? details.value.reasoning_tokens : undefined
+	if (reasoningTokens === undefined) return usage
+
+	const inclusiveOutputTokens = usage.completion_tokens + reasoningTokens
+	if (usage.total_tokens !== usage.prompt_tokens + inclusiveOutputTokens) return usage
+
+	return { ...usage, completion_tokens: inclusiveOutputTokens }
+}
+
+const normalizeXaiResponse = <Response extends CreateResponse200 | ChatCompletionChunk>(
+	response: Response,
+): Response => {
+	const usage = normalizeXaiChatCompletionUsage(response.usage)
+	return usage === undefined ? response : { ...response, usage }
+}
+
+const normalizeXaiStreamResponse = (response: CreateResponse200Sse): CreateResponse200Sse =>
+	typeof response === 'string' || '_tag' in response ? response : normalizeXaiResponse(response)
+
+/** Normalize xAI's token semantics before the stock OpenAI-compatible model derives usage details. */
+export const decorateXaiClient = (inner: OpenAiClient.Service): OpenAiClient.Service => ({
+	...inner,
+	createResponse: (options) =>
+		inner.createResponse(options).pipe(Effect.map(([body, response]) => [normalizeXaiResponse(body), response])),
+	createResponseStream: (options) =>
+		inner
+			.createResponseStream(options)
+			.pipe(Effect.map(([response, stream]) => [response, stream.pipe(Stream.map(normalizeXaiStreamResponse))])),
+})
 
 export type XaiModelOptions = {
 	readonly model?: string
@@ -35,8 +84,9 @@ export const makeXaiLanguageModel = (
 		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl: options.apiUrl ?? XAI_API_URL })).pipe(
 			Effect.provideService(HttpClient.HttpClient, withXaiAuth(base, auth)),
 		)
+		const client = decorateXaiClient(Context.get(clientContext, OpenAiClient.OpenAiClient))
 		return yield* OpenAiLanguageModel.make({ model: options.model ?? DEFAULT_XAI_MODEL_ID }).pipe(
-			Effect.provideService(OpenAiClient.OpenAiClient, Context.get(clientContext, OpenAiClient.OpenAiClient)),
+			Effect.provideService(OpenAiClient.OpenAiClient, client),
 		)
 	}).pipe(Effect.provide(NodeFileSystem.layer))
 
