@@ -33,12 +33,10 @@ export const normalizeXaiChatCompletionUsage = (usage: XaiUsage): XaiUsage => {
 	const details = decodeXaiCompletionTokenDetails(usage.completion_tokens_details)
 	return Option.match(details, {
 		onNone: () => usage,
-		onSome: ({ reasoning_tokens: reasoningTokens }) => {
-			const inclusiveOutputTokens = usage.completion_tokens + reasoningTokens
-			return usage.total_tokens === usage.prompt_tokens + inclusiveOutputTokens
-				? { ...usage, completion_tokens: inclusiveOutputTokens }
-				: usage
-		},
+		onSome: ({ reasoning_tokens: reasoningTokens }) => ({
+			...usage,
+			completion_tokens: usage.completion_tokens + reasoningTokens,
+		}),
 	})
 }
 

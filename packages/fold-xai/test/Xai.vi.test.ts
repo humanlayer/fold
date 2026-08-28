@@ -68,7 +68,7 @@ describe('xaiModel', () => {
 		})
 	})
 
-	it('preserves providers whose completion total already includes reasoning', () => {
+	it('normalizes xAI usage independently of the aggregate total', () => {
 		const usage = {
 			prompt_tokens: 10,
 			completion_tokens: 8,
@@ -76,7 +76,10 @@ describe('xaiModel', () => {
 			completion_tokens_details: { reasoning_tokens: 3 },
 		}
 
-		expect(normalizeXaiChatCompletionUsage(usage)).toBe(usage)
+		expect(normalizeXaiChatCompletionUsage(usage)).toEqual({
+			...usage,
+			completion_tokens: 11,
+		})
 	})
 
 	it('exports the supported frontier catalog and defaults to its newest model', () => {
