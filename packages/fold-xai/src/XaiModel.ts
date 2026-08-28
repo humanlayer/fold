@@ -10,9 +10,9 @@ import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
 
 import type { XaiAuthStore } from './AuthStore'
 import { makeXaiAuth, withXaiAuth } from './XaiAuth'
+import { DEFAULT_XAI_MODEL_ID } from './XaiModelCatalog'
 
 export const XAI_API_URL = 'https://api.x.ai/v1'
-export const DEFAULT_XAI_MODEL_ID = 'grok-4.6'
 
 export type XaiModelOptions = {
 	readonly model?: string
