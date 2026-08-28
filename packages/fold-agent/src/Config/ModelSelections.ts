@@ -1,8 +1,8 @@
 import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
-import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Predicate, Effect, Match } from 'effect'
+import { DEFAULT_XAI_MODEL_ID, XAI_FRONTIER_MODELS } from '@humanlayer/fold-xai'
+import { Effect, Match, Predicate } from 'effect'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
@@ -77,7 +77,7 @@ export const describeModelConfiguration = (
 		const defaultModels = Match.value(provider.kind).pipe(
 			Match.when('codex', () => [DEFAULT_OPENCODE_MODEL_ID]),
 			Match.when('opencode', () => [DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID]),
-			Match.when('xai', () => ['grok-4.5', DEFAULT_XAI_MODEL_ID]),
+			Match.when('xai', () => XAI_FRONTIER_MODELS.map(({ modelId }) => modelId)),
 			Match.orElse((): ReadonlyArray<string> => []),
 		)
 		const models = [

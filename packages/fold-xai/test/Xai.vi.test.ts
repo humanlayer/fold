@@ -2,15 +2,17 @@ import { readdir, rm } from 'node:fs/promises'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option } from 'effect'
+import { Effect, Option, Schema } from 'effect'
 
 import {
 	buildXaiAuthorizeUrl,
 	DEFAULT_XAI_MODEL_ID,
 	makeXaiAuthStore,
+	XAI_FRONTIER_MODELS,
 	XAI_BROWSER_REDIRECT_URI,
 	XAI_CLIENT_ID,
 	xaiModel,
+	XaiFrontierModelId,
 	XaiTokenData,
 } from '../src/index'
 
@@ -48,6 +50,17 @@ describe('xAI OAuth', () => {
 })
 
 describe('xaiModel', () => {
+	it('exports the supported frontier catalog and defaults to its newest model', () => {
+		expect(XAI_FRONTIER_MODELS).toEqual([
+			{ modelId: 'grok-4.5', label: 'Grok 4.5' },
+			{ modelId: 'grok-4.6', label: 'Grok 4.6' },
+		])
+		expect(XAI_FRONTIER_MODELS.at(-1)?.modelId).toBe(DEFAULT_XAI_MODEL_ID)
+		expect(Schema.is(XaiFrontierModelId)('grok-4.5')).toBe(true)
+		expect(Schema.is(XaiFrontierModelId)('grok-4.6')).toBe(true)
+		expect(Schema.is(XaiFrontierModelId)('grok-unverified')).toBe(false)
+	})
+
 	it('returns a FoldModel-compatible OpenAI snapshot', () => {
 		const model = xaiModel()
 		expect(model.activeModel).toMatchObject({
