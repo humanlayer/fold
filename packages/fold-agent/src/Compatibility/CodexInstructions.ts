@@ -1,9 +1,7 @@
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import { Effect, type FileSystem, Schema } from 'effect'
-
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Schema } from 'effect'
 
 export const CodexInstructionSource = Schema.Struct({
 	path: Schema.String,
@@ -16,14 +14,18 @@ export type CodexInstructionOptions = {
 	readonly cwd: string
 	readonly home?: string
 	readonly codexHome?: string
-	readonly fileSystem?: FileSystem.FileSystem
 }
 
-const readNonEmpty = (fs: FileSystem.FileSystem, path: string): Effect.Effect<CodexInstructionSource | null> =>
-	fs.readFileString(path).pipe(
-		Effect.map((content) => (content.trim().length === 0 ? null : { path, content, scope: 'ancestor' as const })),
-		Effect.catch(() => Effect.succeed(null)),
-	)
+const readNonEmpty = (path: string): Effect.Effect<CodexInstructionSource | null, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		return yield* fs.readFileString(path).pipe(
+			Effect.map((content) =>
+				content.trim().length === 0 ? null : { path, content, scope: 'ancestor' as const },
+			),
+			Effect.catch(() => Effect.succeed(null)),
+		)
+	})
 
 const isAncestor = (ancestor: string, path: string): boolean => {
 	let current = path
@@ -51,9 +53,8 @@ const directoriesToBoundary = (cwd: string, home: string | null): ReadonlyArray<
 
 export const loadCodexInstructions = (
 	options: CodexInstructionOptions,
-): Effect.Effect<ReadonlyArray<CodexInstructionSource>> =>
+): Effect.Effect<ReadonlyArray<CodexInstructionSource>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options)
 		const cwd = resolve(options.cwd)
 		const home = options.home === undefined ? homedir() : options.home
 		const resolvedHome = home.length === 0 ? null : resolve(home)
@@ -61,7 +62,7 @@ export const loadCodexInstructions = (
 		const sources: Array<CodexInstructionSource> = []
 
 		for (const name of ['AGENTS.override.md', 'AGENTS.md']) {
-			const source = yield* readNonEmpty(fs, join(codexHome, name))
+			const source = yield* readNonEmpty(join(codexHome, name))
 			if (source !== null) {
 				sources.push({ ...source, scope: 'global' })
 				break
@@ -69,15 +70,15 @@ export const loadCodexInstructions = (
 		}
 
 		for (const directory of directoriesToBoundary(cwd, resolvedHome)) {
-			const override = yield* readNonEmpty(fs, join(directory, 'AGENTS.override.md'))
+			const override = yield* readNonEmpty(join(directory, 'AGENTS.override.md'))
 			if (override !== null) {
 				sources.push(override)
 				continue
 			}
 
-			const base = yield* readNonEmpty(fs, join(directory, 'AGENTS.md'))
+			const base = yield* readNonEmpty(join(directory, 'AGENTS.md'))
 			if (base !== null) sources.push(base)
-			const local = yield* readNonEmpty(fs, join(directory, 'AGENTS.local.md'))
+			const local = yield* readNonEmpty(join(directory, 'AGENTS.local.md'))
 			if (local !== null) sources.push(local)
 		}
 
