@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 
-import { Effect, type FileSystem, Schema } from 'effect'
-
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Schema } from 'effect'
 
 export const CodexPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['config', 'cache', 'manifest']),
@@ -21,7 +19,6 @@ export type CodexPluginSkillRoot = {
 
 export type CodexPluginOptions = {
 	readonly codexHome: string
-	readonly fileSystem?: FileSystem.FileSystem
 }
 
 type EnabledPlugin = { readonly name: string; readonly marketplace: string }
@@ -110,7 +107,7 @@ const safeRelativeSkillRoot = (value: unknown): string | null => {
 
 export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 	Effect.gen(function* () {
-		const fs = fileSystemFor(options)
+		const fs = yield* FileSystem.FileSystem
 		const diagnostics: Array<CodexPluginDiagnostic> = []
 		const configPath = join(options.codexHome, 'config.toml')
 		const config = yield* fs.readFileString(configPath).pipe(Effect.catch(() => Effect.succeed('')))

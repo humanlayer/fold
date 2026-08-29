@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, FileSystem } from 'effect'
 
 import { loadCodexCompatibility, loadCodexInstructions, makeCodexSkillSource } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -23,8 +23,7 @@ it.effect('walks from home to cwd and combines override, base, and local instruc
 		const sources = yield* loadCodexInstructions({
 			cwd: '/home/user/work/repo',
 			home: '/home/user',
-			fileSystem: fs,
-		})
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 
 		expect(sources.map(({ path }) => path)).toEqual([
 			'/home/user/.codex/AGENTS.md',
@@ -43,7 +42,9 @@ it.effect('walks to the filesystem root when home is not an ancestor', () =>
 			'/srv/AGENTS.md': 'srv',
 			'/srv/repo/AGENTS.md': 'repo',
 		})
-		const sources = yield* loadCodexInstructions({ cwd: '/srv/repo', home: '/home/user', fileSystem: fs })
+		const sources = yield* loadCodexInstructions({ cwd: '/srv/repo', home: '/home/user' }).pipe(
+			Effect.provideService(FileSystem.FileSystem, fs),
+		)
 		expect(sources.map(({ path }) => path)).toEqual(['/AGENTS.md', '/srv/AGENTS.md', '/srv/repo/AGENTS.md'])
 	}),
 )
@@ -59,8 +60,7 @@ it.effect('loads ancestor skills and keeps the closest skill name', () =>
 		const source = yield* makeCodexSkillSource({
 			cwd: '/home/user/work/repo',
 			home: '/home/user',
-			fileSystem: fs,
-		})
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 		expect(yield* source.list).toEqual([
 			{ name: 'local', description: 'Local skill' },
 			{ name: 'shared', description: 'Repo skill' },
@@ -98,8 +98,7 @@ it.effect('loads enabled plugin skills from local or the newest cached version',
 			cwd: '/repo',
 			home: '/home/user',
 			codexHome: '/codex',
-			fileSystem: fs,
-		})
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 		const names = (yield* compatibility.skills.list).map(({ name }) => name)
 		expect(names).toEqual(['alpha:right', 'semver:new'])
 		expect(compatibility.diagnostics).toEqual([])
