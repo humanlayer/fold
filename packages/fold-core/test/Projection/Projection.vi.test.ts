@@ -276,7 +276,7 @@ it.effect('projects messages with the latest leading system message and assistan
 	}),
 )
 
-it.effect('projects forked agents through the parent fork sequence plus child entries', () =>
+it.effect('projects legacy forks through completed parent history plus child entries', () =>
 	Effect.gen(function* () {
 		const result = yield* Effect.gen(function* () {
 			const log = yield* EventLog
@@ -338,9 +338,9 @@ it.effect('projects forked agents through the parent fork sequence plus child en
 
 		const projected = messagesForAgent(result.entries, result.childAgentId)
 
-		expect(projected.map((message) => message._tag)).toEqual(['system-message', 'user-message', 'user-message'])
-		expect(projected[1]).toMatchObject({ _tag: 'user-message', message: { content: 'parent before fork' } })
-		expect(projected[2]).toMatchObject({ _tag: 'user-message', message: { content: 'child prompt' } })
+		expect(projected.map((message) => message._tag)).toEqual(['system-message', 'user-message'])
+		expect(projected[1]).toMatchObject({ _tag: 'user-message', message: { content: 'child prompt' } })
+		expect(JSON.stringify(projected)).not.toContain('parent before fork')
 	}),
 )
 

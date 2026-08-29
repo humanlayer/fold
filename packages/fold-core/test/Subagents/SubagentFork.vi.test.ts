@@ -1,8 +1,7 @@
 /**
- * Engine tests for fork mode (D21): the fork clones the caller - model binding, toolset, and, through
- * fork-by-reference projection, its full history up to the observed head - with NO new leading system
- * message, so the fork's prompt prefix is byte-identical to the caller's (the provider-cache claim,
- * asserted for real against the scripted model's recorded prompts).
+ * Engine tests for fork mode (D21): the fork clones the caller's model binding and toolset, and inherits
+ * only completed conversation history. It omits the active parent tool-call turn because its result is
+ * the child run itself, so including it would create an invalid provider request.
  */
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect } from 'effect'
@@ -11,30 +10,7 @@ import { shortAgentId, type AgentStartedLogEntry, type AssistantMessageLogEntry 
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { makeDriveSession, renderedDriveResult, subagentStartedEntries } from './DriveHarness'
 
-const withoutCacheControl = (value: unknown): unknown => {
-	if (Array.isArray(value)) return value.map(withoutCacheControl)
-	if (typeof value !== 'object' || value === null) return value
-
-	const out: Record<string, unknown> = {}
-	for (const [key, nested] of Object.entries(value)) {
-		if (key === 'cacheControl') continue
-		const normalized = withoutCacheControl(nested)
-		if (key === 'anthropic' && typeof normalized === 'object' && normalized !== null) {
-			if (Object.keys(normalized).length === 0) continue
-		}
-		out[key] = normalized
-	}
-	return out
-}
-
-const stablePromptJson = (value: unknown): string =>
-	JSON.stringify(withoutCacheControl(value), (key, nested) => {
-		if (key.length === 0 || Array.isArray(nested) || typeof nested !== 'object' || nested === null) return nested
-
-		return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)))
-	})
-
-it.effect('a fork clones the caller: shared history prefix, no new leading prompt, own rows after', () =>
+it.effect('a fork inherits completed context without its invoking tool call', () =>
 	Effect.gen(function* () {
 		// The fork clones the ROOT, so it runs on the root's scripted model: turn 1 is the root's drive
 		// call, turn 2 is consumed by the fork, turn 3 finishes the root.
@@ -56,7 +32,9 @@ it.effect('a fork clones the caller: shared history prefix, no new leading promp
 		if (forkStarted === undefined) throw new Error('expected the fork to have started')
 
 		// Fork provenance: mode, no agentType, fromAgentId = the caller, atSeq = the observed head
-		// (the caller's assistant tool-call row, appended just before settlement began).
+		// (the caller's assistant tool-call row, appended just before settlement began). This direct
+		// engine call leaves `history` absent to cover legacy persisted forks, which also use the
+		// completed-history default.
 		expect(forkStarted.mode).toBe('fork')
 		expect(forkStarted.agentType).toBeNull()
 		const rootStarted = entries.find(
@@ -70,6 +48,7 @@ it.effect('a fork clones the caller: shared history prefix, no new leading promp
 				Predicate.isTagged(entry, 'assistant-message') && entry.agentId === rootStarted.agentId,
 		)
 		expect(forkStarted.fork?.atSeq).toBe(dispatchingAssistantRow?.seq)
+		expect(forkStarted.fork?.history).toBeUndefined()
 
 		// No new leading system message for the fork: the fold carries the caller's blocks.
 		const forkSystemMessages = entries.filter(
@@ -77,18 +56,15 @@ it.effect('a fork clones the caller: shared history prefix, no new leading promp
 		)
 		expect(forkSystemMessages).toHaveLength(0)
 
-		// The cache claim, for real: excluding request-local cache breakpoint metadata, the fork's first
-		// request begins with the caller's first request, then continues with the caller's tool-call turn
-		// and the fork prompt.
+		// The fork carries no new leading system message, but its first request omits the parent user turn
+		// and assistant tool-call turn that invoked it. This prevents a provider request from containing a
+		// function call whose output cannot exist until the child completes.
 		const prompts = yield* rootScripted.scripted.prompts
-		const callerRequest = prompts[0]
 		const forkRequest = prompts[1]
-		if (callerRequest === undefined || forkRequest === undefined) throw new Error('expected two requests')
-		const prefix = forkRequest.content.slice(0, callerRequest.content.length)
-		expect(stablePromptJson(prefix)).toBe(stablePromptJson(callerRequest.content))
-		expect(JSON.stringify(forkRequest.content.slice(callerRequest.content.length))).toContain(
-			'continue with everything you know',
-		)
+		if (forkRequest === undefined) throw new Error('expected fork request')
+		expect(JSON.stringify(forkRequest.content)).toContain('continue with everything you know')
+		expect(JSON.stringify(forkRequest.content)).not.toContain('provider-call-0')
+		expect(JSON.stringify(forkRequest.content)).not.toContain('go')
 
 		// The result renders like any dispatch: resumable id + turns header + body.
 		const rendered = renderedDriveResult(entries, 0)
