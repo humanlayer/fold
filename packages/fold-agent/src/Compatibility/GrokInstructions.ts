@@ -1,7 +1,6 @@
 import { homedir } from 'node:os'
-import { dirname, join, relative, resolve, sep } from 'node:path'
 
-import { Effect, FileSystem, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 export const GrokInstructionSource = Schema.Struct({
 	path: Schema.String,
@@ -30,28 +29,35 @@ const instructionNames = [
 
 const projectRuleDirectories = ['.grok/rules', '.claude/rules', '.cursor/rules'] as const
 
-const isAncestor = (ancestor: string, path: string): boolean => {
-	let current = path
-	while (true) {
-		if (current === ancestor) return true
-		const parent = dirname(current)
-		if (parent === current) return false
-		current = parent
-	}
-}
+const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean, never, Path.Path> =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		let current = candidate
+		while (true) {
+			if (current === ancestor) return true
+			const parent = path.dirname(current)
+			if (parent === current) return false
+			current = parent
+		}
+	})
 
-const directoriesToBoundary = (cwd: string, boundary: string | null): ReadonlyArray<string> => {
-	const directories: Array<string> = []
-	let current = cwd
-	while (true) {
-		directories.push(current)
-		if (current === boundary) break
-		const parent = dirname(current)
-		if (parent === current) break
-		current = parent
-	}
-	return directories.reverse()
-}
+const directoriesToBoundary = (
+	cwd: string,
+	boundary: string | null,
+): Effect.Effect<ReadonlyArray<string>, never, Path.Path> =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		const directories: Array<string> = []
+		let current = cwd
+		while (true) {
+			directories.push(current)
+			if (current === boundary) break
+			const parent = path.dirname(current)
+			if (parent === current) break
+			current = parent
+		}
+		return directories.reverse()
+	})
 
 const stripRuleFrontmatter = (content: string): string => {
 	const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -104,15 +110,18 @@ const readNonEmpty = (
 		)
 	})
 
-const markdownRules = (directory: string): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem> =>
+const markdownRules = (
+	directory: string,
+): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
 		return yield* fs.readDirectory(directory).pipe(
 			Effect.map((entries) =>
 				entries
 					.filter((entry) => entry.toLowerCase().endsWith('.md'))
 					.sort()
-					.map((entry) => join(directory, entry)),
+					.map((entry) => path.join(directory, entry)),
 			),
 			Effect.orElseSucceed(() => []),
 		)
@@ -122,23 +131,21 @@ export const loadGrokInstructions = Effect.fn('fold.grok_compatibility.load_inst
 	options: GrokInstructionOptions,
 ) {
 	const fs = yield* FileSystem.FileSystem
-	const cwd = resolve(options.cwd)
+	const path = yield* Path.Path
+	const cwd = path.resolve(options.cwd)
 	const homeValue = options.home === undefined ? homedir() : options.home
-	const home = homeValue.length === 0 ? null : resolve(homeValue)
-	const grokHome = resolve(options.grokHome ?? join(home ?? homedir(), '.grok'))
-	const explicitRoot = options.projectRoot === undefined ? null : resolve(options.projectRoot)
-	const boundary =
-		explicitRoot !== null && isAncestor(explicitRoot, cwd)
-			? explicitRoot
-			: home !== null && isAncestor(home, cwd)
-				? home
-				: null
-	const directories = directoriesToBoundary(cwd, boundary)
-	const ignoreRoot = explicitRoot !== null && isAncestor(explicitRoot, cwd) ? explicitRoot : directories[0]
+	const home = homeValue.length === 0 ? null : path.resolve(homeValue)
+	const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
+	const explicitRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
+	const explicitRootIsAncestor = explicitRoot !== null && (yield* isAncestor(explicitRoot, cwd))
+	const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
+	const boundary = explicitRootIsAncestor ? explicitRoot : homeIsAncestor ? home : null
+	const directories = yield* directoriesToBoundary(cwd, boundary)
+	const ignoreRoot = explicitRootIsAncestor ? explicitRoot : directories[0]
 	const gitignore =
 		ignoreRoot === undefined
 			? ''
-			: yield* fs.readFileString(join(ignoreRoot, '.gitignore')).pipe(Effect.orElseSucceed(() => ''))
+			: yield* fs.readFileString(path.join(ignoreRoot, '.gitignore')).pipe(Effect.orElseSucceed(() => ''))
 	const isIgnored = makeGitIgnorePredicate(gitignore)
 	const sources: Array<GrokInstructionSource> = []
 	const seen = new Set<string>()
@@ -146,29 +153,31 @@ export const loadGrokInstructions = Effect.fn('fold.grok_compatibility.load_inst
 	const add = (source: GrokInstructionSource | null, projectRoot?: string) => {
 		if (source === null || seen.has(source.path)) return
 		if (projectRoot !== undefined) {
-			const projectPath = relative(projectRoot, source.path).split(sep).join('/')
+			const projectPath = path.relative(projectRoot, source.path).split(path.sep).join('/')
 			if (isIgnored(projectPath)) return
 		}
 		seen.add(source.path)
 		sources.push(source)
 	}
 
-	for (const name of instructionNames) add(yield* readNonEmpty(join(grokHome, name), 'global', false))
-	for (const path of yield* markdownRules(join(grokHome, 'rules'))) add(yield* readNonEmpty(path, 'global', true))
+	for (const name of instructionNames) add(yield* readNonEmpty(path.join(grokHome, name), 'global', false))
+	for (const rulePath of yield* markdownRules(path.join(grokHome, 'rules')))
+		add(yield* readNonEmpty(rulePath, 'global', true))
 	if (home !== null) {
 		for (const vendor of ['.claude', '.cursor']) {
-			for (const name of instructionNames) add(yield* readNonEmpty(join(home, vendor, name), 'global', false))
-			for (const path of yield* markdownRules(join(home, vendor, 'rules')))
-				add(yield* readNonEmpty(path, 'global', true))
+			for (const name of instructionNames)
+				add(yield* readNonEmpty(path.join(home, vendor, name), 'global', false))
+			for (const rulePath of yield* markdownRules(path.join(home, vendor, 'rules')))
+				add(yield* readNonEmpty(rulePath, 'global', true))
 		}
 	}
 
 	for (const directory of directories) {
 		for (const name of instructionNames)
-			add(yield* readNonEmpty(join(directory, name), 'ancestor', false), ignoreRoot)
+			add(yield* readNonEmpty(path.join(directory, name), 'ancestor', false), ignoreRoot)
 		for (const rulesDirectory of projectRuleDirectories)
-			for (const path of yield* markdownRules(join(directory, rulesDirectory)))
-				add(yield* readNonEmpty(path, 'ancestor', true), ignoreRoot)
+			for (const rulePath of yield* markdownRules(path.join(directory, rulesDirectory)))
+				add(yield* readNonEmpty(rulePath, 'ancestor', true), ignoreRoot)
 	}
 
 	return sources

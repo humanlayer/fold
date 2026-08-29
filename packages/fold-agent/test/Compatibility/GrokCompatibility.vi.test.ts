@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem } from 'effect'
+import { Effect, FileSystem, Path } from 'effect'
 
 import { loadGrokCompatibility, loadGrokInstructions } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -29,7 +29,7 @@ it.effect('loads Grok global and root-to-cwd instructions while respecting gitig
 			cwd: '/repo/apps/service',
 			projectRoot: '/repo',
 			home: '/home/user',
-		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 		expect(sources.map(({ content }) => content)).toEqual([
 			'global grok',
@@ -64,7 +64,7 @@ it.effect('loads Grok, Agents, Claude, configured, and plugin skills with provid
 			projectRoot: '/repo',
 			home: '/home/user',
 			configuredPaths: ['/configured'],
-		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 		const names = (yield* compatibility.skills.list).map(({ name }) => name)
 
 		expect(names).toEqual(['claude', 'shared', 'agents', 'configured', 'global', 'acme:deploy'])
@@ -84,7 +84,7 @@ it.effect('keeps Codex-only roots out of Grok compatibility', () =>
 			cwd: '/repo',
 			projectRoot: '/repo',
 			home: '/home/user',
-		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 		expect(compatibility.instructionBlock).toBeNull()
 		expect(yield* compatibility.skills.list).toEqual([])
@@ -101,7 +101,7 @@ it.effect('reports malformed plugin metadata without failing compatibility loadi
 			cwd: '/repo',
 			projectRoot: '/repo',
 			home: '/home/user',
-		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 		expect(yield* compatibility.skills.list).toEqual([])
 		expect(compatibility.diagnostics).toEqual([
@@ -129,6 +129,7 @@ it.effect('uses the operating-system home for default Grok plugin discovery', ()
 
 		const compatibility = yield* loadGrokCompatibility({ cwd: '/repo', projectRoot: '/repo' }).pipe(
 			Effect.provideService(FileSystem.FileSystem, fs),
+			Effect.provide(Path.layer),
 		)
 
 		expect((yield* compatibility.skills.list).map(({ name }) => name)).toContain('default-home:proof')
@@ -149,7 +150,7 @@ it.effect('skips malformed skill frontmatter and rejects backslash plugin roots 
 			cwd: '/repo',
 			projectRoot: '/repo',
 			home: '/home/user',
-		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 		expect(yield* compatibility.skills.list).toEqual([])
 		expect(compatibility.diagnostics).toContainEqual({
