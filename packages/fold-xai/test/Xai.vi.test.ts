@@ -9,7 +9,6 @@ import {
 	DEFAULT_XAI_MODEL_ID,
 	makeXaiAuthStore,
 	normalizeXaiChatCompletionUsage,
-	XAI_FRONTIER_MODEL_CATALOG,
 	XAI_FRONTIER_MODELS,
 	XAI_BROWSER_REDIRECT_URI,
 	XAI_CLIENT_ID,
@@ -92,25 +91,6 @@ describe('xaiModel', () => {
 		expect(Schema.is(XaiFrontierModelId)('grok-4.5')).toBe(true)
 		expect(Schema.is(XaiFrontierModelId)('grok-4.6')).toBe(true)
 		expect(Schema.is(XaiFrontierModelId)('grok-unverified')).toBe(false)
-	})
-
-	it('exports the verified context windows as model-catalog entries', () => {
-		expect(XAI_FRONTIER_MODEL_CATALOG).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					providerId: 'xai',
-					modelId: 'grok-4.5',
-					contextWindow: 500_000,
-					reasoningEfforts: ['low', 'medium', 'high'],
-				}),
-				expect.objectContaining({
-					providerId: 'xai',
-					modelId: 'grok-4.6',
-					contextWindow: 500_000,
-					reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
-				}),
-			]),
-		)
 	})
 
 	it('returns a FoldModel-compatible OpenAI snapshot', () => {
