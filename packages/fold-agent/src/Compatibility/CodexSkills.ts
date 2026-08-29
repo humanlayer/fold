@@ -47,10 +47,7 @@ const ancestorSkillRoots = (cwd: string, home: string | null): ReadonlyArray<str
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const loadSkill = (
-	path: string,
-	namespace?: string,
-): Effect.Effect<Skill | null, never, FileSystem.FileSystem> =>
+const loadSkill = (path: string, namespace?: string): Effect.Effect<Skill | null, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		return yield* fs.readFileString(path).pipe(
@@ -60,7 +57,11 @@ const loadSkill = (
 				const end = normalized.indexOf('\n---', 4)
 				if (end < 0) return null
 				const parsed: unknown = parseYaml(normalized.slice(4, end))
-				if (!isRecord(parsed) || typeof parsed.description !== 'string' || parsed.description.trim().length === 0)
+				if (
+					!isRecord(parsed) ||
+					typeof parsed.description !== 'string' ||
+					parsed.description.trim().length === 0
+				)
 					return null
 				const directory = dirname(path)
 				const rawName =
@@ -124,8 +125,7 @@ export const makeCodexSkillSource = (
 		const scan = Effect.gen(function* () {
 			const byName = new Map<string, Skill>()
 			for (const root of roots) {
-				for (const skill of yield* scanRoot(root))
-					if (!byName.has(skill.name)) byName.set(skill.name, skill)
+				for (const skill of yield* scanRoot(root)) if (!byName.has(skill.name)) byName.set(skill.name, skill)
 			}
 			for (const plugin of options.pluginPaths ?? []) {
 				for (const skill of yield* scanRoot(plugin.path, plugin.name))
