@@ -1,12 +1,11 @@
 import type { SkillSourceService } from '@humanlayer/fold-core'
-import { Effect, type FileSystem } from 'effect'
+import { Effect } from 'effect'
 
 import { loadGrokInstructions, renderGrokInstructions, type GrokInstructionSource } from './GrokInstructions'
 import { discoverGrokPluginSkillRoots, type GrokPluginDiagnostic } from './GrokPlugins'
 import { makeGrokSkillSource, type GrokSkillOptions } from './GrokSkills'
 
 export type GrokCompatibilityOptions = GrokSkillOptions & {
-	readonly fileSystem?: FileSystem.FileSystem
 	readonly configuredPluginPaths?: ReadonlyArray<string>
 }
 
@@ -25,7 +24,6 @@ export const loadGrokCompatibility = Effect.fn('fold.grok_compatibility.load')(f
 		...(options.home === undefined ? {} : { home: options.home }),
 		...(options.grokHome === undefined ? {} : { grokHome: options.grokHome }),
 		...(options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot }),
-		...(options.fileSystem === undefined ? {} : { fileSystem: options.fileSystem }),
 		...(options.configuredPluginPaths === undefined ? {} : { configuredPaths: options.configuredPluginPaths }),
 	}
 	const plugins = yield* discoverGrokPluginSkillRoots(pluginOptions)

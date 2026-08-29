@@ -1,9 +1,7 @@
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
-import { Effect, type FileSystem, Schema } from 'effect'
-
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Schema } from 'effect'
 
 export const GrokInstructionSource = Schema.Struct({
 	path: Schema.String,
@@ -17,7 +15,6 @@ export type GrokInstructionOptions = {
 	readonly home?: string
 	readonly grokHome?: string
 	readonly projectRoot?: string
-	readonly fileSystem?: FileSystem.FileSystem
 }
 
 const instructionNames = [
@@ -92,34 +89,39 @@ const makeGitIgnorePredicate = (contents: string): ((path: string) => boolean) =
 }
 
 const readNonEmpty = (
-	fs: FileSystem.FileSystem,
 	path: string,
 	scope: 'global' | 'ancestor',
 	isRule: boolean,
-): Effect.Effect<GrokInstructionSource | null> =>
-	fs.readFileString(path).pipe(
-		Effect.map((raw) => {
-			const content = isRule ? stripRuleFrontmatter(raw) : raw
-			return content.trim().length === 0 ? null : { path, content, scope }
-		}),
-		Effect.orElseSucceed(() => null),
-	)
+): Effect.Effect<GrokInstructionSource | null, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		return yield* fs.readFileString(path).pipe(
+			Effect.map((raw) => {
+				const content = isRule ? stripRuleFrontmatter(raw) : raw
+				return content.trim().length === 0 ? null : { path, content, scope }
+			}),
+			Effect.orElseSucceed(() => null),
+		)
+	})
 
-const markdownRules = (fs: FileSystem.FileSystem, directory: string): Effect.Effect<ReadonlyArray<string>> =>
-	fs.readDirectory(directory).pipe(
-		Effect.map((entries) =>
-			entries
-				.filter((entry) => entry.toLowerCase().endsWith('.md'))
-				.sort()
-				.map((entry) => join(directory, entry)),
-		),
-		Effect.orElseSucceed(() => []),
-	)
+const markdownRules = (directory: string): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		return yield* fs.readDirectory(directory).pipe(
+			Effect.map((entries) =>
+				entries
+					.filter((entry) => entry.toLowerCase().endsWith('.md'))
+					.sort()
+					.map((entry) => join(directory, entry)),
+			),
+			Effect.orElseSucceed(() => []),
+		)
+	})
 
 export const loadGrokInstructions = Effect.fn('fold.grok_compatibility.load_instructions')(function* (
 	options: GrokInstructionOptions,
 ) {
-	const fs = fileSystemFor(options)
+	const fs = yield* FileSystem.FileSystem
 	const cwd = resolve(options.cwd)
 	const homeValue = options.home === undefined ? homedir() : options.home
 	const home = homeValue.length === 0 ? null : resolve(homeValue)
@@ -151,23 +153,22 @@ export const loadGrokInstructions = Effect.fn('fold.grok_compatibility.load_inst
 		sources.push(source)
 	}
 
-	for (const name of instructionNames) add(yield* readNonEmpty(fs, join(grokHome, name), 'global', false))
-	for (const path of yield* markdownRules(fs, join(grokHome, 'rules')))
-		add(yield* readNonEmpty(fs, path, 'global', true))
+	for (const name of instructionNames) add(yield* readNonEmpty(join(grokHome, name), 'global', false))
+	for (const path of yield* markdownRules(join(grokHome, 'rules'))) add(yield* readNonEmpty(path, 'global', true))
 	if (home !== null) {
 		for (const vendor of ['.claude', '.cursor']) {
-			for (const name of instructionNames) add(yield* readNonEmpty(fs, join(home, vendor, name), 'global', false))
-			for (const path of yield* markdownRules(fs, join(home, vendor, 'rules')))
-				add(yield* readNonEmpty(fs, path, 'global', true))
+			for (const name of instructionNames) add(yield* readNonEmpty(join(home, vendor, name), 'global', false))
+			for (const path of yield* markdownRules(join(home, vendor, 'rules')))
+				add(yield* readNonEmpty(path, 'global', true))
 		}
 	}
 
 	for (const directory of directories) {
 		for (const name of instructionNames)
-			add(yield* readNonEmpty(fs, join(directory, name), 'ancestor', false), ignoreRoot)
+			add(yield* readNonEmpty(join(directory, name), 'ancestor', false), ignoreRoot)
 		for (const rulesDirectory of projectRuleDirectories)
-			for (const path of yield* markdownRules(fs, join(directory, rulesDirectory)))
-				add(yield* readNonEmpty(fs, path, 'ancestor', true), ignoreRoot)
+			for (const path of yield* markdownRules(join(directory, rulesDirectory)))
+				add(yield* readNonEmpty(path, 'ancestor', true), ignoreRoot)
 	}
 
 	return sources

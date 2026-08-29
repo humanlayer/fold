@@ -1,9 +1,7 @@
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
-import { Effect, type FileSystem, Schema } from 'effect'
-
-import { fileSystemFor } from '../Fs/DefaultFileSystem'
+import { Effect, FileSystem, Schema } from 'effect'
 
 export const GrokPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['manifest', 'discovery']),
@@ -20,7 +18,6 @@ export type GrokPluginOptions = {
 	readonly grokHome?: string
 	readonly projectRoot?: string
 	readonly configuredPaths?: ReadonlyArray<string>
-	readonly fileSystem?: FileSystem.FileSystem
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -63,10 +60,10 @@ const safeRelativePath = (value: unknown): string | null => {
 }
 
 const readManifest = (
-	fs: FileSystem.FileSystem,
 	root: string,
-): Effect.Effect<{ path: string; value: unknown } | null> =>
+): Effect.Effect<{ path: string; value: unknown } | null, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
 		for (const name of ['plugin.json', '.grok-plugin/plugin.json', '.claude-plugin/plugin.json']) {
 			const path = join(root, name)
 			const contents = yield* fs.readFileString(path).pipe(Effect.orElseSucceed(() => null))
@@ -80,7 +77,7 @@ const readManifest = (
 export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.discover_plugin_skills')(function* (
 	options: GrokPluginOptions,
 ) {
-	const fs = fileSystemFor(options)
+	const fs = yield* FileSystem.FileSystem
 	const cwd = resolve(options.cwd)
 	const homeValue = options.home === undefined ? homedir() : options.home
 	const home = homeValue.length === 0 ? null : resolve(homeValue)
@@ -107,7 +104,7 @@ export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.d
 	const seenNames = new Set<string>()
 
 	for (const parent of pluginParents) {
-		const parentManifest = yield* readManifest(fs, parent)
+		const parentManifest = yield* readManifest(parent)
 		const candidates =
 			parentManifest === null
 				? (yield* fs.readDirectory(parent).pipe(Effect.orElseSucceed(() => [])))
@@ -119,7 +116,7 @@ export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.d
 			if (seenPaths.has(normalized)) continue
 			seenPaths.add(normalized)
 			const manifest =
-				candidate === parent && parentManifest !== null ? parentManifest : yield* readManifest(fs, candidate)
+				candidate === parent && parentManifest !== null ? parentManifest : yield* readManifest(candidate)
 			if (manifest !== null && !isRecord(manifest.value)) {
 				diagnostics.push({ stage: 'manifest', code: 'manifest_parse_failed', path: manifest.path })
 				continue
