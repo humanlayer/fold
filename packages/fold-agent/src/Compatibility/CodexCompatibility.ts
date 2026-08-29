@@ -1,8 +1,7 @@
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
 
 import type { SkillSourceService } from '@humanlayer/fold-core'
-import { Effect } from 'effect'
+import { Effect, Path } from 'effect'
 
 import { loadCodexInstructions, renderCodexInstructions, type CodexInstructionSource } from './CodexInstructions'
 import { discoverCodexPluginSkillRoots, type CodexPluginDiagnostic } from './CodexPlugins'
@@ -19,8 +18,9 @@ export type CodexCompatibility = {
 
 export const loadCodexCompatibility = (options: CodexCompatibilityOptions) =>
 	Effect.gen(function* () {
+		const path = yield* Path.Path
 		const homeValue = options.home === undefined ? homedir() : options.home
-		const codexHome = resolve(options.codexHome ?? join(homeValue, '.codex'))
+		const codexHome = path.resolve(options.codexHome ?? path.join(homeValue, '.codex'))
 		const plugins = yield* discoverCodexPluginSkillRoots({ codexHome })
 		const instructions = yield* loadCodexInstructions(options)
 		const skills = yield* makeCodexSkillSource({

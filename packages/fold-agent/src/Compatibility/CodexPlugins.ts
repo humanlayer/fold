@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
-import { join, resolve } from 'node:path'
 
-import { Effect, FileSystem, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 export const CodexPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['config', 'cache', 'manifest']),
@@ -108,26 +107,27 @@ const safeRelativeSkillRoot = (value: unknown): string | null => {
 export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
 		const diagnostics: Array<CodexPluginDiagnostic> = []
-		const configPath = join(options.codexHome, 'config.toml')
+		const configPath = path.join(options.codexHome, 'config.toml')
 		const config = yield* fs.readFileString(configPath).pipe(Effect.catch(() => Effect.succeed('')))
 		const roots: Array<CodexPluginSkillRoot> = []
 		for (const plugin of parseEnabledPlugins(config)) {
 			const identity = `${plugin.name}@${plugin.marketplace}`
-			const cachePath = join(options.codexHome, 'plugins', 'cache', plugin.marketplace, plugin.name)
+			const cachePath = path.join(options.codexHome, 'plugins', 'cache', plugin.marketplace, plugin.name)
 			const entries = yield* fs.readDirectory(cachePath).pipe(Effect.catch(() => Effect.succeed([])))
 			const directories: Array<string> = []
 			for (const entry of entries) {
-				const info = yield* fs.stat(join(cachePath, entry)).pipe(Effect.catch(() => Effect.succeed(null)))
+				const info = yield* fs.stat(path.join(cachePath, entry)).pipe(Effect.catch(() => Effect.succeed(null)))
 				if (info?.type === 'Directory') directories.push(entry)
 			}
 			const version = selectedVersion(directories)
 			if (version === null) continue
-			const bundle = resolve(cachePath, version)
+			const bundle = path.resolve(cachePath, version)
 			let manifest: unknown = null
 			let manifestPath = ''
 			for (const relativePath of ['plugin.json', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json']) {
-				const candidate = join(bundle, relativePath)
+				const candidate = path.join(bundle, relativePath)
 				const contents = yield* fs.readFileString(candidate).pipe(Effect.catch(() => Effect.succeed(null)))
 				if (contents === null) continue
 				manifestPath = candidate
@@ -158,7 +158,7 @@ export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 				}
 				roots.push({
 					name: plugin.name,
-					path: resolve(bundle, relativeRoot),
+					path: path.resolve(bundle, relativeRoot),
 					identityToken: token('plugin', identity),
 					versionToken: token('version', version),
 				})

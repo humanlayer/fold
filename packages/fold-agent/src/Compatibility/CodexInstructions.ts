@@ -1,7 +1,6 @@
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
 
-import { Effect, FileSystem, Schema } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 
 export const CodexInstructionSource = Schema.Struct({
 	path: Schema.String,
@@ -27,58 +26,66 @@ const readNonEmpty = (path: string): Effect.Effect<CodexInstructionSource | null
 		)
 	})
 
-const isAncestor = (ancestor: string, path: string): boolean => {
-	let current = path
-	while (true) {
-		if (current === ancestor) return true
-		const parent = dirname(current)
-		if (parent === current) return false
-		current = parent
-	}
-}
+const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean, never, Path.Path> =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		let current = candidate
+		while (true) {
+			if (current === ancestor) return true
+			const parent = path.dirname(current)
+			if (parent === current) return false
+			current = parent
+		}
+	})
 
-const directoriesToBoundary = (cwd: string, home: string | null): ReadonlyArray<string> => {
-	const directories: Array<string> = []
-	const boundary = home !== null && isAncestor(home, cwd) ? home : null
-	let current = cwd
-	while (true) {
-		directories.push(current)
-		if (current === boundary) break
-		const parent = dirname(current)
-		if (parent === current) break
-		current = parent
-	}
-	return directories.reverse()
-}
+const directoriesToBoundary = (
+	cwd: string,
+	home: string | null,
+): Effect.Effect<ReadonlyArray<string>, never, Path.Path> =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		const directories: Array<string> = []
+		const boundary = home !== null && (yield* isAncestor(home, cwd)) ? home : null
+		let current = cwd
+		while (true) {
+			directories.push(current)
+			if (current === boundary) break
+			const parent = path.dirname(current)
+			if (parent === current) break
+			current = parent
+		}
+		return directories.reverse()
+	})
 
 export const loadCodexInstructions = (
 	options: CodexInstructionOptions,
-): Effect.Effect<ReadonlyArray<CodexInstructionSource>, never, FileSystem.FileSystem> =>
+): Effect.Effect<ReadonlyArray<CodexInstructionSource>, never, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* () {
-		const cwd = resolve(options.cwd)
+		const path = yield* Path.Path
+		const cwd = path.resolve(options.cwd)
 		const home = options.home === undefined ? homedir() : options.home
-		const resolvedHome = home.length === 0 ? null : resolve(home)
-		const codexHome = resolve(options.codexHome ?? join(resolvedHome ?? homedir(), '.codex'))
+		const resolvedHome = home.length === 0 ? null : path.resolve(home)
+		const codexHome = path.resolve(options.codexHome ?? path.join(resolvedHome ?? homedir(), '.codex'))
 		const sources: Array<CodexInstructionSource> = []
 
 		for (const name of ['AGENTS.override.md', 'AGENTS.md']) {
-			const source = yield* readNonEmpty(join(codexHome, name))
+			const source = yield* readNonEmpty(path.join(codexHome, name))
 			if (source !== null) {
 				sources.push({ ...source, scope: 'global' })
 				break
 			}
 		}
 
-		for (const directory of directoriesToBoundary(cwd, resolvedHome)) {
-			const override = yield* readNonEmpty(join(directory, 'AGENTS.override.md'))
+		for (const directory of yield* directoriesToBoundary(cwd, resolvedHome)) {
+			const override = yield* readNonEmpty(path.join(directory, 'AGENTS.override.md'))
 			if (override !== null) {
 				sources.push(override)
 				continue
 			}
 
-			const base = yield* readNonEmpty(join(directory, 'AGENTS.md'))
+			const base = yield* readNonEmpty(path.join(directory, 'AGENTS.md'))
 			if (base !== null) sources.push(base)
-			const local = yield* readNonEmpty(join(directory, 'AGENTS.local.md'))
+			const local = yield* readNonEmpty(path.join(directory, 'AGENTS.local.md'))
 			if (local !== null) sources.push(local)
 		}
 
