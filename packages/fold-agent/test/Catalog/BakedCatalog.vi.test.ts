@@ -28,6 +28,15 @@ const openAiTerra: ActiveModel = {
 	reasoning: { _tag: 'effort', effort: 'max' },
 }
 
+const xaiGrok: ActiveModel = {
+	providerId: 'xai',
+	providerKind: 'openai-compatible',
+	modelId: 'grok-4.6',
+	role: null,
+	requestedReasoningLevel: 'xhigh',
+	reasoning: { _tag: 'effort', effort: 'xhigh' },
+}
+
 it('resolves a codex-kind gpt-5.6-sol to the baked openai entry', () => {
 	const entry = lookupCatalogEntry(bakedModelCatalog, codexSol)
 
@@ -50,4 +59,16 @@ it('resolves an openai-compatible gpt-5.6-terra to the baked openai entry', () =
 	expect(entry?.pricing?.inputPerMTokens).toBe(2.5)
 	expect(entry?.pricing?.outputPerMTokens).toBe(15)
 	expect(entry?.reasoningEfforts).toContain('max')
+})
+
+it('resolves the supported Grok model to the baked xAI entry', () => {
+	const entry = lookupCatalogEntry(bakedModelCatalog, xaiGrok)
+
+	expect(entry).not.toBeNull()
+	expect(entry?.providerId).toBe('xai')
+	expect(entry?.modelId).toBe('grok-4.6')
+	expect(entry?.contextWindow).toBe(500_000)
+	expect(entry?.pricing?.inputPerMTokens).toBe(2)
+	expect(entry?.pricing?.outputPerMTokens).toBe(6)
+	expect(entry?.reasoningEfforts).toContain('xhigh')
 })
