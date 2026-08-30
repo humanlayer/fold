@@ -1,8 +1,3 @@
-/**
- * Engine tests for fork mode (D21): the fork clones the caller's model binding and toolset, and inherits
- * only completed conversation history. It omits the active parent tool-call turn because its result is
- * the child run itself, so including it would create an invalid provider request.
- */
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect } from 'effect'
 
@@ -32,9 +27,7 @@ it.effect('a fork inherits completed context without its invoking tool call', ()
 		if (forkStarted === undefined) throw new Error('expected the fork to have started')
 
 		// Fork provenance: mode, no agentType, fromAgentId = the caller, atSeq = the observed head
-		// (the caller's assistant tool-call row, appended just before settlement began). This direct
-		// engine call leaves `history` absent to cover legacy persisted forks, which also use the
-		// completed-history default.
+		// (the caller's assistant tool-call row, appended just before settlement began).
 		expect(forkStarted.mode).toBe('fork')
 		expect(forkStarted.agentType).toBeNull()
 		const rootStarted = entries.find(
@@ -56,9 +49,6 @@ it.effect('a fork inherits completed context without its invoking tool call', ()
 		)
 		expect(forkSystemMessages).toHaveLength(0)
 
-		// The fork carries no new leading system message, but its first request omits the parent user turn
-		// and assistant tool-call turn that invoked it. This prevents a provider request from containing a
-		// function call whose output cannot exist until the child completes.
 		const prompts = yield* rootScripted.scripted.prompts
 		const forkRequest = prompts[1]
 		if (forkRequest === undefined) throw new Error('expected fork request')

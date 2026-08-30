@@ -178,9 +178,6 @@ export const subagentTool = (
 									prompt: forkCommand.prompt,
 									skill: forkCommand.skill,
 									forkAgentDefinitionId: options?.forkAgent?.id ?? null,
-									// The current parent assistant message contains this tool call, but its
-									// result cannot exist until this child finishes. Fork only completed
-									// conversation turns so the child never receives that dangling call.
 									history: 'all',
 								})
 								.pipe(

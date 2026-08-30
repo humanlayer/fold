@@ -170,9 +170,6 @@ const entriesForAgentInternal = (
 		(entry) => entry.seq <= fork.atSeq,
 	)
 
-	// Legacy fork entries did not persist a history selector. Treat them as completed-history forks too:
-	// the parent tool result that launched a fork cannot exist until that child finishes, so inheriting
-	// the active assistant tool-call row would make the child's first provider request invalid.
 	const inheritedEntries = eligibleForkHistory(parentEntries, fork.history ?? 'all')
 	return [...inheritedEntries, ...ownEntries].sort(compareSeq)
 }
