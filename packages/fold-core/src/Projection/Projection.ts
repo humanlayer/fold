@@ -170,8 +170,7 @@ const entriesForAgentInternal = (
 		(entry) => entry.seq <= fork.atSeq,
 	)
 
-	const inheritedEntries =
-		fork.history === undefined ? parentEntries : eligibleForkHistory(parentEntries, fork.history)
+	const inheritedEntries = eligibleForkHistory(parentEntries, fork.history ?? 'all')
 	return [...inheritedEntries, ...ownEntries].sort(compareSeq)
 }
 

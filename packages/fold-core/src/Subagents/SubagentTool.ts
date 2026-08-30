@@ -178,6 +178,7 @@ export const subagentTool = (
 									prompt: forkCommand.prompt,
 									skill: forkCommand.skill,
 									forkAgentDefinitionId: options?.forkAgent?.id ?? null,
+									history: 'all',
 								})
 								.pipe(
 									Effect.catchTag('SkillNotFoundError', (error) =>
