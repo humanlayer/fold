@@ -294,8 +294,10 @@ export const subagentToolContract = {
 	description:
 		'Delegate work to a subagent with its own context window. Dispatch a fresh subagent by agent ' +
 		'type, resume a previous one by agent_id (its context is preserved across completions, errors, ' +
-		'and interruptions), or fork a copy of your own context. The result reports the agent_id, the ' +
-		'turns taken, and the final output.',
+		'and interruptions), or fork a copy of your own context. Exactly one selector must be active: a ' +
+		'non-empty agent, a non-empty agent_id, or fork=true. Leave inactive selectors unset or null; do ' +
+		'not use empty strings or false as placeholders. The result reports the agent_id, the turns taken, ' +
+		'and the final output.',
 	parameters: SubagentParameters,
 	success: SubagentSuccess,
 	failure: SubagentFailure,

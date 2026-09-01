@@ -45,7 +45,13 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 				{
 					id: 'provider-call-1',
 					name: 'subagent',
-					params: { description: 'map module', prompt: 'map the module', agent: 'researcher' },
+					params: {
+						description: 'map module',
+						prompt: 'map the module',
+						agent: 'researcher',
+						agent_id: '',
+						fork: false,
+					},
 				},
 			]),
 			textTurn('synthesized'),
@@ -73,7 +79,13 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 				{
 					id: 'provider-call-2',
 					name: 'subagent',
-					params: { description: 'follow up', prompt: 'keep going', agent_id: shortAgentId(started.agentId) },
+					params: {
+						description: 'follow up',
+						prompt: 'keep going',
+						agent: '',
+						agent_id: shortAgentId(started.agentId),
+						fork: false,
+					},
 				},
 			]),
 			textTurn('synthesized again'),
@@ -119,7 +131,14 @@ it.effect('the public fork wire persists completed-history selection', () =>
 				{
 					id: 'provider-call-1',
 					name: 'subagent',
-					params: { description: 'inspect context', prompt: 'inspect the completed context', fork: true },
+					params: {
+						description: 'inspect context',
+						prompt: 'inspect the completed context',
+						agent: '',
+						agent_id: '',
+						fork: true,
+						skill: '',
+					},
 				},
 			]),
 			textTurn('fork findings'),
@@ -163,7 +182,13 @@ it.effect('malformed wire commands come back as instructive tool failures the mo
 				{
 					id: 'provider-call-1',
 					name: 'subagent',
-					params: { description: 'oops', prompt: 'do something' },
+					params: {
+						description: 'oops',
+						prompt: 'do something',
+						agent: '',
+						agent_id: '',
+						fork: false,
+					},
 				},
 			]),
 			toolCallTurn([
