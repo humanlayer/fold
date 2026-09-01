@@ -110,14 +110,9 @@ export const makeOpenCodeLanguageModel = (
 	Effect.gen(function* () {
 		const httpContext = yield* Layer.build(FetchHttpClient.layer)
 		const http = Context.get(httpContext, HttpClient.HttpClient)
-		const authOptions =
-			options.store === undefined
-				? options.consoleUrl === undefined
-					? {}
-					: { server: options.consoleUrl }
-				: options.consoleUrl === undefined
-					? { store: options.store }
-					: { store: options.store, server: options.consoleUrl }
+		const authOptions: { store?: OpenCodeAuthStore; server?: string } = {}
+		if (options.store !== undefined) authOptions.store = options.store
+		if (options.consoleUrl !== undefined) authOptions.server = options.consoleUrl
 		const auth = yield* makeOpenCodeAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, http))
 		const authenticated = withOpenCodeAuth(http, auth)
 		const requestedModel = options.model ?? DEFAULT_OPENCODE_MODEL_ID

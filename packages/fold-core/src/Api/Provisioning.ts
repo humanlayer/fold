@@ -42,6 +42,8 @@ import { makeToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
 import type { FoldModel } from './ModelDescriptor'
 import type { RealizedFoldTool, FoldTool } from './ToolDefinition'
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 const anthropicDecoderModelFor = (modelId: string): string | null => {
 	const id = modelId.toLowerCase()
 	if (id.includes('opus')) return id === 'claude-opus-4-6' ? null : 'claude-opus-4-6'
@@ -101,26 +103,22 @@ export const languageModelLayerFor = (model: FoldModel): Layer.Layer<LanguageMod
 
 	return Match.valueTags(provider, {
 		'openai-compatible': (connection) => {
-			const clientOptions =
-				connection.baseUrl === null
-					? { apiKey: connection.apiKey }
-					: { apiKey: connection.apiKey, apiUrl: connection.baseUrl }
+			const clientOptions: Mutable<Parameters<typeof OpenAiClient.layer>[0]> = { apiKey: connection.apiKey }
+			if (connection.baseUrl !== null) {
+				clientOptions.apiUrl = connection.baseUrl
+			}
 			const clientLayer = OpenAiClient.layer(clientOptions).pipe(Layer.provide(FetchHttpClient.layer))
 
 			return OpenAiLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
 		},
 		anthropic: (connection) => {
-			const clientOptions =
-				connection.baseUrl === null
-					? {
-							apiKey: connection.apiKey,
-							transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
-						}
-					: {
-							apiKey: connection.apiKey,
-							transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
-							apiUrl: connection.baseUrl,
-						}
+			const clientOptions: Mutable<Parameters<typeof AnthropicClient.layer>[0]> = {
+				apiKey: connection.apiKey,
+				transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
+			}
+			if (connection.baseUrl !== null) {
+				clientOptions.apiUrl = connection.baseUrl
+			}
 			const clientLayer = AnthropicClient.layer(clientOptions).pipe(Layer.provide(FetchHttpClient.layer))
 
 			return AnthropicLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))

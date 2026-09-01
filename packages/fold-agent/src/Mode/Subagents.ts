@@ -153,11 +153,11 @@ export const WEB_SEARCH_RESEARCHER_PROMPT: string =
  * binds its model by profile role, resolved through the session's profiles map at each dispatch.
  */
 export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
-	const toolOptions = outputStore === undefined ? { cwd } : { cwd, outputStore }
+	const toolOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
+	if (outputStore !== undefined) toolOptions.outputStore = outputStore
 	const coding = codingTools(toolOptions)
 	const skills = skillTool(skillsFromDisk({ cwd }))
 	const web = webTools()
-	const bashOptions = toolOptions
 
 	const bash = defineSubagent({
 		name: 'bash',
@@ -165,7 +165,7 @@ export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): R
 			'Run shell commands (builds, tests, git, rg searches) and report the commands, exit status, and ' +
 			'the output that matters. Use it to execute something without spending your own context on raw output.',
 		systemPrompt: BASH_SUBAGENT_PROMPT,
-		tools: [bashTool(bashOptions)],
+		tools: [bashTool(toolOptions)],
 		model: 'fast',
 	})
 
@@ -177,7 +177,7 @@ export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): R
 			'Locate code and explain how it works, returning a structured report with file:line references. ' +
 			'Use it for "where is X" and "how does Y work" questions that would otherwise require reading many files.',
 		systemPrompt: [RESEARCHER_SUBAGENT_PROMPT, AST_GREP_OUTLINE_GUIDANCE],
-		tools: [readTool({ cwd }), bashTool(bashOptions), skills],
+		tools: [readTool({ cwd }), bashTool(toolOptions), skills],
 		model: 'fast',
 	})
 

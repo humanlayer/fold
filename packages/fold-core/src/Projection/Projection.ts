@@ -73,6 +73,8 @@ export type ProjectedMessage =
 
 const ProjectedMessage = Data.taggedEnum<ProjectedMessage>()
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 /** Tool-owned key/value state for one agent namespace, built by folding tool_state entries in log order. */
 export type ToolStateProjection = Readonly<Record<string, unknown>>
 
@@ -387,24 +389,17 @@ export const messagesForAgent = (
 	}
 
 	if (compaction !== null) {
-		const summary =
-			compaction.postCompactionInstructions === undefined
-				? ProjectedMessage['compaction-summary']({
-						sourceSeq: compaction.seq,
-						compactionId: compaction.compactionId,
-						replacesThroughSeq: compaction.replacesThroughSeq,
-						summary: compaction.summary,
-						tokensBefore: compaction.tokensBefore,
-					})
-				: ProjectedMessage['compaction-summary']({
-						sourceSeq: compaction.seq,
-						compactionId: compaction.compactionId,
-						replacesThroughSeq: compaction.replacesThroughSeq,
-						summary: compaction.summary,
-						postCompactionInstructions: compaction.postCompactionInstructions,
-						tokensBefore: compaction.tokensBefore,
-					})
-		projected.push(summary)
+		const summaryInput: Mutable<Parameters<(typeof ProjectedMessage)['compaction-summary']>[0]> = {
+			sourceSeq: compaction.seq,
+			compactionId: compaction.compactionId,
+			replacesThroughSeq: compaction.replacesThroughSeq,
+			summary: compaction.summary,
+			tokensBefore: compaction.tokensBefore,
+		}
+		if (compaction.postCompactionInstructions !== undefined) {
+			summaryInput.postCompactionInstructions = compaction.postCompactionInstructions
+		}
+		projected.push(ProjectedMessage['compaction-summary'](summaryInput))
 	}
 
 	for (const entry of visibleEntries) {

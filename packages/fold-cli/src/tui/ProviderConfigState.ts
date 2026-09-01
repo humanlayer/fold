@@ -100,14 +100,15 @@ export const providerFormFor = (configuration: ModelConfiguration, name: string)
 	const provider = configuration.providers.find((candidate) => candidate.name === name)
 	if (provider === undefined) return emptyProviderForm()
 	const fallback = defaults(provider.kind)
-	const form = {
+	const form: Mutable<ProviderForm> = {
 		kind: provider.kind,
 		name: provider.name,
 		baseUrl: provider.baseUrl ?? fallback.baseUrl,
 		apiKey: '',
 		model: provider.models[0] ?? fallback.model,
 	}
-	return provider.apiKeyEnv === null ? form : { ...form, apiKeyEnv: provider.apiKeyEnv }
+	if (provider.apiKeyEnv !== null) form.apiKeyEnv = provider.apiKeyEnv
+	return form
 }
 
 const nextKinds: Record<ProviderForm['kind'], ProviderForm['kind']> = {

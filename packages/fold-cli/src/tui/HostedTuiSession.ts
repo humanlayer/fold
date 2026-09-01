@@ -189,10 +189,13 @@ export const makeHostedTuiSession = (
 			if (selection._tag === 'profile') {
 				switchOptions.profile = selection.profile
 			} else {
-				switchOptions.modelSelection =
-					selection.reasoning === undefined
-						? { provider: selection.provider, model: selection.model }
-						: { provider: selection.provider, model: selection.model, reasoning: selection.reasoning }
+				const modelSelection: Mutable<NonNullable<Parameters<typeof switchSessionMode>[1]['modelSelection']>> =
+					{
+						provider: selection.provider,
+						model: selection.model,
+					}
+				if (selection.reasoning !== undefined) modelSelection.reasoning = selection.reasoning
+				switchOptions.modelSelection = modelSelection
 			}
 			run(
 				switchSessionMode(session, switchOptions).pipe(

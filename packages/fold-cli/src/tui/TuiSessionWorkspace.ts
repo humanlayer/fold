@@ -82,15 +82,15 @@ export const makeTuiSessionWorkspace = (options: {
 		const cwds = new Set([options.tui.cwd])
 		const cwdBySession = new Map<SessionId, string>()
 		const loadSummaries = Effect.suspend(() =>
-			Effect.forEach([...cwds], (cwd) =>
-				listSessionSummaries(
-					options.tui.foldHome === undefined ? { cwd } : { cwd, foldHome: options.tui.foldHome },
-				).pipe(
+			Effect.forEach([...cwds], (cwd) => {
+				const summaryOptions: Mutable<NonNullable<Parameters<typeof listSessionSummaries>[0]>> = { cwd }
+				if (options.tui.foldHome !== undefined) summaryOptions.foldHome = options.tui.foldHome
+				return listSessionSummaries(summaryOptions).pipe(
 					Effect.tap((rows) =>
 						Effect.sync(() => rows.forEach((row) => cwdBySession.set(row.sessionId, cwd))),
 					),
-				),
-			).pipe(
+				)
+			}).pipe(
 				Effect.map((groups) => {
 					const byId = new Map(groups.flat().map((summary) => [summary.sessionId, summary]))
 					return [...byId.values()]
@@ -266,10 +266,9 @@ export const makeTuiSessionWorkspace = (options: {
 				Effect.gen(function* () {
 					const cwd = host.get(sessionId)?.cwd ?? cwdBySession.get(sessionId) ?? options.tui.cwd
 					yield* host.close(sessionId)
-					const result = yield* deleteSession(
-						sessionId,
-						options.tui.foldHome === undefined ? { cwd } : { cwd, foldHome: options.tui.foldHome },
-					)
+					const deleteOptions: Mutable<NonNullable<Parameters<typeof deleteSession>[1]>> = { cwd }
+					if (options.tui.foldHome !== undefined) deleteOptions.foldHome = options.tui.foldHome
+					const result = yield* deleteSession(sessionId, deleteOptions)
 					setSummaries(yield* loadSummaries)
 					setNotice(
 						!result.deleted

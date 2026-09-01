@@ -2,20 +2,25 @@ import type { NewSessionRequest } from './NewSessionModal'
 import type { SessionRow } from './SessionListProjection'
 import type { TuiOptions } from './TuiSessionOptions'
 
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
 /** Build a fresh launch request without carrying process-level model, profile, or mode choices across sessions. */
 export const requestToLaunchOptions = (options: TuiOptions, request: NewSessionRequest): TuiOptions => {
 	const { profile: _profile, modelSelection: _modelSelection, mode: _mode, ...base } = options
+	const launch: Mutable<TuiOptions> = { ...base, cwd: request.cwd }
 	if (request._tag === 'profile') {
-		return request.profile === 'default'
-			? { ...base, cwd: request.cwd }
-			: { ...base, cwd: request.cwd, profile: request.profile }
+		if (request.profile !== 'default') launch.profile = request.profile
+		return launch
 	}
 
-	const modelSelection =
-		request.reasoning === undefined
-			? { provider: request.provider, model: request.model }
-			: { provider: request.provider, model: request.model, reasoning: request.reasoning }
-	return { ...base, cwd: request.cwd, modelSelection, mode: request.mode }
+	const modelSelection: Mutable<NonNullable<TuiOptions['modelSelection']>> = {
+		provider: request.provider,
+		model: request.model,
+	}
+	if (request.reasoning !== undefined) modelSelection.reasoning = request.reasoning
+	launch.modelSelection = modelSelection
+	launch.mode = request.mode
+	return launch
 }
 
 /** Resume with the durable session's model intent instead of the process's current model selection. */
@@ -25,22 +30,20 @@ export const sessionToLaunchOptions = (
 ): TuiOptions => {
 	const { profile: _profile, modelSelection: _modelSelection, mode: _mode, ...base } = options
 	const mode = session.mode === 'rlm' ? 'rlm' : 'default'
-	if (session.profile !== null && session.profile !== 'default') return { ...base, profile: session.profile, mode }
+	const launch: Mutable<TuiOptions> = { ...base, mode }
+	if (session.profile !== null && session.profile !== 'default') {
+		launch.profile = session.profile
+		return launch
+	}
 	const model = session.model
-	if (model === null) return { ...base, mode }
+	if (model === null) return launch
 
-	const modelSelection =
-		model.role === null || model.role === 'inherit'
-			? {
-					provider: model.providerId,
-					model: model.modelId,
-					reasoning: model.requestedReasoningLevel,
-				}
-			: {
-					provider: model.providerId,
-					model: model.modelId,
-					reasoning: model.requestedReasoningLevel,
-					role: model.role,
-				}
-	return { ...base, mode, modelSelection }
+	const modelSelection: Mutable<NonNullable<TuiOptions['modelSelection']>> = {
+		provider: model.providerId,
+		model: model.modelId,
+		reasoning: model.requestedReasoningLevel,
+	}
+	if (model.role !== null && model.role !== 'inherit') modelSelection.role = model.role
+	launch.modelSelection = modelSelection
+	return launch
 }

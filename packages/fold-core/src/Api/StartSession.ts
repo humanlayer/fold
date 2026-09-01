@@ -106,6 +106,8 @@ import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 /** Options for {@link startSession}. */
 export type StartSessionOptions = {
 	readonly agent: AgentDefinition
@@ -959,40 +961,22 @@ export const startSession = (
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const config = yield* Ref.get(graph.configRef)
-		const meta =
-			options.agent.name === undefined ? { ...options.meta } : { ...options.meta, agentName: options.agent.name }
-		const startInput: StartSessionInput =
-			options.agent.promptCacheKey === undefined
-				? options.sessionId === undefined
-					? {
-							cwd: options.cwd ?? null,
-							model: options.agent.model.activeModel,
-							systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-							meta,
-						}
-					: {
-							cwd: options.cwd ?? null,
-							model: options.agent.model.activeModel,
-							systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-							meta,
-							sessionId: options.sessionId,
-						}
-				: options.sessionId === undefined
-					? {
-							cwd: options.cwd ?? null,
-							model: options.agent.model.activeModel,
-							promptCacheKey: options.agent.promptCacheKey,
-							systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-							meta,
-						}
-					: {
-							cwd: options.cwd ?? null,
-							model: options.agent.model.activeModel,
-							promptCacheKey: options.agent.promptCacheKey,
-							systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-							meta,
-							sessionId: options.sessionId,
-						}
+		const meta: Mutable<NonNullable<StartSessionInput['meta']>> = { ...options.meta }
+		if (options.agent.name !== undefined) {
+			meta.agentName = options.agent.name
+		}
+		const startInput: Mutable<StartSessionInput> = {
+			cwd: options.cwd ?? null,
+			model: options.agent.model.activeModel,
+			systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
+			meta,
+		}
+		if (options.agent.promptCacheKey !== undefined) {
+			startInput.promptCacheKey = options.agent.promptCacheKey
+		}
+		if (options.sessionId !== undefined) {
+			startInput.sessionId = options.sessionId
+		}
 
 		const started = yield* graph.session.start(startInput).pipe(Effect.orDie)
 

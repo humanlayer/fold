@@ -39,14 +39,16 @@ const unavailableError = (
 	})
 
 const corruptEntryError = (line: number, message: string, cause?: unknown, seq?: number) => {
-	if (seq === undefined) {
-		return cause === undefined
-			? new EventLogCorruptEntryError({ operation: 'entries', message, line })
-			: new EventLogCorruptEntryError({ operation: 'entries', message, line, cause })
-	}
-	return cause === undefined
-		? new EventLogCorruptEntryError({ operation: 'entries', message, line, seq })
-		: new EventLogCorruptEntryError({ operation: 'entries', message, line, seq, cause })
+	const input: {
+		operation: 'entries'
+		message: string
+		line: number
+		seq?: number
+		cause?: unknown
+	} = { operation: 'entries', message, line }
+	if (seq !== undefined) input.seq = seq
+	if (cause !== undefined) input.cause = cause
+	return new EventLogCorruptEntryError(input)
 }
 
 const invalidEntryError = (message: string, cause: unknown) =>

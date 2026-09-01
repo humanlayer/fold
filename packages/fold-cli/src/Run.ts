@@ -115,10 +115,9 @@ const openSession = (
 ): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
-		const logPath =
-			options.foldHome === undefined
-				? sessionLogPathFor(session.sessionId, { cwd: options.cwd })
-				: sessionLogPathFor(session.sessionId, { cwd: options.cwd, foldHome: options.foldHome })
+		const logOptions: Mutable<NonNullable<Parameters<typeof sessionLogPathFor>[1]>> = { cwd: options.cwd }
+		if (options.foldHome !== undefined) logOptions.foldHome = options.foldHome
+		const logPath = sessionLogPathFor(session.sessionId, logOptions)
 
 		return {
 			session,
@@ -280,11 +279,14 @@ const withProcessSignals = <A, E, R>(
  * absent), and the regenerated `config.schema.json` + `FOLD_INFO.md`. Never fails a run - a broken
  * home surfaces as the launch's own config error moments later.
  */
-const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void, never, FileSystem.FileSystem> =>
-	bootstrapFoldHome(options.foldHome === undefined ? {} : { foldHome: options.foldHome }).pipe(
+const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void, never, FileSystem.FileSystem> => {
+	const bootstrapOptions: Mutable<NonNullable<Parameters<typeof bootstrapFoldHome>[0]>> = {}
+	if (options.foldHome !== undefined) bootstrapOptions.foldHome = options.foldHome
+	return bootstrapFoldHome(bootstrapOptions).pipe(
 		Effect.asVoid,
 		Effect.catchCause(() => Effect.void),
 	)
+}
 
 const forkStartupEnsures = (
 	options: CliSessionOptions,

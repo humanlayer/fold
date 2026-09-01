@@ -406,11 +406,9 @@ const launchTui = (options: CliSessionOptions, catalog: ReadonlyArray<ModelCatal
 		}
 		yield* Effect.promise(() => import('@opentui/solid/preload'))
 		const module = yield* Effect.promise(() => import('./tui/Shell'))
-		const tui =
-			prompt === undefined
-				? module.runTui({ ...options, catalog })
-				: module.runTui({ ...options, catalog, prompt })
-		yield* tui.pipe(
+		const tuiOptions: Mutable<Parameters<typeof module.runTui>[0]> = { ...options, catalog }
+		if (prompt !== undefined) tuiOptions.prompt = prompt
+		yield* module.runTui(tuiOptions).pipe(
 			Effect.catchTags({
 				TuiRequiresTtyError: () =>
 					printFailure(
@@ -455,7 +453,9 @@ const sessions = Command.make(
 		Effect.gen(function* () {
 			const cwd = optionValue(input.cwd) ?? process.cwd()
 			const foldHome = optionValue(input.foldHome)
-			const sessions = yield* listSessionLogs(foldHome === undefined ? { cwd } : { cwd, foldHome })
+			const sessionOptions: Mutable<NonNullable<Parameters<typeof listSessionLogs>[0]>> = { cwd }
+			if (foldHome !== undefined) sessionOptions.foldHome = foldHome
+			const sessions = yield* listSessionLogs(sessionOptions)
 			if (sessions.length === 0) {
 				yield* Console.log(`No fold sessions for ${cwd}`)
 				return
@@ -525,10 +525,10 @@ const config = Command.make('config').pipe(
 							if (apiKey !== undefined) provider.apiKey = apiKey
 							if (apiKeyEnv !== undefined) provider.apiKeyEnv = apiKeyEnv
 							if (model !== undefined) provider.model = model
-							yield* configureProvider(provider, foldHome === undefined ? {} : { foldHome })
-							yield* Console.log(
-								`Saved provider "${input.name}" in ${configPathFor(foldHome === undefined ? {} : { foldHome })}`,
-							)
+							const configOptions: Mutable<NonNullable<Parameters<typeof configureProvider>[1]>> = {}
+							if (foldHome !== undefined) configOptions.foldHome = foldHome
+							yield* configureProvider(provider, configOptions)
+							yield* Console.log(`Saved provider "${input.name}" in ${configPathFor(configOptions)}`)
 						}),
 				).pipe(
 					Command.withDescription('Add or replace an Anthropic/OpenAI-compatible URL and credential'),
@@ -545,7 +545,9 @@ const config = Command.make('config').pipe(
 		Command.make('init', { foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
 				const foldHome = optionValue(input.foldHome)
-				const result = yield* configInit(foldHome === undefined ? {} : { foldHome })
+				const configOptions: Mutable<NonNullable<Parameters<typeof configInit>[0]>> = {}
+				if (foldHome !== undefined) configOptions.foldHome = foldHome
+				const result = yield* configInit(configOptions)
 				yield* Console.log(`${result.createdConfig ? 'Created' : 'Found'} ${result.configPath}`)
 				yield* Console.log(`${result.createdAuth ? 'Created' : 'Found'} ${result.authPath}`)
 				yield* Console.log(`Wrote ${result.schemaPath}`)
@@ -555,8 +557,10 @@ const config = Command.make('config').pipe(
 		Command.make('validate', { foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
 				const foldHome = optionValue(input.foldHome)
-				yield* loadFoldConfig(foldHome === undefined ? {} : { foldHome })
-				yield* Console.log(`Valid ${configPathFor(foldHome === undefined ? {} : { foldHome })}`)
+				const configOptions: Mutable<NonNullable<Parameters<typeof loadFoldConfig>[0]>> = {}
+				if (foldHome !== undefined) configOptions.foldHome = foldHome
+				yield* loadFoldConfig(configOptions)
+				yield* Console.log(`Valid ${configPathFor(configOptions)}`)
 			}),
 		).pipe(Command.withDescription('Validate ~/.fold/config.jsonc')),
 	]),

@@ -662,10 +662,11 @@ export const rpiSubagents = ({
 	delegates,
 }: RpiSubagentOptions): ReadonlyArray<SubagentDefinition> => {
 	const read = readTool({ cwd })
-	const bashOptions = outputStore === undefined ? { cwd } : { cwd, outputStore }
-	const bash = bashTool(bashOptions)
+	const toolOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
+	if (outputStore !== undefined) toolOptions.outputStore = outputStore
+	const bash = bashTool(toolOptions)
 	const readAndBash = [read, bash]
-	const coding = codingTools(bashOptions)
+	const coding = codingTools(toolOptions)
 	const implementerDelegates = subagentTool([delegates.bash, delegates.generalPurpose])
 
 	const codebaseLocator = defineSubagent({
@@ -764,7 +765,8 @@ const delegateByName = (roster: ReadonlyArray<SubagentDefinition>, name: string)
  * Shared by `defaultCodingMode` and `rlmMode` so the roster composition never diverges between modes.
  */
 export const modeSubagents = ({ cwd, outputStore, rpi }: ModeSubagentOptions): ReadonlyArray<SubagentDefinition> => {
-	const rosterOptions = outputStore === undefined ? { cwd } : { cwd, outputStore }
+	const rosterOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
+	if (outputStore !== undefined) rosterOptions.outputStore = outputStore
 	const roster = defaultSubagents(rosterOptions)
 	if (!rpi) return roster
 
@@ -772,16 +774,11 @@ export const modeSubagents = ({ cwd, outputStore, rpi }: ModeSubagentOptions): R
 		bash: delegateByName(roster, 'bash'),
 		generalPurpose: delegateByName(roster, 'general-purpose'),
 	}
-	const specialistOptions =
-		outputStore === undefined
-			? {
-					cwd,
-					delegates,
-				}
-			: {
-					cwd,
-					outputStore,
-					delegates,
-				}
+	const specialistOptions: {
+		cwd: string
+		outputStore?: OutputStoreService
+		delegates: RpiSubagentOptions['delegates']
+	} = { cwd, delegates }
+	if (outputStore !== undefined) specialistOptions.outputStore = outputStore
 	return [...roster, ...rpiSubagents(specialistOptions)]
 }

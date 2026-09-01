@@ -93,10 +93,11 @@ const profileBindings = (profile: ProfileConfig): ReadonlyArray<RoleBinding> => 
 
 /** Substitute one profile's roles as the config's active roles (what --profile does at launch). */
 const withProfileRoles = (config: FoldConfig, profile: ProfileConfig): FoldConfig => {
-	const roles =
-		profile.orchestrator === undefined
-			? { smart: profile.smart, fast: profile.fast }
-			: { smart: profile.smart, fast: profile.fast, orchestrator: profile.orchestrator }
+	const roles: { smart: RoleBinding; fast: RoleBinding; orchestrator?: RoleBinding } = {
+		smart: profile.smart,
+		fast: profile.fast,
+	}
+	if (profile.orchestrator !== undefined) roles.orchestrator = profile.orchestrator
 	return { ...config, roles }
 }
 

@@ -26,6 +26,8 @@ export type NewSessionRequest = { readonly cwd: string } & (
 	  }
 )
 
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
 const expandHome = (value: string): string =>
 	value === '~' ? homedir() : value.startsWith('~/') ? join(homedir(), value.slice(2)) : value
 
@@ -195,23 +197,14 @@ export const NewSessionModal = (props: {
 						if (selection._tag === 'profile') {
 							props.onSubmit({ _tag: 'profile', profile: selection.profile, cwd: cwd() })
 						} else if (selection.mode !== undefined) {
-							const request =
-								selection.reasoning === undefined
-									? {
-											_tag: 'direct' as const,
-											provider: selection.provider,
-											model: selection.model,
-											mode: selection.mode,
-											cwd: cwd(),
-										}
-									: {
-											_tag: 'direct' as const,
-											provider: selection.provider,
-											model: selection.model,
-											reasoning: selection.reasoning,
-											mode: selection.mode,
-											cwd: cwd(),
-										}
+							const request: Mutable<Extract<NewSessionRequest, { readonly _tag: 'direct' }>> = {
+								_tag: 'direct',
+								provider: selection.provider,
+								model: selection.model,
+								mode: selection.mode,
+								cwd: cwd(),
+							}
+							if (selection.reasoning !== undefined) request.reasoning = selection.reasoning
 							props.onSubmit(request)
 						}
 					}}

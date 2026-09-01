@@ -64,6 +64,18 @@ const TokenResponse = Schema.Struct({
 })
 
 type TokenResponse = typeof TokenResponse.Type
+type CodexTokenDataInput = {
+	type: 'oauth'
+	access: string
+	refresh: string
+	expires: number
+	accountId?: string
+}
+type CodexAuthErrorInput = {
+	reason: CodexAuthError['reason']
+	message: string
+	cause?: unknown
+}
 
 // --- JWT account-id extraction (clanka port) --------------------------------------------------------
 
@@ -156,21 +168,14 @@ const extractAccountId = (token: TokenResponse): string | undefined => {
 const toTokenData = (token: TokenResponse): Effect.Effect<CodexTokenData> =>
 	Effect.map(Clock.currentTimeMillis, (now) => {
 		const accountId = extractAccountId(token)
-
-		return accountId === undefined
-			? new CodexTokenData({
-					type: 'oauth',
-					access: token.access_token,
-					refresh: token.refresh_token,
-					expires: now + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1000,
-				})
-			: new CodexTokenData({
-					type: 'oauth',
-					access: token.access_token,
-					refresh: token.refresh_token,
-					expires: now + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1000,
-					accountId,
-				})
+		const data: CodexTokenDataInput = {
+			type: 'oauth',
+			access: token.access_token,
+			refresh: token.refresh_token,
+			expires: now + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1000,
+		}
+		if (accountId !== undefined) data.accountId = accountId
+		return new CodexTokenData(data)
 	})
 
 /** Carry an account id a token response omitted forward from the previous credential. */
@@ -202,25 +207,19 @@ export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.
 		}),
 	)
 
-const refreshError = (message: string, cause?: unknown) =>
-	cause === undefined
-		? new CodexAuthError({ reason: 'RefreshFailed', message })
-		: new CodexAuthError({ reason: 'RefreshFailed', message, cause })
+const authError = (reason: CodexAuthError['reason'], message: string, cause?: unknown): CodexAuthError => {
+	const options: CodexAuthErrorInput = { reason, message }
+	if (cause !== undefined) options.cause = cause
+	return new CodexAuthError(options)
+}
 
-const exchangeError = (message: string, cause?: unknown) =>
-	cause === undefined
-		? new CodexAuthError({ reason: 'TokenExchangeFailed', message })
-		: new CodexAuthError({ reason: 'TokenExchangeFailed', message, cause })
+const refreshError = (message: string, cause?: unknown) => authError('RefreshFailed', message, cause)
 
-const deviceFlowError = (message: string, cause?: unknown) =>
-	cause === undefined
-		? new CodexAuthError({ reason: 'DeviceFlowFailed', message })
-		: new CodexAuthError({ reason: 'DeviceFlowFailed', message, cause })
+const exchangeError = (message: string, cause?: unknown) => authError('TokenExchangeFailed', message, cause)
 
-const browserFlowError = (message: string, cause?: unknown) =>
-	cause === undefined
-		? new CodexAuthError({ reason: 'BrowserFlowFailed', message })
-		: new CodexAuthError({ reason: 'BrowserFlowFailed', message, cause })
+const deviceFlowError = (message: string, cause?: unknown) => authError('DeviceFlowFailed', message, cause)
+
+const browserFlowError = (message: string, cause?: unknown) => authError('BrowserFlowFailed', message, cause)
 
 /** Refresh an access token through the issuer. The client must come from {@link makeIssuerHttpClient}. */
 export const refreshAccessToken = Effect.fn('fold.codexAuth.refreshAccessToken')(function* (

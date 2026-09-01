@@ -1,6 +1,8 @@
 import type { ConfiguredModelSelection, ModelConfiguration, ProfileModeName } from '@humanlayer/fold-agent'
 import type { ReasoningLevel } from '@humanlayer/fold-core'
 
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
 export type ModelSelectionContext = 'active' | 'new-session'
 export type ModelSelectionRequest =
 	| { readonly _tag: 'profile'; readonly profile: string; readonly mode?: ProfileModeName }
@@ -23,12 +25,17 @@ export type ModelPickerState =
 	| { readonly _tag: 'mode'; readonly selection: StagedModelSelection; readonly reasoning?: ReasoningLevel }
 export type ModelPickerChoice = { readonly id: string; readonly label: string; readonly detail: string }
 
-export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection =>
-	request._tag === 'profile'
-		? request
-		: request.reasoning === undefined
-			? { _tag: 'direct', provider: request.provider, model: request.model }
-			: { _tag: 'direct', provider: request.provider, model: request.model, reasoning: request.reasoning }
+export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection => {
+	if (request._tag === 'profile') return request
+
+	const selection: Mutable<Extract<ConfiguredModelSelection, { readonly _tag: 'direct' }>> = {
+		_tag: 'direct',
+		provider: request.provider,
+		model: request.model,
+	}
+	if (request.reasoning !== undefined) selection.reasoning = request.reasoning
+	return selection
+}
 
 const REASONING_LEVELS: ReadonlyArray<{ id: ReasoningLevel; label: string; detail: string }> = [
 	{ id: 'off', label: 'Off', detail: 'No extended thinking' },
@@ -106,20 +113,25 @@ export const advanceModelPicker = (
 			return { _tag: 'model', provider: choice }
 		case 'model':
 			return { _tag: 'reasoning', selection: { _tag: 'direct', provider: state.provider, model: choice } }
-		case 'reasoning':
-			return choice === 'off'
-				? { _tag: 'mode', selection: state.selection }
-				: { _tag: 'mode', selection: state.selection, reasoning: toReasoningLevel(choice) }
-		case 'mode':
-			return state.selection._tag === 'profile'
-				? { ...state.selection, mode: choice === 'rlm' ? 'rlm' : 'default' }
-				: state.reasoning === undefined
-					? { ...state.selection, mode: choice === 'rlm' ? 'rlm' : 'default' }
-					: {
-							...state.selection,
-							reasoning: state.reasoning,
-							mode: choice === 'rlm' ? 'rlm' : 'default',
-						}
+		case 'reasoning': {
+			const next: Mutable<Extract<ModelPickerState, { readonly _tag: 'mode' }>> = {
+				_tag: 'mode',
+				selection: state.selection,
+			}
+			if (choice !== 'off') next.reasoning = toReasoningLevel(choice)
+			return next
+		}
+		case 'mode': {
+			const mode = choice === 'rlm' ? 'rlm' : 'default'
+			if (state.selection._tag === 'profile') return { ...state.selection, mode }
+
+			const selection: Mutable<Extract<ModelSelectionRequest, { readonly _tag: 'direct' }>> = {
+				...state.selection,
+				mode,
+			}
+			if (state.reasoning !== undefined) selection.reasoning = state.reasoning
+			return selection
+		}
 	}
 }
 export const retreatModelPicker = (state: ModelPickerState): ModelPickerState | null => {

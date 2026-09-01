@@ -7,6 +7,18 @@ import { Effect, Match, Predicate } from 'effect'
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
 
+type RoleBindingBuilder = {
+	provider: string
+	model?: string
+	reasoning?: NonNullable<RoleBinding['reasoning']>
+}
+
+type RolesBuilder = {
+	smart: RoleBinding
+	fast: RoleBinding
+	orchestrator?: RoleBinding
+}
+
 export type ProfileModelSelection = { readonly _tag: 'profile'; readonly profile: string }
 export type DirectModelSelection = {
 	readonly _tag: 'direct'
@@ -103,8 +115,10 @@ const rolesForProfile = (config: FoldConfig, name: string): FoldConfig['roles'] 
 	if (name === 'default') return config.roles
 	const profile = config.profiles?.[name]
 	if (profile === undefined) return null
-	if (profile.orchestrator === undefined) return { smart: profile.smart, fast: profile.fast }
-	return { smart: profile.smart, fast: profile.fast, orchestrator: profile.orchestrator }
+
+	const roles: RolesBuilder = { smart: profile.smart, fast: profile.fast }
+	if (profile.orchestrator !== undefined) roles.orchestrator = profile.orchestrator
+	return roles
 }
 
 type DirectProviderSelection = {
@@ -139,19 +153,15 @@ export const rolesForDirectProviderSelection = (
 	selection: DirectProviderSelection,
 ): FoldConfig['roles'] => {
 	const models = defaultModelsForProvider(config, selection)
-	const bindingFor = (role: ConfigRole): RoleBinding => {
+	const bindingFor = (role: ConfigRole): RoleBindingBuilder => {
 		const model = models[role]
-		return model === undefined ? { provider: selection.provider } : { provider: selection.provider, model }
+		const binding: RoleBindingBuilder = { provider: selection.provider }
+		if (model !== undefined) binding.model = model
+		return binding
 	}
-	const defaultRoot = bindingFor(rootRole)
-	const root: RoleBinding =
-		selection.model === undefined
-			? selection.reasoning === undefined
-				? defaultRoot
-				: { ...defaultRoot, reasoning: selection.reasoning }
-			: selection.reasoning === undefined
-				? { ...defaultRoot, model: selection.model }
-				: { ...defaultRoot, model: selection.model, reasoning: selection.reasoning }
+	const root = bindingFor(rootRole)
+	if (selection.model !== undefined) root.model = selection.model
+	if (selection.reasoning !== undefined) root.reasoning = selection.reasoning
 	return {
 		orchestrator: rootRole === 'orchestrator' ? root : bindingFor('orchestrator'),
 		smart: rootRole === 'smart' ? root : bindingFor('smart'),

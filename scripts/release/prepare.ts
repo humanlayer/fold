@@ -21,6 +21,19 @@ type PackageManifest = {
 	exports: Record<string, ExportValue>
 	bin?: Record<string, string>
 }
+type NativePackageManifest = {
+	name: string
+	version: string
+	description: string
+	license: string
+	repository: typeof repository
+	preferUnplugged: boolean
+	os: Array<string>
+	cpu: Array<string>
+	libc?: Array<string>
+	files: Array<string>
+	publishConfig: { access: string }
+}
 
 const rootManifest = await json<{ workspaces: { catalog: Record<string, string> } }>(join(root, 'package.json'))
 const catalog = rootManifest.workspaces.catalog
@@ -88,32 +101,19 @@ for (const target of targets) {
 	await mkdir(dest, { recursive: true })
 	await cp(join(source, 'bin'), join(dest, 'bin'), { recursive: true })
 	const [os, cpu, variant] = target
-	const manifest = variant.includes('musl')
-		? {
-				name,
-				version,
-				description: 'Platform binary for @humanlayer/fold',
-				license: 'MIT',
-				repository,
-				preferUnplugged: true,
-				os: [os === 'windows' ? 'win32' : os],
-				cpu: [cpu],
-				libc: ['musl'],
-				files: ['bin'],
-				publishConfig: { access: 'public' },
-			}
-		: {
-				name,
-				version,
-				description: 'Platform binary for @humanlayer/fold',
-				license: 'MIT',
-				repository,
-				preferUnplugged: true,
-				os: [os === 'windows' ? 'win32' : os],
-				cpu: [cpu],
-				files: ['bin'],
-				publishConfig: { access: 'public' },
-			}
+	const manifest: NativePackageManifest = {
+		name,
+		version,
+		description: 'Platform binary for @humanlayer/fold',
+		license: 'MIT',
+		repository,
+		preferUnplugged: true,
+		os: [os === 'windows' ? 'win32' : os],
+		cpu: [cpu],
+		files: ['bin'],
+		publishConfig: { access: 'public' },
+	}
+	if (variant.includes('musl')) manifest.libc = ['musl']
 	await Bun.write(join(dest, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
 	await cp(join(root, 'LICENSE'), join(dest, 'LICENSE'))
 }

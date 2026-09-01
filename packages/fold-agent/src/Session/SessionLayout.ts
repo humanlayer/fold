@@ -17,6 +17,8 @@ import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stre
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
 
+type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] }
+
 /** Options shared by the layout helpers. */
 export type SessionLayoutOptions = {
 	/** The project working directory the sessions belong to. Defaults to `process.cwd()`. */
@@ -335,12 +337,10 @@ export const listSessionSummaries = (
 				if (isCacheHit(cached, ref)) {
 					// Explicitly construct to ensure size conforms to SessionLogRef's optional semantics.
 					const summary = cached.summary
-					const sessionRef =
-						ref.size === undefined
-							? { sessionId: summary.sessionId, path: ref.path, mtimeMs: ref.mtimeMs }
-							: { sessionId: summary.sessionId, path: ref.path, mtimeMs: ref.mtimeMs, size: ref.size }
-					const cachedSummary = {
-						...sessionRef,
+					const cachedSummary: Mutable<SessionSummary> = {
+						sessionId: summary.sessionId,
+						path: ref.path,
+						mtimeMs: ref.mtimeMs,
 						title: summary.title,
 						status: summary.status,
 						turns: summary.turns,
@@ -352,6 +352,7 @@ export const listSessionSummaries = (
 						rpi: summary.rpi,
 						profile: summary.profile,
 					}
+					if (ref.size !== undefined) cachedSummary.size = ref.size
 					return Effect.succeed(cachedSummary)
 				}
 				return loadSessionSummary(ref).pipe(

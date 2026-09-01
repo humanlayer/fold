@@ -46,17 +46,11 @@ for (const target of selected) {
 	await mkdir(outdir, { recursive: true })
 	const bunTarget: Bun.CompileTarget = `bun-${os === 'windows' ? 'windows' : os}-${cpu}${variant.includes('baseline') ? '-baseline' : ''}${variant.includes('musl') ? '-musl' : ''}`
 	const bunfs = os === 'windows' ? 'B:/~BUN/root/' : '/$bunfs/root/'
-	const define =
-		os === 'linux'
-			? {
-					FOLD_VERSION: JSON.stringify(versionArg),
-					OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(bunfs + workerRelative),
-					'process.env.OPENTUI_LIBC': JSON.stringify(variant.includes('musl') ? 'musl' : 'glibc'),
-				}
-			: {
-					FOLD_VERSION: JSON.stringify(versionArg),
-					OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(bunfs + workerRelative),
-				}
+	const define: Record<string, string> = {
+		FOLD_VERSION: JSON.stringify(versionArg),
+		OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(bunfs + workerRelative),
+	}
+	if (os === 'linux') define['process.env.OPENTUI_LIBC'] = JSON.stringify(variant.includes('musl') ? 'musl' : 'glibc')
 	const result = await Bun.build({
 		entrypoints: [join(root, 'packages/fold-cli/src/cli.ts'), parserWorker],
 		plugins: [createSolidTransformPlugin()],

@@ -26,6 +26,8 @@ export type SubagentToolCapabilities = {
 	readonly forkAgent?: ForkAgentDefinition
 }
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 const capabilitiesBySubagentTool = new WeakMap<FoldTool, SubagentToolCapabilities>()
 
 /** Attach Fold's roster and fork behavior to any host-defined model-visible tool. */
@@ -207,7 +209,10 @@ export const subagentTool = (
 			}),
 	})
 
-	return options?.forkAgent === undefined
-		? withSubagentCapabilities(tool, { agents })
-		: withSubagentCapabilities(tool, { agents, ...options })
+	const capabilities: Mutable<SubagentToolCapabilities> = { agents }
+	if (options?.forkAgent !== undefined) {
+		capabilities.forkAgent = options.forkAgent
+	}
+
+	return withSubagentCapabilities(tool, capabilities)
 }

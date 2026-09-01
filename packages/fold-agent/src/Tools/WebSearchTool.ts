@@ -30,8 +30,9 @@ const resolveExaUrl = (options?: WebSearchToolOptions): string => {
 
 const resolveParallelHeaders = (options?: WebSearchToolOptions): Record<string, string> => {
 	const apiKey = options?.parallelApiKey ?? resolveEnv(options, 'PARALLEL_API_KEY')
-	if (apiKey === undefined || apiKey.length === 0) return { 'User-Agent': 'fold/1.0' }
-	return { 'User-Agent': 'fold/1.0', Authorization: `Bearer ${apiKey}` }
+	const headers: { 'User-Agent': string; Authorization?: string } = { 'User-Agent': 'fold/1.0' }
+	if (apiKey !== undefined && apiKey.length > 0) headers.Authorization = `Bearer ${apiKey}`
+	return headers
 }
 
 const checksum = (text: string): number => {
