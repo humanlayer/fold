@@ -19,13 +19,19 @@ export type GrokCompatibility = {
 export const loadGrokCompatibility = Effect.fn('fold.grok_compatibility.load')(function* (
 	options: GrokCompatibilityOptions,
 ) {
-	const pluginOptions = {
+	const pluginOptions: {
+		cwd: string
+		home?: string
+		grokHome?: string
+		projectRoot?: string
+		configuredPaths?: ReadonlyArray<string>
+	} = {
 		cwd: options.cwd,
-		...(options.home === undefined ? {} : { home: options.home }),
-		...(options.grokHome === undefined ? {} : { grokHome: options.grokHome }),
-		...(options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot }),
-		...(options.configuredPluginPaths === undefined ? {} : { configuredPaths: options.configuredPluginPaths }),
 	}
+	if (options.home !== undefined) pluginOptions.home = options.home
+	if (options.grokHome !== undefined) pluginOptions.grokHome = options.grokHome
+	if (options.projectRoot !== undefined) pluginOptions.projectRoot = options.projectRoot
+	if (options.configuredPluginPaths !== undefined) pluginOptions.configuredPaths = options.configuredPluginPaths
 	const plugins = yield* discoverGrokPluginSkillRoots(pluginOptions)
 	const instructions = yield* loadGrokInstructions(options)
 	const skills = yield* makeGrokSkillSource({

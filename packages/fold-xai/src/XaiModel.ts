@@ -76,9 +76,9 @@ export const makeXaiLanguageModel = (
 	Effect.gen(function* () {
 		const httpContext = yield* Layer.build(FetchHttpClient.layer)
 		const base = Context.get(httpContext, HttpClient.HttpClient)
-		const auth = yield* makeXaiAuth(options.store === undefined ? {} : { store: options.store }).pipe(
-			Effect.provideService(HttpClient.HttpClient, base),
-		)
+		const authOptions: { store?: XaiAuthStore } = {}
+		if (options.store !== undefined) authOptions.store = options.store
+		const auth = yield* makeXaiAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, base))
 		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl: options.apiUrl ?? XAI_API_URL })).pipe(
 			Effect.provideService(HttpClient.HttpClient, withXaiAuth(base, auth)),
 		)

@@ -101,6 +101,9 @@ export type SubagentToolWireParameters = {
 	readonly fork?: boolean
 }
 
+const nonEmptyOptionalString = (value: string | undefined): string | undefined =>
+	value === undefined || value.trim().length === 0 ? undefined : value
+
 /**
  * Parse the tool's flat wire parameters into exactly one {@link SubagentCommand}. The wire shape stays
  * flat because schema unions confuse models (D21 ruling); this is the single boundary where it becomes
@@ -111,8 +114,14 @@ export const parseSubagentCommand = (
 	params: SubagentToolWireParameters,
 ): Effect.Effect<SubagentCommand, InvalidSubagentCommandError> =>
 	Effect.gen(function* () {
-		const skill = params.skill ?? null
-		const selectorCount = [params.agent !== undefined, params.agent_id !== undefined, params.fork === true].filter(
+		// OpenAI-compatible providers expose optional fields as required nullable fields. Some models,
+		// notably Grok, use empty strings and false instead of null for inactive selectors. Normalize
+		// those placeholders at the semantic parsing boundary so they do not count as active selectors.
+		const description = nonEmptyOptionalString(params.description)
+		const skill = nonEmptyOptionalString(params.skill) ?? null
+		const agent = nonEmptyOptionalString(params.agent)
+		const agentIdRef = nonEmptyOptionalString(params.agent_id)
+		const selectorCount = [agent !== undefined, agentIdRef !== undefined, params.fork === true].filter(
 			Boolean,
 		).length
 
@@ -124,28 +133,41 @@ export const parseSubagentCommand = (
 			})
 		}
 
-		if (params.agent !== undefined) {
+		if (agent !== undefined) {
+			if (description === undefined) {
+				return DispatchSubagentCommand.make({
+					agent,
+					prompt: params.prompt,
+					skill,
+				})
+			}
 			return DispatchSubagentCommand.make({
-				agent: params.agent,
-				...(params.description === undefined ? {} : { description: params.description }),
+				agent,
+				description,
 				prompt: params.prompt,
 				skill,
 			})
 		}
 		if (params.fork === true) {
+			if (description === undefined) {
+				return ForkSubagentCommand.make({
+					prompt: params.prompt,
+					skill,
+				})
+			}
 			return ForkSubagentCommand.make({
-				...(params.description === undefined ? {} : { description: params.description }),
+				description,
 				prompt: params.prompt,
 				skill,
 			})
 		}
 
-		const agentId = yield* decodeAgentIdRef(params.agent_id).pipe(
+		const agentId = yield* decodeAgentIdRef(agentIdRef).pipe(
 			Effect.mapError(
 				() =>
 					new InvalidSubagentCommandError({
 						message:
-							`agent_id "${params.agent_id ?? ''}" is not a valid subagent id. Use the agent_id line ` +
+							`agent_id "${agentIdRef ?? ''}" is not a valid subagent id. Use the agent_id line ` +
 							`from a previous subagent result, or dispatch a fresh agent with the agent parameter.`,
 					}),
 			),

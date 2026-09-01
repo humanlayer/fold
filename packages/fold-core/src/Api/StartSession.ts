@@ -86,7 +86,7 @@ import {
 	type SteeringMode,
 } from '../Session/SessionControls'
 import { liveSessionLayer } from '../Session/SessionLayer'
-import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
+import { Session, type SessionService, type StartSessionInput, type StartedSession } from '../Session/SessionService'
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { StopConditions } from '../StopConditions/StopConditions'
 import { agentIdsFromEntries, resolveAgentIdRef } from '../Subagents/AgentIdRef'
@@ -105,6 +105,8 @@ import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
+
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 /** Options for {@link startSession}. */
 export type StartSessionOptions = {
@@ -959,20 +961,24 @@ export const startSession = (
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const config = yield* Ref.get(graph.configRef)
+		const meta: Mutable<NonNullable<StartSessionInput['meta']>> = { ...options.meta }
+		if (options.agent.name !== undefined) {
+			meta.agentName = options.agent.name
+		}
+		const startInput: Mutable<StartSessionInput> = {
+			cwd: options.cwd ?? null,
+			model: options.agent.model.activeModel,
+			systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
+			meta,
+		}
+		if (options.agent.promptCacheKey !== undefined) {
+			startInput.promptCacheKey = options.agent.promptCacheKey
+		}
+		if (options.sessionId !== undefined) {
+			startInput.sessionId = options.sessionId
+		}
 
-		const started = yield* graph.session
-			.start({
-				cwd: options.cwd ?? null,
-				model: options.agent.model.activeModel,
-				...(options.agent.promptCacheKey === undefined ? {} : { promptCacheKey: options.agent.promptCacheKey }),
-				systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-				meta: {
-					...options.meta,
-					...(options.agent.name === undefined ? {} : { agentName: options.agent.name }),
-				},
-				...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-			})
-			.pipe(Effect.orDie)
+		const started = yield* graph.session.start(startInput).pipe(Effect.orDie)
 
 		return makeSessionHandle(graph, started)
 	})

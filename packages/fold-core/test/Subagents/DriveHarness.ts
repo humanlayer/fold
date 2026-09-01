@@ -29,6 +29,8 @@ import {
 import { gptActiveModel, scriptedModel } from '../Api/ApiTestHelpers'
 import { textTurn, toolCallTurn, type ScriptedTurn } from '../TestLayers/ScriptedLanguageModel'
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 /** One engine operation the drive tool should perform on its next invocation. */
 export type DriveInstruction =
 	| { readonly op: 'dispatch'; readonly agent: string; readonly prompt: string; readonly skill?: string }
@@ -105,14 +107,16 @@ export const makeDriveSession = (input: {
 				]).flat(),
 		)
 
-		const session = yield* startSession({
-			agent: defineAgent({
-				model: rootScripted.model,
-				systemPrompt: 'root',
-				tools: [makeDriveTool(instructions, roster), subagentTool(input.definitions)],
-			}),
-			...(input.profiles === undefined ? {} : { profiles: input.profiles }),
+		const agent = defineAgent({
+			model: rootScripted.model,
+			systemPrompt: 'root',
+			tools: [makeDriveTool(instructions, roster), subagentTool(input.definitions)],
 		})
+		const startOptions: Mutable<Parameters<typeof startSession>[0]> = { agent }
+		if (input.profiles !== undefined) {
+			startOptions.profiles = input.profiles
+		}
+		const session = yield* startSession(startOptions)
 
 		/** Queue one instruction; the caller decides how to run the send (await, fork, ...). */
 		const queue = (instruction: DriveInstruction) => Ref.set(instructions, [instruction])

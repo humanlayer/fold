@@ -23,6 +23,13 @@ const OpenAiReasoning = Data.taggedEnum<OpenAiReasoningSetting>()
 const CodexReasoning = Data.taggedEnum<CodexReasoningSetting>()
 const AnthropicThinking = Data.taggedEnum<AnthropicThinkingSetting>()
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
+// The provider's Config omits this Responses API field even though the request encoder accepts it.
+type OpenAiConfigBuilder = Mutable<Parameters<typeof OpenAiLanguageModel.withConfigOverride>[1]> & {
+	prompt_cache_key?: string
+}
+
 /**
  * Map one reasoning level onto the OpenAI effort scale. `off` disables reasoning config entirely
  * (provider default applies); every other level passes straight through - the wire scale includes
@@ -155,12 +162,15 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 					effort: ({ effort }) => ({ reasoning: { effort } }),
 				})
 
-				return <A, E, R>(self: Effect.Effect<A, E, R>) =>
-					OpenAiLanguageModel.withConfigOverride(self, {
-						model: model.modelId,
-						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
-						...reasoning,
-					})
+				const config: OpenAiConfigBuilder = {
+					model: model.modelId,
+					...reasoning,
+				}
+				if (promptCacheKey !== null) {
+					config.prompt_cache_key = promptCacheKey
+				}
+
+				return <A, E, R>(self: Effect.Effect<A, E, R>) => OpenAiLanguageModel.withConfigOverride(self, config)
 			}
 
 			case 'codex': {
@@ -170,12 +180,15 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 					effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
 				})
 
-				return <A, E, R>(self: Effect.Effect<A, E, R>) =>
-					OpenAiLanguageModel.withConfigOverride(self, {
-						model: model.modelId,
-						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
-						...reasoning,
-					})
+				const config: OpenAiConfigBuilder = {
+					model: model.modelId,
+					...reasoning,
+				}
+				if (promptCacheKey !== null) {
+					config.prompt_cache_key = promptCacheKey
+				}
+
+				return <A, E, R>(self: Effect.Effect<A, E, R>) => OpenAiLanguageModel.withConfigOverride(self, config)
 			}
 
 			case 'anthropic': {

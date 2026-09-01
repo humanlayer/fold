@@ -23,6 +23,13 @@ const Pending = Schema.Struct({ error: Schema.String })
 const DeviceToken = Schema.Union([Token, Pending])
 const User = Schema.Struct({ id: Schema.String, email: Schema.String })
 const Org = Schema.Struct({ id: Schema.String, name: Schema.String })
+type OpenCodeTokenMetadata = {
+	server: string
+	accountID: string
+	email: string
+	orgID?: string
+	orgName?: string
+}
 
 export class OpenCodeAuthError extends Schema.TaggedError<OpenCodeAuthError>()('OpenCodeAuthError', {
 	reason: Schema.Literals(['NotAuthenticated', 'AuthorizationFailed', 'RefreshFailed', 'StoreFailed']),
@@ -75,17 +82,21 @@ const credential = (client: HttpClient.HttpClient, server: string, token: typeof
 		)
 		const org = orgs.toSorted((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))[0]
 		const now = yield* Clock.currentTimeMillis
+		const metadata: OpenCodeTokenMetadata = {
+			server,
+			accountID: user.id,
+			email: user.email,
+		}
+		if (org !== undefined) {
+			metadata.orgID = org.id
+			metadata.orgName = org.name
+		}
 		return new OpenCodeTokenData({
 			type: 'oauth',
 			access: token.access_token,
 			refresh: token.refresh_token,
 			expires: now + token.expires_in * 1000,
-			metadata: {
-				server,
-				accountID: user.id,
-				email: user.email,
-				...(org === undefined ? {} : { orgID: org.id, orgName: org.name }),
-			},
+			metadata,
 		})
 	})
 
@@ -237,14 +248,15 @@ export const withOpenCodeAuth = (client: HttpClient.HttpClient, auth: OpenCodeAu
 	client.pipe(
 		HttpClient.mapRequestEffect((request) =>
 			auth.get.pipe(
-				Effect.map((token) =>
-					request.pipe(
+				Effect.map((token) => {
+					const headers: Record<string, string> = {}
+					const orgId = token.metadata?.orgID
+					if (orgId !== undefined) headers['x-org-id'] = orgId
+					return request.pipe(
 						HttpClientRequest.bearerToken(token.access),
-						HttpClientRequest.setHeaders(
-							token.metadata?.orgID === undefined ? {} : { 'x-org-id': token.metadata.orgID },
-						),
-					),
-				),
+						HttpClientRequest.setHeaders(headers),
+					)
+				}),
 				Effect.mapError(
 					(cause) =>
 						new HttpClientError.HttpClientError({

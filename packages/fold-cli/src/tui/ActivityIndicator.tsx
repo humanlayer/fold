@@ -1,9 +1,11 @@
 /** @jsxImportSource @opentui/solid */
-import { createSignal, onCleanup } from 'solid-js'
+import type { TextProps } from '@opentui/solid'
+import { createMemo, createSignal, onCleanup } from 'solid-js'
 
 import { theme } from './ThemeState'
 
 export type ActivityState = 'ready' | 'running' | 'compacting' | 'stopped' | 'error'
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
 
 const presentation = (state: ActivityState, frame: number): { readonly glyph: string; readonly color: string } => {
 	switch (state) {
@@ -37,13 +39,15 @@ export const ActivityIndicator = (props: {
 	}, 180)
 	onCleanup(() => clearInterval(timer))
 
-	return (
-		<text
-			fg={presentation(props.state, frame()).color}
-			{...(props.width === undefined ? {} : { width: props.width })}
-			wrapMode="none"
-		>
-			{`${presentation(props.state, frame()).glyph} ${props.label ?? props.state.toUpperCase()}`}
-		</text>
-	)
+	const value = createMemo(() => presentation(props.state, frame()))
+	const textProps = createMemo(() => {
+		const text: Mutable<Pick<TextProps, 'fg' | 'width' | 'wrapMode'>> = {
+			fg: value().color,
+			wrapMode: 'none',
+		}
+		if (props.width !== undefined) text.width = props.width
+		return text
+	})
+
+	return <text {...textProps()}>{`${value().glyph} ${props.label ?? props.state.toUpperCase()}`}</text>
 }

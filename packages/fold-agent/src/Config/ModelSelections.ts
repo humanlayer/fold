@@ -2,10 +2,22 @@ import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID, XAI_FRONTIER_MODELS } from '@humanlayer/fold-xai'
-import { Effect, Match, Predicate } from 'effect'
+import { Data, Effect, Match, Predicate } from 'effect'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
+
+type RoleBindingBuilder = {
+	provider: string
+	model?: string
+	reasoning?: NonNullable<RoleBinding['reasoning']>
+}
+
+type RolesBuilder = {
+	smart: RoleBinding
+	fast: RoleBinding
+	orchestrator?: RoleBinding
+}
 
 export type ProfileModelSelection = { readonly _tag: 'profile'; readonly profile: string }
 export type DirectModelSelection = {
@@ -15,6 +27,7 @@ export type DirectModelSelection = {
 	readonly reasoning?: RoleBinding['reasoning']
 }
 export type ConfiguredModelSelection = ProfileModelSelection | DirectModelSelection
+export const ConfiguredModelSelection = Data.taggedEnum<ConfiguredModelSelection>()
 
 export type ModelConfiguration = {
 	readonly profiles: ReadonlyArray<{ readonly name: string; readonly mode: ProfileConfig['mode'] | null }>
@@ -102,13 +115,11 @@ export const describeModelConfiguration = (
 const rolesForProfile = (config: FoldConfig, name: string): FoldConfig['roles'] | null => {
 	if (name === 'default') return config.roles
 	const profile = config.profiles?.[name]
-	return profile === undefined
-		? null
-		: {
-				smart: profile.smart,
-				fast: profile.fast,
-				...(profile.orchestrator === undefined ? {} : { orchestrator: profile.orchestrator }),
-			}
+	if (profile === undefined) return null
+
+	const roles: RolesBuilder = { smart: profile.smart, fast: profile.fast }
+	if (profile.orchestrator !== undefined) roles.orchestrator = profile.orchestrator
+	return roles
 }
 
 type DirectProviderSelection = {
@@ -143,15 +154,15 @@ export const rolesForDirectProviderSelection = (
 	selection: DirectProviderSelection,
 ): FoldConfig['roles'] => {
 	const models = defaultModelsForProvider(config, selection)
-	const bindingFor = (role: ConfigRole): RoleBinding => ({
-		provider: selection.provider,
-		...(models[role] === undefined ? {} : { model: models[role] }),
-	})
-	const root: RoleBinding = {
-		...bindingFor(rootRole),
-		...(selection.model === undefined ? {} : { model: selection.model }),
-		...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
+	const bindingFor = (role: ConfigRole): RoleBindingBuilder => {
+		const model = models[role]
+		const binding: RoleBindingBuilder = { provider: selection.provider }
+		if (model !== undefined) binding.model = model
+		return binding
 	}
+	const root = bindingFor(rootRole)
+	if (selection.model !== undefined) root.model = selection.model
+	if (selection.reasoning !== undefined) root.reasoning = selection.reasoning
 	return {
 		orchestrator: rootRole === 'orchestrator' ? root : bindingFor('orchestrator'),
 		smart: rootRole === 'smart' ? root : bindingFor('smart'),
