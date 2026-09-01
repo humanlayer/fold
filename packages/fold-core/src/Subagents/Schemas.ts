@@ -134,16 +134,29 @@ export const parseSubagentCommand = (
 		}
 
 		if (agent !== undefined) {
+			if (description === undefined) {
+				return DispatchSubagentCommand.make({
+					agent,
+					prompt: params.prompt,
+					skill,
+				})
+			}
 			return DispatchSubagentCommand.make({
 				agent,
-				...(description === undefined ? {} : { description }),
+				description,
 				prompt: params.prompt,
 				skill,
 			})
 		}
 		if (params.fork === true) {
+			if (description === undefined) {
+				return ForkSubagentCommand.make({
+					prompt: params.prompt,
+					skill,
+				})
+			}
 			return ForkSubagentCommand.make({
-				...(description === undefined ? {} : { description }),
+				description,
 				prompt: params.prompt,
 				skill,
 			})
