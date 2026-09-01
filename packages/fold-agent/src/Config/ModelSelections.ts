@@ -2,7 +2,7 @@ import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID, XAI_FRONTIER_MODELS } from '@humanlayer/fold-xai'
-import { Effect, Match, Predicate } from 'effect'
+import { Data, Effect, Match, Predicate } from 'effect'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
@@ -27,6 +27,7 @@ export type DirectModelSelection = {
 	readonly reasoning?: RoleBinding['reasoning']
 }
 export type ConfiguredModelSelection = ProfileModelSelection | DirectModelSelection
+export const ConfiguredModelSelection = Data.taggedEnum<ConfiguredModelSelection>()
 
 export type ModelConfiguration = {
 	readonly profiles: ReadonlyArray<{ readonly name: string; readonly mode: ProfileConfig['mode'] | null }>

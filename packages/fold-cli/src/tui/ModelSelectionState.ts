@@ -1,4 +1,4 @@
-import type { ConfiguredModelSelection, ModelConfiguration, ProfileModeName } from '@humanlayer/fold-agent'
+import { ConfiguredModelSelection, type ModelConfiguration, type ProfileModeName } from '@humanlayer/fold-agent'
 import type { ReasoningLevel } from '@humanlayer/fold-core'
 
 type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
@@ -28,13 +28,12 @@ export type ModelPickerChoice = { readonly id: string; readonly label: string; r
 export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection => {
 	if (request._tag === 'profile') return request
 
-	const selection: Mutable<Extract<ConfiguredModelSelection, { readonly _tag: 'direct' }>> = {
-		_tag: 'direct',
+	const selection: Mutable<Omit<Extract<ConfiguredModelSelection, { readonly _tag: 'direct' }>, '_tag'>> = {
 		provider: request.provider,
 		model: request.model,
 	}
 	if (request.reasoning !== undefined) selection.reasoning = request.reasoning
-	return selection
+	return ConfiguredModelSelection.direct(selection)
 }
 
 const REASONING_LEVELS: ReadonlyArray<{ id: ReasoningLevel; label: string; detail: string }> = [
