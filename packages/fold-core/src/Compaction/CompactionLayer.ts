@@ -189,8 +189,15 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			const toSummarize = conversation.slice(0, historyEnd)
 			const turnPrefix = cut.isSplitTurn ? conversation.slice(cut.turnStartIndex, firstKeptIndex) : []
 			const discarded = conversation.slice(0, firstKeptIndex)
-			const lastReplaced = discarded[discarded.length - 1]
-			if (lastReplaced === undefined) return null
+			const firstDiscarded = discarded[0]
+			if (firstDiscarded === undefined) return null
+			// Projected tool results can be reordered into their assistant call order while retaining
+			// physical event-log sequences. The durable cutoff applies to physical sequence order, so it
+			// must cover every discarded message rather than the final message in the projected order.
+			const replacesThroughSeq = discarded.reduce(
+				(maximum, message) => Math.max(maximum, message.sourceSeq),
+				firstDiscarded.sourceSeq,
+			)
 
 			yield* Effect.annotateCurrentSpan({
 				trigger: input.trigger,
@@ -231,7 +238,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			const compactionPlan: CompactionPlan = {
 				prompt,
 				summary,
-				replacesThroughSeq: lastReplaced.sourceSeq,
+				replacesThroughSeq,
 				tokensBefore: latestReportedContextTokens(visible) ?? 0,
 			}
 
