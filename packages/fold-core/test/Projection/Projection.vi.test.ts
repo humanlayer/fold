@@ -6,6 +6,7 @@ import {
 	EventLog,
 	Ids,
 	layerInMemoryEventLog,
+	makeCompactionService,
 	messagesForAgent,
 	runtimeForAgent,
 	toolStateForAgent,
@@ -17,6 +18,7 @@ import {
 	type UserMessageEncoded,
 } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
+import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
 
 const testLayer = Layer.mergeAll(layerInMemoryEventLog, layerDeterministicRuntime({ startMillis: 10_000 }))
 
@@ -274,6 +276,88 @@ it.effect('projects messages with the latest leading system message and assistan
 		expect(projected[3]).toMatchObject({ _tag: 'tool-result', toolCallId: result.firstToolCallId })
 		expect(projected[4]).toMatchObject({ _tag: 'tool-result', toolCallId: result.secondToolCallId })
 	}),
+)
+
+it.effect('compaction cutoff covers every reordered tool result in its discarded prefix', () =>
+	Effect.gen(function* () {
+		const log = yield* EventLog
+		const ids = yield* Ids
+		const rootAgentId = yield* appendRoot()
+		const firstToolCallId = yield* toolCallId
+		const secondToolCallId = yield* toolCallId
+
+		yield* log.append({
+			_tag: 'user-message',
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			messageId: yield* messageId,
+			message: userMessage('complete the tool batch'),
+		})
+		yield* log.append({
+			_tag: 'assistant-message',
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			messageId: yield* messageId,
+			message: assistantWithToolCalls([firstToolCallId, secondToolCallId]),
+			finish: null,
+		})
+
+		// The second call finishes first, so its result is persisted before the first call's result.
+		yield* log.append({
+			_tag: 'tool-result',
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: secondToolCallId,
+			messageId: yield* messageId,
+			message: toolMessage(secondToolCallId, 1),
+		})
+		yield* log.append({
+			_tag: 'tool-result',
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: firstToolCallId,
+			messageId: yield* messageId,
+			message: toolMessage(firstToolCallId, 0),
+		})
+		const firstToolResultSeq = lastSeq(yield* readEntries)
+
+		// Keep this later message so compaction discards the full preceding tool exchange.
+		yield* log.append({
+			_tag: 'user-message',
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			messageId: yield* messageId,
+			message: userMessage('continue after compaction'),
+		})
+
+		const entries = yield* readEntries
+		const scripted = yield* makeScriptedLanguageModel([textTurn('tool batch summary')])
+		const plan = yield* makeCompactionService({ enabled: true, thresholdTokens: 1, keepRecentTokens: 1 })
+			.plan({ agentId: rootAgentId, entries, model, trigger: 'threshold' })
+			.pipe(Effect.provide(scripted.layer))
+		if (plan === null) throw new Error('expected a compaction plan')
+
+		// Projection puts the second result last, but its smaller physical sequence must not become
+		// the durable cutoff. Otherwise the first result survives after its assistant call is removed.
+		expect(plan.replacesThroughSeq).toBe(firstToolResultSeq)
+
+		yield* log.append({
+			_tag: 'compaction',
+			agentId: rootAgentId,
+			parentAgentId: null,
+			toolCallId: null,
+			compactionId: yield* ids.makeCompactionId,
+			summary: plan.summary,
+			replacesThroughSeq: plan.replacesThroughSeq,
+			tokensBefore: plan.tokensBefore,
+		})
+
+		const projected = messagesForAgent(yield* readEntries, rootAgentId)
+		expect(projected.map((message) => message._tag)).toEqual(['compaction-summary', 'user-message'])
+	}).pipe(Effect.provide(testLayer)),
 )
 
 it.effect('projects legacy forks through completed parent history plus child entries', () =>
