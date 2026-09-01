@@ -101,19 +101,27 @@ export const languageModelLayerFor = (model: FoldModel): Layer.Layer<LanguageMod
 
 	return Match.valueTags(provider, {
 		'openai-compatible': (connection) => {
-			const clientLayer = OpenAiClient.layer({
-				apiKey: connection.apiKey,
-				...(connection.baseUrl === null ? {} : { apiUrl: connection.baseUrl }),
-			}).pipe(Layer.provide(FetchHttpClient.layer))
+			const clientOptions =
+				connection.baseUrl === null
+					? { apiKey: connection.apiKey }
+					: { apiKey: connection.apiKey, apiUrl: connection.baseUrl }
+			const clientLayer = OpenAiClient.layer(clientOptions).pipe(Layer.provide(FetchHttpClient.layer))
 
 			return OpenAiLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
 		},
 		anthropic: (connection) => {
-			const clientLayer = AnthropicClient.layer({
-				apiKey: connection.apiKey,
-				transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
-				...(connection.baseUrl === null ? {} : { apiUrl: connection.baseUrl }),
-			}).pipe(Layer.provide(FetchHttpClient.layer))
+			const clientOptions =
+				connection.baseUrl === null
+					? {
+							apiKey: connection.apiKey,
+							transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
+						}
+					: {
+							apiKey: connection.apiKey,
+							transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
+							apiUrl: connection.baseUrl,
+						}
+			const clientLayer = AnthropicClient.layer(clientOptions).pipe(Layer.provide(FetchHttpClient.layer))
 
 			return AnthropicLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
 		},

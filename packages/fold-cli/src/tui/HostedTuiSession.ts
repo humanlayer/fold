@@ -15,6 +15,8 @@ import { executeRootInputAction, unexpectedActionCauseNotice, type RootInputVerb
 import type { ModelSelectionRequest } from './ModelSelectionState'
 import { makeSessionStateFromEntries, reduceSessionEvents, type SessionState } from './SessionState'
 
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
 export type HostedTuiSessionMetadata = {
 	readonly cwd: string
 	readonly profile: string
@@ -175,25 +177,25 @@ export const makeHostedTuiSession = (
 				return
 			}
 			setNotice('APPLYING MODEL CONFIGURATION')
+			const switchOptions: Mutable<Parameters<typeof switchSessionMode>[1]> = {
+				mode: modeForName(selection.mode ?? mode()),
+				cwd: options.metadata.cwd,
+				config,
+				reason: `TUI switch to ${selection.mode ?? mode()} mode`,
+			}
+			if (options.foldHome !== undefined) switchOptions.foldHome = options.foldHome
+			if (options.catalog !== undefined) switchOptions.catalog = options.catalog
+			if (options.rpi === true) switchOptions.rpi = true
+			if (selection._tag === 'profile') {
+				switchOptions.profile = selection.profile
+			} else {
+				switchOptions.modelSelection =
+					selection.reasoning === undefined
+						? { provider: selection.provider, model: selection.model }
+						: { provider: selection.provider, model: selection.model, reasoning: selection.reasoning }
+			}
 			run(
-				switchSessionMode(session, {
-					mode: modeForName(selection.mode ?? mode()),
-					cwd: options.metadata.cwd,
-					config,
-					...(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
-					...(options.catalog === undefined ? {} : { catalog: options.catalog }),
-					...(options.rpi === true ? { rpi: true } : {}),
-					...(selection._tag === 'profile'
-						? { profile: selection.profile }
-						: {
-								modelSelection: {
-									provider: selection.provider,
-									model: selection.model,
-									...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
-								},
-							}),
-					reason: `TUI switch to ${selection.mode ?? mode()} mode`,
-				}).pipe(
+				switchSessionMode(session, switchOptions).pipe(
 					Effect.tap(() =>
 						Effect.sync(() => {
 							setProfile(selection._tag === 'profile' ? selection.profile : 'direct')

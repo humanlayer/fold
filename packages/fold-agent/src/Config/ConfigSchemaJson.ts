@@ -23,12 +23,12 @@ export const configSchemaPath = (foldHome?: string): string => join(foldHome ?? 
 export const foldConfigJsonSchema = (): Record<string, unknown> => {
 	const document = JsonSchema.toDocumentDraft07(Schema.toJsonSchemaDocument(FoldConfig))
 	const hasDefinitions = Object.keys(document.definitions).length > 0
-
-	return {
+	const schema = {
 		$schema: JsonSchema.META_SCHEMA_URI_DRAFT_07,
 		...document.schema,
-		...(hasDefinitions ? { definitions: document.definitions } : {}),
 	}
+
+	return hasDefinitions ? { ...schema, definitions: document.definitions } : schema
 }
 
 /** The generated schema serialized as JSON text (tab-indented, trailing newline). */

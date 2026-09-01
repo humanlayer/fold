@@ -68,9 +68,13 @@ export const defaultCodingMode: FoldMode = {
 	name: 'coding',
 	role: 'smart',
 	systemPrompt: DEFAULT_CODING_PROMPT,
-	buildTools: ({ cwd, rpi, outputStore }) => [
-		...codingTools({ cwd, ...(outputStore === undefined ? {} : { outputStore }) }),
-		skillTool(skillsFromDisk({ cwd })),
-		subagentTool(modeSubagents({ cwd, rpi, ...(outputStore === undefined ? {} : { outputStore }) })),
-	],
+	buildTools: ({ cwd, rpi, outputStore }) => {
+		const codingOptions = outputStore === undefined ? { cwd } : { cwd, outputStore }
+		const subagentOptions = outputStore === undefined ? { cwd, rpi } : { cwd, rpi, outputStore }
+		return [
+			...codingTools(codingOptions),
+			skillTool(skillsFromDisk({ cwd })),
+			subagentTool(modeSubagents(subagentOptions)),
+		]
+	},
 }

@@ -75,17 +75,26 @@ const credential = (client: HttpClient.HttpClient, server: string, token: typeof
 		)
 		const org = orgs.toSorted((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))[0]
 		const now = yield* Clock.currentTimeMillis
+		const metadata =
+			org === undefined
+				? {
+						server,
+						accountID: user.id,
+						email: user.email,
+					}
+				: {
+						server,
+						accountID: user.id,
+						email: user.email,
+						orgID: org.id,
+						orgName: org.name,
+					}
 		return new OpenCodeTokenData({
 			type: 'oauth',
 			access: token.access_token,
 			refresh: token.refresh_token,
 			expires: now + token.expires_in * 1000,
-			metadata: {
-				server,
-				accountID: user.id,
-				email: user.email,
-				...(org === undefined ? {} : { orgID: org.id, orgName: org.name }),
-			},
+			metadata,
 		})
 	})
 

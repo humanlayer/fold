@@ -57,12 +57,15 @@ export const rlmMode: FoldMode = {
 	// RLM always carries the RPI specialists (user ruling 2026-07-09): an orchestrator with no bash
 	// lives and dies by the quality of its delegates, so the full specialist roster is the default.
 	rpiByDefault: true,
-	buildTools: ({ cwd, rpi, outputStore }) => [
-		readTool({ cwd }),
-		writeTool({ cwd }),
-		editTool({ cwd }),
-		applyPatchTool({ cwd }),
-		skillTool(skillsFromDisk({ cwd })),
-		subagentTool(modeSubagents({ cwd, rpi, ...(outputStore === undefined ? {} : { outputStore }) })),
-	],
+	buildTools: ({ cwd, rpi, outputStore }) => {
+		const subagentOptions = outputStore === undefined ? { cwd, rpi } : { cwd, rpi, outputStore }
+		return [
+			readTool({ cwd }),
+			writeTool({ cwd }),
+			editTool({ cwd }),
+			applyPatchTool({ cwd }),
+			skillTool(skillsFromDisk({ cwd })),
+			subagentTool(modeSubagents(subagentOptions)),
+		]
+	},
 }

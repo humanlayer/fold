@@ -84,16 +84,19 @@ type OpenedSession = {
 
 type OpenSessionError = LaunchModelError | SessionToResumeNotFoundError | NoSessionToResumeError
 
-const launchOptions = (options: CliSessionOptions) => ({
-	cwd: options.cwd,
-	...(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
-	...(options.mode === undefined ? {} : { mode: modeForName(options.mode) }),
-	...(options.rpi === true ? { rpi: true } : {}),
-	...(options.profile === undefined ? {} : { profile: options.profile }),
-	...(options.modelSelection === undefined ? {} : { modelSelection: options.modelSelection }),
-	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
-	...(options.catalog === undefined ? {} : { catalog: options.catalog }),
-})
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
+const launchOptions = (options: CliSessionOptions) => {
+	const launch: Mutable<Parameters<typeof launchSession>[0]> = { cwd: options.cwd }
+	if (options.foldHome !== undefined) launch.foldHome = options.foldHome
+	if (options.mode !== undefined) launch.mode = modeForName(options.mode)
+	if (options.rpi === true) launch.rpi = true
+	if (options.profile !== undefined) launch.profile = options.profile
+	if (options.modelSelection !== undefined) launch.modelSelection = options.modelSelection
+	if (options.autoCompact !== undefined) launch.autoCompact = options.autoCompact
+	if (options.catalog !== undefined) launch.catalog = options.catalog
+	return launch
+}
 
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
 const openSessionFor = (
@@ -112,10 +115,10 @@ const openSession = (
 ): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
-		const logPath = sessionLogPathFor(session.sessionId, {
-			cwd: options.cwd,
-			...(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
-		})
+		const logPath =
+			options.foldHome === undefined
+				? sessionLogPathFor(session.sessionId, { cwd: options.cwd })
+				: sessionLogPathFor(session.sessionId, { cwd: options.cwd, foldHome: options.foldHome })
 
 		return {
 			session,
@@ -139,10 +142,9 @@ const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions
 		if (model === null) return CredentialSummary.unknown({ detail: 'no active model row found in the session log' })
 
 		if (model.providerKind === 'codex') {
-			const store = yield* makeCodexAuthStore({
-				providerId: model.providerId,
-				...(options.foldHome === undefined ? {} : { path: join(options.foldHome, 'auth.json') }),
-			}).pipe(Effect.provide(NodeFileSystem.layer))
+			const authStoreOptions: Mutable<Parameters<typeof makeCodexAuthStore>[0]> = { providerId: model.providerId }
+			if (options.foldHome !== undefined) authStoreOptions.path = join(options.foldHome, 'auth.json')
+			const store = yield* makeCodexAuthStore(authStoreOptions).pipe(Effect.provide(NodeFileSystem.layer))
 			const token = yield* store.load
 			if (Option.isNone(token)) {
 				return CredentialSummary.missing({ detail: `entry "${model.providerId}" in ${store.path}` })
@@ -213,17 +215,18 @@ const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effec
 		const credential = yield* credentialSummary(model, options)
 		const agentMode = agentModeLabel(options)
 
-		return {
+		const header: Mutable<SessionHeader> = {
 			sessionId: opened.session.sessionId,
 			cwd: options.cwd,
 			logPath: opened.logPath,
 			mode: opened.mode,
-			...(agentMode === undefined ? {} : { agentMode }),
-			...(options.profile === undefined ? {} : { profile: options.profile }),
 			resumeFlags: resumeFlagsFor(options),
 			model,
 			credential,
 		}
+		if (agentMode !== undefined) header.agentMode = agentMode
+		if (options.profile !== undefined) header.profile = options.profile
+		return header
 	})
 
 const renderLiveEvents = (

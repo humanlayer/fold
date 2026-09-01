@@ -195,14 +195,24 @@ export const NewSessionModal = (props: {
 						if (selection._tag === 'profile') {
 							props.onSubmit({ _tag: 'profile', profile: selection.profile, cwd: cwd() })
 						} else if (selection.mode !== undefined) {
-							props.onSubmit({
-								_tag: 'direct',
-								provider: selection.provider,
-								model: selection.model,
-								...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
-								mode: selection.mode,
-								cwd: cwd(),
-							})
+							const request =
+								selection.reasoning === undefined
+									? {
+											_tag: 'direct' as const,
+											provider: selection.provider,
+											model: selection.model,
+											mode: selection.mode,
+											cwd: cwd(),
+										}
+									: {
+											_tag: 'direct' as const,
+											provider: selection.provider,
+											model: selection.model,
+											reasoning: selection.reasoning,
+											mode: selection.mode,
+											cwd: cwd(),
+										}
+							props.onSubmit(request)
 						}
 					}}
 				/>

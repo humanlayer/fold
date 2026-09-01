@@ -54,7 +54,7 @@ function parseLabels(v: unknown): Array<string> {
 function normalize(raw: RawItem, kind: GhItem['kind']): GhItem {
 	const headRef = raw.head ? str(raw.head.ref) : ''
 	const baseRef = raw.base ? str(raw.base.ref) : ''
-	return {
+	const item: Omit<GhItem, 'headRef' | 'baseRef'> = {
 		kind,
 		number: num(raw.number),
 		title: str(raw.title, '(untitled)'),
@@ -68,11 +68,11 @@ function normalize(raw: RawItem, kind: GhItem['kind']): GhItem {
 		labels: parseLabels(raw.labels),
 		body: str(raw.body),
 		url: str(raw.html_url),
-		// `exactOptionalPropertyTypes` forbids assigning `undefined` to an
-		// optional prop, so omit the key entirely instead.
-		...(headRef ? { headRef } : {}),
-		...(baseRef ? { baseRef } : {}),
 	}
+	// `exactOptionalPropertyTypes` forbids assigning `undefined` to an
+	// optional prop, so only add the keys when their refs are non-empty.
+	if (headRef) return baseRef ? { ...item, headRef, baseRef } : { ...item, headRef }
+	return baseRef ? { ...item, baseRef } : item
 }
 
 /** Env vars first, then whatever `gh` is already logged in as. */

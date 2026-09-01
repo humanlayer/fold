@@ -207,5 +207,7 @@ export const subagentTool = (
 			}),
 	})
 
-	return withSubagentCapabilities(tool, { agents, ...(options?.forkAgent === undefined ? {} : options) })
+	return options?.forkAgent === undefined
+		? withSubagentCapabilities(tool, { agents })
+		: withSubagentCapabilities(tool, { agents, ...options })
 }

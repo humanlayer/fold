@@ -105,14 +105,14 @@ export const makeDriveSession = (input: {
 				]).flat(),
 		)
 
-		const session = yield* startSession({
-			agent: defineAgent({
-				model: rootScripted.model,
-				systemPrompt: 'root',
-				tools: [makeDriveTool(instructions, roster), subagentTool(input.definitions)],
-			}),
-			...(input.profiles === undefined ? {} : { profiles: input.profiles }),
+		const agent = defineAgent({
+			model: rootScripted.model,
+			systemPrompt: 'root',
+			tools: [makeDriveTool(instructions, roster), subagentTool(input.definitions)],
 		})
+		const session = yield* startSession(
+			input.profiles === undefined ? { agent } : { agent, profiles: input.profiles },
+		)
 
 		/** Queue one instruction; the caller decides how to run the send (await, fork, ...). */
 		const queue = (instruction: DriveInstruction) => Ref.set(instructions, [instruction])

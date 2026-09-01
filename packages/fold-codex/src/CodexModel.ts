@@ -270,11 +270,11 @@ export const makeCodexLanguageModel = (
 		)
 		const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
 
-		const codexClient = decorateCodexClient(stockClient, {
-			...defaultCodexHardening,
-			...options.hardening,
-			...(options.onStreamRetry === undefined ? {} : { onStreamRetry: options.onStreamRetry }),
-		})
+		const hardening =
+			options.onStreamRetry === undefined
+				? { ...defaultCodexHardening, ...options.hardening }
+				: { ...defaultCodexHardening, ...options.hardening, onStreamRetry: options.onStreamRetry }
+		const codexClient = decorateCodexClient(stockClient, hardening)
 
 		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
 		const reasoningConfig = Match.valueTags(reasoning, {

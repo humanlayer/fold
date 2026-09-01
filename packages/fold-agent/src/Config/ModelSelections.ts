@@ -102,13 +102,9 @@ export const describeModelConfiguration = (
 const rolesForProfile = (config: FoldConfig, name: string): FoldConfig['roles'] | null => {
 	if (name === 'default') return config.roles
 	const profile = config.profiles?.[name]
-	return profile === undefined
-		? null
-		: {
-				smart: profile.smart,
-				fast: profile.fast,
-				...(profile.orchestrator === undefined ? {} : { orchestrator: profile.orchestrator }),
-			}
+	if (profile === undefined) return null
+	if (profile.orchestrator === undefined) return { smart: profile.smart, fast: profile.fast }
+	return { smart: profile.smart, fast: profile.fast, orchestrator: profile.orchestrator }
 }
 
 type DirectProviderSelection = {
@@ -143,15 +139,19 @@ export const rolesForDirectProviderSelection = (
 	selection: DirectProviderSelection,
 ): FoldConfig['roles'] => {
 	const models = defaultModelsForProvider(config, selection)
-	const bindingFor = (role: ConfigRole): RoleBinding => ({
-		provider: selection.provider,
-		...(models[role] === undefined ? {} : { model: models[role] }),
-	})
-	const root: RoleBinding = {
-		...bindingFor(rootRole),
-		...(selection.model === undefined ? {} : { model: selection.model }),
-		...(selection.reasoning === undefined ? {} : { reasoning: selection.reasoning }),
+	const bindingFor = (role: ConfigRole): RoleBinding => {
+		const model = models[role]
+		return model === undefined ? { provider: selection.provider } : { provider: selection.provider, model }
 	}
+	const defaultRoot = bindingFor(rootRole)
+	const root: RoleBinding =
+		selection.model === undefined
+			? selection.reasoning === undefined
+				? defaultRoot
+				: { ...defaultRoot, reasoning: selection.reasoning }
+			: selection.reasoning === undefined
+				? { ...defaultRoot, model: selection.model }
+				: { ...defaultRoot, model: selection.model, reasoning: selection.reasoning }
 	return {
 		orchestrator: rootRole === 'orchestrator' ? root : bindingFor('orchestrator'),
 		smart: rootRole === 'smart' ? root : bindingFor('smart'),

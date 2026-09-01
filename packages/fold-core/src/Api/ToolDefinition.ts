@@ -127,12 +127,10 @@ export const defineTool = <
 >(
 	options: DefineToolOptions<Params, Success, Failure>,
 ): FoldTool => {
-	const tool = Tool.make(options.name, {
+	const toolOptions = {
 		description: options.description,
-		...(options.parameters === undefined ? {} : { parameters: options.parameters }),
 		success: options.success ?? Schema.Undefined,
-		...(options.failure === undefined ? {} : { failure: options.failure }),
-		failureMode: 'return',
+		failureMode: 'return' as const,
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all of them around each execution.
 		dependencies: [
@@ -146,7 +144,17 @@ export const defineTool = <
 			FileSystem.FileSystem,
 			...(options.dependencies ?? []),
 		],
-	}).annotate(Tool.Strict, false)
+	}
+	const tool = Tool.make(
+		options.name,
+		options.parameters === undefined
+			? options.failure === undefined
+				? toolOptions
+				: { ...toolOptions, failure: options.failure }
+			: options.failure === undefined
+				? { ...toolOptions, parameters: options.parameters }
+				: { ...toolOptions, parameters: options.parameters, failure: options.failure },
+	).annotate(Tool.Strict, false)
 
 	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.
 	const handlerWithDependencies =

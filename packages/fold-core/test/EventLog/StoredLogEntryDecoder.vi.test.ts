@@ -11,20 +11,35 @@ import {
 	decodeStoredLogEntry,
 } from '../../src/index'
 
-const sessionStartedEntry = (version?: number) => ({
-	_tag: 'session_started',
-	seq: 0,
-	eventId: EventId.create(),
-	ts: 1,
-	...(version === undefined ? {} : { version }),
-	agentId: null,
-	parentAgentId: null,
-	toolCallId: null,
-	cwd: '/tmp/fold',
-	sessionId: SessionId.create(),
-	rootAgentId: AgentId.create(),
-	meta: {},
-})
+const sessionStartedEntry = (version?: number) =>
+	version === undefined
+		? {
+				_tag: 'session_started',
+				seq: 0,
+				eventId: EventId.create(),
+				ts: 1,
+				agentId: null,
+				parentAgentId: null,
+				toolCallId: null,
+				cwd: '/tmp/fold',
+				sessionId: SessionId.create(),
+				rootAgentId: AgentId.create(),
+				meta: {},
+			}
+		: {
+				_tag: 'session_started',
+				seq: 0,
+				eventId: EventId.create(),
+				ts: 1,
+				version,
+				agentId: null,
+				parentAgentId: null,
+				toolCallId: null,
+				cwd: '/tmp/fold',
+				sessionId: SessionId.create(),
+				rootAgentId: AgentId.create(),
+				meta: {},
+			}
 
 const legacySessionTitleEntry = () => ({
 	_tag: 'session_title',

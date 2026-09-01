@@ -387,18 +387,24 @@ export const messagesForAgent = (
 	}
 
 	if (compaction !== null) {
-		projected.push(
-			ProjectedMessage['compaction-summary']({
-				sourceSeq: compaction.seq,
-				compactionId: compaction.compactionId,
-				replacesThroughSeq: compaction.replacesThroughSeq,
-				summary: compaction.summary,
-				...(compaction.postCompactionInstructions === undefined
-					? {}
-					: { postCompactionInstructions: compaction.postCompactionInstructions }),
-				tokensBefore: compaction.tokensBefore,
-			}),
-		)
+		const summary =
+			compaction.postCompactionInstructions === undefined
+				? ProjectedMessage['compaction-summary']({
+						sourceSeq: compaction.seq,
+						compactionId: compaction.compactionId,
+						replacesThroughSeq: compaction.replacesThroughSeq,
+						summary: compaction.summary,
+						tokensBefore: compaction.tokensBefore,
+					})
+				: ProjectedMessage['compaction-summary']({
+						sourceSeq: compaction.seq,
+						compactionId: compaction.compactionId,
+						replacesThroughSeq: compaction.replacesThroughSeq,
+						summary: compaction.summary,
+						postCompactionInstructions: compaction.postCompactionInstructions,
+						tokensBefore: compaction.tokensBefore,
+					})
+		projected.push(summary)
 	}
 
 	for (const entry of visibleEntries) {

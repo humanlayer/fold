@@ -60,16 +60,14 @@ const encodeSystemMessage = Schema.encodeUnknownSync(Prompt.SystemMessage)
 const anthropicEphemeralCacheControl = { type: 'ephemeral' } as const
 
 const leadingSystemMessageFor = (content: string, cacheBreakpoint: boolean): Prompt.SystemMessage =>
-	Prompt.systemMessage({
-		content,
-		...(cacheBreakpoint
-			? {
-					options: {
-						anthropic: { cacheControl: anthropicEphemeralCacheControl },
-					},
-				}
-			: {}),
-	})
+	cacheBreakpoint
+		? Prompt.systemMessage({
+				content,
+				options: {
+					anthropic: { cacheControl: anthropicEphemeralCacheControl },
+				},
+			})
+		: Prompt.systemMessage({ content })
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 
@@ -263,19 +261,30 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					trigger,
 				})
 
-				const entry = yield* appendToEventLog(
-					LogEntryInputs['compaction']({
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						compactionId: yield* ids.makeCompactionId,
-						prompt: planned.success.prompt,
-						summary: planned.success.summary,
-						...(postCompactionInstructions === null ? {} : { postCompactionInstructions }),
-						replacesThroughSeq: planned.success.replacesThroughSeq,
-						tokensBefore: planned.success.tokensBefore,
-					}),
-				)
+				const compactionInput =
+					postCompactionInstructions === null
+						? {
+								agentId: input.agentId,
+								parentAgentId: input.parentAgentId,
+								toolCallId: input.toolCallId,
+								compactionId: yield* ids.makeCompactionId,
+								prompt: planned.success.prompt,
+								summary: planned.success.summary,
+								replacesThroughSeq: planned.success.replacesThroughSeq,
+								tokensBefore: planned.success.tokensBefore,
+							}
+						: {
+								agentId: input.agentId,
+								parentAgentId: input.parentAgentId,
+								toolCallId: input.toolCallId,
+								compactionId: yield* ids.makeCompactionId,
+								prompt: planned.success.prompt,
+								summary: planned.success.summary,
+								postCompactionInstructions,
+								replacesThroughSeq: planned.success.replacesThroughSeq,
+								tokensBefore: planned.success.tokensBefore,
+							}
+				const entry = yield* appendToEventLog(LogEntryInputs['compaction'](compactionInput))
 
 				if (Predicate.isTagged(entry, 'compaction')) return entry
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending compaction`))
@@ -556,20 +565,32 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// prompt block set once for the starting model; both are recorded durably.
 				const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
 
-				const entry = yield* appendToEventLog(
-					LogEntryInputs['agent_started']({
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						toolCallId: input.toolCallId,
-						mode: input.mode,
-						model: input.model,
-						...(input.promptCacheKey == null ? {} : { promptCacheKey: input.promptCacheKey }),
-						tools: resolvedToolset.names,
-						skill: input.skill,
-						fork: input.fork,
-						agentType: input.agentType,
-					}),
-				)
+				const agentStartedInput =
+					input.promptCacheKey == null
+						? {
+								agentId: input.agentId,
+								parentAgentId: input.parentAgentId,
+								toolCallId: input.toolCallId,
+								mode: input.mode,
+								model: input.model,
+								tools: resolvedToolset.names,
+								skill: input.skill,
+								fork: input.fork,
+								agentType: input.agentType,
+							}
+						: {
+								agentId: input.agentId,
+								parentAgentId: input.parentAgentId,
+								toolCallId: input.toolCallId,
+								mode: input.mode,
+								model: input.model,
+								promptCacheKey: input.promptCacheKey,
+								tools: resolvedToolset.names,
+								skill: input.skill,
+								fork: input.fork,
+								agentType: input.agentType,
+							}
+				const entry = yield* appendToEventLog(LogEntryInputs['agent_started'](agentStartedInput))
 
 				// A fork appends no leading system message: its projection folds the forked-from agent's
 				// history, leading blocks included, keeping the fork's prompt prefix byte-identical for

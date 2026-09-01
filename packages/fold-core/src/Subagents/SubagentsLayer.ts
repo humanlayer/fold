@@ -808,6 +808,23 @@ export const makeSubagents = (
 						: yield* deriveChildPromptCacheKey(dispatcherSnapshot.promptCacheKey, subagentId)
 				const agentLabel = `fork of ${shortAgentId(dispatcher.agentId)}`
 				yield* interruptNote.set(interruptedSubagentNote(agentLabel, subagentId, 0))
+				const fork =
+					input.forkAgentDefinitionId === null
+						? input.history === undefined
+							? { fromAgentId: dispatcher.agentId, atSeq: lastEntry.seq }
+							: { fromAgentId: dispatcher.agentId, atSeq: lastEntry.seq, history: input.history }
+						: input.history === undefined
+							? {
+									fromAgentId: dispatcher.agentId,
+									atSeq: lastEntry.seq,
+									definitionId: input.forkAgentDefinitionId,
+								}
+							: {
+									fromAgentId: dispatcher.agentId,
+									atSeq: lastEntry.seq,
+									definitionId: input.forkAgentDefinitionId,
+									history: input.history,
+								}
 
 				return yield* runSubagentToResult({
 					subagentId,
@@ -816,12 +833,7 @@ export const makeSubagents = (
 					parentAgentId: dispatcher.agentId,
 					toolCallId: currentCall.toolCallId,
 					mode: 'fork',
-					fork: {
-						fromAgentId: dispatcher.agentId,
-						atSeq: lastEntry.seq,
-						...(input.forkAgentDefinitionId === null ? {} : { definitionId: input.forkAgentDefinitionId }),
-						...(input.history === undefined ? {} : { history: input.history }),
-					},
+					fork,
 					model: dispatcherSnapshot.model,
 					promptCacheKey,
 					tools: realized.tools,

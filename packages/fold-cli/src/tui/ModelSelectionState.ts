@@ -26,12 +26,9 @@ export type ModelPickerChoice = { readonly id: string; readonly label: string; r
 export const configuredSelection = (request: ModelSelectionRequest): ConfiguredModelSelection =>
 	request._tag === 'profile'
 		? request
-		: {
-				_tag: 'direct',
-				provider: request.provider,
-				model: request.model,
-				...(request.reasoning === undefined ? {} : { reasoning: request.reasoning }),
-			}
+		: request.reasoning === undefined
+			? { _tag: 'direct', provider: request.provider, model: request.model }
+			: { _tag: 'direct', provider: request.provider, model: request.model, reasoning: request.reasoning }
 
 const REASONING_LEVELS: ReadonlyArray<{ id: ReasoningLevel; label: string; detail: string }> = [
 	{ id: 'off', label: 'Off', detail: 'No extended thinking' },
@@ -110,19 +107,19 @@ export const advanceModelPicker = (
 		case 'model':
 			return { _tag: 'reasoning', selection: { _tag: 'direct', provider: state.provider, model: choice } }
 		case 'reasoning':
-			return {
-				_tag: 'mode',
-				selection: state.selection,
-				...(choice === 'off' ? {} : { reasoning: toReasoningLevel(choice) }),
-			}
+			return choice === 'off'
+				? { _tag: 'mode', selection: state.selection }
+				: { _tag: 'mode', selection: state.selection, reasoning: toReasoningLevel(choice) }
 		case 'mode':
 			return state.selection._tag === 'profile'
 				? { ...state.selection, mode: choice === 'rlm' ? 'rlm' : 'default' }
-				: {
-						...state.selection,
-						...(state.reasoning === undefined ? {} : { reasoning: state.reasoning }),
-						mode: choice === 'rlm' ? 'rlm' : 'default',
-					}
+				: state.reasoning === undefined
+					? { ...state.selection, mode: choice === 'rlm' ? 'rlm' : 'default' }
+					: {
+							...state.selection,
+							reasoning: state.reasoning,
+							mode: choice === 'rlm' ? 'rlm' : 'default',
+						}
 	}
 }
 export const retreatModelPicker = (state: ModelPickerState): ModelPickerState | null => {

@@ -92,14 +92,13 @@ const profileBindings = (profile: ProfileConfig): ReadonlyArray<RoleBinding> => 
 ]
 
 /** Substitute one profile's roles as the config's active roles (what --profile does at launch). */
-const withProfileRoles = (config: FoldConfig, profile: ProfileConfig): FoldConfig => ({
-	...config,
-	roles: {
-		smart: profile.smart,
-		fast: profile.fast,
-		...(profile.orchestrator === undefined ? {} : { orchestrator: profile.orchestrator }),
-	},
-})
+const withProfileRoles = (config: FoldConfig, profile: ProfileConfig): FoldConfig => {
+	const roles =
+		profile.orchestrator === undefined
+			? { smart: profile.smart, fast: profile.fast }
+			: { smart: profile.smart, fast: profile.fast, orchestrator: profile.orchestrator }
+	return { ...config, roles }
+}
 
 it.effect('the starter config ships the ultraclaude, powerclaude, and ultracodex everything-max RLM presets', () =>
 	Effect.gen(function* () {

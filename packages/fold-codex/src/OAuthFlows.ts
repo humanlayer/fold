@@ -93,13 +93,18 @@ const toJwtClaims = (value: unknown): Option.Option<CodexJwtClaims> => {
 			? getString(organizationsValue[0]['id'])
 			: undefined
 
-	return Option.some({
-		...(accountId === undefined ? {} : { chatgpt_account_id: accountId }),
-		...(nestedAccountId === undefined
-			? {}
-			: { 'https://api.openai.com/auth': { chatgpt_account_id: nestedAccountId } }),
-		...(organizationId === undefined ? {} : { organizations: [{ id: organizationId }] }),
-	})
+	const claims: {
+		chatgpt_account_id?: string
+		'https://api.openai.com/auth'?: { chatgpt_account_id?: string }
+		organizations?: Array<{ id: string }>
+	} = {}
+	if (accountId !== undefined) claims.chatgpt_account_id = accountId
+	if (nestedAccountId !== undefined) {
+		claims['https://api.openai.com/auth'] = { chatgpt_account_id: nestedAccountId }
+	}
+	if (organizationId !== undefined) claims.organizations = [{ id: organizationId }]
+
+	return Option.some(claims)
 }
 
 const decodeJwtPayload = (token: string): Option.Option<string> => {
@@ -152,13 +157,20 @@ const toTokenData = (token: TokenResponse): Effect.Effect<CodexTokenData> =>
 	Effect.map(Clock.currentTimeMillis, (now) => {
 		const accountId = extractAccountId(token)
 
-		return new CodexTokenData({
-			type: 'oauth',
-			access: token.access_token,
-			refresh: token.refresh_token,
-			expires: now + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1000,
-			...(accountId === undefined ? {} : { accountId }),
-		})
+		return accountId === undefined
+			? new CodexTokenData({
+					type: 'oauth',
+					access: token.access_token,
+					refresh: token.refresh_token,
+					expires: now + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1000,
+				})
+			: new CodexTokenData({
+					type: 'oauth',
+					access: token.access_token,
+					refresh: token.refresh_token,
+					expires: now + (token.expires_in ?? DEFAULT_TOKEN_EXPIRY_SECONDS) * 1000,
+					accountId,
+				})
 	})
 
 /** Carry an account id a token response omitted forward from the previous credential. */
@@ -191,16 +203,24 @@ export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.
 	)
 
 const refreshError = (message: string, cause?: unknown) =>
-	new CodexAuthError({ reason: 'RefreshFailed', message, ...(cause === undefined ? {} : { cause }) })
+	cause === undefined
+		? new CodexAuthError({ reason: 'RefreshFailed', message })
+		: new CodexAuthError({ reason: 'RefreshFailed', message, cause })
 
 const exchangeError = (message: string, cause?: unknown) =>
-	new CodexAuthError({ reason: 'TokenExchangeFailed', message, ...(cause === undefined ? {} : { cause }) })
+	cause === undefined
+		? new CodexAuthError({ reason: 'TokenExchangeFailed', message })
+		: new CodexAuthError({ reason: 'TokenExchangeFailed', message, cause })
 
 const deviceFlowError = (message: string, cause?: unknown) =>
-	new CodexAuthError({ reason: 'DeviceFlowFailed', message, ...(cause === undefined ? {} : { cause }) })
+	cause === undefined
+		? new CodexAuthError({ reason: 'DeviceFlowFailed', message })
+		: new CodexAuthError({ reason: 'DeviceFlowFailed', message, cause })
 
 const browserFlowError = (message: string, cause?: unknown) =>
-	new CodexAuthError({ reason: 'BrowserFlowFailed', message, ...(cause === undefined ? {} : { cause }) })
+	cause === undefined
+		? new CodexAuthError({ reason: 'BrowserFlowFailed', message })
+		: new CodexAuthError({ reason: 'BrowserFlowFailed', message, cause })
 
 /** Refresh an access token through the issuer. The client must come from {@link makeIssuerHttpClient}. */
 export const refreshAccessToken = Effect.fn('fold.codexAuth.refreshAccessToken')(function* (

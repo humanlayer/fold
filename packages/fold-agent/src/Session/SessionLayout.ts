@@ -335,11 +335,12 @@ export const listSessionSummaries = (
 				if (isCacheHit(cached, ref)) {
 					// Explicitly construct to ensure size conforms to SessionLogRef's optional semantics.
 					const summary = cached.summary
-					return Effect.succeed({
-						sessionId: summary.sessionId,
-						path: ref.path,
-						mtimeMs: ref.mtimeMs,
-						...(ref.size === undefined ? {} : { size: ref.size }),
+					const sessionRef =
+						ref.size === undefined
+							? { sessionId: summary.sessionId, path: ref.path, mtimeMs: ref.mtimeMs }
+							: { sessionId: summary.sessionId, path: ref.path, mtimeMs: ref.mtimeMs, size: ref.size }
+					const cachedSummary = {
+						...sessionRef,
 						title: summary.title,
 						status: summary.status,
 						turns: summary.turns,
@@ -350,7 +351,8 @@ export const listSessionSummaries = (
 						mode: summary.mode,
 						rpi: summary.rpi,
 						profile: summary.profile,
-					})
+					}
+					return Effect.succeed(cachedSummary)
 				}
 				return loadSessionSummary(ref).pipe(
 					Effect.tap((summary) =>

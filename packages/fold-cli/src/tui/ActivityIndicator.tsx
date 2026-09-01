@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { createSignal, onCleanup } from 'solid-js'
+import { createMemo, createSignal, onCleanup } from 'solid-js'
 
 import { theme } from './ThemeState'
 
@@ -37,13 +37,18 @@ export const ActivityIndicator = (props: {
 	}, 180)
 	onCleanup(() => clearInterval(timer))
 
+	const value = createMemo(() => presentation(props.state, frame()))
+	if (props.width === undefined) {
+		return (
+			<text fg={value().color} wrapMode="none">
+				{`${value().glyph} ${props.label ?? props.state.toUpperCase()}`}
+			</text>
+		)
+	}
+
 	return (
-		<text
-			fg={presentation(props.state, frame()).color}
-			{...(props.width === undefined ? {} : { width: props.width })}
-			wrapMode="none"
-		>
-			{`${presentation(props.state, frame()).glyph} ${props.label ?? props.state.toUpperCase()}`}
+		<text fg={value().color} width={props.width} wrapMode="none">
+			{`${value().glyph} ${props.label ?? props.state.toUpperCase()}`}
 		</text>
 	)
 }

@@ -153,10 +153,11 @@ export const WEB_SEARCH_RESEARCHER_PROMPT: string =
  * binds its model by profile role, resolved through the session's profiles map at each dispatch.
  */
 export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
-	const coding = codingTools({ cwd, ...(outputStore === undefined ? {} : { outputStore }) })
+	const toolOptions = outputStore === undefined ? { cwd } : { cwd, outputStore }
+	const coding = codingTools(toolOptions)
 	const skills = skillTool(skillsFromDisk({ cwd }))
 	const web = webTools()
-	const bashOptions = { cwd, ...(outputStore === undefined ? {} : { outputStore }) }
+	const bashOptions = toolOptions
 
 	const bash = defineSubagent({
 		name: 'bash',

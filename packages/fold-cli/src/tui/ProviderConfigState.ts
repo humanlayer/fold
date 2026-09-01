@@ -6,6 +6,7 @@ export const providerFormFields: ReadonlyArray<ProviderFormField> = ['kind', 'na
 export type ProviderForm = ConfigureProviderInput & { readonly model: string }
 
 type ConfiguredProvider = ModelConfiguration['providers'][number]
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
 
 export type ProviderManagementRow =
 	| {
@@ -99,14 +100,14 @@ export const providerFormFor = (configuration: ModelConfiguration, name: string)
 	const provider = configuration.providers.find((candidate) => candidate.name === name)
 	if (provider === undefined) return emptyProviderForm()
 	const fallback = defaults(provider.kind)
-	return {
+	const form = {
 		kind: provider.kind,
 		name: provider.name,
 		baseUrl: provider.baseUrl ?? fallback.baseUrl,
 		apiKey: '',
-		...(provider.apiKeyEnv === null ? {} : { apiKeyEnv: provider.apiKeyEnv }),
 		model: provider.models[0] ?? fallback.model,
 	}
+	return provider.apiKeyEnv === null ? form : { ...form, apiKeyEnv: provider.apiKeyEnv }
 }
 
 const nextKinds: Record<ProviderForm['kind'], ProviderForm['kind']> = {
@@ -127,9 +128,8 @@ export const withNextProviderKind = (form: ProviderForm): ProviderForm => {
 export const providerInput = (form: ProviderForm): ConfigureProviderInput => {
 	const { model, apiKey, ...required } = form
 	const oauth = form.kind === 'codex' || form.kind === 'opencode' || form.kind === 'xai'
-	return {
-		...required,
-		...(oauth || apiKey === undefined || apiKey.trim() === '' ? {} : { apiKey }),
-		...(model.trim() === '' ? {} : { model }),
-	}
+	const input: Mutable<ConfigureProviderInput> = { ...required }
+	if (!oauth && apiKey !== undefined && apiKey.trim() !== '') input.apiKey = apiKey
+	if (model.trim() !== '') input.model = model
+	return input
 }

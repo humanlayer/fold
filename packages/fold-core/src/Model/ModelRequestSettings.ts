@@ -155,12 +155,12 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 					effort: ({ effort }) => ({ reasoning: { effort } }),
 				})
 
-				return <A, E, R>(self: Effect.Effect<A, E, R>) =>
-					OpenAiLanguageModel.withConfigOverride(self, {
-						model: model.modelId,
-						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
-						...reasoning,
-					})
+				const config =
+					promptCacheKey === null
+						? { model: model.modelId, ...reasoning }
+						: { model: model.modelId, prompt_cache_key: promptCacheKey, ...reasoning }
+
+				return <A, E, R>(self: Effect.Effect<A, E, R>) => OpenAiLanguageModel.withConfigOverride(self, config)
 			}
 
 			case 'codex': {
@@ -170,12 +170,12 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 					effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
 				})
 
-				return <A, E, R>(self: Effect.Effect<A, E, R>) =>
-					OpenAiLanguageModel.withConfigOverride(self, {
-						model: model.modelId,
-						...(promptCacheKey === null ? {} : { prompt_cache_key: promptCacheKey }),
-						...reasoning,
-					})
+				const config =
+					promptCacheKey === null
+						? { model: model.modelId, ...reasoning }
+						: { model: model.modelId, prompt_cache_key: promptCacheKey, ...reasoning }
+
+				return <A, E, R>(self: Effect.Effect<A, E, R>) => OpenAiLanguageModel.withConfigOverride(self, config)
 			}
 
 			case 'anthropic': {

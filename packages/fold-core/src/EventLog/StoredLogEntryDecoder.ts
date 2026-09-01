@@ -12,12 +12,9 @@ import {
 const PersistedRecord = Schema.Record(Schema.String, Schema.Unknown)
 
 const corruptEntry = (message: string, cause: unknown, seq?: number) =>
-	new EventLogCorruptEntryError({
-		operation: 'entries',
-		message,
-		...(seq === undefined ? {} : { seq }),
-		cause,
-	})
+	seq === undefined
+		? new EventLogCorruptEntryError({ operation: 'entries', message, cause })
+		: new EventLogCorruptEntryError({ operation: 'entries', message, seq, cause })
 
 /**
  * Decode one persisted Fold event by its wire-format version.

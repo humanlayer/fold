@@ -118,19 +118,25 @@ const appendToolResultToEventLog = (input: {
 		const eventLog = yield* EventLog
 		const ids = yield* Ids
 		const message = yield* encodedToolResultMessage(input)
+		const entryInput =
+			input.executedInput === undefined
+				? {
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						messageId: yield* ids.makeMessageId,
+						message,
+					}
+				: {
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						messageId: yield* ids.makeMessageId,
+						message,
+						executedInput: input.executedInput,
+					}
 
-		const entry = yield* eventLog
-			.append(
-				LogEntryInputs['tool-result']({
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					messageId: yield* ids.makeMessageId,
-					message,
-					...(input.executedInput === undefined ? {} : { executedInput: input.executedInput }),
-				}),
-			)
-			.pipe(Effect.orDie)
+		const entry = yield* eventLog.append(LogEntryInputs['tool-result'](entryInput)).pipe(Effect.orDie)
 
 		if (Predicate.isTagged(entry, 'tool-result')) return entry
 
@@ -469,25 +475,36 @@ const settlePreparedToolCall = (input: {
 				output: handlerOutput,
 			})
 
+			if (valuesHaveSameJsonRepresentation(input.prepared.original.params, input.prepared.params)) {
+				return { result: finalOutput.result, isFailure: finalOutput.isFailure }
+			}
+
 			return {
 				result: finalOutput.result,
 				isFailure: finalOutput.isFailure,
-				...(valuesHaveSameJsonRepresentation(input.prepared.original.params, input.prepared.params)
-					? {}
-					: { executedInput: input.prepared.params }),
+				executedInput: input.prepared.params,
 			}
 		})
 
 		const append = (result: ToolResultAppendInput) =>
-			appendToolResultToEventLog({
-				agentId: input.agentId,
-				parentAgentId: input.parentAgentId,
-				toolCallId,
-				toolName,
-				result: result.result,
-				isFailure: result.isFailure,
-				...(result.executedInput === undefined ? {} : { executedInput: result.executedInput }),
-			})
+			result.executedInput === undefined
+				? appendToolResultToEventLog({
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId,
+						toolName,
+						result: result.result,
+						isFailure: result.isFailure,
+					})
+				: appendToolResultToEventLog({
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId,
+						toolName,
+						result: result.result,
+						isFailure: result.isFailure,
+						executedInput: result.executedInput,
+					})
 
 		const runnable = output.pipe(
 			Effect.provideService(ToolState, toolState),

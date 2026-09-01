@@ -24,19 +24,19 @@ import type { NewSessionRequest } from './NewSessionModal'
 import { projectSessionRows, type SessionRow } from './SessionListProjection'
 import type { TuiOptions } from './TuiSessionOptions'
 
-const launchOptions = (options: TuiOptions) => ({
-	cwd: options.cwd,
-	...(options.foldHome === undefined ? {} : { foldHome: options.foldHome }),
-	...(options.mode === undefined ? {} : { mode: modeForName(options.mode) }),
-	...(options.rpi === true ? { rpi: true } : {}),
-	...(options.modelSelection !== undefined
-		? { modelSelection: options.modelSelection }
-		: options.profile === undefined
-			? {}
-			: { profile: options.profile }),
-	...(options.autoCompact === undefined ? {} : { autoCompact: options.autoCompact }),
-	...(options.catalog === undefined ? {} : { catalog: options.catalog }),
-})
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
+const launchOptions = (options: TuiOptions) => {
+	const launch: Mutable<Parameters<typeof launchSession>[0]> = { cwd: options.cwd }
+	if (options.foldHome !== undefined) launch.foldHome = options.foldHome
+	if (options.mode !== undefined) launch.mode = modeForName(options.mode)
+	if (options.rpi === true) launch.rpi = true
+	if (options.modelSelection !== undefined) launch.modelSelection = options.modelSelection
+	else if (options.profile !== undefined) launch.profile = options.profile
+	if (options.autoCompact !== undefined) launch.autoCompact = options.autoCompact
+	if (options.catalog !== undefined) launch.catalog = options.catalog
+	return launch
+}
 
 const initialSession = (options: TuiOptions) => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
@@ -83,10 +83,9 @@ export const makeTuiSessionWorkspace = (options: {
 		const cwdBySession = new Map<SessionId, string>()
 		const loadSummaries = Effect.suspend(() =>
 			Effect.forEach([...cwds], (cwd) =>
-				listSessionSummaries({
-					cwd,
-					...(options.tui.foldHome === undefined ? {} : { foldHome: options.tui.foldHome }),
-				}).pipe(
+				listSessionSummaries(
+					options.tui.foldHome === undefined ? { cwd } : { cwd, foldHome: options.tui.foldHome },
+				).pipe(
 					Effect.tap((rows) =>
 						Effect.sync(() => rows.forEach((row) => cwdBySession.set(row.sessionId, cwd))),
 					),
@@ -150,18 +149,19 @@ export const makeTuiSessionWorkspace = (options: {
 		) =>
 			session.pipe(
 				Effect.provide(NodeFileSystem.layer),
-				Effect.flatMap((value) =>
-					makeHostedTuiSession(value, {
+				Effect.flatMap((value) => {
+					const hostedOptions: Mutable<Parameters<typeof makeHostedTuiSession>[1]> = {
 						metadata,
 						initialInputFocused: focused,
 						config: currentConfig,
 						configNotice: options.configNotice,
-						...(options.tui.foldHome === undefined ? {} : { foldHome: options.tui.foldHome }),
-						...(options.tui.catalog === undefined ? {} : { catalog: options.tui.catalog }),
-						...(options.tui.rpi === true ? { rpi: true } : {}),
 						onDurableSummaryChange: refresh,
-					}),
-				),
+					}
+					if (options.tui.foldHome !== undefined) hostedOptions.foldHome = options.tui.foldHome
+					if (options.tui.catalog !== undefined) hostedOptions.catalog = options.tui.catalog
+					if (options.tui.rpi === true) hostedOptions.rpi = true
+					return makeHostedTuiSession(value, hostedOptions)
+				}),
 			)
 		const finish = (hosted: HostedTuiSession) =>
 			loadSummaries.pipe(
@@ -266,10 +266,10 @@ export const makeTuiSessionWorkspace = (options: {
 				Effect.gen(function* () {
 					const cwd = host.get(sessionId)?.cwd ?? cwdBySession.get(sessionId) ?? options.tui.cwd
 					yield* host.close(sessionId)
-					const result = yield* deleteSession(sessionId, {
-						cwd,
-						...(options.tui.foldHome === undefined ? {} : { foldHome: options.tui.foldHome }),
-					})
+					const result = yield* deleteSession(
+						sessionId,
+						options.tui.foldHome === undefined ? { cwd } : { cwd, foldHome: options.tui.foldHome },
+					)
 					setSummaries(yield* loadSummaries)
 					setNotice(
 						!result.deleted
