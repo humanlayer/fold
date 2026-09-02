@@ -37,6 +37,8 @@ import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode }
 import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
 
 declare const FOLD_VERSION: string
+// Bun injects FOLD_VERSION at build time. `typeof` is the only check that does not throw when tests leave it undeclared.
+// oxlint-disable-next-line anti-slop/no-runtime-typeof
 const version = typeof FOLD_VERSION === 'string' ? FOLD_VERSION : '0.0.0'
 
 type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
