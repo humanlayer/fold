@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { Effect, FileSystem, Option, Path, Schema } from 'effect'
 
 export const CodexPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['config', 'cache', 'manifest']),
@@ -53,8 +53,23 @@ type SemanticVersion = {
 	readonly prerelease: Array<string>
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const RelativeSkillRoot = Schema.String.check(
+	Schema.makeFilter((value: string) =>
+		!value.startsWith('./') ||
+		value === './' ||
+		value.includes('\\') ||
+		value.includes('\0') ||
+		value.split('/').includes('..')
+			? 'skill root must be a relative path without traversal'
+			: undefined,
+	),
+)
+const PluginManifest = Schema.Struct({
+	name: Schema.String,
+	skills: Schema.optionalKey(Schema.Union([RelativeSkillRoot, Schema.Array(Schema.Unknown)])),
+})
+const decodePluginManifest = Schema.decodeUnknownOption(Schema.fromJsonString(PluginManifest))
+const decodeRelativeSkillRoot = Schema.decodeUnknownOption(RelativeSkillRoot)
 
 const parseSemanticVersion = (value: string): SemanticVersion | null => {
 	const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value)
@@ -91,18 +106,8 @@ const selectedVersion = (versions: ReadonlyArray<string>): string | null => {
 	)
 }
 
-const safeRelativeSkillRoot = (value: unknown): string | null => {
-	if (
-		typeof value !== 'string' ||
-		!value.startsWith('./') ||
-		value === './' ||
-		value.includes('\\') ||
-		value.includes('\0')
-	)
-		return null
-	if (value.split('/').includes('..')) return null
-	return value
-}
+const safeRelativeSkillRoot = (value: unknown): string | null =>
+	Option.getOrNull(decodeRelativeSkillRoot(value))
 
 export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 	Effect.gen(function* () {
@@ -124,32 +129,28 @@ export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 			const version = selectedVersion(directories)
 			if (version === null) continue
 			const bundle = path.resolve(cachePath, version)
-			let manifest: unknown = null
+			let manifest: typeof PluginManifest.Type | null = null
 			let manifestPath = ''
 			for (const relativePath of ['plugin.json', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json']) {
 				const candidate = path.join(bundle, relativePath)
 				const contents = yield* fs.readFileString(candidate).pipe(Effect.catch(() => Effect.succeed(null)))
 				if (contents === null) continue
 				manifestPath = candidate
-				try {
-					manifest = JSON.parse(contents)
-				} catch {
+				const decoded = Option.getOrUndefined(decodePluginManifest(contents))
+				if (decoded === undefined) {
 					diagnostics.push({ stage: 'manifest', code: 'manifest_parse_failed', path: candidate })
+					break
 				}
+				manifest = decoded
 				break
 			}
-			if (!isRecord(manifest)) continue
+			if (manifest === null) continue
 			const record = manifest
 			if (record.name !== plugin.name) {
 				diagnostics.push({ stage: 'manifest', code: 'manifest_name_mismatch', path: manifestPath })
 				continue
 			}
-			const declared =
-				record.skills === undefined
-					? ['./skills']
-					: Array.isArray(record.skills)
-						? record.skills
-						: [record.skills]
+			const declared = record.skills === undefined ? ['./skills'] : Array.isArray(record.skills) ? record.skills : [record.skills]
 			for (const value of declared) {
 				const relativeRoot = safeRelativeSkillRoot(value)
 				if (relativeRoot === null) {

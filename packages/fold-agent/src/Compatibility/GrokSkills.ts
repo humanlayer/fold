@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 
 import { SkillNotFoundError, type Skill, type SkillMeta, type SkillSourceService } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Path } from 'effect'
+import { Effect, FileSystem, Option, Path, Schema } from 'effect'
 import { parse as parseYaml } from 'yaml'
 
 export type GrokSkillOptions = {
@@ -21,8 +21,11 @@ const exists = (path: string): Effect.Effect<boolean, never, FileSystem.FileSyst
 		return yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))
 	})
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const SkillFrontmatter = Schema.Struct({
+	name: Schema.optionalKey(Schema.String),
+	description: Schema.optionalKey(Schema.String),
+})
+const decodeSkillFrontmatter = Schema.decodeUnknownOption(SkillFrontmatter)
 
 const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean, never, Path.Path> =>
 	Effect.gen(function* () {
@@ -76,14 +79,12 @@ const loadSkill = (
 							content = normalized.slice(end + 4).trim()
 						}
 					}
-					const record = isRecord(parsed) ? parsed : {}
+					const record = Option.getOrUndefined(decodeSkillFrontmatter(parsed))
 					const rawName =
-						typeof record.name === 'string' && record.name.length > 0
-							? record.name
-							: path.basename(directory)
+						record?.name !== undefined && record.name.length > 0 ? record.name : path.basename(directory)
 					const name = namespace === undefined ? rawName : `${namespace}:${rawName}`
 					const description =
-						typeof record.description === 'string' && record.description.trim().length > 0
+						record?.description !== undefined && record.description.trim().length > 0
 							? record.description.trim()
 							: content
 									.split(/\n\s*\n/)[0]

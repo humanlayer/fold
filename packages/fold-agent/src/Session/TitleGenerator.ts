@@ -12,7 +12,7 @@ const isMessageEntry = (entry: LogEntry): entry is MessageEntry =>
 	Predicate.isTagged(entry, 'user-message') || Predicate.isTagged(entry, 'assistant-message')
 
 const extractMessageText = (entry: MessageEntry): string =>
-	typeof entry.message.content === 'string'
+	Predicate.isString(entry.message.content)
 		? entry.message.content
 		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 

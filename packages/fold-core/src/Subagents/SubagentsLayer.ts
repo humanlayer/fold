@@ -36,7 +36,7 @@ import {
 import type { HookConfig } from '../HookRunner/Types'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
 import { runtimeForAgent } from '../Projection/Projection'
-import { Profiles } from '../Session/Profiles'
+import { isProfileRole, Profiles } from '../Session/Profiles'
 import { SessionControls } from '../Session/SessionControls'
 import { SkillNotFoundError, type SkillSourceService } from '../Skills/SkillSource'
 import { renderSkillContent } from '../Skills/SkillTool'
@@ -137,7 +137,7 @@ const SubagentLaunch = Data.taggedEnum<LaunchSubagentParams['launch']>()
 
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
-	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
+	systemPrompt === null ? [] : Predicate.isString(systemPrompt) ? [systemPrompt] : systemPrompt
 
 /** Leading blocks for one agent: its own blocks, then its tools' contributed blocks. */
 const leadingBlocksFor = (
@@ -197,7 +197,7 @@ const lastAssistantTextForRun = (
 	if (lastAssistant === undefined) return null
 
 	const content = lastAssistant.message.content
-	if (typeof content === 'string') return content.length > 0 ? content : null
+	if (Predicate.isString(content)) return content.length > 0 ? content : null
 
 	const text = content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 	return text.length > 0 ? text : null
@@ -237,7 +237,7 @@ export const makeSubagents = (
 
 		/** Resolve one registry entry's model binding: a role name reads the current profiles map. */
 		const resolveModelBinding = (binding: SubagentModelBinding): Effect.Effect<FoldModel> =>
-			typeof binding === 'string' ? profiles.resolve(binding) : Effect.succeed(binding)
+			isProfileRole(binding) ? profiles.resolve(binding) : Effect.succeed(binding)
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)

@@ -119,8 +119,9 @@ it.effect('injects a skill as a linked synthetic tool call and result without a 
 
 		const injected = yield* session.injectSkill('terminal-control', '<skill>terminal instructions</skill>')
 		const entries = yield* session.entries
-		const callPart =
-			typeof injected.call.message.content === 'string' ? undefined : injected.call.message.content[0]
+		const callPart = Predicate.isString(injected.call.message.content)
+			? undefined
+			: injected.call.message.content[0]
 		const resultPart = injected.result.message.content[0]
 		if (callPart?.type !== 'tool-call') throw new Error('expected injected skill tool call')
 		if (resultPart?.type !== 'tool-result') throw new Error('expected injected skill tool result')

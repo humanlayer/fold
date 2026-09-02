@@ -96,7 +96,7 @@ const findAgentFinished = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): 
 const compareSeq = (left: LogEntry, right: LogEntry) => left.seq - right.seq
 
 const userMessageText = (entry: UserMessageLogEntry): string =>
-	typeof entry.message.content === 'string'
+	Predicate.isString(entry.message.content)
 		? entry.message.content
 		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 
@@ -108,7 +108,7 @@ const isInjectedSkillMessage = (entry: LogEntry): boolean => {
 
 const isSettledAssistantText = (entry: LogEntry): boolean => {
 	if (!Predicate.isTagged(entry, 'assistant-message')) return false
-	if (typeof entry.message.content === 'string') return entry.message.content.trim().length > 0
+	if (Predicate.isString(entry.message.content)) return entry.message.content.trim().length > 0
 	return entry.message.content.length > 0 && entry.message.content.every((part) => part.type === 'text')
 }
 
@@ -272,7 +272,7 @@ const latestCompaction = (entries: ReadonlyArray<LogEntry>): CompactionLogEntry 
 	entries.findLast((entry): entry is CompactionLogEntry => Predicate.isTagged(entry, 'compaction')) ?? null
 
 const toolCallIdsForAssistantMessage = (message: AssistantMessageEncoded): ReadonlyArray<string> => {
-	if (typeof message.content === 'string') return []
+	if (Predicate.isString(message.content)) return []
 
 	return message.content.flatMap((part) => (part.type === 'tool-call' ? [part.id] : []))
 }

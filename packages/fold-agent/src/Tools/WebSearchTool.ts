@@ -1,5 +1,5 @@
 import { CurrentAgent, defineTool, webSearchToolContract, type FoldTool } from '@humanlayer/fold-core'
-import { Effect, Predicate } from 'effect'
+import { Effect, Option, Predicate, Schema } from 'effect'
 
 const defaultTimeoutMs = 25_000
 const maxNumResults = 20
@@ -52,24 +52,18 @@ const selectProvider = (seed: string, options?: WebSearchToolOptions): WebSearch
 	return checksum(seed) % 2 === 0 ? 'exa' : 'parallel'
 }
 
-const textField = (value: unknown): string | undefined => {
-	if (typeof value !== 'object' || value === null || !('text' in value)) return undefined
-	const text = Reflect.get(value, 'text')
-	return typeof text === 'string' && text.length > 0 ? text : undefined
-}
+const McpSearchPayload = Schema.Struct({
+	result: Schema.Struct({
+		content: Schema.Array(Schema.Struct({ text: Schema.optionalKey(Schema.String) })),
+	}),
+})
+const decodeMcpSearchPayload = Schema.decodeUnknownOption(Schema.fromJsonString(McpSearchPayload))
 
 const parsePayload = (payload: string): string | undefined => {
 	const trimmed = payload.trim()
 	if (!trimmed.startsWith('{')) return undefined
-
-	const decoded: unknown = JSON.parse(trimmed)
-	if (typeof decoded !== 'object' || decoded === null || !('result' in decoded)) return undefined
-	const result = Reflect.get(decoded, 'result')
-	if (typeof result !== 'object' || result === null || !('content' in result)) return undefined
-	const content = Reflect.get(result, 'content')
-	if (!Array.isArray(content)) return undefined
-
-	return content.map(textField).find((text) => text !== undefined)
+	const decoded = Option.getOrUndefined(decodeMcpSearchPayload(trimmed))
+	return decoded?.result.content.map((part) => part.text).find((text) => text !== undefined && text.length > 0)
 }
 
 const parseMcpResponse = (body: string): Effect.Effect<string | undefined, { message: string }> =>

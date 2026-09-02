@@ -79,8 +79,8 @@ it.effect('truncates long defect messages before projecting them to the model', 
 
 		const result = projectedToolResultPart(projected).result
 
-		expect(typeof result).toBe('string')
-		if (typeof result !== 'string') return
+		expect(Predicate.isString(result)).toBe(true)
+		if (!Predicate.isString(result)) return
 		expect(result).toContain('<system-information>Tool "echo" failed unexpectedly: prefix ')
 		expect(result).toContain('...</system-information>')
 		expect(result).not.toContain('suffix')

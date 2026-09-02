@@ -52,6 +52,13 @@ export type SessionSummary = SessionLogRef & {
 
 const decodeSessionId = Schema.decodeUnknownOption(SessionId)
 
+const SessionMetaFields = Schema.Struct({
+	mode: Schema.optionalKey(Schema.String),
+	profile: Schema.optionalKey(Schema.String),
+	rpi: Schema.optionalKey(Schema.Boolean),
+})
+const decodeSessionMetaFields = Schema.decodeUnknownOption(SessionMetaFields)
+
 /**
  * The project slug for one working directory (pi-style escaped cwd): every non-alphanumeric run
  * becomes a single dash, so `/Users/kyle/projects/fold` -> `Users-kyle-projects-fold`. Deterministic,
@@ -234,7 +241,7 @@ const isFinishedAssistantMessage = (entry: LogEntry): entry is FinishedAssistant
 
 const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message' }>): string => {
 	const content = entry.message.content
-	return typeof content === 'string'
+	return Predicate.isString(content)
 		? content
 		: content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
 }
@@ -278,7 +285,7 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 	const modelEntry = rootEntries.findLast(carriesModel)
 	const model = modelEntry?.model ?? null
 	const latestUsage = rootEntries.findLast(isFinishedAssistantMessage)
-	const meta = started?.meta ?? {}
+	const meta = Option.getOrUndefined(decodeSessionMetaFields(started?.meta ?? {}))
 	const lastFinished = rootEntries.findLast(isAgentFinished)
 	const latestRootEntry = rootEntries.findLast((entry) => !isSessionTitle(entry))
 	const status = computeStatus(lastFinished, latestRootEntry)
@@ -292,9 +299,9 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 		modelId: model?.modelId ?? null,
 		model,
 		contextTokens: latestUsage !== undefined ? usageInputTotal(latestUsage.finish.usage) : null,
-		mode: typeof meta.mode === 'string' ? meta.mode : null,
-		rpi: meta.rpi === true,
-		profile: typeof meta.profile === 'string' ? meta.profile : null,
+		mode: meta?.mode ?? null,
+		rpi: meta?.rpi === true,
+		profile: meta?.profile ?? null,
 	}
 }
 

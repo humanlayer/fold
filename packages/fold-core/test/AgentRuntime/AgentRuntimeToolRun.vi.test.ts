@@ -47,7 +47,7 @@ it.effect('runs a tool turn end to end, rewriting and restoring provider tool-ca
 			Predicate.isTagged(entry, 'assistant-message'),
 		)
 		const assistantContent = assistant?.message.content
-		if (typeof assistantContent === 'string' || assistantContent === undefined) {
+		if (Predicate.isString(assistantContent) || assistantContent === undefined) {
 			throw new Error('expected structured assistant content')
 		}
 		const persistedToolCall = assistantContent.find((part) => part.type === 'tool-call')

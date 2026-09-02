@@ -23,7 +23,7 @@ import {
 	type FoldTool,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
+import { Effect, FileSystem, Layer, Option, PlatformError, Ref, Schema } from 'effect'
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
 export const makeAmbientServices = (): Effect.Effect<{
@@ -159,22 +159,22 @@ export const memoryFileSystem = (initialFiles: Record<string, string>): FileSyst
 export const memoryFileFor = (fs: FileSystem.FileSystem, path: string): Effect.Effect<string | null> =>
 	fs.readFileString(path).pipe(Effect.catch(() => Effect.succeed(null)))
 
-/** Narrow one string-valued field out of an unknown tool result/failure (assertion helper). */
-const stringField =
-	(field: string) =>
-	(value: unknown): string => {
-		if (typeof value === 'object' && value !== null && field in value) {
-			const candidate: unknown = Reflect.get(value, field)
-			if (typeof candidate === 'string') return candidate
-		}
-		throw new Error(`expected a value with a string "${field}" field`)
-	}
+const decodeMessageField = Schema.decodeUnknownOption(Schema.Struct({ message: Schema.String }))
+const decodeOutputField = Schema.decodeUnknownOption(Schema.Struct({ output: Schema.String }))
 
 /** The `message` field of a tool success/failure value. */
-export const messageOf: (value: unknown) => string = stringField('message')
+export const messageOf = (value: unknown): string => {
+	const decoded = Option.getOrUndefined(decodeMessageField(value))
+	if (decoded !== undefined) return decoded.message
+	throw new Error('expected a value with a string "message" field')
+}
 
 /** The `output` field of a bash tool success value. */
-export const outputOf: (value: unknown) => string = stringField('output')
+export const outputOf = (value: unknown): string => {
+	const decoded = Option.getOrUndefined(decodeOutputField(value))
+	if (decoded !== undefined) return decoded.output
+	throw new Error('expected a value with a string "output" field')
+}
 
 const parentDirs = (path: string): ReadonlyArray<string> => {
 	const parents: Array<string> = []

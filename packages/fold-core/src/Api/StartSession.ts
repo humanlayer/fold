@@ -72,6 +72,7 @@ import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { runtimeForAgent } from '../Projection/Projection'
 import { AgentNotRunningError } from '../Session/Errors'
 import {
+	isProfileRole,
 	makeProfiles,
 	profileModelFor,
 	Profiles,
@@ -290,7 +291,7 @@ const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids
 
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
-	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
+	systemPrompt === null ? [] : Predicate.isString(systemPrompt) ? [systemPrompt] : systemPrompt
 
 /** Everything one assembled session shares between `startSession` and `resumeSession`. */
 type SessionGraph = {
@@ -355,7 +356,7 @@ const assembleSessionGraph = (options: {
 		// models need no profiles at all.
 		const initialProfiles = options.profiles ?? {}
 		for (const entry of registry.entries) {
-			if (typeof entry.model !== 'string') continue
+			if (!isProfileRole(entry.model)) continue
 			if (profileModelFor(initialProfiles, entry.model) !== undefined) continue
 			const needed =
 				entry.model === 'orchestrator' ? 'profiles.orchestrator (or profiles.smart)' : `profiles.${entry.model}`
@@ -569,7 +570,7 @@ const assembleSessionGraph = (options: {
 						),
 					]
 					for (const entry of bindings) {
-						if (typeof entry.model !== 'string') continue
+						if (!isProfileRole(entry.model)) continue
 						if (profileModelFor(candidateProfiles, entry.model) !== undefined) continue
 						throw new Error(
 							`subagent type "${entry.name}" binds model role "${entry.model}", but the session has no covering profile binding`,

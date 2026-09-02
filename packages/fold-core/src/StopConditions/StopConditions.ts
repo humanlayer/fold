@@ -4,7 +4,7 @@
  * emits the same tool-call batch repeatedly, fold lets the current batch settle, then stops gracefully
  * before another model request.
  */
-import { Context } from 'effect'
+import { Context, Predicate } from 'effect'
 
 /** Doom-loop detector configuration. Omitted means disabled. */
 export type DoomLoopStopCondition =
@@ -43,7 +43,7 @@ export const initialDoomLoopState: DoomLoopState = { fingerprint: null, count: 0
 
 const normalizeForFingerprint = (value: unknown): unknown => {
 	if (Array.isArray(value)) return value.map(normalizeForFingerprint)
-	if (typeof value !== 'object' || value === null) return value
+	if (!Predicate.isObject(value)) return value
 
 	return Object.fromEntries(
 		Object.entries(value)

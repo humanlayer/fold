@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 
 import { SkillNotFoundError, type Skill, type SkillMeta, type SkillSourceService } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Path } from 'effect'
+import { Effect, FileSystem, Option, Path, Schema } from 'effect'
 import { parse as parseYaml } from 'yaml'
 
 export type CodexSkillOptions = {
@@ -47,8 +47,11 @@ const ancestorSkillRoots = (cwd: string, home: string | null): Effect.Effect<Rea
 		return roots
 	})
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const SkillFrontmatter = Schema.Struct({
+	name: Schema.optionalKey(Schema.String),
+	description: Schema.String,
+})
+const decodeSkillFrontmatter = Schema.decodeUnknownOption(SkillFrontmatter)
 
 const loadSkill = (
 	skillPath: string,
@@ -63,16 +66,10 @@ const loadSkill = (
 				if (!normalized.startsWith('---\n')) return null
 				const end = normalized.indexOf('\n---', 4)
 				if (end < 0) return null
-				const parsed: unknown = parseYaml(normalized.slice(4, end))
-				if (
-					!isRecord(parsed) ||
-					typeof parsed.description !== 'string' ||
-					parsed.description.trim().length === 0
-				)
-					return null
+				const parsed = Option.getOrUndefined(decodeSkillFrontmatter(parseYaml(normalized.slice(4, end))))
+				if (parsed === undefined || parsed.description.trim().length === 0) return null
 				const directory = path.dirname(skillPath)
-				const rawName =
-					typeof parsed.name === 'string' && parsed.name.length > 0 ? parsed.name : path.basename(directory)
+				const rawName = parsed.name !== undefined && parsed.name.length > 0 ? parsed.name : path.basename(directory)
 				const name = namespace === undefined ? rawName : `${namespace}:${rawName}`
 				return {
 					name,
