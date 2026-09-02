@@ -24,7 +24,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { Cause, Effect, FileSystem, Schema } from 'effect'
+import { Cause, Effect, FileSystem, Predicate, Schema } from 'effect'
 
 import { managedBinaryRegistry, type ManagedBinaryAsset, type ManagedBinaryDefinition } from './Registry'
 
@@ -149,13 +149,9 @@ const defaultDownload: DownloadSeam = (url) =>
 
 /** The ONE mapper from execFile rejections to the typed exec error. */
 const execErrorFrom = (command: string, args: ReadonlyArray<string>, cause: unknown): BinaryExecError => {
-	const stderr =
-		typeof cause === 'object' && cause !== null && 'stderr' in cause && typeof cause.stderr === 'string'
-			? cause.stderr.trim()
-			: ''
-	const reason = cause instanceof Error ? cause.message : String(cause)
+	const reason = Predicate.isError(cause) ? cause.message : String(cause)
 	return new BinaryExecError({
-		message: `${command} ${args.join(' ')}: ${reason}${stderr === '' ? '' : ` (${stderr.slice(0, 400)})`}`,
+		message: `${command} ${args.join(' ')}: ${reason}`,
 	})
 }
 
@@ -410,9 +406,7 @@ const resolveOne = (context: ResolveContext, definition: ManagedBinaryDefinition
 
 /** Human-readable message for one squashed cause value (typed errors carry `message`; guard, never cast). */
 const failureMessageOf = (value: unknown): string =>
-	typeof value === 'object' && value !== null && 'message' in value && typeof value.message === 'string'
-		? value.message
-		: String(value)
+	Predicate.isError(value) ? value.message : String(value)
 
 /** One binary's resolution, degraded to `unavailable` on ANY failure or defect (capture, then keep going). */
 const resolveOneNeverFailing = (
