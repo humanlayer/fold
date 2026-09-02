@@ -18,20 +18,24 @@ import {
 	type UsageEncoded,
 	type FoldEvent,
 } from '@humanlayer/fold-core'
-import { Data, Effect, Match } from 'effect'
+import { Data, Effect, Match, Option, Predicate, Schema } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
 
 type Writer = (text: string) => Effect.Effect<void>
 
-type EncodedPart = {
-	readonly type: string
-	readonly text?: string
-	readonly name?: string
-	readonly params?: unknown
-	readonly result?: unknown
-	readonly isFailure?: boolean
-}
+const EncodedPart = Schema.Struct({
+	type: Schema.String,
+	text: Schema.optionalKey(Schema.String),
+	name: Schema.optionalKey(Schema.String),
+	params: Schema.optionalKey(Schema.Unknown),
+	result: Schema.optionalKey(Schema.Unknown),
+	isFailure: Schema.optionalKey(Schema.Boolean),
+})
+type EncodedPart = typeof EncodedPart.Type
+
+const EncodedContent = Schema.Union([Schema.String, Schema.Array(EncodedPart)])
+const decodeEncodedContent = Schema.decodeUnknownOption(EncodedContent)
 
 /** Creation options for the colored headless output renderer. */
 export type RendererOptions = {
@@ -167,14 +171,11 @@ export const makePromptOutputRenderer = (options?: RendererOptions): OutputRende
 const truncate = (text: string, max: number): string =>
 	text.length <= max ? text : `${text.slice(0, max)}... (${text.length - max} more chars)`
 
-const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
-	if (typeof content === 'string') return [{ type: 'text', text: content }]
-	if (!Array.isArray(content)) return []
-
-	return content.filter(
-		(part): part is EncodedPart => typeof part === 'object' && part !== null && typeof part.type === 'string',
-	)
-}
+const contentParts = (content: unknown): ReadonlyArray<EncodedPart> =>
+	Option.match(decodeEncodedContent(content), {
+		onNone: () => [],
+		onSome: (decoded) => (Predicate.isString(decoded) ? [{ type: 'text', text: decoded }] : decoded),
+	})
 
 const textContent = (content: unknown): string =>
 	contentParts(content)

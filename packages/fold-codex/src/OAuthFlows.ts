@@ -86,38 +86,14 @@ export type CodexJwtClaims = {
 	readonly organizations?: ReadonlyArray<{ readonly id: string }>
 }
 
-const decodeJwtJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const getString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
-
-const toJwtClaims = (value: unknown): Option.Option<CodexJwtClaims> => {
-	if (!isRecord(value)) return Option.none()
-
-	const accountId = getString(value['chatgpt_account_id'])
-	const authValue = value['https://api.openai.com/auth']
-	const nestedAccountId = isRecord(authValue) ? getString(authValue['chatgpt_account_id']) : undefined
-	const organizationsValue = value['organizations']
-	const organizationId =
-		Array.isArray(organizationsValue) && organizationsValue[0] !== undefined && isRecord(organizationsValue[0])
-			? getString(organizationsValue[0]['id'])
-			: undefined
-
-	const claims: {
-		chatgpt_account_id?: string
-		'https://api.openai.com/auth'?: { chatgpt_account_id?: string }
-		organizations?: Array<{ id: string }>
-	} = {}
-	if (accountId !== undefined) claims.chatgpt_account_id = accountId
-	if (nestedAccountId !== undefined) {
-		claims['https://api.openai.com/auth'] = { chatgpt_account_id: nestedAccountId }
-	}
-	if (organizationId !== undefined) claims.organizations = [{ id: organizationId }]
-
-	return Option.some(claims)
-}
+const CodexJwtClaimsSchema = Schema.Struct({
+	chatgpt_account_id: Schema.optionalKey(Schema.String),
+	'https://api.openai.com/auth': Schema.optionalKey(
+		Schema.Struct({ chatgpt_account_id: Schema.optionalKey(Schema.String) }),
+	),
+	organizations: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Schema.String }))),
+})
+const decodeJwtJson = Schema.decodeUnknownOption(Schema.fromJsonString(CodexJwtClaimsSchema))
 
 const decodeJwtPayload = (token: string): Option.Option<string> => {
 	const parts = token.split('.')
@@ -131,7 +107,7 @@ const decodeJwtPayload = (token: string): Option.Option<string> => {
 
 /** Best-effort JWT claim parse - malformed tokens are `none`, never failures. */
 export const parseJwtClaims = (token: string): Option.Option<CodexJwtClaims> =>
-	decodeJwtPayload(token).pipe(Option.flatMap(decodeJwtJson), Option.flatMap(toJwtClaims))
+	decodeJwtPayload(token).pipe(Option.flatMap(decodeJwtJson))
 
 /** ChatGPT account id lookup order: direct claim, namespaced claim, first organization. */
 export const extractAccountIdFromClaims = (claims: CodexJwtClaims): Option.Option<string> => {

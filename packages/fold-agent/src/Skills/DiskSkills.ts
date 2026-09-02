@@ -21,7 +21,7 @@ import {
 	type SkillSourceService,
 	type FoldSkills,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem } from 'effect'
+import { Effect, FileSystem, Option, Schema } from 'effect'
 import { parse as parseYaml } from 'yaml'
 
 import { cwdFor } from '../Fs/DefaultFileSystem'
@@ -57,13 +57,17 @@ const findGitRoot = (fs: FileSystem.FileSystem, cwd: string): Effect.Effect<stri
 		}
 	})
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const SkillFrontmatter = Schema.Struct({
+	name: Schema.optionalKey(Schema.String),
+	description: Schema.optionalKey(Schema.String),
+})
+type SkillFrontmatter = typeof SkillFrontmatter.Type
+const decodeSkillFrontmatter = Schema.decodeUnknownOption(SkillFrontmatter)
 
 /** Split SKILL.md into YAML frontmatter and body. Null when there is no leading `---` block. */
 const extractFrontmatter = (
 	rawContent: string,
-): { readonly frontmatter: Record<string, unknown>; readonly body: string } | null => {
+): { readonly frontmatter: SkillFrontmatter; readonly body: string } | null => {
 	// Normalize newlines first (pi parity): CRLF frontmatter would otherwise leave a trailing \r on
 	// the last field, corrupting descriptions and failing name validation.
 	const content = rawContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -76,8 +80,8 @@ const extractFrontmatter = (
 	const body = content.slice(endIndex + 4).trim()
 
 	try {
-		const parsed: unknown = parseYaml(rawYaml)
-		if (!isRecord(parsed)) return null
+		const parsed = Option.getOrUndefined(decodeSkillFrontmatter(parseYaml(rawYaml)))
+		if (parsed === undefined) return null
 		return { frontmatter: parsed, body }
 	} catch {
 		return null
@@ -100,10 +104,10 @@ const loadSkillFile = (fs: FileSystem.FileSystem, skillFilePath: string): Effect
 		}
 
 		const directory = dirname(skillFilePath)
-		const rawName = parsed.frontmatter.name
-		const name = typeof rawName === 'string' && rawName.length > 0 ? rawName : basename(directory)
-		const rawDescription = parsed.frontmatter.description
-		const description = typeof rawDescription === 'string' ? rawDescription : ''
+		const name = parsed.frontmatter.name !== undefined && parsed.frontmatter.name.length > 0
+			? parsed.frontmatter.name
+			: basename(directory)
+		const description = parsed.frontmatter.description ?? ''
 
 		const problem = skillNameProblem(name) ?? skillDescriptionProblem(description)
 		if (problem !== null) {

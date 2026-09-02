@@ -2,6 +2,8 @@ import { chmod, cp, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 
+import { Predicate } from 'effect'
+
 import { internal, json, libraries, root, stage, targetName, targets } from './manifest'
 
 const version = parseArgs({ options: { version: { type: 'string' } } }).values.version
@@ -51,7 +53,7 @@ function dependencies(manifest: PackageManifest) {
 					(() => {
 						throw new Error(`Missing catalog entry ${name}`)
 					})()
-			if (typeof range === 'string' && range.startsWith('workspace:')) {
+			if (Predicate.isString(range) && range.startsWith('workspace:')) {
 				if (internal.has(name)) delete dependencyMap[name]
 				else dependencyMap[name] = version
 			}
@@ -75,9 +77,9 @@ for (const packageDir of libraries) {
 	const rewrite = (value: string) => value.replace(/^\.\/src\//, './dist/').replace(/\.(tsx?|jsx?)$/, '.js')
 	const dts = (value: string) => rewrite(value).replace(/\.js$/, '.d.ts')
 	const firstExport = Object.values(manifest.exports)[0]
-	const mainSource = typeof firstExport === 'string' ? firstExport : (firstExport?.source ?? './src/index.ts')
+	const mainSource = Predicate.isString(firstExport) ? firstExport : (firstExport?.source ?? './src/index.ts')
 	for (const [key, value] of Object.entries(manifest.exports)) {
-		const sourcePath = typeof value === 'string' ? value : value.source
+		const sourcePath = Predicate.isString(value) ? value : value.source
 		manifest.exports[key] = { types: dts(sourcePath), import: rewrite(sourcePath), default: rewrite(sourcePath) }
 	}
 	manifest.module = rewrite(mainSource)

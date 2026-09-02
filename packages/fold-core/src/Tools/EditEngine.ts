@@ -6,7 +6,7 @@
  * byte-identical even when a normalized match was needed; BOM and CRLF endings are preserved. Error
  * strings are pi's, verbatim. Pure and isomorphic: platform handlers do the file IO around it.
  */
-import { Effect, Schema } from 'effect'
+import { Effect, Predicate, Schema } from 'effect'
 
 /** One targeted replacement: exact old text and its replacement. */
 export type EditPair = {
@@ -298,16 +298,17 @@ export const applyEdits = (input: {
 		}
 	})
 
-const isEditPair = (value: unknown): value is EditPair => {
-	if (typeof value !== 'object' || value === null) return false
-	if (!('oldText' in value) || !('newText' in value)) return false
-	return typeof value.oldText === 'string' && typeof value.newText === 'string'
-}
+const EditPairSchema = Schema.Struct({
+	oldText: Schema.String,
+	newText: Schema.String,
+})
+const decodeEditPairsFromJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(EditPairSchema)))
 
 /**
  * Normalize edit-tool input into an edit batch (pi's `prepareEditArguments` + `validateEditInput`):
  * accepts the batch form, a JSON-string edits array (some models stringify it), and the legacy
- * top-level oldText/newText pair, which appends as the final edit.
+ * top-level oldText/newText pair, which appends as the final edit. The tool contract already decoded
+ * the wire shape; this parses the remaining JSON-string and legacy-pair forms into one batch.
  */
 export const normalizeEditInput = (input: {
 	readonly edits?: ReadonlyArray<EditPair> | string | undefined
@@ -318,27 +319,14 @@ export const normalizeEditInput = (input: {
 		const invalidEdits = new EditEngineError({
 			message: 'Edit tool input is invalid. edits must be an array of {oldText, newText}.',
 		})
-		let edits: Array<EditPair> = []
-
-		if (typeof input.edits === 'string') {
-			const editsText = input.edits
-			const parsed = yield* Effect.try({
-				try: (): unknown => JSON.parse(editsText),
-				catch: () => invalidEdits,
-			})
-			if (!Array.isArray(parsed)) return yield* invalidEdits
-
-			for (const item of parsed) {
-				if (!isEditPair(item)) return yield* invalidEdits
-				edits.push({ oldText: item.oldText, newText: item.newText })
-			}
-		} else if (input.edits !== undefined) {
-			edits = [...input.edits]
-		}
-
-		if (typeof input.oldText === 'string' && typeof input.newText === 'string') {
-			edits.push({ oldText: input.oldText, newText: input.newText })
-		}
+		const fromEdits = Predicate.isString(input.edits)
+			? yield* decodeEditPairsFromJson(input.edits).pipe(Effect.mapError(() => invalidEdits))
+			: (input.edits ?? [])
+		const legacy =
+			Predicate.isString(input.oldText) && Predicate.isString(input.newText)
+				? [{ oldText: input.oldText, newText: input.newText }]
+				: []
+		const edits = [...fromEdits, ...legacy]
 
 		if (edits.length === 0) {
 			return yield* new EditEngineError({

@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Predicate } from 'effect'
 
 import { AgentRuntime } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -8,13 +8,13 @@ import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestH
 
 const withoutCacheControl = (value: unknown): unknown => {
 	if (Array.isArray(value)) return value.map(withoutCacheControl)
-	if (typeof value !== 'object' || value === null) return value
+	if (!Predicate.isObject(value)) return value
 
 	const out: Record<string, unknown> = {}
 	for (const [key, nested] of Object.entries(value)) {
 		if (key === 'cacheControl') continue
 		const normalized = withoutCacheControl(nested)
-		if (key === 'anthropic' && typeof normalized === 'object' && normalized !== null) {
+		if (key === 'anthropic' && Predicate.isObject(normalized)) {
 			if (Object.keys(normalized).length === 0) continue
 		}
 		out[key] = normalized
@@ -24,7 +24,7 @@ const withoutCacheControl = (value: unknown): unknown => {
 
 const stablePromptJson = (value: unknown): string =>
 	JSON.stringify(withoutCacheControl(value), (key, nested) => {
-		if (key.length === 0 || Array.isArray(nested) || typeof nested !== 'object' || nested === null) return nested
+		if (key.length === 0 || Array.isArray(nested) || !Predicate.isObject(nested)) return nested
 
 		return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)))
 	})

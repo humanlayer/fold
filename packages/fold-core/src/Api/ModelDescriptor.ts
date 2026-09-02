@@ -45,7 +45,7 @@ export type FoldModel = {
 }
 
 const redact = (apiKey: string | Redacted.Redacted<string>): Redacted.Redacted<string> =>
-	typeof apiKey === 'string' ? Redacted.make(apiKey) : apiKey
+	Redacted.isRedacted(apiKey) ? apiKey : Redacted.make(apiKey)
 
 /** The anthropic model used when {@link AnthropicModelOptions.model} is omitted. */
 export const DEFAULT_ANTHROPIC_MODEL_ID = 'claude-opus-4-8'

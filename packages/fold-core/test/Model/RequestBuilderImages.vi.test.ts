@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Predicate } from 'effect'
 import type { Prompt } from 'effect/unstable/ai'
 
 import { buildPrompt, imageOmittedPlaceholder, MessageId, ToolCallId, type ProjectedMessage } from '../../src/index'
@@ -82,7 +82,7 @@ it.effect('lifts multiple image blocks in result order', () =>
 		const followUp = prompt.content[2]
 		if (followUp?.role !== 'user') throw new Error('expected a trailing user message')
 		const fileParts = followUp.content.filter((part) => part.type === 'file')
-		expect(fileParts.map((part) => (typeof part.data === 'string' ? part.data : null))).toEqual([
+		expect(fileParts.map((part) => (Predicate.isString(part.data) ? part.data : null))).toEqual([
 			'Zmlyc3Q=',
 			'c2Vjb25k',
 		])

@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { Effect, FileSystem, Option, Path, Schema } from 'effect'
 
 export const GrokPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['manifest', 'discovery']),
@@ -19,8 +19,26 @@ export type GrokPluginOptions = {
 	readonly configuredPaths?: ReadonlyArray<string>
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const RelativeSkillPath = Schema.String.check(
+	Schema.makeFilter((value: string) => {
+		if (value.length === 0 || value.includes('\\') || value.includes('\0')) {
+			return 'skill path must be a relative path without traversal'
+		}
+		const normalized = value.replace(/^\.\//, '')
+		return normalized.length === 0 ||
+			normalized.startsWith('/') ||
+			/^[A-Za-z]:\//.test(normalized) ||
+			normalized.split('/').includes('..')
+			? 'skill path must be a relative path without traversal'
+			: undefined
+	}),
+)
+const PluginManifest = Schema.Struct({
+	name: Schema.optionalKey(Schema.String),
+	skills: Schema.optionalKey(Schema.Union([RelativeSkillPath, Schema.Array(Schema.Unknown)])),
+})
+const decodePluginManifest = Schema.decodeUnknownOption(Schema.fromJsonString(PluginManifest))
+const decodeRelativeSkillPath = Schema.decodeUnknownOption(RelativeSkillPath)
 
 const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean, never, Path.Path> =>
 	Effect.gen(function* () {
@@ -53,21 +71,17 @@ const ancestorDirectories = (
 	})
 
 const safeRelativePath = (value: unknown): string | null => {
-	if (typeof value !== 'string' || value.length === 0 || value.includes('\\') || value.includes('\0')) return null
-	const normalized = value.replace(/^\.\//, '')
-	if (
-		normalized.length === 0 ||
-		normalized.startsWith('/') ||
-		/^[A-Za-z]:\//.test(normalized) ||
-		normalized.split('/').includes('..')
-	)
-		return null
-	return normalized
+	const decoded = Option.getOrUndefined(decodeRelativeSkillPath(value))
+	return decoded === undefined ? null : decoded.replace(/^\.\//, '')
 }
 
 const readManifest = (
 	root: string,
-): Effect.Effect<{ path: string; value: unknown } | null, never, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<
+	{ path: string; value: typeof PluginManifest.Type | null } | null,
+	never,
+	FileSystem.FileSystem | Path.Path
+> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
@@ -75,8 +89,7 @@ const readManifest = (
 			const manifestPath = path.join(root, name)
 			const contents = yield* fs.readFileString(manifestPath).pipe(Effect.orElseSucceed(() => null))
 			if (contents === null) continue
-			const value = yield* Effect.try(() => JSON.parse(contents)).pipe(Effect.orElseSucceed(() => null))
-			return { path: manifestPath, value }
+			return { path: manifestPath, value: Option.getOrNull(decodePluginManifest(contents)) }
 		}
 		return null
 	})
@@ -122,15 +135,12 @@ export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.d
 			seenPaths.add(normalized)
 			const manifest =
 				candidate === parent && parentManifest !== null ? parentManifest : yield* readManifest(candidate)
-			if (manifest !== null && !isRecord(manifest.value)) {
+			if (manifest !== null && manifest.value === null) {
 				diagnostics.push({ stage: 'manifest', code: 'manifest_parse_failed', path: manifest.path })
 				continue
 			}
-			const manifestValue = manifest === null || !isRecord(manifest.value) ? null : manifest.value
-			const name =
-				manifestValue !== null && typeof manifestValue.name === 'string'
-					? manifestValue.name
-					: path.basename(candidate)
+			const manifestValue = manifest?.value ?? null
+			const name = manifestValue?.name ?? path.basename(candidate)
 			if (name.length === 0 || seenNames.has(name)) continue
 			const declared =
 				manifestValue === null || manifestValue.skills === undefined

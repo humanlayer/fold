@@ -1,6 +1,6 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Ref } from 'effect'
+import { Effect, Layer, Option, Ref, Schema } from 'effect'
 
 import {
 	AgentId,
@@ -36,10 +36,12 @@ const ambientServices = Layer.mergeAll(
 	NodeFileSystem.layer,
 )
 
+const SkillToolResult = Schema.Struct({ content: Schema.String })
+const decodeSkillToolResult = Schema.decodeUnknownOption(SkillToolResult)
+
 const skillContentOf = (result: unknown): string => {
-	if (typeof result === 'object' && result !== null && 'content' in result && typeof result.content === 'string') {
-		return result.content
-	}
+	const decoded = Option.getOrUndefined(decodeSkillToolResult(result))
+	if (decoded !== undefined) return decoded.content
 	throw new Error('expected a skill tool result with string content')
 }
 

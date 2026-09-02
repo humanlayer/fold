@@ -33,18 +33,20 @@ export const platformErrorMessage = (action: string, path: string, error: Platfo
 	)
 }
 
-/** Extract the POSIX errno code (ENOENT, EACCES, ...) from a platform error, pi's error vocabulary. */
-export const errnoCode = (error: PlatformError.PlatformError): string => {
-	const cause: unknown = error.reason.cause
-	if (typeof cause === 'object' && cause !== null && 'code' in cause && typeof cause.code === 'string') {
-		return cause.code
-	}
-
-	return Match.value(error.reason).pipe(
-		Match.tags({ NotFound: () => 'ENOENT', PermissionDenied: () => 'EACCES' }),
+/** POSIX errno for a platform error, using the tagged reason Effect already classified. */
+export const errnoCode = (error: PlatformError.PlatformError): string =>
+	Match.value(error.reason).pipe(
+		Match.tags({
+			NotFound: () => 'ENOENT',
+			PermissionDenied: () => 'EACCES',
+			AlreadyExists: () => 'EEXIST',
+			BadResource: () => 'EBADF',
+			Busy: () => 'EBUSY',
+			TimedOut: () => 'ETIMEDOUT',
+			WouldBlock: () => 'EAGAIN',
+		}),
 		Match.orElse((reason) => reason._tag),
 	)
-}
 
 /** Build the read tool over the ambient FileSystem service. */
 export const readTool = (options?: { readonly cwd?: string }): FoldTool =>

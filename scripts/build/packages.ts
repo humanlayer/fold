@@ -1,6 +1,8 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { Predicate } from 'effect'
+
 import { libraries, root, json } from '../release/manifest'
 
 const version = process.argv.find((_, index, args) => args[index - 1] === '--version') ?? '0.0.0'
@@ -17,7 +19,7 @@ for (const name of libraries) {
 	}>(join(dir, 'package.json'))
 	const exports = Object.values(manifest.exports)
 	const entries = exports
-		.map((value) => (typeof value === 'string' ? value : value.source))
+		.map((value) => (Predicate.isString(value) ? value : value.source))
 		.filter((entry): entry is string => entry !== undefined)
 	for (const entry of Object.values(manifest.bin ?? {})) {
 		const sourceEntry = entry.replace(/^(?:\.\/)?dist\//, './src/').replace(/\.js$/, '.ts')

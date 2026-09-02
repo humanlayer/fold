@@ -29,7 +29,7 @@ import {
 import { SessionId, type ModelCatalogEntry } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
 import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
-import { Clock, Console, Effect, Option, Schema } from 'effect'
+import { Clock, Console, Effect, Option, Predicate, Schema } from 'effect'
 import { type CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
@@ -353,7 +353,7 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const prompt = optionValue(input.prompt)
-			if (prompt === undefined && typeof Bun === 'undefined') {
+			if (prompt === undefined && !Predicate.hasProperty(globalThis, 'Bun')) {
 				yield* printFailure(
 					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 				)
@@ -398,7 +398,7 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 
 const launchTui = (options: CliSessionOptions, catalog: ReadonlyArray<ModelCatalogEntry>, prompt?: string) =>
 	Effect.gen(function* () {
-		if (typeof Bun === 'undefined') {
+		if (!Predicate.hasProperty(globalThis, 'Bun')) {
 			yield* printFailure(
 				'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 			)
@@ -470,7 +470,7 @@ const sessions = Command.make(
 const tui = Command.make('tui', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			if (typeof Bun === 'undefined') {
+			if (!Predicate.hasProperty(globalThis, 'Bun')) {
 				yield* printFailure(
 					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 				)

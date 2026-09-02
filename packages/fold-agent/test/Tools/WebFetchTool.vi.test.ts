@@ -9,7 +9,7 @@ import { createServer, type Server } from 'node:http'
 
 import { it } from '@effect/vitest'
 import { ToolResultContent } from '@humanlayer/fold-core'
-import { Effect, Schema } from 'effect'
+import { Effect, Predicate, Schema } from 'effect'
 import { afterAll, beforeAll, expect } from 'vitest'
 
 import { webFetchTool } from '../../src/index'
@@ -101,7 +101,7 @@ beforeAll(async () => {
 
 	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
 	const address = server.address()
-	const port = typeof address === 'object' && address !== null ? address.port : 0
+	const port = Predicate.isObject(address) ? address.port : 0
 	baseUrl = `http://127.0.0.1:${port}`
 })
 

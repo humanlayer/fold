@@ -528,7 +528,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const agentBlocks =
 					input.systemPrompt === null
 						? []
-						: typeof input.systemPrompt === 'string'
+						: Predicate.isString(input.systemPrompt)
 							? [input.systemPrompt]
 							: input.systemPrompt
 

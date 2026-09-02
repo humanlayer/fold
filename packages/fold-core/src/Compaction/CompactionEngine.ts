@@ -1,4 +1,4 @@
-import { Match, Predicate } from 'effect'
+import { Match, Option, Predicate, Schema } from 'effect'
 
 /**
  * This file is the pure auto-compaction engine (D11): the threshold arithmetic over API-reported
@@ -101,14 +101,18 @@ export const latestReportedContextTokens = (visibleEntries: ReadonlyArray<LogEnt
 	return null
 }
 
-type EncodedPart = {
-	readonly type: string
-	readonly text?: string
-	readonly name?: string
-	readonly params?: unknown
-	readonly result?: unknown
-	readonly isFailure?: boolean
-}
+const EncodedPart = Schema.Struct({
+	type: Schema.String,
+	text: Schema.optionalKey(Schema.String),
+	name: Schema.optionalKey(Schema.String),
+	params: Schema.optionalKey(Schema.Unknown),
+	result: Schema.optionalKey(Schema.Unknown),
+	isFailure: Schema.optionalKey(Schema.Boolean),
+})
+type EncodedPart = typeof EncodedPart.Type
+
+const EncodedContent = Schema.Union([Schema.String, Schema.Array(EncodedPart)])
+const decodeEncodedContent = Schema.decodeUnknownOption(EncodedContent)
 
 const safeStringify = (value: unknown): string => {
 	try {
@@ -118,14 +122,11 @@ const safeStringify = (value: unknown): string => {
 	}
 }
 
-const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
-	if (typeof content === 'string') return [{ type: 'text', text: content }]
-	if (!Array.isArray(content)) return []
-
-	return content.filter(
-		(part): part is EncodedPart => typeof part === 'object' && part !== null && typeof part.type === 'string',
-	)
-}
+const contentParts = (content: unknown): ReadonlyArray<EncodedPart> =>
+	Option.match(decodeEncodedContent(content), {
+		onNone: () => [],
+		onSome: (decoded) => (Predicate.isString(decoded) ? [{ type: 'text', text: decoded }] : decoded),
+	})
 
 const estimatePartChars = (part: EncodedPart): number => {
 	switch (part.type) {
