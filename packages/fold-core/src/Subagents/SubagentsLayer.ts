@@ -61,6 +61,8 @@ import type {
 
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 /** One agent's tools realized against the session-start contributions (once-per-value inits). */
 export type RealizedAgentTools = {
 	readonly tools: ReadonlyArray<RealizedFoldTool>
@@ -808,6 +810,13 @@ export const makeSubagents = (
 						: yield* deriveChildPromptCacheKey(dispatcherSnapshot.promptCacheKey, subagentId)
 				const agentLabel = `fork of ${shortAgentId(dispatcher.agentId)}`
 				yield* interruptNote.set(interruptedSubagentNote(agentLabel, subagentId, 0))
+				const fork: Mutable<AgentFork> = { fromAgentId: dispatcher.agentId, atSeq: lastEntry.seq }
+				if (input.forkAgentDefinitionId !== null) {
+					fork.definitionId = input.forkAgentDefinitionId
+				}
+				if (input.history !== undefined) {
+					fork.history = input.history
+				}
 
 				return yield* runSubagentToResult({
 					subagentId,
@@ -816,12 +825,7 @@ export const makeSubagents = (
 					parentAgentId: dispatcher.agentId,
 					toolCallId: currentCall.toolCallId,
 					mode: 'fork',
-					fork: {
-						fromAgentId: dispatcher.agentId,
-						atSeq: lastEntry.seq,
-						...(input.forkAgentDefinitionId === null ? {} : { definitionId: input.forkAgentDefinitionId }),
-						...(input.history === undefined ? {} : { history: input.history }),
-					},
+					fork,
 					model: dispatcherSnapshot.model,
 					promptCacheKey,
 					tools: realized.tools,

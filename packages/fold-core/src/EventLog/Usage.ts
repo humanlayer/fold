@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import { Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/unstable/ai'
 
 /** Best-effort token count reported by a model provider. Providers may omit any usage field. */
 export const UsageTokenCount = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
@@ -41,12 +41,26 @@ export const UsageEncoded = Schema.Struct({
 }).annotate({ identifier: 'UsageEncoded' })
 export type UsageEncoded = typeof UsageEncoded.Type
 
-const encodeResponseUsage = Schema.encodeUnknownSync(Response.Usage)
 const decodeUsageEncoded = Schema.decodeUnknownSync(UsageEncoded)
+
+const nonNegativeTokenCount = (value: number | undefined): number | undefined =>
+	value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined
 
 /** Convert Effect AI usage into fold's tolerant durable usage shape. */
 export const usageFromResponseUsage = (usage: Response.Usage): UsageEncoded =>
-	decodeUsageEncoded(encodeResponseUsage(usage))
+	decodeUsageEncoded({
+		inputTokens: {
+			uncached: nonNegativeTokenCount(usage.inputTokens.uncached),
+			total: nonNegativeTokenCount(usage.inputTokens.total),
+			cacheRead: nonNegativeTokenCount(usage.inputTokens.cacheRead),
+			cacheWrite: nonNegativeTokenCount(usage.inputTokens.cacheWrite),
+		},
+		outputTokens: {
+			total: nonNegativeTokenCount(usage.outputTokens.total),
+			text: nonNegativeTokenCount(usage.outputTokens.text),
+			reasoning: nonNegativeTokenCount(usage.outputTokens.reasoning),
+		},
+	})
 
 /** Best estimate of total input tokens from whatever fields the provider reported. */
 export const usageInputTotal = (usage: UsageEncoded): number => {

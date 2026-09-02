@@ -11,20 +11,41 @@ import {
 	decodeStoredLogEntry,
 } from '../../src/index'
 
-const sessionStartedEntry = (version?: number) => ({
-	_tag: 'session_started',
-	seq: 0,
-	eventId: EventId.create(),
-	ts: 1,
-	...(version === undefined ? {} : { version }),
-	agentId: null,
-	parentAgentId: null,
-	toolCallId: null,
-	cwd: '/tmp/fold',
-	sessionId: SessionId.create(),
-	rootAgentId: AgentId.create(),
-	meta: {},
-})
+type SessionStartedEntryBuilder = {
+	_tag: 'session_started'
+	seq: number
+	eventId: ReturnType<typeof EventId.create>
+	ts: number
+	version?: number
+	agentId: null
+	parentAgentId: null
+	toolCallId: null
+	cwd: string
+	sessionId: ReturnType<typeof SessionId.create>
+	rootAgentId: ReturnType<typeof AgentId.create>
+	meta: Record<string, never>
+}
+
+const sessionStartedEntry = (version?: number) => {
+	const entry: SessionStartedEntryBuilder = {
+		_tag: 'session_started',
+		seq: 0,
+		eventId: EventId.create(),
+		ts: 1,
+		agentId: null,
+		parentAgentId: null,
+		toolCallId: null,
+		cwd: '/tmp/fold',
+		sessionId: SessionId.create(),
+		rootAgentId: AgentId.create(),
+		meta: {},
+	}
+	if (version !== undefined) {
+		entry.version = version
+	}
+
+	return entry
+}
 
 const legacySessionTitleEntry = () => ({
 	_tag: 'session_title',

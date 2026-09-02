@@ -51,6 +51,7 @@ type ResponsesPayload = Omit<typeof OpenAiSchema.CreateResponse.Encoded, 'stream
 type ResponseBody = typeof OpenAiSchema.Response.Type
 type ResponseEvent = typeof OpenAiSchema.ResponseStreamEvent.Type
 type EventStream = Stream.Stream<ResponseEvent, AiError.AiError>
+type MutableCodexRetryOptions = { -readonly [Key in keyof CodexRetryOptions]: CodexRetryOptions[Key] }
 
 // The exact shape the provider emits for a prompt system message: a message item with plain string
 // content. Anything else (array content, other roles, non-message items) ends the leading run.
@@ -247,9 +248,9 @@ export const makeCodexLanguageModel = (
 		const httpContext = yield* Layer.build(FetchHttpClient.layer)
 		const baseClient = Context.get(httpContext, HttpClient.HttpClient)
 
-		const auth = yield* makeCodexAuth(options.store === undefined ? {} : { store: options.store }).pipe(
-			Effect.provideService(HttpClient.HttpClient, baseClient),
-		)
+		const authOptions: { store?: CodexAuthStore } = {}
+		if (options.store !== undefined) authOptions.store = options.store
+		const auth = yield* makeCodexAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, baseClient))
 
 		// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
 		// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
@@ -270,11 +271,9 @@ export const makeCodexLanguageModel = (
 		)
 		const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
 
-		const codexClient = decorateCodexClient(stockClient, {
-			...defaultCodexHardening,
-			...options.hardening,
-			...(options.onStreamRetry === undefined ? {} : { onStreamRetry: options.onStreamRetry }),
-		})
+		const hardening: MutableCodexRetryOptions = { ...defaultCodexHardening, ...options.hardening }
+		if (options.onStreamRetry !== undefined) hardening.onStreamRetry = options.onStreamRetry
+		const codexClient = decorateCodexClient(stockClient, hardening)
 
 		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
 		const reasoningConfig = Match.valueTags(reasoning, {

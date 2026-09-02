@@ -46,6 +46,27 @@ export type ToolHandlerServices =
 
 type PlatformToolServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
 
+type ToolDependency =
+	| typeof ToolState
+	| typeof ToolEvents
+	| typeof StopController
+	| typeof CurrentAgent
+	| typeof CurrentToolCall
+	| typeof InterruptNote
+	| typeof Subagents
+	| typeof FileSystem.FileSystem
+	| typeof Path.Path
+	| typeof ChildProcessSpawner.ChildProcessSpawner
+
+type ToolOptionsBuilder<Params extends Schema.Top, Success extends Schema.Top, Failure extends Schema.Top> = {
+	description: string
+	parameters?: Params
+	success: Success | typeof Schema.Undefined
+	failure?: Failure
+	failureMode: 'return'
+	dependencies: Array<ToolDependency>
+}
+
 /** Neutral platform services used by filesystem and process-backed tools. */
 export const platformToolDependencies = [
 	FileSystem.FileSystem,
@@ -127,11 +148,9 @@ export const defineTool = <
 >(
 	options: DefineToolOptions<Params, Success, Failure>,
 ): FoldTool => {
-	const tool = Tool.make(options.name, {
+	const toolOptions: ToolOptionsBuilder<Params, Success, Failure> = {
 		description: options.description,
-		...(options.parameters === undefined ? {} : { parameters: options.parameters }),
 		success: options.success ?? Schema.Undefined,
-		...(options.failure === undefined ? {} : { failure: options.failure }),
 		failureMode: 'return',
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all of them around each execution.
@@ -146,7 +165,14 @@ export const defineTool = <
 			FileSystem.FileSystem,
 			...(options.dependencies ?? []),
 		],
-	}).annotate(Tool.Strict, false)
+	}
+	if (options.parameters !== undefined) {
+		toolOptions.parameters = options.parameters
+	}
+	if (options.failure !== undefined) {
+		toolOptions.failure = options.failure
+	}
+	const tool = Tool.make(options.name, toolOptions).annotate(Tool.Strict, false)
 
 	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.
 	const handlerWithDependencies =

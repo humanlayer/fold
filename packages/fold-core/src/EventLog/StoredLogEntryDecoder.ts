@@ -11,13 +11,20 @@ import {
 
 const PersistedRecord = Schema.Record(Schema.String, Schema.Unknown)
 
-const corruptEntry = (message: string, cause: unknown, seq?: number) =>
-	new EventLogCorruptEntryError({
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
+const corruptEntry = (message: string, cause: unknown, seq?: number) => {
+	const input: Mutable<ConstructorParameters<typeof EventLogCorruptEntryError>[0]> = {
 		operation: 'entries',
 		message,
-		...(seq === undefined ? {} : { seq }),
 		cause,
-	})
+	}
+	if (seq !== undefined) {
+		input.seq = seq
+	}
+
+	return new EventLogCorruptEntryError(input)
+}
 
 /**
  * Decode one persisted Fold event by its wire-format version.

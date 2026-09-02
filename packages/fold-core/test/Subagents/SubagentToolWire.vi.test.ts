@@ -45,7 +45,13 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 				{
 					id: 'provider-call-1',
 					name: 'subagent',
-					params: { description: 'map module', prompt: 'map the module', agent: 'researcher' },
+					params: {
+						description: 'map module',
+						prompt: 'map the module',
+						agent: 'researcher',
+						agent_id: '',
+						fork: false,
+					},
 				},
 			]),
 			textTurn('synthesized'),
@@ -73,7 +79,13 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 				{
 					id: 'provider-call-2',
 					name: 'subagent',
-					params: { description: 'follow up', prompt: 'keep going', agent_id: shortAgentId(started.agentId) },
+					params: {
+						description: 'follow up',
+						prompt: 'keep going',
+						agent: '',
+						agent_id: shortAgentId(started.agentId),
+						fork: false,
+					},
 				},
 			]),
 			textTurn('synthesized again'),
@@ -112,6 +124,49 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
+it.effect('the public fork wire persists completed-history selection', () =>
+	Effect.gen(function* () {
+		const rootScripted = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([
+				{
+					id: 'provider-call-1',
+					name: 'subagent',
+					params: {
+						description: 'inspect context',
+						prompt: 'inspect the completed context',
+						agent: '',
+						agent_id: '',
+						fork: true,
+						skill: '',
+					},
+				},
+			]),
+			textTurn('fork findings'),
+			textTurn('root complete'),
+		])
+
+		const session = yield* startSession({
+			agent: defineAgent({ model: rootScripted.model, systemPrompt: 'root', tools: [subagentTool([])] }),
+		})
+
+		const finished = yield* session.send('parent request')
+		expect(finished.outcome).toBe('completed')
+
+		const started = subagentStartedEntries(yield* session.entries)[0]
+		if (started === undefined) throw new Error('expected the fork to have started')
+		expect(started.fork?.history).toBe('all')
+
+		const prompts = yield* rootScripted.scripted.prompts
+		const forkRequest = prompts[1]
+		if (forkRequest === undefined) throw new Error('expected the fork request')
+		const forkRequestJson = JSON.stringify(forkRequest.content)
+		expect(forkRequestJson).toContain('inspect the completed context')
+		expect(forkRequestJson).not.toContain('provider-call-1')
+		expect(forkRequestJson).not.toContain('parent request')
+		expect(yield* rootScripted.scripted.remainingTurns).toBe(0)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
 it.effect('malformed wire commands come back as instructive tool failures the model can correct from', () =>
 	Effect.gen(function* () {
 		const researcherScripted = yield* scriptedModel(claudeActiveModel, [])
@@ -127,7 +182,13 @@ it.effect('malformed wire commands come back as instructive tool failures the mo
 				{
 					id: 'provider-call-1',
 					name: 'subagent',
-					params: { description: 'oops', prompt: 'do something' },
+					params: {
+						description: 'oops',
+						prompt: 'do something',
+						agent: '',
+						agent_id: '',
+						fork: false,
+					},
 				},
 			]),
 			toolCallTurn([

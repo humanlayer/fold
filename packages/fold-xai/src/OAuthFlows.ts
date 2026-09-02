@@ -54,8 +54,11 @@ const DeviceError = Schema.Struct({
 	error_description: Schema.optional(Schema.String),
 })
 
-const failure = (reason: XaiAuthError['reason'], message: string, cause?: unknown) =>
-	new XaiAuthError({ reason, message, ...(cause === undefined ? {} : { cause }) })
+const failure = (reason: XaiAuthError['reason'], message: string, cause?: unknown): XaiAuthError => {
+	const options: { reason: XaiAuthError['reason']; message: string; cause?: unknown } = { reason, message }
+	if (cause !== undefined) options.cause = cause
+	return new XaiAuthError(options)
+}
 
 const tokenData = (payload: typeof TokenResponse.Type, fallbackRefresh?: string) =>
 	Effect.map(

@@ -34,6 +34,8 @@ interface RawItem {
 	pull_request?: unknown
 }
 
+type MutableGhItem = { -readonly [Key in keyof GhItem]: GhItem[Key] }
+
 const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback)
 const num = (v: unknown, fallback = 0): number => (typeof v === 'number' ? v : fallback)
 
@@ -54,7 +56,7 @@ function parseLabels(v: unknown): Array<string> {
 function normalize(raw: RawItem, kind: GhItem['kind']): GhItem {
 	const headRef = raw.head ? str(raw.head.ref) : ''
 	const baseRef = raw.base ? str(raw.base.ref) : ''
-	return {
+	const item: MutableGhItem = {
 		kind,
 		number: num(raw.number),
 		title: str(raw.title, '(untitled)'),
@@ -68,11 +70,12 @@ function normalize(raw: RawItem, kind: GhItem['kind']): GhItem {
 		labels: parseLabels(raw.labels),
 		body: str(raw.body),
 		url: str(raw.html_url),
-		// `exactOptionalPropertyTypes` forbids assigning `undefined` to an
-		// optional prop, so omit the key entirely instead.
-		...(headRef ? { headRef } : {}),
-		...(baseRef ? { baseRef } : {}),
 	}
+	// `exactOptionalPropertyTypes` forbids assigning `undefined` to an
+	// optional prop, so only add the keys when their refs are non-empty.
+	if (headRef) item.headRef = headRef
+	if (baseRef) item.baseRef = baseRef
+	return item
 }
 
 /** Env vars first, then whatever `gh` is already logged in as. */

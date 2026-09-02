@@ -39,6 +39,8 @@ import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
 declare const FOLD_VERSION: string
 const version = typeof FOLD_VERSION === 'string' ? FOLD_VERSION : '0.0.0'
 
+type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
+
 const decodeSessionId = Schema.decodeUnknownOption(SessionId)
 
 /** The sentinel `--resume` value selecting the newest session log for the working directory. */
@@ -201,7 +203,9 @@ const providerId = (provider: Option.Option<string>, fallback: string): string =
 
 const providerAuthStoreOptions = (provider: Option.Option<string>, foldHome: string | undefined, fallback: string) => {
 	const path = authStorePath(foldHome)
-	return { providerId: providerId(provider, fallback), ...(path === undefined ? {} : { path }) }
+	const options: Mutable<MakeCodexAuthStoreOptions> = { providerId: providerId(provider, fallback) }
+	if (path !== undefined) options.path = path
+	return options
 }
 
 const codexAuthStoreOptions = (
@@ -209,7 +213,9 @@ const codexAuthStoreOptions = (
 	foldHome: string | undefined,
 ): MakeCodexAuthStoreOptions => {
 	const path = authStorePath(foldHome)
-	return { providerId: codexProviderId(provider), ...(path === undefined ? {} : { path }) }
+	const options: Mutable<MakeCodexAuthStoreOptions> = { providerId: codexProviderId(provider) }
+	if (path !== undefined) options.path = path
+	return options
 }
 
 const browserOpenCommand = (url: string): { readonly command: string; readonly args: ReadonlyArray<string> } => {
@@ -269,14 +275,14 @@ const modelSelectionFromFlags = (input: {
 	const model = optionValue(input.model)
 	const reasoning = optionValue(input.reasoning)
 
-	return role === undefined && provider === undefined && model === undefined && reasoning === undefined
-		? undefined
-		: {
-				...(role === undefined ? {} : { role }),
-				...(provider === undefined ? {} : { provider }),
-				...(model === undefined ? {} : { model }),
-				...(reasoning === undefined ? {} : { reasoning }),
-			}
+	if (role === undefined && provider === undefined && model === undefined && reasoning === undefined) return undefined
+
+	const selection: Mutable<ModelSelection> = {}
+	if (role !== undefined) selection.role = role
+	if (provider !== undefined) selection.provider = provider
+	if (model !== undefined) selection.model = model
+	if (reasoning !== undefined) selection.reasoning = reasoning
+	return selection
 }
 
 const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | undefined => {
@@ -293,15 +299,14 @@ const autoCompactFromFlags = (input: CommonFlagValues): AutoCompactConfig | unde
 		reserveTokens !== undefined ||
 		keepRecentTokens !== undefined
 
-	return hasCompactionOptions
-		? {
-				enabled: true,
-				...(compactionPrompt === undefined ? {} : { compactionPrompt }),
-				...(thresholdTokens === undefined ? {} : { thresholdTokens }),
-				...(reserveTokens === undefined ? {} : { reserveTokens }),
-				...(keepRecentTokens === undefined ? {} : { keepRecentTokens }),
-			}
-		: undefined
+	if (!hasCompactionOptions) return undefined
+
+	const autoCompact: Mutable<AutoCompactConfig> = { enabled: true }
+	if (compactionPrompt !== undefined) autoCompact.compactionPrompt = compactionPrompt
+	if (thresholdTokens !== undefined) autoCompact.thresholdTokens = thresholdTokens
+	if (reserveTokens !== undefined) autoCompact.reserveTokens = reserveTokens
+	if (keepRecentTokens !== undefined) autoCompact.keepRecentTokens = keepRecentTokens
+	return autoCompact
 }
 
 /** CLI rendering mode selected by `--output*` flags. */
@@ -333,16 +338,15 @@ export const sessionOptionsFromFlags = (
 		const modelSelection = modelSelectionFromFlags(input)
 		const autoCompact = autoCompactFromFlags(input)
 
-		return {
-			cwd: optionValue(input.cwd) ?? process.cwd(),
-			...(foldHome === undefined ? {} : { foldHome }),
-			...(profile === undefined ? {} : { profile }),
-			...(mode === undefined ? {} : { mode }),
-			...(input.rpi ? { rpi: true } : {}),
-			...(resume === undefined ? {} : { resume }),
-			...(modelSelection === undefined ? {} : { modelSelection }),
-			...(autoCompact === undefined ? {} : { autoCompact }),
-		}
+		const options: Mutable<CliSessionOptions> = { cwd: optionValue(input.cwd) ?? process.cwd() }
+		if (foldHome !== undefined) options.foldHome = foldHome
+		if (profile !== undefined) options.profile = profile
+		if (mode !== undefined) options.mode = mode
+		if (input.rpi) options.rpi = true
+		if (resume !== undefined) options.resume = resume
+		if (modelSelection !== undefined) options.modelSelection = modelSelection
+		if (autoCompact !== undefined) options.autoCompact = autoCompact
+		return options
 	})
 
 const run = Command.make('foldcode', commonFlags, (input) =>
@@ -402,7 +406,9 @@ const launchTui = (options: CliSessionOptions, catalog: ReadonlyArray<ModelCatal
 		}
 		yield* Effect.promise(() => import('@opentui/solid/preload'))
 		const module = yield* Effect.promise(() => import('./tui/Shell'))
-		yield* module.runTui({ ...options, catalog, ...(prompt === undefined ? {} : { prompt }) }).pipe(
+		const tuiOptions: Mutable<Parameters<typeof module.runTui>[0]> = { ...options, catalog }
+		if (prompt !== undefined) tuiOptions.prompt = prompt
+		yield* module.runTui(tuiOptions).pipe(
 			Effect.catchTags({
 				TuiRequiresTtyError: () =>
 					printFailure(
@@ -447,7 +453,9 @@ const sessions = Command.make(
 		Effect.gen(function* () {
 			const cwd = optionValue(input.cwd) ?? process.cwd()
 			const foldHome = optionValue(input.foldHome)
-			const sessions = yield* listSessionLogs({ cwd, ...(foldHome === undefined ? {} : { foldHome }) })
+			const sessionOptions: Mutable<NonNullable<Parameters<typeof listSessionLogs>[0]>> = { cwd }
+			if (foldHome !== undefined) sessionOptions.foldHome = foldHome
+			const sessions = yield* listSessionLogs(sessionOptions)
 			if (sessions.length === 0) {
 				yield* Console.log(`No fold sessions for ${cwd}`)
 				return
@@ -509,20 +517,18 @@ const config = Command.make('config').pipe(
 							const apiKeyEnv = optionValue(input.apiKeyEnv)
 							const model = optionValue(input.model)
 							const foldHome = optionValue(input.foldHome)
-							yield* configureProvider(
-								{
-									name: input.name,
-									kind: input.kind,
-									baseUrl: input.baseUrl,
-									...(apiKey === undefined ? {} : { apiKey }),
-									...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
-									...(model === undefined ? {} : { model }),
-								},
-								foldHome === undefined ? {} : { foldHome },
-							)
-							yield* Console.log(
-								`Saved provider "${input.name}" in ${configPathFor(foldHome === undefined ? {} : { foldHome })}`,
-							)
+							const provider: Mutable<Parameters<typeof configureProvider>[0]> = {
+								name: input.name,
+								kind: input.kind,
+								baseUrl: input.baseUrl,
+							}
+							if (apiKey !== undefined) provider.apiKey = apiKey
+							if (apiKeyEnv !== undefined) provider.apiKeyEnv = apiKeyEnv
+							if (model !== undefined) provider.model = model
+							const configOptions: Mutable<NonNullable<Parameters<typeof configureProvider>[1]>> = {}
+							if (foldHome !== undefined) configOptions.foldHome = foldHome
+							yield* configureProvider(provider, configOptions)
+							yield* Console.log(`Saved provider "${input.name}" in ${configPathFor(configOptions)}`)
 						}),
 				).pipe(
 					Command.withDescription('Add or replace an Anthropic/OpenAI-compatible URL and credential'),
@@ -539,7 +545,9 @@ const config = Command.make('config').pipe(
 		Command.make('init', { foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
 				const foldHome = optionValue(input.foldHome)
-				const result = yield* configInit(foldHome === undefined ? {} : { foldHome })
+				const configOptions: Mutable<NonNullable<Parameters<typeof configInit>[0]>> = {}
+				if (foldHome !== undefined) configOptions.foldHome = foldHome
+				const result = yield* configInit(configOptions)
 				yield* Console.log(`${result.createdConfig ? 'Created' : 'Found'} ${result.configPath}`)
 				yield* Console.log(`${result.createdAuth ? 'Created' : 'Found'} ${result.authPath}`)
 				yield* Console.log(`Wrote ${result.schemaPath}`)
@@ -549,8 +557,10 @@ const config = Command.make('config').pipe(
 		Command.make('validate', { foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
 				const foldHome = optionValue(input.foldHome)
-				yield* loadFoldConfig(foldHome === undefined ? {} : { foldHome })
-				yield* Console.log(`Valid ${configPathFor(foldHome === undefined ? {} : { foldHome })}`)
+				const configOptions: Mutable<NonNullable<Parameters<typeof loadFoldConfig>[0]>> = {}
+				if (foldHome !== undefined) configOptions.foldHome = foldHome
+				yield* loadFoldConfig(configOptions)
+				yield* Console.log(`Valid ${configPathFor(configOptions)}`)
 			}),
 		).pipe(Command.withDescription('Validate ~/.fold/config.jsonc')),
 	]),

@@ -44,6 +44,8 @@ type PreparedToolCall =
 
 const PreparedToolCall = Data.taggedEnum<PreparedToolCall>()
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
 type FinalToolOutput = {
 	readonly result: unknown
 	readonly isFailure: boolean
@@ -118,19 +120,18 @@ const appendToolResultToEventLog = (input: {
 		const eventLog = yield* EventLog
 		const ids = yield* Ids
 		const message = yield* encodedToolResultMessage(input)
+		const entryInput: Mutable<Parameters<(typeof LogEntryInputs)['tool-result']>[0]> = {
+			agentId: input.agentId,
+			parentAgentId: input.parentAgentId,
+			toolCallId: input.toolCallId,
+			messageId: yield* ids.makeMessageId,
+			message,
+		}
+		if (input.executedInput !== undefined) {
+			entryInput.executedInput = input.executedInput
+		}
 
-		const entry = yield* eventLog
-			.append(
-				LogEntryInputs['tool-result']({
-					agentId: input.agentId,
-					parentAgentId: input.parentAgentId,
-					toolCallId: input.toolCallId,
-					messageId: yield* ids.makeMessageId,
-					message,
-					...(input.executedInput === undefined ? {} : { executedInput: input.executedInput }),
-				}),
-			)
-			.pipe(Effect.orDie)
+		const entry = yield* eventLog.append(LogEntryInputs['tool-result'](entryInput)).pipe(Effect.orDie)
 
 		if (Predicate.isTagged(entry, 'tool-result')) return entry
 
@@ -469,25 +470,32 @@ const settlePreparedToolCall = (input: {
 				output: handlerOutput,
 			})
 
-			return {
+			const result: Mutable<ToolResultAppendInput> = {
 				result: finalOutput.result,
 				isFailure: finalOutput.isFailure,
-				...(valuesHaveSameJsonRepresentation(input.prepared.original.params, input.prepared.params)
-					? {}
-					: { executedInput: input.prepared.params }),
 			}
+			if (!valuesHaveSameJsonRepresentation(input.prepared.original.params, input.prepared.params)) {
+				result.executedInput = input.prepared.params
+			}
+
+			return result
 		})
 
-		const append = (result: ToolResultAppendInput) =>
-			appendToolResultToEventLog({
+		const append = (result: ToolResultAppendInput) => {
+			const appendInput: Mutable<Parameters<typeof appendToolResultToEventLog>[0]> = {
 				agentId: input.agentId,
 				parentAgentId: input.parentAgentId,
 				toolCallId,
 				toolName,
 				result: result.result,
 				isFailure: result.isFailure,
-				...(result.executedInput === undefined ? {} : { executedInput: result.executedInput }),
-			})
+			}
+			if (result.executedInput !== undefined) {
+				appendInput.executedInput = result.executedInput
+			}
+
+			return appendToolResultToEventLog(appendInput)
+		}
 
 		const runnable = output.pipe(
 			Effect.provideService(ToolState, toolState),

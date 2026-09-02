@@ -124,11 +124,11 @@ it.live('missing workdir fails fast with the pi message', () =>
 it.live('invalid timeouts are rejected before spawning', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const failure = yield* runHandler(handlerOf(bashTool({ cwd: dir }))({ command: 'echo hi', timeout: -1 })).pipe(
-			Effect.flip,
-		)
+		const failure = yield* runHandler(
+			handlerOf(bashTool({ cwd: dir }))({ command: 'echo hi', timeout_ms: -1 }),
+		).pipe(Effect.flip)
 
-		expect(messageOf(failure)).toBe('Invalid timeout: must be a finite number of seconds')
+		expect(messageOf(failure)).toBe('Invalid timeout_ms: must be a finite number of milliseconds')
 	}),
 )
 
@@ -137,17 +137,19 @@ it.live('timeout kills the whole process group, including grandchildren', () =>
 		const dir = yield* tempDir
 		const grandchildMarker = join(dir, 'grandchild-survived.txt')
 
-		// The command spawns a backgrounded grandchild that would write a marker after 2s. The 1s
+		// The command spawns a backgrounded grandchild that would write a marker after 2s. The 1000ms
 		// timeout must kill the entire group, so the marker never appears.
 		const failure = yield* runHandler(
 			handlerOf(bashTool({ cwd: dir }))({
 				command: `(sleep 2 && echo alive > ${grandchildMarker}) & echo started && sleep 10`,
-				timeout: 1,
+				timeout_ms: 1_000,
 			}),
 		).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toContain('started')
-		expect(messageOf(failure)).toContain('<system-reminder>Command timed out after 1 seconds</system-reminder>')
+		expect(messageOf(failure)).toContain(
+			'<system-reminder>Command timed out after 1000 milliseconds</system-reminder>',
+		)
 
 		// Give any surviving grandchild time to prove itself, then assert it was killed.
 		yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 2500)))
@@ -261,11 +263,13 @@ it.live('escalates to SIGKILL for commands that trap SIGTERM', () =>
 
 		// The command ignores SIGTERM; only the 200ms SIGKILL escalation can end it.
 		const failure = yield* runHandler(
-			handlerOf(bashTool({ cwd: dir }))({ command: "trap '' TERM; echo trapped; sleep 30", timeout: 1 }),
+			handlerOf(bashTool({ cwd: dir }))({ command: "trap '' TERM; echo trapped; sleep 30", timeout_ms: 1_000 }),
 		).pipe(Effect.flip)
 
 		expect(messageOf(failure)).toContain('trapped')
-		expect(messageOf(failure)).toContain('<system-reminder>Command timed out after 1 seconds</system-reminder>')
+		expect(messageOf(failure)).toContain(
+			'<system-reminder>Command timed out after 1000 milliseconds</system-reminder>',
+		)
 		// 1s timeout + 200ms grace + slack: far below the 30s sleep.
 		expect(Date.now() - started).toBeLessThan(10_000)
 	}),
@@ -283,11 +287,11 @@ it.live('a signal-killed command is a success, not an error (pi semantics)', () 
 it.live('an empty-output timeout reports only the status (no "(no output)" prefix)', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const failure = yield* runHandler(handlerOf(bashTool({ cwd: dir }))({ command: 'sleep 5', timeout: 1 })).pipe(
-			Effect.flip,
-		)
+		const failure = yield* runHandler(
+			handlerOf(bashTool({ cwd: dir }))({ command: 'sleep 5', timeout_ms: 1_000 }),
+		).pipe(Effect.flip)
 
-		expect(messageOf(failure)).toBe('<system-reminder>Command timed out after 1 seconds</system-reminder>')
+		expect(messageOf(failure)).toBe('<system-reminder>Command timed out after 1000 milliseconds</system-reminder>')
 	}),
 )
 

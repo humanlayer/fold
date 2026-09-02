@@ -52,8 +52,8 @@ export const decodeBashOutputDelta = (payload: unknown): BashOutputDelta | null 
 
 const BashParameters = Schema.Struct({
 	command: Schema.String.annotate({ description: 'Bash command to execute' }),
-	timeout: Schema.optionalKey(Schema.Number).annotate({
-		description: 'Timeout in seconds (default 120)',
+	timeout_ms: Schema.optionalKey(Schema.Number).annotate({
+		description: 'Timeout in milliseconds (default 120000)',
 	}),
 	workdir: Schema.optionalKey(Schema.String).annotate({
 		description: 'Working directory for the command. Use this instead of cd.',
@@ -71,8 +71,8 @@ const BashFailure = Schema.Struct({
 	message: Schema.String,
 })
 
-const defaultTimeoutSeconds = 120
-const maxTimeoutSeconds = 2_147_483.647
+const defaultTimeoutMilliseconds = 120_000
+const maxTimeoutMilliseconds = 2_147_483_647
 const killGrace = Duration.millis(200)
 // Keep a bounded in-memory tail once output spills: 4x the byte limit comfortably covers the
 // tail-truncation window while the spill file holds the full output.
@@ -232,7 +232,8 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		description:
 			'Execute a bash command and return its output (stdout and stderr interleaved, tail-truncated ' +
 			`to 2000 lines or ${formatSize(defaultMaxBytes)} with the full output saved to a file). The command runs in its ` +
-			'own process group and is killed at the timeout.\n\n' +
+			'own process group and is killed at the timeout. The optional timeout_ms is in milliseconds ' +
+			`(default ${defaultTimeoutMilliseconds}, maximum ${maxTimeoutMilliseconds}).\n\n` +
 			'Fast search binaries are provided on PATH (fold auto-installs them into ~/.fold/bin): prefer ' +
 			'`rg` over grep for content search, `fd` over find for locating files by name (fast and ' +
 			'gitignore-aware), and `ast-grep` for syntax-aware structural search over code. ' +
@@ -251,13 +252,17 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const configuredCwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const cwd =
 					params.workdir === undefined ? configuredCwd : yield* resolveToCwd(params.workdir, configuredCwd)
-				const timeoutSeconds = params.timeout ?? defaultTimeoutSeconds
+				const timeoutMilliseconds = params.timeout_ms ?? defaultTimeoutMilliseconds
 
-				if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
-					return yield* Effect.fail({ message: 'Invalid timeout: must be a finite number of seconds' })
+				if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
+					return yield* Effect.fail({
+						message: 'Invalid timeout_ms: must be a finite number of milliseconds',
+					})
 				}
-				if (timeoutSeconds > maxTimeoutSeconds) {
-					return yield* Effect.fail({ message: `Invalid timeout: maximum is ${maxTimeoutSeconds} seconds` })
+				if (timeoutMilliseconds > maxTimeoutMilliseconds) {
+					return yield* Effect.fail({
+						message: `Invalid timeout_ms: maximum is ${maxTimeoutMilliseconds} milliseconds`,
+					})
 				}
 
 				if (!(yield* fs.exists(cwd).pipe(Effect.catch(() => Effect.succeed(false))))) {
@@ -363,7 +368,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 						Effect.catch(() => Effect.succeed(null)),
 					)
 
-					const firstExit = yield* awaitExit.pipe(Effect.timeoutOption(Duration.seconds(timeoutSeconds)))
+					const firstExit = yield* awaitExit.pipe(Effect.timeoutOption(Duration.millis(timeoutMilliseconds)))
 					let timedOut = false
 					let exitCode: number | null
 					if (Option.isSome(firstExit)) {
@@ -410,7 +415,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					return yield* Effect.fail({
 						message: appendStatus(
 							outputText,
-							`<system-reminder>Command timed out after ${timeoutSeconds} seconds</system-reminder>`,
+							`<system-reminder>Command timed out after ${timeoutMilliseconds} milliseconds</system-reminder>`,
 						),
 					})
 				}

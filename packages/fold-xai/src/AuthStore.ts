@@ -63,13 +63,16 @@ const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(AuthDocu
 
 const decodeToken = Schema.decodeUnknownOption(XaiTokenData)
 
-const encodeToken = (token: XaiTokenData): Record<string, unknown> => ({
-	type: token.type,
-	access: token.access,
-	refresh: token.refresh,
-	expires: token.expires,
-	...(token.accountId === undefined ? {} : { accountId: token.accountId }),
-})
+const encodeToken = (token: XaiTokenData): Record<string, unknown> => {
+	const encoded: Record<string, unknown> = {
+		type: token.type,
+		access: token.access,
+		refresh: token.refresh,
+		expires: token.expires,
+	}
+	if (token.accountId !== undefined) encoded['accountId'] = token.accountId
+	return encoded
+}
 
 /** Build a file-backed Xai credential store. */
 export const makeXaiAuthStore = (

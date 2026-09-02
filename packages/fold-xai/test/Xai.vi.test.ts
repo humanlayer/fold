@@ -8,6 +8,7 @@ import {
 	buildXaiAuthorizeUrl,
 	DEFAULT_XAI_MODEL_ID,
 	makeXaiAuthStore,
+	normalizeXaiChatCompletionUsage,
 	XAI_FRONTIER_MODELS,
 	XAI_BROWSER_REDIRECT_URI,
 	XAI_CLIENT_ID,
@@ -50,6 +51,37 @@ describe('xAI OAuth', () => {
 })
 
 describe('xaiModel', () => {
+	it('normalizes xAI text-only completion tokens for the OpenAI-compatible adapter', () => {
+		expect(
+			normalizeXaiChatCompletionUsage({
+				prompt_tokens: 641,
+				completion_tokens: 1,
+				total_tokens: 889,
+				prompt_tokens_details: { cached_tokens: 512 },
+				completion_tokens_details: { reasoning_tokens: 247 },
+			}),
+		).toMatchObject({
+			prompt_tokens: 641,
+			completion_tokens: 248,
+			total_tokens: 889,
+			completion_tokens_details: { reasoning_tokens: 247 },
+		})
+	})
+
+	it('normalizes xAI usage independently of the aggregate total', () => {
+		const usage = {
+			prompt_tokens: 10,
+			completion_tokens: 8,
+			total_tokens: 18,
+			completion_tokens_details: { reasoning_tokens: 3 },
+		}
+
+		expect(normalizeXaiChatCompletionUsage(usage)).toEqual({
+			...usage,
+			completion_tokens: 11,
+		})
+	})
+
 	it('exports the supported frontier catalog and defaults to its newest model', () => {
 		expect(XAI_FRONTIER_MODELS).toEqual([
 			{ modelId: 'grok-4.5', label: 'Grok 4.5' },

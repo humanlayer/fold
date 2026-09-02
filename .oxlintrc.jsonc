@@ -9,6 +9,7 @@
 	],
 	"ignorePatterns": ["**/node_modules/**", "**/dist/**", ".release/**", "tools/oxlint/**"],
 	"rules": {
+		"anti-slop/no-conditional-empty-object-spread": "error",
 		"anti-slop/no-module-mocking": "error",
 		"anti-slop/no-object-parameters": "error",
 		"automation/no-shadowed-standard-array-static": "error",

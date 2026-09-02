@@ -150,13 +150,19 @@ export const configureProvider = (
 		const config = yield* loadFoldConfig(options)
 		const previousModels = config.providers[name]?.configuredModels ?? []
 		const configuredModels = model === undefined ? previousModels : [...new Set([...previousModels, model])]
-		const provider = {
+		const provider: {
+			kind: ProviderKind
+			baseUrl: string
+			apiKey?: string
+			apiKeyEnv?: string
+			configuredModels?: ReadonlyArray<string>
+		} = {
 			kind: input.kind,
 			baseUrl,
-			...(apiKey === undefined ? {} : { apiKey }),
-			...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
-			...(configuredModels.length === 0 ? {} : { configuredModels }),
 		}
+		if (apiKey !== undefined) provider.apiKey = apiKey
+		if (apiKeyEnv !== undefined) provider.apiKeyEnv = apiKeyEnv
+		if (configuredModels.length > 0) provider.configuredModels = configuredModels
 		const updated: FoldConfig = { ...config, providers: { ...config.providers, [name]: provider } }
 
 		yield* writeConfig(updated, options)

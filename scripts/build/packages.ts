@@ -26,6 +26,8 @@ for (const name of libraries) {
 	const outdir = join(dir, 'dist')
 	await rm(outdir, { recursive: true, force: true })
 	await mkdir(outdir, { recursive: true })
+	const define: Record<string, string> = {}
+	if (name === 'fold-cli') define.FOLD_VERSION = JSON.stringify(version)
 	const result = await Bun.build({
 		entrypoints: entries.map((entry) => join(dir, entry)),
 		outdir,
@@ -36,7 +38,7 @@ for (const name of libraries) {
 		external: name === 'fold-cli' ? ['@opentui/core', '@opentui/core/*'] : [],
 		sourcemap: 'external',
 		plugins: name === 'fold-cli' ? [solidTransformPlugin] : [],
-		define: name === 'fold-cli' ? { FOLD_VERSION: JSON.stringify(version) } : {},
+		define,
 	})
 	if (!result.success) throw new AggregateError(result.logs, `Failed to build ${manifest.name}`)
 	const buildConfig = join(dir, 'tsconfig.release.json')
