@@ -1,0 +1,90 @@
+diff --git a/src/OpenAiSchema.ts b/src/OpenAiSchema.ts
+--- a/src/OpenAiSchema.ts
++++ b/src/OpenAiSchema.ts
+@@ -1045,10 +1045,10 @@
+ 
+ const ResponseErrorEvent = Schema.Struct({
+   type: Schema.Literal("error"),
+-  code: Schema.NullOr(Schema.String),
++  code: Schema.optionalKey(Schema.NullOr(Schema.String)),
+   message: Schema.String,
+-  param: Schema.NullOr(Schema.String),
+-  sequence_number: Schema.Int,
++  param: Schema.optionalKey(Schema.NullOr(Schema.String)),
++  sequence_number: Schema.optionalKey(Schema.Int),
+   status: Schema.optionalKey(Schema.Int)
+ })
+ 
+@@ -1056,11 +1056,11 @@
+ const NestedResponseErrorEvent = Schema.Struct({
+   type: Schema.Literal("error"),
+   error: Schema.Struct({
+-    code: Schema.NullOr(Schema.String),
++    code: Schema.optionalKey(Schema.NullOr(Schema.String)),
+     message: Schema.String,
+-    param: Schema.NullOr(Schema.String)
++    param: Schema.optionalKey(Schema.NullOr(Schema.String))
+   }),
+-  sequence_number: Schema.Int,
++  sequence_number: Schema.optionalKey(Schema.Int),
+   status: Schema.optionalKey(Schema.Int)
+ }).pipe(
+   Schema.decodeTo(
+diff --git a/dist/OpenAiSchema.js b/dist/OpenAiSchema.js
+--- a/dist/OpenAiSchema.js
++++ b/dist/OpenAiSchema.js
+@@ -696,21 +696,21 @@
+ });
+ const ResponseErrorEvent = /*#__PURE__*/Schema.Struct({
+   type: /*#__PURE__*/Schema.Literal("error"),
+-  code: /*#__PURE__*/Schema.NullOr(Schema.String),
++  code: /*#__PURE__*/Schema.optionalKey(/*#__PURE__*/Schema.NullOr(Schema.String)),
+   message: Schema.String,
+-  param: /*#__PURE__*/Schema.NullOr(Schema.String),
+-  sequence_number: Schema.Int,
++  param: /*#__PURE__*/Schema.optionalKey(/*#__PURE__*/Schema.NullOr(Schema.String)),
++  sequence_number: /*#__PURE__*/Schema.optionalKey(Schema.Int),
+   status: /*#__PURE__*/Schema.optionalKey(Schema.Int)
+ });
+ // OpenAI can nest stream error details under `error`.
+ const NestedResponseErrorEvent = /*#__PURE__*/Schema.Struct({
+   type: Schema.Literal("error"),
+   error: Schema.Struct({
+-    code: Schema.NullOr(Schema.String),
++    code: Schema.optionalKey(Schema.NullOr(Schema.String)),
+     message: Schema.String,
+-    param: Schema.NullOr(Schema.String)
++    param: Schema.optionalKey(Schema.NullOr(Schema.String))
+   }),
+-  sequence_number: Schema.Int,
++  sequence_number: Schema.optionalKey(Schema.Int),
+   status: Schema.optionalKey(Schema.Int)
+ }).pipe(/*#__PURE__*/Schema.decodeTo(ResponseErrorEvent, /*#__PURE__*/SchemaTransformation.transform({
+   decode: ({
+diff --git a/dist/Generated.d.ts b/dist/Generated.d.ts
+--- a/dist/Generated.d.ts
++++ b/dist/Generated.d.ts
+@@ -3322,17 +3322,17 @@
+ export declare const ResponseErrorCode: Schema.Literals<readonly ["server_error", "rate_limit_exceeded", "invalid_prompt", "vector_store_timeout", "invalid_image", "invalid_image_format", "invalid_base64_image", "invalid_image_url", "image_too_large", "image_too_small", "image_parse_error", "image_content_policy_violation", "invalid_image_mode", "image_file_too_large", "unsupported_image_media_type", "empty_image_file", "failed_to_download_image", "image_file_not_found"]>;
+ export type ResponseErrorEvent = {
+     readonly "type": "error";
+-    readonly "code": string | null;
++    readonly "code"?: string | null | undefined;
+     readonly "message": string;
+-    readonly "param": string | null;
+-    readonly "sequence_number": number;
++    readonly "param"?: string | null | undefined;
++    readonly "sequence_number"?: number | undefined;
+ };
+ export declare const ResponseErrorEvent: Schema.Struct<{
+     readonly type: Schema.Literal<"error">;
+-    readonly code: Schema.Union<readonly [Schema.String, Schema.Null]>;
++    readonly code: Schema.optionalKey<Schema.Union<readonly [Schema.String, Schema.Null]>>;
+     readonly message: Schema.String;
+-    readonly param: Schema.Union<readonly [Schema.String, Schema.Null]>;
+-    readonly sequence_number: Schema.Number;
++    readonly param: Schema.optionalKey<Schema.Union<readonly [Schema.String, Schema.Null]>>;
++    readonly sequence_number: Schema.optionalKey<Schema.Number>;
+ }>;
+ export type ResponseFileSearchCallCompletedEvent = {
+     readonly "type": "response.file_search_call.completed";
