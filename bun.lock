@@ -17,6 +17,42 @@
         "vitest": "catalog:",
       },
     },
+    "packages/effect-ai-anthropic": {
+      "name": "@humanlayer/effect-ai-anthropic",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/fold-vitest-config": "workspace:*",
+        "effect": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
+      },
+    },
+    "packages/effect-ai-openai": {
+      "name": "@humanlayer/effect-ai-openai",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/fold-vitest-config": "workspace:*",
+        "effect": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
+      },
+    },
+    "packages/effect-ai-openai-compat": {
+      "name": "@humanlayer/effect-ai-openai-compat",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@humanlayer/fold-vitest-config": "workspace:*",
+        "effect": "catalog:",
+      },
+      "peerDependencies": {
+        "effect": "catalog:",
+      },
+    },
     "packages/effect-branded-id": {
       "name": "@humanlayer/effect-branded-id",
       "version": "0.0.0",
@@ -104,10 +140,10 @@
       "name": "@humanlayer/fold-codex",
       "version": "0.0.0",
       "dependencies": {
+        "@humanlayer/effect-ai-openai": "workspace:*",
         "@humanlayer/fold-core": "workspace:*",
       },
       "devDependencies": {
-        "@effect/ai-openai": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/vitest": "catalog:",
         "@humanlayer/fold-agent": "workspace:*",
@@ -117,7 +153,6 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@effect/ai-openai": "catalog:",
         "@effect/platform-node": "catalog:",
         "effect": "catalog:",
       },
@@ -126,11 +161,11 @@
       "name": "@humanlayer/fold-core",
       "version": "0.0.0",
       "dependencies": {
+        "@humanlayer/effect-ai-anthropic": "workspace:*",
+        "@humanlayer/effect-ai-openai": "workspace:*",
         "@humanlayer/effect-branded-id": "workspace:*",
       },
       "devDependencies": {
-        "@effect/ai-anthropic": "catalog:",
-        "@effect/ai-openai": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/vitest": "catalog:",
         "@humanlayer/fold-vitest-config": "workspace:*",
@@ -139,8 +174,6 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@effect/ai-anthropic": "catalog:",
-        "@effect/ai-openai": "catalog:",
         "effect": "catalog:",
       },
     },
@@ -148,11 +181,11 @@
       "name": "@humanlayer/fold-opencode",
       "version": "0.0.0",
       "dependencies": {
+        "@humanlayer/effect-ai-openai": "workspace:*",
+        "@humanlayer/effect-ai-openai-compat": "workspace:*",
         "@humanlayer/fold-core": "workspace:*",
       },
       "devDependencies": {
-        "@effect/ai-openai": "catalog:",
-        "@effect/ai-openai-compat": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/vitest": "catalog:",
         "@humanlayer/fold-vitest-config": "workspace:*",
@@ -161,8 +194,6 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@effect/ai-openai": "catalog:",
-        "@effect/ai-openai-compat": "catalog:",
         "@effect/platform-node": "catalog:",
         "effect": "catalog:",
       },
@@ -188,10 +219,10 @@
       "name": "@humanlayer/fold-xai",
       "version": "0.0.0",
       "dependencies": {
+        "@humanlayer/effect-ai-openai-compat": "workspace:*",
         "@humanlayer/fold-core": "workspace:*",
       },
       "devDependencies": {
-        "@effect/ai-openai-compat": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/vitest": "catalog:",
         "@humanlayer/fold-vitest-config": "workspace:*",
@@ -200,7 +231,6 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@effect/ai-openai-compat": "catalog:",
         "@effect/platform-node": "catalog:",
         "effect": "catalog:",
       },
@@ -213,14 +243,7 @@
       },
     },
   },
-  "patchedDependencies": {
-    "@effect/ai-openai@4.0.0-rc.112": "patches/@effect%2Fai-openai@4.0.0-rc.112.patch",
-    "@effect/ai-anthropic@4.0.0-rc.112": "patches/@effect%2Fai-anthropic@4.0.0-rc.112.patch",
-  },
   "catalog": {
-    "@effect/ai-anthropic": "4.0.0-rc.112",
-    "@effect/ai-openai": "4.0.0-rc.112",
-    "@effect/ai-openai-compat": "4.0.0-rc.112",
     "@effect/platform-node": "4.0.0-rc.112",
     "@effect/vitest": "4.0.0-rc.112",
     "@kitlangton/terminal-control": "0.3.1",
@@ -300,12 +323,6 @@
 
     "@bcoe/v8-coverage": ["@bcoe/v8-coverage@1.0.2", "", {}, "sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA=="],
 
-    "@effect/ai-anthropic": ["@effect/ai-anthropic@4.0.0-rc.112", "", { "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-2GQKD3IzfCJuS3DgeuBwUjEYk5iyOqgK5etQkYZ3Ho8IuL8BtGR9d8G5AIiRV0xkNy5DD4vGnDGSHxKWsW2TRg=="],
-
-    "@effect/ai-openai": ["@effect/ai-openai@4.0.0-rc.112", "", { "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-j2X86xvgpAtNiusyESADHZn3PUzMVatE1zWXd0No2aybx/euKiVBVWZOtzq7ntJ5KvPHRBOFXTGPADdApQrwug=="],
-
-    "@effect/ai-openai-compat": ["@effect/ai-openai-compat@4.0.0-rc.112", "", { "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-bfNYHgfjhzKhDwaw2na75JshGACrawSXWqqzTncBtBHpUIhZ+VHF2I5AdgCmfh6fnAuvhxcuJnzrixGOkG9YZw=="],
-
     "@effect/platform-node": ["@effect/platform-node@4.0.0-rc.112", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.112", "mime": "^4.1.0", "undici": "^8.10.0" }, "peerDependencies": { "effect": "^4.0.0-rc.112", "redis": ">=5.0.0 <7.0.0" } }, "sha512-/BMAcdNGQQskLmI0Zoa95KfTZkr9HV9N4NSxaSrusG6GeW6Ulp9KvZ+Rlaiw8lnOt43CXjFLdfll5/k5rxL4hQ=="],
 
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.112", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.3" }, "peerDependencies": { "effect": "^4.0.0-rc.112" } }, "sha512-ttjz0xKamFN7vL8pNDYVwddJLjZvqKePc05djlz2VcdaKbLsnYbtMnL1rbOfHgEnIUSHGh7FkjaN4DM1Ov81sQ=="],
@@ -333,6 +350,12 @@
     "@emnapi/runtime": ["@emnapi/runtime@1.11.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw=="],
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
+
+    "@humanlayer/effect-ai-anthropic": ["@humanlayer/effect-ai-anthropic@workspace:packages/effect-ai-anthropic"],
+
+    "@humanlayer/effect-ai-openai": ["@humanlayer/effect-ai-openai@workspace:packages/effect-ai-openai"],
+
+    "@humanlayer/effect-ai-openai-compat": ["@humanlayer/effect-ai-openai-compat@workspace:packages/effect-ai-openai-compat"],
 
     "@humanlayer/effect-branded-id": ["@humanlayer/effect-branded-id@workspace:packages/effect-branded-id"],
 

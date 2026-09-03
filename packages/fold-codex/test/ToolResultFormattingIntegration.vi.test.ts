@@ -6,8 +6,8 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
 import { assert, it } from '@effect/vitest'
+import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { bashTool, editTool, readTool, writeTool } from '@humanlayer/fold-agent'
 import { Effect, Layer, Redacted, Schema } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'

@@ -1,0 +1,5 @@
+# Vendored upstream source retains Effect's formatting and lint baseline. Local fork changes are
+# covered by focused runtime tests and typechecks; do not rewrite the complete upstream surface.
+packages/effect-ai-openai/src/**
+packages/effect-ai-anthropic/src/**
+packages/effect-ai-openai-compat/src/**

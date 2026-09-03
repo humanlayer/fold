@@ -6,8 +6,8 @@
  * the projected model id also binds the request `model` - so `thinking-change` and same-provider
  * `model-change` entries take effect on the very next turn without rebuilding any layer (D23).
  */
-import { AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { OpenAiLanguageModel } from '@effect/ai-openai'
+import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
+import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Data, Match, Context, Layer } from 'effect'
 import type { Effect } from 'effect'
 

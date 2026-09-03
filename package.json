@@ -8,12 +8,13 @@
 	"scripts": {
 		"build": "bun run build:packages",
 		"build:packages": "bun run scripts/build/packages.ts",
+		"build:providers": "bun run scripts/build/packages.ts --providers --quiet",
 		"build:binaries": "bun run scripts/build/binaries.ts",
 		"release:tag-info": "bun run scripts/release/tag-info.ts",
 		"release:prepare": "bun run scripts/release/prepare.ts",
 		"release:validate": "bun run scripts/release/validate-manifest.ts",
 		"release:publish": "bun run scripts/release/publish.ts",
-		"typecheck": "bun run --parallel --if-present --filter './packages/*' typecheck",
+		"typecheck": "bun run build:providers && bun run --parallel --if-present --filter './packages/*' typecheck",
 		"test": "bun run --parallel --if-present --filter './packages/*' test",
 		"test:watch": "bun run --parallel --if-present --filter './packages/*' test:watch",
 		"lint": "oxlint --type-aware",
@@ -33,8 +34,6 @@
 			"@opentui/solid": "0.4.3",
 			"solid-js": "1.9.12",
 			"effect": "4.0.0-rc.112",
-			"@effect/ai-openai": "4.0.0-rc.112",
-			"@effect/ai-openai-compat": "4.0.0-rc.112",
 			"@effect/platform-node": "4.0.0-rc.112",
 			"@effect/vitest": "4.0.0-rc.112",
 			"@silvia-odwyer/photon-node": "0.3.4",
@@ -45,8 +44,7 @@
 			"@vitest/coverage-v8": "4.1.9",
 			"typescript": "7.0.2",
 			"@types/bun": "1.3.14",
-			"@types/node": "26.1.0",
-			"@effect/ai-anthropic": "4.0.0-rc.112"
+			"@types/node": "26.1.0"
 		}
 	},
 	"devDependencies": {
@@ -60,9 +58,5 @@
 		"oxlint-tsgolint": "0.24.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
-	},
-	"patchedDependencies": {
-		"@effect/ai-openai@4.0.0-rc.112": "patches/@effect%2Fai-openai@4.0.0-rc.112.patch",
-		"@effect/ai-anthropic@4.0.0-rc.112": "patches/@effect%2Fai-anthropic@4.0.0-rc.112.patch"
 	}
 }

@@ -1,5 +1,6 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
- * The fold-codex model descriptor: clanka's shape over the official `@effect/ai-openai` provider
+ * The fold-codex model descriptor: clanka's shape over the official `@humanlayer/effect-ai-openai` provider
  * pointed at the ChatGPT Codex backend (D23). The stock OpenAiLanguageModel runs unchanged; all Codex
  * behavior lives in a decorated OpenAiClient underneath it, where every signature is concrete:
  * (1) leading `system`/`developer` input items lift into the Responses `instructions` field (clanka's
@@ -13,9 +14,8 @@
  * injection so retries never re-enter the auth path. Retryable provider responses, including 429,
  * retry before the first stream event and honor the provider's Retry-After delay.
  */
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
-import type * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
+import type * as OpenAiSchema from '@humanlayer/effect-ai-openai/OpenAiSchema'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'

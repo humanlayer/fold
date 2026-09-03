@@ -9,8 +9,8 @@
  * Turn helpers build provider-shaped encoded stream parts: `toolCallTurn` emits provider-style ids
  * (for example `provider-call-1`) so tests can prove fold's tool-call id rewriting.
  */
-import { AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { OpenAiLanguageModel } from '@effect/ai-openai'
+import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
+import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Predicate, Effect, Layer, Ref, Stream } from 'effect'
 import { AiError, LanguageModel, type Prompt, type Response } from 'effect/unstable/ai'
 

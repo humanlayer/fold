@@ -1,6 +1,6 @@
-/** Regression coverage for patched @effect/ai-anthropic client tool-result encoding. */
-import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
 import { assert, it } from '@effect/vitest'
+/** Regression coverage for patched @humanlayer/effect-ai-anthropic client tool-result encoding. */
+import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { Effect, Layer, Predicate, Redacted, Schema } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 import { HttpClient, type HttpClientError, HttpClientResponse } from 'effect/unstable/http'

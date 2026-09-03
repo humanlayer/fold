@@ -1,9 +1,9 @@
+import { assert, it } from '@effect/vitest'
 /**
  * Regression coverage for patched Effect AI client tool-result encoding. This bypasses Fold handlers
- * and RequestBuilder so captured values isolate the @effect/ai-openai provider behavior.
+ * and RequestBuilder so captured values isolate the @humanlayer/effect-ai-openai provider behavior.
  */
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
-import { assert, it } from '@effect/vitest'
+import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Effect, Layer, Predicate, Redacted, Schema } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 import { FetchHttpClient } from 'effect/unstable/http'

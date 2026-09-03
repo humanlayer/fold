@@ -1,11 +1,11 @@
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /** FoldModel factory for xAI's OpenAI-compatible inference API authenticated with OAuth. */
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai-compat'
+import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai-compat'
 import type {
 	ChatCompletionChunk,
 	CreateResponse200,
 	CreateResponse200Sse,
-} from '@effect/ai-openai-compat/OpenAiClient'
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+} from '@humanlayer/effect-ai-openai-compat/OpenAiClient'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Context, Effect, Layer, Option, Predicate, Schema, Stream } from 'effect'

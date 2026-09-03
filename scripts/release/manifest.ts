@@ -4,6 +4,9 @@ export const root = join(import.meta.dirname, '../..')
 export const stage = join(root, '.release')
 export const libraries = [
 	'effect-branded-id',
+	'effect-ai-openai',
+	'effect-ai-anthropic',
+	'effect-ai-openai-compat',
 	'fold-core',
 	'fold-codex',
 	'fold-opencode',

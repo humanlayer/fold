@@ -1,0 +1,37 @@
+{
+	"name": "@humanlayer/effect-ai-openai-compat",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"description": "HumanLayer's vendored OpenAI-compatible provider for Effect AI SDK",
+	"sideEffects": [],
+	"exports": {
+		"./package.json": "./package.json",
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"types": "./dist/*.d.ts",
+			"import": "./src/*.ts",
+			"default": "./src/*.ts"
+		},
+		"./internal/*": null,
+		"./index": null,
+		"./*/index": null
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun vitest run test/UpstreamParity.test.ts"
+	},
+	"peerDependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:",
+		"@humanlayer/fold-vitest-config": "workspace:*",
+		"effect": "catalog:"
+	}
+}

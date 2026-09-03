@@ -7,8 +7,8 @@
  * model - subagents therefore summarize with their own model, D21), and returns the durable entry
  * payload. The session facade provides this service session-wide; the loop owns appends.
  */
-import { AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { OpenAiLanguageModel } from '@effect/ai-openai'
+import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
+import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Effect, Predicate, Stream } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 
