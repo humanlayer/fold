@@ -215,6 +215,7 @@
   },
   "patchedDependencies": {
     "@effect/ai-openai@4.0.0-rc.112": "patches/@effect%2Fai-openai@4.0.0-rc.112.patch",
+    "@effect/ai-anthropic@4.0.0-rc.112": "patches/@effect%2Fai-anthropic@4.0.0-rc.112.patch",
   },
   "catalog": {
     "@effect/ai-anthropic": "4.0.0-rc.112",

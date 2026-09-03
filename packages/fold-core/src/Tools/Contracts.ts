@@ -7,7 +7,7 @@
  */
 import { Schema } from 'effect'
 
-import { ToolResultContent } from './ToolResultContent'
+import { ToolResultFailure, ToolResultSuccess, ToolResultText } from './ToolResultContent'
 import { defaultMaxLines, formatSize, defaultMaxBytes } from './Truncation'
 
 /** A tool's model-facing surface without a handler: spread into `defineTool` next to one. */
@@ -24,9 +24,7 @@ export type ToolContract<
 }
 
 /** Uniform expected-failure payload for built-in tools: one instructive, model-visible message. */
-export const ToolFailure = Schema.Struct({
-	message: Schema.String,
-})
+export const ToolFailure = ToolResultFailure
 export type ToolFailure = typeof ToolFailure.Type
 
 // --- read -------------------------------------------------------------------------------------------
@@ -47,9 +45,9 @@ export const readToolContract = {
 		`Text output is limited to ${defaultMaxLines} lines or ${formatSize(defaultMaxBytes)}; ` +
 		`use offset and limit to read further sections of large files.`,
 	parameters: ReadParameters,
-	success: ToolResultContent,
+	success: ToolResultSuccess,
 	failure: ToolFailure,
-} satisfies ToolContract<typeof ReadParameters, typeof ToolResultContent, typeof ToolFailure>
+} satisfies ToolContract<typeof ReadParameters, typeof ToolResultSuccess, typeof ToolFailure>
 
 // --- write ------------------------------------------------------------------------------------------
 
@@ -58,9 +56,7 @@ const WriteParameters = Schema.Struct({
 	content: Schema.String.annotate({ description: 'Content to write to the file' }),
 })
 
-const WriteSuccess = Schema.Struct({
-	message: Schema.String,
-})
+const WriteSuccess = ToolResultText
 
 /** Contract for the write tool (pi port): full overwrite with recursive parent creation. */
 export const writeToolContract = {
@@ -100,9 +96,7 @@ const EditParameters = Schema.Struct({
 	}),
 })
 
-const EditSuccess = Schema.Struct({
-	message: Schema.String,
-})
+const EditSuccess = ToolResultText
 
 /** Contract for the edit tool (pi port): batch exact-match replacements with normalization fallback. */
 export const editToolContract = {
@@ -123,9 +117,7 @@ const ApplyPatchParameters = Schema.Struct({
 	patch_text: Schema.String.annotate({ description: 'The full patch text to apply.' }),
 })
 
-const ApplyPatchSuccess = Schema.Struct({
-	message: Schema.String,
-})
+const ApplyPatchSuccess = ToolResultText
 
 const applyPatchDescription = `Apply a patch to create, update, delete, or move files.
 
@@ -183,9 +175,9 @@ export const webFetchToolContract = {
 		'gif, webp, bmp) are returned as inline images. Use this for specific official docs pages, articles, ' +
 		'and other known sources. Responses over 5MB are rejected.',
 	parameters: WebFetchParameters,
-	success: ToolResultContent,
+	success: ToolResultSuccess,
 	failure: ToolFailure,
-} satisfies ToolContract<typeof WebFetchParameters, typeof ToolResultContent, typeof ToolFailure>
+} satisfies ToolContract<typeof WebFetchParameters, typeof ToolResultSuccess, typeof ToolFailure>
 
 // --- web_search -------------------------------------------------------------------------------------
 
@@ -212,9 +204,9 @@ export const webSearchToolContract = {
 		'LLM-optimized result summary with source URLs. Prefer official documentation and fetch high-value ' +
 		'results with web_fetch when more detail is needed.',
 	parameters: WebSearchParameters,
-	success: Schema.String,
+	success: ToolResultText,
 	failure: ToolFailure,
-} satisfies ToolContract<typeof WebSearchParameters, typeof Schema.String, typeof ToolFailure>
+} satisfies ToolContract<typeof WebSearchParameters, typeof ToolResultText, typeof ToolFailure>
 
 // --- skill ------------------------------------------------------------------------------------------
 
@@ -225,14 +217,9 @@ const SkillParameters = Schema.Struct({
 	}),
 })
 
-const SkillSuccess = Schema.Struct({
-	content: Schema.String,
-})
+const SkillSuccess = ToolResultText
 
-const SkillFailure = Schema.Struct({
-	message: Schema.String,
-	availableSkills: Schema.Array(Schema.String),
-})
+const SkillFailure = ToolResultFailure
 
 /** Contract for the skill tool (D20): progressive disclosure of skill content by name. */
 export const skillToolContract = {
@@ -279,14 +266,9 @@ const SubagentParameters = Schema.Struct({
 	}),
 })
 
-const SubagentSuccess = Schema.Struct({
-	content: Schema.String,
-})
+const SubagentSuccess = ToolResultText
 
-const SubagentFailure = Schema.Struct({
-	message: Schema.String,
-	availableAgents: Schema.Array(Schema.String),
-})
+const SubagentFailure = ToolResultFailure
 
 /** Contract for the subagent tool (D21): dispatch, fork, and resume subagents on the session log. */
 export const subagentToolContract = {

@@ -11,6 +11,8 @@ import {
 	defineTool,
 	parsePatch,
 	platformToolDependencies,
+	ToolResultFailure,
+	ToolResultText,
 	type PatchOp,
 	type FoldTool,
 } from '@humanlayer/fold-core'
@@ -117,12 +119,12 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 							})
 						}
 
-						return { message: `Applied patch.\n${computed.summary.join('\n')}` }
+						return ToolResultText.make({ text: `Applied patch.\n${computed.summary.join('\n')}` })
 					}),
 				).pipe(
 					Effect.catchTag('PlatformError', (error) =>
 						Effect.fail(verificationFailed(platformErrorMessage('apply_patch', 'patch target', error))),
 					),
 				)
-			}),
+			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
 	})

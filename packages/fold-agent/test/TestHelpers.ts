@@ -171,10 +171,10 @@ const stringField =
 	}
 
 /** The `message` field of a tool success/failure value. */
-export const messageOf: (value: unknown) => string = stringField('message')
+export const messageOf: (value: unknown) => string = stringField('text')
 
 /** The `output` field of a bash tool success value. */
-export const outputOf: (value: unknown) => string = stringField('output')
+export const outputOf: (value: unknown) => string = stringField('text')
 
 const parentDirs = (path: string): ReadonlyArray<string> => {
 	const parents: Array<string> = []

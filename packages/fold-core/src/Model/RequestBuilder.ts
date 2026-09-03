@@ -8,11 +8,11 @@
  * metadata into history. The assistant tool-call params stay exactly as decoded from the persisted
  * assistant message, keeping already-sent prompt bytes stable across turns.
  */
-import { Effect, Match, Option, Schema } from 'effect'
+import { Effect, Encoding, Match, Option, Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { ProjectedMessage } from '../Projection/Projection'
-import { ToolResultImageBlock } from '../Tools/ToolResultContent'
+import { ToolResultOutput } from '../Tools/ToolResultContent'
 
 const anthropicEphemeralCacheControl = { type: 'ephemeral' } as const
 
@@ -34,9 +34,8 @@ const decodeSystemMessage = Schema.decodeUnknownEffect(Prompt.SystemMessage)
 const decodeUserMessage = Schema.decodeUnknownEffect(Prompt.UserMessage)
 const decodeAssistantMessage = Schema.decodeUnknownEffect(Prompt.AssistantMessage)
 const decodeToolMessage = Schema.decodeUnknownEffect(Prompt.ToolMessage)
-const decodeJsonObject = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))
 const decodeFoldPartOptions = Schema.decodeUnknownOption(Schema.Struct({ [providerToolCallIdKey]: Schema.String }))
-const decodeToolResultContent = Schema.decodeUnknownOption(Schema.Struct({ content: Schema.Array(Schema.Unknown) }))
+const decodeToolResultOutput = Schema.decodeUnknownOption(ToolResultOutput)
 
 const decodeErrorFor = (projected: ProjectedMessage) => (cause: unknown) =>
 	new PromptDecodeError({
@@ -143,71 +142,38 @@ const markLatestUserSideCacheBreakpoint = (messages: ReadonlyArray<Prompt.Messag
 	return out
 }
 
-/** Placeholder left inside a tool result where an image block was lifted out (D3 delivery path). */
-export const imageOmittedPlaceholder =
-	'[Image omitted here. It is attached as a file part in the user message immediately following this tool result.]'
+/** Convert a durable canonical result to provider-neutral live Prompt content. */
+const prepareToolResult = (result: unknown): Effect.Effect<unknown, Encoding.EncodingError> => {
+	const decoded = decodeToolResultOutput(result)
+	if (Option.isNone(decoded)) return Effect.succeed(result)
 
-const isImageBlock = Schema.is(ToolResultImageBlock)
-
-/**
- * Split image blocks out of one tool-result value following the built-in content-block convention
- * (`{ content: [text | image, ...] }`). Returns null when the value carries no images.
- */
-const splitImageBlocks = (
-	result: unknown,
-): { readonly sanitized: unknown; readonly images: ReadonlyArray<ToolResultImageBlock> } | null => {
-	const envelope = decodeToolResultContent(result)
-	const object = decodeJsonObject(result)
-	if (Option.isNone(envelope) || Option.isNone(object)) return null
-
-	const images = envelope.value.content.filter(isImageBlock)
-	if (images.length === 0) return null
-
-	return {
-		sanitized: {
-			...object.value,
-			content: envelope.value.content.map((block: unknown) =>
-				isImageBlock(block) ? { type: 'text', text: imageOmittedPlaceholder } : block,
-			),
-		},
-		images,
-	}
-}
-
-/**
- * Deliver image blocks from tool results as native user file parts (D3): the provider serializes
- * custom tool results as JSON text (verified fact 1), so images inside tool_result would reach the
- * model as base64 noise. The image block is replaced with placeholder text and re-sent as a user
- * message file part immediately after the tool message - uniform across providers (fact 2).
- */
-const liftImagesFromToolMessage = (
-	message: Prompt.ToolMessage,
-): { readonly message: Prompt.ToolMessage; readonly followUp: Prompt.UserMessage | null } => {
-	const imageParts: Array<Prompt.UserMessagePart> = []
-	const content = message.content.map((part) => {
-		if (part.type !== 'tool-result') return part
-
-		const split = splitImageBlocks(part.result)
-		if (split === null) return part
-
-		for (const image of split.images) {
-			imageParts.push(Prompt.filePart({ mediaType: image.mimeType, data: image.data }))
-		}
-		return Prompt.toolResultPart({ ...part, result: split.sanitized })
-	})
-
-	if (imageParts.length === 0) return { message, followUp: null }
-
-	return {
-		message: Prompt.toolMessage({ content, options: message.options }),
-		followUp: Prompt.userMessage({
-			content: [
-				Prompt.textPart({ text: 'The following image content belongs to the preceding tool result:' }),
-				...imageParts,
-			],
+	return Match.value(decoded.value).pipe(
+		Match.tagsExhaustive({
+			text: ({ text }) => Effect.succeed(text),
+			failure: ({ text }) => Effect.succeed(text),
+			multipart: ({ content }) =>
+				Effect.forEach(content, (part) =>
+					Match.value(part).pipe(
+						Match.tagsExhaustive({
+							'text-part': ({ text }) => Effect.succeed(Prompt.textPart({ text })),
+							'image-part': ({ data, mediaType, fileName }) =>
+								Effect.fromResult(Encoding.decodeBase64(data)).pipe(
+									Effect.map((bytes) => Prompt.filePart({ data: bytes, mediaType, fileName })),
+								),
+						}),
+					),
+				),
 		}),
-	}
+	)
 }
+
+/** Prepare each canonical result while retaining the surrounding tool message. */
+const prepareToolMessage = (message: Prompt.ToolMessage): Effect.Effect<Prompt.ToolMessage, Encoding.EncodingError> =>
+	Effect.forEach(message.content, (part): Effect.Effect<Prompt.ToolMessagePart, Encoding.EncodingError> =>
+		part.type === 'tool-result'
+			? prepareToolResult(part.result).pipe(Effect.map((result) => Prompt.toolResultPart({ ...part, result })))
+			: Effect.succeed(part),
+	).pipe(Effect.map((content) => Prompt.toolMessage({ content, options: message.options })))
 
 /**
  * Build the live Prompt for one model request from an agent's projected messages.
@@ -249,15 +215,11 @@ export const buildPrompt = (
 				'tool-result': (result) =>
 					decodeToolMessage(result.message).pipe(
 						Effect.mapError(decodeErrorFor(result)),
-						Effect.tap((decoded) =>
-							Effect.sync(() => {
-								const { message, followUp } = liftImagesFromToolMessage(
-									restoreToolResultIds(decoded, providerIdsByFoldId),
-								)
-								promptMessages.push(message)
-								if (followUp !== null) promptMessages.push(followUp)
-							}),
+						Effect.flatMap((decoded) =>
+							prepareToolMessage(restoreToolResultIds(decoded, providerIdsByFoldId)),
 						),
+						Effect.mapError(decodeErrorFor(result)),
+						Effect.tap((message) => Effect.sync(() => promptMessages.push(message))),
 					),
 				'compaction-summary': (summary) =>
 					Effect.sync(() => {

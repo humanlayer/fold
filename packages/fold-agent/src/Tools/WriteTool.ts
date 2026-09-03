@@ -6,6 +6,8 @@
 import {
 	defineTool,
 	platformToolDependencies,
+	ToolResultFailure,
+	ToolResultText,
 	utf8ByteLength,
 	writeToolContract,
 	type FoldTool,
@@ -50,6 +52,8 @@ export const writeTool = (options?: { readonly cwd?: string }): FoldTool =>
 					),
 				)
 
-				return { message: `Successfully wrote ${utf8ByteLength(params.content)} bytes to ${params.path}` }
-			}),
+				return ToolResultText.make({
+					text: `Successfully wrote ${utf8ByteLength(params.content)} bytes to ${params.path}`,
+				})
+			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
 	})

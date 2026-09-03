@@ -9,6 +9,7 @@ import { Effect } from 'effect'
 
 import { defineTool, type SessionToolContribution, type FoldTool } from '../Api/ToolDefinition'
 import { skillToolContract } from '../Tools/Contracts'
+import { ToolResultFailure, ToolResultText } from '../Tools/ToolResultContent'
 import type { SkillMeta } from './Schemas'
 import { skillSourceFor, type SkillSourceService, type FoldSkills } from './SkillSource'
 
@@ -93,10 +94,7 @@ export const skillTool = (source: FoldSkills): FoldTool => ({
 })
 
 /** The skill tool's model-facing failure payload (schema: message + availableSkills). */
-type SkillToolFailure = {
-	readonly message: string
-	readonly availableSkills: ReadonlyArray<string>
-}
+type SkillToolFailure = ToolResultFailure
 
 /**
  * Build the skill tool over a resolved source (D20). The description advertises the session-start
@@ -120,22 +118,28 @@ export const makeSkillTool = (input: MakeSkillToolInput): FoldTool => {
 				const skill = yield* input.source.load(params.name).pipe(
 					Effect.catchTags({
 						SkillNotFoundError: (error) =>
-							Effect.fail<SkillToolFailure>({
-								message: `Skill "${params.name}" not found. Available skills: ${
-									error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')
-								}`,
-								availableSkills: error.availableSkills,
-							}),
+							Effect.fail<SkillToolFailure>(
+								ToolResultFailure.make({
+									text: `Skill "${params.name}" not found. Available skills: ${
+										error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')
+									}`,
+									details: { availableSkills: error.availableSkills },
+								}),
+							),
 						SkillSourceError: (error) =>
-							Effect.fail<SkillToolFailure>({
-								message: `Skill source failed: ${error.message}`,
-								availableSkills: snapshotNames,
-							}),
+							Effect.fail<SkillToolFailure>(
+								ToolResultFailure.make({
+									text: `Skill source failed: ${error.message}`,
+									details: { availableSkills: snapshotNames },
+								}),
+							),
 					}),
 				)
 
 				const content = renderSkillContent(skill)
-				return { content: refreshReport === null ? content : `${content}\n\n${refreshReport}` }
+				return ToolResultText.make({
+					text: refreshReport === null ? content : `${content}\n\n${refreshReport}`,
+				})
 			}),
 	})
 }

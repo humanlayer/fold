@@ -1,0 +1,134 @@
+diff --git a/dist/AnthropicLanguageModel.js b/dist/AnthropicLanguageModel.js
+index 7d9005ad1281d467f1664783e070be16aa986d83..1007337412ed7560f94d407776c5d910a0e6048b 100644
+--- a/dist/AnthropicLanguageModel.js
++++ b/dist/AnthropicLanguageModel.js
+@@ -17,6 +17,7 @@ import { dual } from "effect/Function";
+ import * as Layer from "effect/Layer";
+ import * as Option from "effect/Option";
+ import * as Predicate from "effect/Predicate";
++import * as Prompt from "effect/unstable/ai/Prompt";
+ import * as Redactable from "effect/Redactable";
+ import * as Schema from "effect/Schema";
+ import * as SchemaAST from "effect/SchemaAST";
+@@ -382,10 +383,49 @@ const prepareMessages = /*#__PURE__*/Effect.fnUntraced(function* ({
+                     // evaluating the last part for this message, also check the
+                     // message for cache control.
+                     const cacheControl = getCacheControl(part) ?? (isLastPart ? getCacheControl(message) : null);
+-                    content.push({
+-                      type: "tool_result",
+-                      tool_use_id: part.id,
+-                      content: JSON.stringify(part.result),
++                  let toolResultContent;
++                  if (Predicate.isString(part.result)) {
++                    toolResultContent = part.result;
++                  } else if (Array.isArray(part.result) && part.result.every(item => Prompt.isPart(item) && (item.type === "text" || item.type === "file"))) {
++                    toolResultContent = [];
++                    for (const outputPart of part.result) {
++                      if (outputPart.type === "text") {
++                        toolResultContent.push({
++                          type: "text",
++                          text: outputPart.text
++                        });
++                        continue;
++                      }
++                      if (!outputPart.mediaType.startsWith("image/")) {
++                        return yield* new AiError.AiError({
++                          module: "AnthropicLanguageModel",
++                          method: "prepareMessages",
++                          reason: new AiError.InvalidUserInputError({
++                            description: `Detected unsupported media type for tool result: '${outputPart.mediaType}'`
++                          })
++                        });
++                      }
++                      const mediaType = outputPart.mediaType === "image/*" ? "image/jpeg" : outputPart.mediaType;
++                      const source = outputPart.data instanceof URL ? {
++                        type: "url",
++                        url: outputPart.data.toString()
++                      } : {
++                        type: "base64",
++                        media_type: mediaType,
++                        data: Predicate.isString(outputPart.data) ? outputPart.data : Encoding.encodeBase64(outputPart.data)
++                      };
++                      toolResultContent.push({
++                        type: "image",
++                        source
++                      });
++                    }
++                  } else {
++                    toolResultContent = JSON.stringify(part.result);
++                  }
++                  content.push({
++                    type: "tool_result",
++                    tool_use_id: part.id,
++                    content: toolResultContent,
+                       is_error: part.isFailure,
+                       cache_control: cacheControl
+                     });
+diff --git a/src/AnthropicLanguageModel.ts b/src/AnthropicLanguageModel.ts
+index 4452bcd192c9c39a2ab68d1284aea05a01afb0a8..fedb4aaecc30e7165d593c5592c779cac3ab8081 100644
+--- a/src/AnthropicLanguageModel.ts
++++ b/src/AnthropicLanguageModel.ts
+@@ -29,7 +29,7 @@ import { toCodecAnthropic } from "effect/unstable/ai/AnthropicStructuredOutput"
+ import * as IdGenerator from "effect/unstable/ai/IdGenerator"
+ import * as LanguageModel from "effect/unstable/ai/LanguageModel"
+ import * as AiModel from "effect/unstable/ai/Model"
+-import type * as Prompt from "effect/unstable/ai/Prompt"
++import * as Prompt from "effect/unstable/ai/Prompt"
+ import type * as Response from "effect/unstable/ai/Response"
+ import * as Tool from "effect/unstable/ai/Tool"
+ import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+@@ -1040,10 +1040,53 @@ const prepareMessages = Effect.fnUntraced(
+                     isLastPart ? getCacheControl(message) : null
+                   )
+ 
++                  let toolResultContent:
++                    | string
++                    | Array<typeof Generated.RequestTextBlock.Encoded | typeof Generated.RequestImageBlock.Encoded>
++                  if (Predicate.isString(part.result)) {
++                    toolResultContent = part.result
++                  } else if (
++                    Array.isArray(part.result) &&
++                    part.result.every((item) => Prompt.isPart(item) && (item.type === "text" || item.type === "file"))
++                  ) {
++                    toolResultContent = []
++                    for (const outputPart of part.result) {
++                      if (outputPart.type === "text") {
++                        toolResultContent.push({ type: "text", text: outputPart.text })
++                        continue
++                      }
++
++                      if (!outputPart.mediaType.startsWith("image/")) {
++                        return yield* new AiError.AiError({
++                          module: "AnthropicLanguageModel",
++                          method: "prepareMessages",
++                          reason: new AiError.InvalidUserInputError({
++                            description: `Detected unsupported media type for tool result: '${outputPart.mediaType}'`
++                          })
++                        })
++                      }
++
++                      const mediaType: typeof Generated.Base64ImageSource.Type["media_type"] =
++                        (outputPart.mediaType === "image/*" ? "image/jpeg" : outputPart.mediaType) as any
++                      const source = outputPart.data instanceof URL
++                        ? { type: "url" as const, url: outputPart.data.toString() }
++                        : {
++                          type: "base64" as const,
++                          media_type: mediaType,
++                          data: Predicate.isString(outputPart.data)
++                            ? outputPart.data
++                            : Encoding.encodeBase64(outputPart.data)
++                        }
++                      toolResultContent.push({ type: "image", source })
++                    }
++                  } else {
++                    toolResultContent = JSON.stringify(part.result)
++                  }
++
+                   content.push({
+                     type: "tool_result",
+                     tool_use_id: part.id,
+-                    content: JSON.stringify(part.result),
++                    content: toolResultContent,
+                     is_error: part.isFailure,
+                     cache_control: cacheControl
+                   })

@@ -1,4 +1,11 @@
-import { CurrentAgent, defineTool, webSearchToolContract, type FoldTool } from '@humanlayer/fold-core'
+import {
+	CurrentAgent,
+	defineTool,
+	ToolResultFailure,
+	ToolResultText,
+	webSearchToolContract,
+	type FoldTool,
+} from '@humanlayer/fold-core'
 import { Effect, Predicate } from 'effect'
 
 const defaultTimeoutMs = 25_000
@@ -182,6 +189,6 @@ export const webSearchTool = (options?: WebSearchToolOptions): FoldTool =>
 								timeoutMs,
 							})
 
-				return result ?? 'No search results found. Please try a different query.'
-			}),
+				return ToolResultText.make({ text: result ?? 'No search results found. Please try a different query.' })
+			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
 	})

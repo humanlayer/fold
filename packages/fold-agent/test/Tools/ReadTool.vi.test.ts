@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
-import { ToolResultContent } from '@humanlayer/fold-core'
+import { ToolResultMultipart, ToolResultText } from '@humanlayer/fold-core'
 import { Effect, Schema } from 'effect'
 
 import { readTool } from '../../src/index'
@@ -31,16 +31,18 @@ const onePixelBmp = (): Uint8Array => {
 	return bytes
 }
 
-const isToolResultContent = Schema.is(ToolResultContent)
+const isToolResultMultipart = Schema.is(ToolResultMultipart)
+const isToolResultText = Schema.is(ToolResultText)
 
-const contentOf = (result: unknown): ToolResultContent['content'] => {
-	if (!isToolResultContent(result)) throw new Error('expected a content-block tool result')
+const contentOf = (result: unknown): ToolResultMultipart['content'] => {
+	if (!isToolResultMultipart(result)) throw new Error('expected multipart tool output')
 	return result.content
 }
 
 const firstText = (result: unknown): string => {
+	if (isToolResultText(result)) return result.text
 	const block = contentOf(result)[0]
-	if (block?.type !== 'text') throw new Error('expected a text block')
+	if (block?._tag !== 'text-part') throw new Error('expected a text part')
 	return block.text
 }
 
@@ -102,7 +104,7 @@ it.effect('fails with the offset-beyond-EOF message', () =>
 			Effect.flip,
 		)
 
-		expect(failure).toEqual({ message: 'Offset 99 is beyond end of file (2 lines total)' })
+		expect(failure).toEqual({ _tag: 'failure', text: 'Offset 99 is beyond end of file (2 lines total)' })
 	}),
 )
 
@@ -124,12 +126,12 @@ it.effect('returns PNG images as an image content block with a note (hard requir
 		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'pixel.png' }))
 		const blocks = contentOf(result)
 
-		expect(blocks[0]?.type).toBe('text')
+		expect(blocks[0]?._tag).toBe('text-part')
 		expect(firstText(result)).toContain('Read image file [image/png]')
 
 		const image = blocks[1]
-		if (image?.type !== 'image') throw new Error('expected an image block')
-		expect(image.mimeType).toBe('image/png')
+		if (image?._tag !== 'image-part') throw new Error('expected an image part')
+		expect(image.mediaType).toBe('image/png')
 		// Small image passes through unresized: bytes round-trip exactly.
 		expect(image.data).toBe(onePixelPngBase64)
 	}),
@@ -145,8 +147,8 @@ it.effect('converts BMP to PNG with a conversion hint', () =>
 
 		expect(firstText(result)).toContain('[Image converted from image/bmp to image/png.]')
 		const image = blocks[1]
-		if (image?.type !== 'image') throw new Error('expected an image block')
-		expect(image.mimeType).toBe('image/png')
+		if (image?._tag !== 'image-part') throw new Error('expected an image part')
+		expect(image.mediaType).toBe('image/png')
 	}),
 )
 

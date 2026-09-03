@@ -1,12 +1,20 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Encoding } from 'effect'
 import type { Prompt } from 'effect/unstable/ai'
 
-import { buildPrompt, imageOmittedPlaceholder, MessageId, ToolCallId, type ProjectedMessage } from '../../src/index'
+import {
+	buildPrompt,
+	MessageId,
+	ToolCallId,
+	ToolResultImagePart,
+	ToolResultMultipart,
+	ToolResultText,
+	ToolResultTextPart,
+	type ProjectedMessage,
+} from '../../src/index'
 
 const messageId = MessageId.make('msg_aaaaaaaaaaaaaaaaaaaaaaaa')
 const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
-
 const imageBase64 = 'aGVsbG8taW1hZ2UtYnl0ZXM='
 
 const conversationWith = (result: unknown): ReadonlyArray<ProjectedMessage> => [
@@ -35,80 +43,79 @@ const conversationWith = (result: unknown): ReadonlyArray<ProjectedMessage> => [
 	},
 ]
 
-it.effect('lifts image blocks out of tool results into a user file-part message (D3)', () =>
+const onlyToolResult = (prompt: Prompt.Prompt): Prompt.ToolResultPart => {
+	const toolMessage = prompt.content.find((message): message is Prompt.ToolMessage => message.role === 'tool')
+	const toolResult = toolMessage?.content[0]
+	if (toolResult?.type !== 'tool-result') throw new Error('expected a tool-result part')
+	return toolResult
+}
+
+it.effect('lowers multipart results to text and file parts inside the original tool result', () =>
 	Effect.gen(function* () {
 		const prompt = yield* buildPrompt(
-			conversationWith({
-				content: [
-					{ type: 'text', text: 'Read image file [image/png]' },
-					{ type: 'image', data: imageBase64, mimeType: 'image/png' },
-				],
-			}),
+			conversationWith(
+				ToolResultMultipart.make({
+					content: [
+						ToolResultTextPart.make({ text: 'Read image file [image/png]' }),
+						ToolResultImagePart.make({ data: imageBase64, mediaType: 'image/png' }),
+					],
+				}),
+			),
 		)
 
-		expect(prompt.content.map((message) => message.role)).toEqual(['assistant', 'tool', 'user'])
-
-		const toolMessage = prompt.content.find((message): message is Prompt.ToolMessage => message.role === 'tool')
-		const toolResult = toolMessage?.content[0]
-		if (toolResult?.type !== 'tool-result') throw new Error('expected a tool-result part')
-
-		// The image block inside the tool result was replaced by placeholder text.
-		const sanitized = JSON.stringify(toolResult.result)
-		expect(sanitized).not.toContain(imageBase64)
-		expect(sanitized).toContain(imageOmittedPlaceholder)
-		expect(sanitized).toContain('Read image file [image/png]')
-
-		// The image itself follows as a native user-message file part.
-		const followUp = prompt.content[2]
-		if (followUp?.role !== 'user') throw new Error('expected a trailing user message')
-		const fileParts = followUp.content.filter((part) => part.type === 'file')
-		expect(fileParts).toHaveLength(1)
-		expect(fileParts[0]?.mediaType).toBe('image/png')
-		expect(fileParts[0]?.data).toBe(imageBase64)
+		expect(prompt.content.map((message) => message.role)).toEqual(['assistant', 'tool'])
+		const result = onlyToolResult(prompt).result
+		if (!Array.isArray(result)) throw new Error('expected multipart Prompt content')
+		expect(result).toHaveLength(2)
+		expect(result[0]).toMatchObject({ type: 'text', text: 'Read image file [image/png]' })
+		const image = result[1]
+		if (image?.type !== 'file' || !(image.data instanceof Uint8Array)) throw new Error('expected image bytes')
+		expect(image.mediaType).toBe('image/png')
+		expect(Encoding.encodeBase64(image.data)).toBe(imageBase64)
 	}),
 )
 
-it.effect('lifts multiple image blocks in result order', () =>
+it.effect('preserves multiple image parts in result order', () =>
 	Effect.gen(function* () {
 		const prompt = yield* buildPrompt(
-			conversationWith({
-				content: [
-					{ type: 'image', data: 'Zmlyc3Q=', mimeType: 'image/png' },
-					{ type: 'image', data: 'c2Vjb25k', mimeType: 'image/jpeg' },
-				],
-			}),
+			conversationWith(
+				ToolResultMultipart.make({
+					content: [
+						ToolResultImagePart.make({ data: 'Zmlyc3Q=', mediaType: 'image/png' }),
+						ToolResultImagePart.make({ data: 'c2Vjb25k', mediaType: 'image/jpeg' }),
+					],
+				}),
+			),
 		)
 
-		const followUp = prompt.content[2]
-		if (followUp?.role !== 'user') throw new Error('expected a trailing user message')
-		const fileParts = followUp.content.filter((part) => part.type === 'file')
-		expect(fileParts.map((part) => (typeof part.data === 'string' ? part.data : null))).toEqual([
-			'Zmlyc3Q=',
-			'c2Vjb25k',
+		const result = onlyToolResult(prompt).result
+		if (!Array.isArray(result)) throw new Error('expected multipart Prompt content')
+		expect(
+			result.map((part) =>
+				part.type === 'file' && part.data instanceof Uint8Array ? Encoding.encodeBase64(part.data) : null,
+			),
+		).toEqual(['Zmlyc3Q=', 'c2Vjb25k'])
+		expect(result.map((part) => (part.type === 'file' ? part.mediaType : null))).toEqual([
+			'image/png',
+			'image/jpeg',
 		])
-		expect(fileParts.map((part) => part.mediaType)).toEqual(['image/png', 'image/jpeg'])
 	}),
 )
 
-it.effect('leaves text-only tool results untouched with no follow-up message', () =>
+it.effect('lowers canonical text results to exact strings', () =>
 	Effect.gen(function* () {
-		const result = { content: [{ type: 'text', text: 'plain text result' }] }
-		const prompt = yield* buildPrompt(conversationWith(result))
+		const prompt = yield* buildPrompt(conversationWith(ToolResultText.make({ text: 'plain text result' })))
 
 		expect(prompt.content.map((message) => message.role)).toEqual(['assistant', 'tool'])
-
-		const toolMessage = prompt.content[1]
-		if (toolMessage?.role !== 'tool') throw new Error('expected a tool message')
-		const toolResult = toolMessage.content[0]
-		if (toolResult?.type !== 'tool-result') throw new Error('expected a tool-result part')
-		expect(toolResult.result).toEqual(result)
+		expect(onlyToolResult(prompt).result).toBe('plain text result')
 	}),
 )
 
-it.effect('ignores results that do not follow the content-block convention', () =>
+it.effect('leaves unknown custom results available for provider JSON fallback', () =>
 	Effect.gen(function* () {
-		const prompt = yield* buildPrompt(conversationWith({ echoed: 'hi' }))
+		const customResult = { echoed: 'hi' }
+		const prompt = yield* buildPrompt(conversationWith(customResult))
 
-		expect(prompt.content.map((message) => message.role)).toEqual(['assistant', 'tool'])
+		expect(onlyToolResult(prompt).result).toEqual(customResult)
 	}),
 )

@@ -10,6 +10,8 @@ import {
 	editToolContract,
 	normalizeEditInput,
 	platformToolDependencies,
+	ToolResultFailure,
+	ToolResultText,
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem } from 'effect'
@@ -69,6 +71,8 @@ export const editTool = (options?: { readonly cwd?: string }): FoldTool =>
 					),
 				)
 
-				return { message: `Successfully replaced ${outcome.editsApplied} block(s) in ${params.path}.` }
-			}),
+				return ToolResultText.make({
+					text: `Successfully replaced ${outcome.editsApplied} block(s) in ${params.path}.`,
+				})
+			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
 	})
