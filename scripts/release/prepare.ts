@@ -8,7 +8,7 @@ const version = parseArgs({ options: { version: { type: 'string' } } }).values.v
 if (!version?.match(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/))
 	throw new Error('A valid --version is required')
 type DependencyMap = Record<string, string>
-type ExportValue = string | { source: string }
+type ExportValue = string | { import?: string; source?: string } | null
 type PackageManifest = {
 	[key: string]: unknown
 	name?: string
@@ -74,11 +74,15 @@ for (const packageDir of libraries) {
 	dependencies(manifest)
 	const rewrite = (value: string) => value.replace(/^\.\/src\//, './dist/').replace(/\.(tsx?|jsx?)$/, '.js')
 	const dts = (value: string) => rewrite(value).replace(/\.js$/, '.d.ts')
-	const firstExport = Object.values(manifest.exports)[0]
-	const mainSource = typeof firstExport === 'string' ? firstExport : (firstExport?.source ?? './src/index.ts')
+	const sourcePath = (value: ExportValue) => (typeof value === 'string' ? value : (value?.source ?? value?.import))
+	const isSourceModule = (value: string) => /^\.\/src\/.*\.(?:[cm]?[jt]sx?)$/.test(value)
+	const mainSource = sourcePath(manifest.exports['.'])
+	if (mainSource === undefined || !isSourceModule(mainSource))
+		throw new Error(`${manifest.name} must provide a TypeScript root export`)
 	for (const [key, value] of Object.entries(manifest.exports)) {
-		const sourcePath = typeof value === 'string' ? value : value.source
-		manifest.exports[key] = { types: dts(sourcePath), import: rewrite(sourcePath), default: rewrite(sourcePath) }
+		const source = sourcePath(value)
+		if (source === undefined || !isSourceModule(source)) continue
+		manifest.exports[key] = { types: dts(source), import: rewrite(source), default: rewrite(source) }
 	}
 	manifest.module = rewrite(mainSource)
 	manifest.types = dts(mainSource)
@@ -87,7 +91,15 @@ for (const packageDir of libraries) {
 	await mkdir(dest, { recursive: true })
 	await cp(join(source, 'dist'), join(dest, 'dist'), { recursive: true })
 	for (const executable of new Set(Object.values(manifest.bin ?? {}))) await chmod(join(dest, executable), 0o755)
-	for (const file of ['README.md', 'LICENSE', 'NOTICE', 'LICENSE.opencode', 'ATTRIBUTION.md'])
+	for (const file of [
+		'README.md',
+		'LICENSE',
+		'NOTICE',
+		'LICENSE.opencode',
+		'ATTRIBUTION.md',
+		'UPSTREAM.md',
+		'UPSTREAM.sha256',
+	])
 		if (await Bun.file(join(source, file)).exists()) await cp(join(source, file), join(dest, file))
 	if (!(await Bun.file(join(dest, 'LICENSE')).exists())) await cp(join(root, 'LICENSE'), join(dest, 'LICENSE'))
 	await Bun.write(join(dest, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)

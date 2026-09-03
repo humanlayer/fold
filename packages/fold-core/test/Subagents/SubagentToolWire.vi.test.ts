@@ -8,7 +8,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
  * unknown agent_id) come back as instructive tool failures the model can correct from.
  */
 import { expect, it } from '@effect/vitest'
-import { Predicate, Context, Effect, Layer } from 'effect'
+import { Predicate, Context, Effect, Layer, Schema } from 'effect'
 
 import {
 	AgentId,
@@ -21,11 +21,56 @@ import {
 	startSession,
 	subagentTool,
 	ToolCallId,
+	ToolResultText,
 	type UserMessageLogEntry,
 } from '../../src/index'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from '../Api/ApiTestHelpers'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { renderedDriveResult, subagentStartedEntries } from './DriveHarness'
+
+it.effect('presents the rendered subagent result to the parent model as plain text', () =>
+	Effect.gen(function* () {
+		const researcherScripted = yield* scriptedModel(claudeActiveModel, [textTurn('verified findings')])
+		const researcher = defineSubagent({
+			name: 'researcher',
+			description: 'explores',
+			model: researcherScripted.model,
+		})
+		const rootScripted = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([
+				{
+					id: 'provider-call-1',
+					name: 'subagent',
+					params: { description: 'verify behavior', prompt: 'inspect it', agent: 'researcher' },
+				},
+			]),
+			textTurn('parent synthesis'),
+		])
+		const session = yield* startSession({
+			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
+		})
+
+		yield* session.send('go')
+
+		const entries = yield* session.entries
+		const durableEntry = entries.find((entry) => Predicate.isTagged(entry, 'tool-result'))
+		if (!Predicate.isTagged(durableEntry, 'tool-result')) throw new Error('expected a durable subagent result')
+		const durablePart = durableEntry.message.content[0]
+		if (durablePart?.type !== 'tool-result' || !Schema.is(ToolResultText)(durablePart.result)) {
+			throw new Error('expected the durable tagged subagent text')
+		}
+		const expected = durablePart.result.text
+		const parentPrompts = yield* rootScripted.scripted.prompts
+		const followUpPrompt = parentPrompts[1]
+		if (followUpPrompt === undefined) throw new Error('expected the parent follow-up prompt')
+		const toolResult = followUpPrompt.content
+			.flatMap((message) => (message.role === 'tool' ? message.content : []))
+			.find((part) => part.type === 'tool-result')
+		if (toolResult?.type !== 'tool-result') throw new Error('expected a subagent tool result')
+
+		expect(toolResult.result).toBe(expected)
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
 
 it.effect('the model resumes a subagent through the tool wire by its SHORT id: full context, new call', () =>
 	Effect.gen(function* () {

@@ -1,6 +1,6 @@
-import { AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { OpenAiLanguageModel } from '@effect/ai-openai'
 import { expect, it } from '@effect/vitest'
+import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
+import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Predicate, Effect } from 'effect'
 
 import {

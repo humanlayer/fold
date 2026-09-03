@@ -1,0 +1,4 @@
+# Vendored upstream source retains Effect's formatting. Local tests, package metadata, and provenance remain formatted.
+packages/effect-ai-openai/src/**
+packages/effect-ai-anthropic/src/**
+packages/effect-ai-openai-compat/src/**

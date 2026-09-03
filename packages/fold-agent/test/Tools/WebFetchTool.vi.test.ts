@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 
 import { it } from '@effect/vitest'
-import { ToolResultContent } from '@humanlayer/fold-core'
+import { ToolResultMultipart, ToolResultText } from '@humanlayer/fold-core'
 import { Effect, Schema } from 'effect'
 import { afterAll, beforeAll, expect } from 'vitest'
 
@@ -34,16 +34,18 @@ const pngDimensions = (bytes: Uint8Array): { readonly width: number; readonly he
 	return { width: view.getUint32(16, false), height: view.getUint32(20, false) }
 }
 
-const isToolResultContent = Schema.is(ToolResultContent)
+const isToolResultMultipart = Schema.is(ToolResultMultipart)
+const isToolResultText = Schema.is(ToolResultText)
 
-const contentOf = (result: unknown): ToolResultContent['content'] => {
-	if (!isToolResultContent(result)) throw new Error('expected a content-block tool result')
+const contentOf = (result: unknown): ToolResultMultipart['content'] => {
+	if (!isToolResultMultipart(result)) throw new Error('expected multipart tool output')
 	return result.content
 }
 
 const firstText = (result: unknown): string => {
+	if (isToolResultText(result)) return result.text
 	const block = contentOf(result)[0]
-	if (block?.type !== 'text') throw new Error('expected a text block')
+	if (block?._tag !== 'text-part') throw new Error('expected a text part')
 	return block.text
 }
 
@@ -155,8 +157,8 @@ it.live('returns a fetched PNG photo as an image content block', () =>
 		expect(firstText(result)).toContain('Fetched image [image/png]')
 
 		const image = blocks[1]
-		if (image?.type !== 'image') throw new Error('expected an image block')
-		expect(image.mimeType).toBe('image/png')
+		if (image?._tag !== 'image-part') throw new Error('expected an image part')
+		expect(image.mediaType).toBe('image/png')
 		// A real 128x128 photo is within the resize limits, so it round-trips byte-for-byte.
 		expect(image.data).toBe(hopperBase64)
 

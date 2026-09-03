@@ -11,11 +11,15 @@ import {
 	defaultMaxBytes,
 	platformToolDependencies,
 	readToolContract,
+	ToolResultFailure,
+	ToolResultImagePart,
+	ToolResultMultipart,
+	ToolResultText,
+	ToolResultTextPart,
 	truncateHead,
 	type FoldTool,
-	type ToolResultBlock,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Match, type PlatformError } from 'effect'
+import { Effect, FileSystem, Match, Schema, type PlatformError } from 'effect'
 
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
@@ -59,49 +63,55 @@ export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 
 				const bytes = yield* fs
 					.readFile(absolutePath)
-					.pipe(Effect.mapError((error) => ({ message: platformErrorMessage('read', params.path, error) })))
+					.pipe(
+						Effect.mapError((error) =>
+							ToolResultFailure.make({ text: platformErrorMessage('read', params.path, error) }),
+						),
+					)
 
 				const imageMimeType = detectSupportedImageMimeType(bytes.subarray(0, imageSniffBytes))
 				if (imageMimeType !== null) {
 					const processed = yield* Effect.promise(() => processImage(bytes, imageMimeType))
 
 					if (!processed.ok) {
-						return {
-							content: [
-								{
-									type: 'text' as const,
-									text: `Read image file [${imageMimeType}]\n${processed.message}`,
-								},
-							],
-						}
+						return ToolResultText.make({
+							text: `Read image file [${imageMimeType}]\n${processed.message}`,
+						})
 					}
 
 					const note = [`Read image file [${processed.mimeType}]`, ...processed.hints].join('\n')
-					const blocks: Array<ToolResultBlock> = [
-						{ type: 'text', text: note },
-						{ type: 'image', data: processed.data, mimeType: processed.mimeType },
-					]
-					return { content: blocks }
+					return ToolResultMultipart.make({
+						content: [
+							ToolResultTextPart.make({ text: note }),
+							ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
+						],
+					})
 				}
 
 				return yield* readTextContent(bytes, params)
-			}),
+			}).pipe(
+				Effect.mapError((error) =>
+					Schema.is(ToolResultFailure)(error) ? error : ToolResultFailure.make({ text: error.message }),
+				),
+			),
 	})
 
 /** Read the text path: offset/limit selection, head truncation, and pi's verbatim notices. */
 const readTextContent = (
 	bytes: Uint8Array,
 	params: { readonly path: string; readonly offset?: number | undefined; readonly limit?: number | undefined },
-): Effect.Effect<{ content: ReadonlyArray<ToolResultBlock> }, { message: string }> =>
+): Effect.Effect<ToolResultText, ToolResultFailure> =>
 	Effect.gen(function* () {
 		const allLines = new TextDecoder().decode(bytes).split('\n')
 		const startLine = params.offset !== undefined && params.offset > 0 ? Math.max(0, params.offset - 1) : 0
 		const startLineDisplay = startLine + 1
 
 		if (startLine >= allLines.length) {
-			return yield* Effect.fail({
-				message: `Offset ${params.offset} is beyond end of file (${allLines.length} lines total)`,
-			})
+			return yield* Effect.fail(
+				ToolResultFailure.make({
+					text: `Offset ${params.offset} is beyond end of file (${allLines.length} lines total)`,
+				}),
+			)
 		}
 
 		const userLimited = params.limit !== undefined
@@ -114,14 +124,9 @@ const readTextContent = (
 
 		if (truncation.firstLineExceedsLimit) {
 			const firstLineSize = formatSize(new TextEncoder().encode(allLines[startLine] ?? '').length)
-			return {
-				content: [
-					{
-						type: 'text' as const,
-						text: `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(defaultMaxBytes)} limit. Use bash: sed -n '${startLineDisplay}p' ${params.path} | head -c ${defaultMaxBytes}]`,
-					},
-				],
-			}
+			return ToolResultText.make({
+				text: `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(defaultMaxBytes)} limit. Use bash: sed -n '${startLineDisplay}p' ${params.path} | head -c ${defaultMaxBytes}]`,
+			})
 		}
 
 		let outputText = truncation.content
@@ -139,5 +144,5 @@ const readTextContent = (
 			outputText += `\n\n[${remaining} more lines in file. Use offset=${startLine + selectedLines.length + 1} to continue.]`
 		}
 
-		return { content: [{ type: 'text' as const, text: outputText }] }
+		return ToolResultText.make({ text: outputText })
 	})

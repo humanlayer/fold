@@ -1,6 +1,6 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Ref } from 'effect'
+import { Effect, Layer, Ref, Schema } from 'effect'
 
 import {
 	AgentId,
@@ -13,6 +13,7 @@ import {
 	Subagents,
 	ToolCallId,
 	ToolEvents,
+	ToolResultText,
 	ToolState,
 	type SkillMeta,
 	type SkillSourceService,
@@ -37,9 +38,7 @@ const ambientServices = Layer.mergeAll(
 )
 
 const skillContentOf = (result: unknown): string => {
-	if (typeof result === 'object' && result !== null && 'content' in result && typeof result.content === 'string') {
-		return result.content
-	}
+	if (Schema.is(ToolResultText)(result)) return result.text
 	throw new Error('expected a skill tool result with string content')
 }
 
@@ -73,7 +72,8 @@ describe('makeSkillTool', () => {
 			const result = yield* runHandler(realized.handler({ name: 'commit-helper' }))
 
 			expect(result).toEqual({
-				content: '<skill name="commit-helper">\nWrite conventional commits.\n</skill>',
+				_tag: 'text',
+				text: '<skill name="commit-helper">\nWrite conventional commits.\n</skill>',
 			})
 		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
@@ -87,8 +87,9 @@ describe('makeSkillTool', () => {
 			const result = yield* runHandler(realized.handler({ name: 'missing' })).pipe(Effect.flip)
 
 			expect(result).toEqual({
-				message: 'Skill "missing" not found. Available skills: commit-helper, reviewer',
-				availableSkills: ['commit-helper', 'reviewer'],
+				_tag: 'failure',
+				text: 'Skill "missing" not found. Available skills: commit-helper, reviewer',
+				details: { availableSkills: ['commit-helper', 'reviewer'] },
 			})
 		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)

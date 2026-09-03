@@ -21,6 +21,8 @@ import {
 	InterruptNote,
 	platformToolDependencies,
 	ToolEvents,
+	ToolResultFailure,
+	ToolResultText,
 	truncateTail,
 	utf8ByteLength,
 	type FoldTool,
@@ -63,13 +65,9 @@ const BashParameters = Schema.Struct({
 	}),
 })
 
-const BashSuccess = Schema.Struct({
-	output: Schema.String,
-})
+const BashSuccess = ToolResultText
 
-const BashFailure = Schema.Struct({
-	message: Schema.String,
-})
+const BashFailure = ToolResultFailure
 
 const defaultTimeoutMilliseconds = 120_000
 const maxTimeoutMilliseconds = 2_147_483_647
@@ -425,6 +423,6 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					})
 				}
 
-				return { output: outputText.length === 0 ? '(no output)' : outputText }
-			}),
+				return ToolResultText.make({ text: outputText.length === 0 ? '(no output)' : outputText })
+			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
 	})

@@ -1,10 +1,13 @@
 import {
 	defineTool,
-	textResult,
+	ToolResultFailure,
+	ToolResultImagePart,
+	ToolResultMultipart,
+	ToolResultText,
+	ToolResultTextPart,
 	webFetchToolContract,
 	type FoldTool,
-	type ToolResultBlock,
-	type ToolResultContent,
+	type ToolResultSuccess,
 } from '@humanlayer/fold-core'
 import { Duration, Effect, Option, Schema, Stream } from 'effect'
 import { FetchHttpClient, Headers, HttpClient } from 'effect/unstable/http'
@@ -26,9 +29,10 @@ const browserUserAgent =
 type WebFetchParameters = typeof webFetchToolContract.parameters.Type
 
 /** A tool result is one message value: reuse the whole `{ message }` shape the contract already advertises. */
-type WebFetchFailure = { readonly message: string }
+type WebFetchFailure = ToolResultFailure
 
-const failWith = (message: string): Effect.Effect<never, WebFetchFailure> => Effect.fail({ message })
+const failWith = (message: string): Effect.Effect<never, WebFetchFailure> =>
+	Effect.fail(ToolResultFailure.make({ text: message }))
 
 // --- header parsing (parse, don't validate: the Content-Length header is untrusted text) ---------------
 
@@ -167,27 +171,28 @@ const renderDocument = (
 	document: FetchedDocument,
 	format: 'markdown' | 'text' | 'html',
 	turndown: TurndownService,
-): Effect.Effect<ToolResultContent> =>
+): Effect.Effect<ToolResultSuccess> =>
 	Effect.gen(function* () {
 		const imageMimeType = imageMimeFor(document.bytes, document.contentType)
 		if (imageMimeType !== null) {
 			const processed = yield* Effect.promise(() => processImage(document.bytes, imageMimeType))
 			if (!processed.ok) {
-				return textResult(`Fetched image [${imageMimeType}]\n${processed.message}`)
+				return ToolResultText.make({ text: `Fetched image [${imageMimeType}]\n${processed.message}` })
 			}
 
 			const note = [`Fetched image [${processed.mimeType}] from ${url}`, ...processed.hints].join('\n')
-			const blocks: ReadonlyArray<ToolResultBlock> = [
-				{ type: 'text', text: note },
-				{ type: 'image', data: processed.data, mimeType: processed.mimeType },
-			]
-			return { content: blocks }
+			return ToolResultMultipart.make({
+				content: [
+					ToolResultTextPart.make({ text: note }),
+					ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
+				],
+			})
 		}
 
 		const body = new TextDecoder().decode(document.bytes)
-		if (format === 'html') return textResult(body)
-		if (!isHtml(document.contentType, body)) return textResult(body)
-		return textResult(format === 'text' ? stripHtmlTags(body) : turndown.turndown(body))
+		if (format === 'html') return ToolResultText.make({ text: body })
+		if (!isHtml(document.contentType, body)) return ToolResultText.make({ text: body })
+		return ToolResultText.make({ text: format === 'text' ? stripHtmlTags(body) : turndown.turndown(body) })
 	})
 
 // --- tool ---------------------------------------------------------------------------------------------
@@ -195,7 +200,7 @@ const renderDocument = (
 export const webFetchTool = (): FoldTool => {
 	const turndown = makeTurndown()
 
-	const runWebFetch = (params: WebFetchParameters): Effect.Effect<ToolResultContent, WebFetchFailure> =>
+	const runWebFetch = (params: WebFetchParameters): Effect.Effect<ToolResultSuccess, WebFetchFailure> =>
 		Effect.gen(function* () {
 			if (!params.url.startsWith('http://') && !params.url.startsWith('https://')) {
 				return yield* failWith('URL must start with http:// or https://')

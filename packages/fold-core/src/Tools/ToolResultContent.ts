@@ -1,37 +1,72 @@
 /**
- * This file defines the shared content-block convention for built-in tool results (D3/D18): a tool's
- * success value is `{ content: [text | image, ...] }`, pi-style. Image blocks are the hard requirement
- * of the read tool; RequestBuilder detects them at request-build time and delivers them as native user
- * file parts (the provider cannot render images inside tool_result JSON - verified fact 1/2), replacing
- * the in-result block with placeholder text.
+ * Provider-neutral tool results persisted by Fold. Handlers return these tagged values directly;
+ * RequestBuilder converts them to live Prompt text/file parts, and providers encode those parts in
+ * the native tool-result field. The durable image representation is validated base64.
  */
-import { Schema } from 'effect'
+import { Match, Schema } from 'effect'
 
-/** One plain-text block inside a tool result. */
-export const ToolResultTextBlock = Schema.Struct({
-	type: Schema.Literal('text'),
+/** One plain-text block inside multipart tool output. */
+export const ToolResultTextPart = Schema.TaggedStruct('text-part', {
 	text: Schema.String,
 })
-export type ToolResultTextBlock = typeof ToolResultTextBlock.Type
+export type ToolResultTextPart = typeof ToolResultTextPart.Type
 
-/** One inline image inside a tool result: base64 data plus its MIME type. */
-export const ToolResultImageBlock = Schema.Struct({
-	type: Schema.Literal('image'),
-	/** Base64-encoded image bytes. */
-	data: Schema.String,
-	mimeType: Schema.String,
+/** One inline image inside multipart tool output. */
+export const ToolResultImagePart = Schema.TaggedStruct('image-part', {
+	/** Base64-encoded image bytes without a data URL prefix. */
+	data: Schema.String.check(Schema.isBase64()),
+	mediaType: Schema.String,
+	fileName: Schema.optionalKey(Schema.String),
 })
-export type ToolResultImageBlock = typeof ToolResultImageBlock.Type
+export type ToolResultImagePart = typeof ToolResultImagePart.Type
 
-/** The block union carried under a tool result's `content`. */
-export const ToolResultBlock = Schema.Union([ToolResultTextBlock, ToolResultImageBlock])
-export type ToolResultBlock = typeof ToolResultBlock.Type
+/** Ordered multipart tool output. */
+export const ToolResultPart = Schema.Union([ToolResultTextPart, ToolResultImagePart])
+export type ToolResultPart = typeof ToolResultPart.Type
 
-/** Success schema shape for tools that return content blocks (read; extensible to others). */
-export const ToolResultContent = Schema.Struct({
-	content: Schema.Array(ToolResultBlock),
+/** Successful plain-text tool output. */
+export const ToolResultText = Schema.TaggedStruct('text', {
+	text: Schema.String,
 })
-export type ToolResultContent = typeof ToolResultContent.Type
+export type ToolResultText = typeof ToolResultText.Type
 
-/** Build a single-text-block tool result. */
-export const textResult = (text: string): ToolResultContent => ({ content: [{ type: 'text', text }] })
+/** Successful multipart tool output. */
+export const ToolResultMultipart = Schema.TaggedStruct('multipart', {
+	content: Schema.Array(ToolResultPart),
+})
+export type ToolResultMultipart = typeof ToolResultMultipart.Type
+
+/** Expected tool failure with model-visible text and optional durable diagnostics. */
+export const ToolResultFailure = Schema.TaggedStruct('failure', {
+	text: Schema.String,
+	details: Schema.optionalKey(Schema.Json),
+})
+export type ToolResultFailure = typeof ToolResultFailure.Type
+
+/** Every canonical result a Fold built-in persists. */
+export const ToolResultOutput = Schema.Union([ToolResultText, ToolResultMultipart, ToolResultFailure])
+export type ToolResultOutput = typeof ToolResultOutput.Type
+
+/** Successful canonical result. */
+export const ToolResultSuccess = Schema.Union([ToolResultText, ToolResultMultipart])
+export type ToolResultSuccess = typeof ToolResultSuccess.Type
+
+/** Render canonical output for text-only consumers such as Riptide. */
+export const renderToolResultOutputText = (output: ToolResultOutput): string =>
+	Match.value(output).pipe(
+		Match.tagsExhaustive({
+			text: ({ text }) => text,
+			failure: ({ text }) => text,
+			multipart: ({ content }) =>
+				content
+					.map((part) =>
+						Match.value(part).pipe(
+							Match.tagsExhaustive({
+								'text-part': ({ text }) => text,
+								'image-part': () => '[image]',
+							}),
+						),
+					)
+					.join('\n'),
+		}),
+	)

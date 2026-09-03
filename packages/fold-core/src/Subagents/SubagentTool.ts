@@ -13,6 +13,7 @@ import { Effect, Match } from 'effect'
 import { defineTool, type FoldTool } from '../Api/ToolDefinition'
 import type { SkillNotFoundError } from '../Skills/SkillSource'
 import { subagentToolContract } from '../Tools/Contracts'
+import { ToolResultFailure, ToolResultText } from '../Tools/ToolResultContent'
 import { shortAgentId } from './AgentIdRef'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { ForkAgentDefinition } from './ForkAgentDefinition'
@@ -45,10 +46,7 @@ export const subagentRosterOf = (tool: FoldTool): ReadonlyArray<SubagentDefiniti
 	subagentCapabilitiesOf(tool)?.agents ?? null
 
 /** Model-facing failure payload of the subagent tool (schema: message + availableAgents). */
-type SubagentToolFailure = {
-	readonly message: string
-	readonly availableAgents: ReadonlyArray<string>
-}
+type SubagentToolFailure = ToolResultFailure
 
 /** Render one subagent result per the D21 template: id + turns header, result body, outcome note. */
 export const renderSubagentResult = (result: SubagentResult): string => {
@@ -88,38 +86,42 @@ const outcomeNoteFor = (result: SubagentResult): string | null => {
 // --- pure failure-payload formatters, invoked from catchTag/catchTags branches -----------------------
 
 /** Payload for an out-of-roster (or unknown) agent type. */
-const rosterFailure = (error: SubagentTypeNotInRosterError): SubagentToolFailure => ({
-	message:
-		`Agent type "${error.requested}" is not available to you. Available agent types: ` +
-		`${error.availableAgents.length === 0 ? '(none)' : error.availableAgents.join(', ')}.`,
-	availableAgents: error.availableAgents,
-})
+const rosterFailure = (error: SubagentTypeNotInRosterError): SubagentToolFailure =>
+	ToolResultFailure.make({
+		text:
+			`Agent type "${error.requested}" is not available to you. Available agent types: ` +
+			`${error.availableAgents.length === 0 ? '(none)' : error.availableAgents.join(', ')}.`,
+		details: { availableAgents: error.availableAgents },
+	})
 
 /** Payload for a failed skill preload. */
-const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure => ({
-	message:
-		`Skill "${error.name}" not found. Available skills: ` +
-		`${error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')}.`,
-	availableAgents: allowedAgents,
-})
+const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure =>
+	ToolResultFailure.make({
+		text:
+			`Skill "${error.name}" not found. Available skills: ` +
+			`${error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')}.`,
+		details: { availableAgents: allowedAgents },
+	})
 
 /** Payload for a resume reference no agent uniquely matches: unknown, or an ambiguous short prefix. */
-const notFoundFailure = (error: SubagentNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure => ({
-	message:
-		error.candidates === undefined || error.candidates.length === 0
-			? `No subagent with agent_id "${error.requested}" exists in this session. Use the agent_id from a ` +
-				`previous subagent result, or dispatch a fresh agent with the agent parameter.`
-			: `agent_id "${error.requested}" is ambiguous: it matches ${error.candidates.length} agents ` +
-				`(${[...new Set(error.candidates)].join(', ')}). Provide more characters of the agent_id to ` +
-				`identify exactly one.`,
-	availableAgents: allowedAgents,
-})
+const notFoundFailure = (error: SubagentNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure =>
+	ToolResultFailure.make({
+		text:
+			error.candidates === undefined || error.candidates.length === 0
+				? `No subagent with agent_id "${error.requested}" exists in this session. Use the agent_id from a ` +
+					`previous subagent result, or dispatch a fresh agent with the agent parameter.`
+				: `agent_id "${error.requested}" is ambiguous: it matches ${error.candidates.length} agents ` +
+					`(${[...new Set(error.candidates)].join(', ')}). Provide more characters of the agent_id to ` +
+					`identify exactly one.`,
+		details: { availableAgents: allowedAgents },
+	})
 
 /** Payload for resuming an agent that is currently running. */
-const busyFailure = (error: SubagentBusyError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure => ({
-	message: `Subagent ${shortAgentId(error.agentId)} is currently running and cannot be resumed until it finishes.`,
-	availableAgents: allowedAgents,
-})
+const busyFailure = (error: SubagentBusyError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure =>
+	ToolResultFailure.make({
+		text: `Subagent ${shortAgentId(error.agentId)} is currently running and cannot be resumed until it finishes.`,
+		details: { availableAgents: allowedAgents },
+	})
 
 /** Render the roster + usage guidance appended to the contract description for one factory value. */
 const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition>): string => {
@@ -153,7 +155,12 @@ export const subagentTool = (
 				const subagents = yield* Subagents
 				const command = yield* parseSubagentCommand(params).pipe(
 					Effect.catchTag('InvalidSubagentCommandError', (error) =>
-						Effect.fail<SubagentToolFailure>({ message: error.message, availableAgents: allowedAgents }),
+						Effect.fail<SubagentToolFailure>(
+							ToolResultFailure.make({
+								text: error.message,
+								details: { availableAgents: allowedAgents },
+							}),
+						),
 					),
 				)
 
@@ -172,7 +179,7 @@ export const subagentTool = (
 										SubagentTypeNotInRosterError: (error) => Effect.fail(rosterFailure(error)),
 										SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
 									}),
-									Effect.map((result) => ({ content: renderSubagentResult(result) })),
+									Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
 								),
 						fork: (forkCommand) =>
 							subagents
@@ -186,7 +193,7 @@ export const subagentTool = (
 									Effect.catchTag('SkillNotFoundError', (error) =>
 										Effect.fail(skillFailure(error, allowedAgents)),
 									),
-									Effect.map((result) => ({ content: renderSubagentResult(result) })),
+									Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
 								),
 						resume: (resumeCommand) =>
 							subagents
@@ -202,7 +209,7 @@ export const subagentTool = (
 										SubagentBusyError: (error) => Effect.fail(busyFailure(error, allowedAgents)),
 										SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
 									}),
-									Effect.map((result) => ({ content: renderSubagentResult(result) })),
+									Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
 								),
 					}),
 				)

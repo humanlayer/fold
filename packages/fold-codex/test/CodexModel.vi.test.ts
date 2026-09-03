@@ -1,6 +1,6 @@
-import type { OpenAiClient } from '@effect/ai-openai'
-import type * as OpenAiSchema from '@effect/ai-openai/OpenAiSchema'
 import { describe, expect, it } from '@effect/vitest'
+import type { OpenAiClient } from '@humanlayer/effect-ai-openai'
+import type * as OpenAiSchema from '@humanlayer/effect-ai-openai/OpenAiSchema'
 import { Context, Deferred, Duration, Effect, Fiber, Layer, Ref, Stream } from 'effect'
 import { TestClock } from 'effect/testing'
 import { AiError } from 'effect/unstable/ai'

@@ -16,8 +16,8 @@
  *   provider HTTP client releases when its dispatch returns instead of leaking for the session's
  *   lifetime.
  */
-import { AnthropicClient, AnthropicLanguageModel } from '@effect/ai-anthropic'
-import { OpenAiClient, OpenAiLanguageModel } from '@effect/ai-openai'
+import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
+import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Context, Effect, Layer, Match, Stream } from 'effect'
 import type { FileSystem, Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'

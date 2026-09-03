@@ -12,6 +12,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Schema, Stream } from 'effect'
 
 import { makeCodexLanguageModel } from '../src/index'
+import { expectedImageIdentification, runImageReadInference } from './SessionModelPathTestHarness'
 
 const authPath = join(homedir(), '.fold', 'auth.json')
 
@@ -31,6 +32,7 @@ const hasCodexCredentials = (): boolean => {
 
 const skip = Boolean(process.env.CI) || !hasCodexCredentials()
 const modelId = process.env.FOLD_CODEX_LIVE_MODEL ?? 'gpt-5.5'
+const skipImageRead = skip || process.env.FOLD_CODEX_LIVE_IMAGE_READ !== '1'
 
 describe.skipIf(skip)('codex live (skipped in CI or without a codex entry in ~/.fold/auth.json)', () => {
 	it.live(
@@ -78,3 +80,22 @@ describe.skipIf(skip)('codex live (skipped in CI or without a codex entry in ~/.
 		180_000,
 	)
 })
+
+// Opt-in regression probe proving a real Codex model can perceive an image returned by the read tool.
+describe.skipIf(skipImageRead)(
+	'codex image-read live (set FOLD_CODEX_LIVE_IMAGE_READ=1; skipped in CI or without local credentials)',
+	() => {
+		it.live(
+			'identifies generated visual content delivered from the actual read result with zero inference tools',
+			() =>
+				Effect.gen(function* () {
+					const service = yield* makeCodexLanguageModel({ model: modelId, reasoning: 'low' })
+					const result = yield* runImageReadInference(service)
+					const normalized = result.text.toLowerCase().replaceAll(' ', '').trim()
+
+					expect(normalized).toContain(expectedImageIdentification)
+				}).pipe(Effect.scoped),
+			180_000,
+		)
+	},
+)

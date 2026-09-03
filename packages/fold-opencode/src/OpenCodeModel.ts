@@ -1,6 +1,12 @@
 /** Fold model factory for models exposed through OpenCode Console / Zen. */
-import { OpenAiClient as ResponsesClient, OpenAiLanguageModel as ResponsesLanguageModel } from '@effect/ai-openai'
-import { OpenAiClient as ChatClient, OpenAiLanguageModel as ChatLanguageModel } from '@effect/ai-openai-compat'
+import {
+	OpenAiClient as ResponsesClient,
+	OpenAiLanguageModel as ResponsesLanguageModel,
+} from '@humanlayer/effect-ai-openai'
+import {
+	OpenAiClient as ChatClient,
+	OpenAiLanguageModel as ChatLanguageModel,
+} from '@humanlayer/effect-ai-openai-compat'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Match, Context, Effect, Layer, Option, Schema } from 'effect'

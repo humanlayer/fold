@@ -15,7 +15,7 @@ it.effect('write creates parent directories and the file', () =>
 			handlerOf(writeTool({ cwd: dir }))({ path: 'nested/deeper/new.txt', content: 'hello fold\n' }),
 		)
 
-		expect(result).toEqual({ message: 'Successfully wrote 11 bytes to nested/deeper/new.txt' })
+		expect(result).toEqual({ _tag: 'text', text: 'Successfully wrote 11 bytes to nested/deeper/new.txt' })
 		expect(readFileSync(join(dir, 'nested/deeper/new.txt'), 'utf-8')).toBe('hello fold\n')
 	}),
 )
@@ -28,7 +28,7 @@ it.effect('write overwrites existing files and reports true UTF-8 bytes (not UTF
 		// One emoji: 2 UTF-16 code units (pi would say 2), 4 UTF-8 bytes (fold reports 4 - D18).
 		const result = yield* runHandler(handlerOf(writeTool({ cwd: dir }))({ path: 'file.txt', content: '🎉' }))
 
-		expect(result).toEqual({ message: 'Successfully wrote 4 bytes to file.txt' })
+		expect(result).toEqual({ _tag: 'text', text: 'Successfully wrote 4 bytes to file.txt' })
 		expect(readFileSync(join(dir, 'file.txt'), 'utf-8')).toBe('🎉')
 	}),
 )
@@ -48,7 +48,7 @@ it.effect('edit applies a batch and reports the pi success message', () =>
 			}),
 		)
 
-		expect(result).toEqual({ message: 'Successfully replaced 2 block(s) in code.ts.' })
+		expect(result).toEqual({ _tag: 'text', text: 'Successfully replaced 2 block(s) in code.ts.' })
 		expect(readFileSync(join(dir, 'code.ts'), 'utf-8')).toBe('const a = 10\nconst b = 2\nconst c = 30\n')
 	}),
 )
@@ -62,7 +62,7 @@ it.effect('edit accepts the legacy single-pair form through the shim', () =>
 			handlerOf(editTool({ cwd: dir }))({ path: 'legacy.txt', oldText: 'beta', newText: 'gamma' }),
 		)
 
-		expect(result).toEqual({ message: 'Successfully replaced 1 block(s) in legacy.txt.' })
+		expect(result).toEqual({ _tag: 'text', text: 'Successfully replaced 1 block(s) in legacy.txt.' })
 		expect(readFileSync(join(dir, 'legacy.txt'), 'utf-8')).toBe('alpha gamma\n')
 	}),
 )
