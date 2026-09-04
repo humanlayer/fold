@@ -41,7 +41,8 @@ const ReadParameters = Schema.Struct({
 export const readToolContract = {
 	name: 'read',
 	description:
-		`Read the contents of a file. Supports text files and images (jpeg, png, gif, webp, bmp). ` +
+		`Read the contents of a file. Text lines include line numbers. Supports text files and images ` +
+		`(jpeg, png, gif, webp, bmp). ` +
 		`Text output is limited to ${defaultMaxLines} lines or ${formatSize(defaultMaxBytes)}; ` +
 		`use offset and limit to read further sections of large files.`,
 	parameters: ReadParameters,
