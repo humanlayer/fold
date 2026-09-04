@@ -54,7 +54,7 @@ const outputStringsFrom = (body: string): ReadonlyArray<string> => {
 }
 
 const expectedModelText = [
-	'read alpha\nread beta\n',
+	'1→read alpha\n2→read beta\n3→',
 	'bash success\n',
 	'bash failure\n\n\nCommand exited with code 7',
 	'Successfully wrote 16 bytes to nested/written.txt',
@@ -62,7 +62,7 @@ const expectedModelText = [
 ]
 
 const expectedDurableResults: ReadonlyArray<typeof Schema.Json.Type> = [
-	{ _tag: 'text', text: 'read alpha\nread beta\n' },
+	{ _tag: 'text', text: '1→read alpha\n2→read beta\n3→' },
 	{ _tag: 'text', text: 'bash success\n' },
 	{ _tag: 'failure', text: 'bash failure\n\n\nCommand exited with code 7' },
 	{ _tag: 'text', text: 'Successfully wrote 16 bytes to nested/written.txt' },

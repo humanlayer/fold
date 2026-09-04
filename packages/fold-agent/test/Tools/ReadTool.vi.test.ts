@@ -46,14 +46,29 @@ const firstText = (result: unknown): string => {
 	return block.text
 }
 
-it.effect('reads raw text with no line-number prefixes', () =>
+it.effect('reads text with arrow-separated line numbers', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
 		writeFileSync(join(dir, 'plain.txt'), 'first line\nsecond line\n')
 
 		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'plain.txt' }))
 
-		expect(firstText(result)).toBe('first line\nsecond line\n')
+		expect(firstText(result)).toBe('1→first line\n2→second line\n3→')
+	}),
+)
+
+it.effect('right-aligns line numbers to the largest displayed line number', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		writeFileSync(
+			join(dir, 'aligned.txt'),
+			Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join('\n'),
+		)
+
+		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'aligned.txt' }))
+
+		expect(firstText(result)).toContain(' 1→line 1')
+		expect(firstText(result)).toContain('10→line 10')
 	}),
 )
 
@@ -64,7 +79,7 @@ it.effect('applies 1-indexed offset and limit with the more-lines notice', () =>
 
 		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'lines.txt', offset: 3, limit: 2 }))
 
-		expect(firstText(result)).toBe('line-3\nline-4\n\n[6 more lines in file. Use offset=5 to continue.]')
+		expect(firstText(result)).toBe('3→line-3\n4→line-4\n\n[6 more lines in file. Use offset=5 to continue.]')
 	}),
 )
 
@@ -78,7 +93,7 @@ it.effect('head-truncates large files with pi verbatim notice', () =>
 		const text = firstText(result)
 
 		expect(text.endsWith('[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]')).toBe(true)
-		expect(text.startsWith('l1\n')).toBe(true)
+		expect(text.startsWith('   1→l1\n')).toBe(true)
 	}),
 )
 
@@ -159,6 +174,6 @@ it.effect('resolves macOS filename variants (curly apostrophe)', () =>
 
 		const result = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: "it's a file.txt" }))
 
-		expect(firstText(result)).toBe('variant content\n')
+		expect(firstText(result)).toBe('1→variant content\n2→')
 	}),
 )

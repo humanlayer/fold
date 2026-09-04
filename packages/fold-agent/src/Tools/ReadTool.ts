@@ -1,6 +1,6 @@
 /**
  * This file implements the read tool handler (D18, pi port) over the FileSystem seam: text files are
- * head-truncated raw lines (no line-number prefixes) with pi's verbatim continuation notices and
+ * head-truncated lines with right-aligned line-number prefixes and pi's continuation notices and
  * 1-indexed offset/limit; images (the ticket's hard requirement) are magic-byte sniffed, normalized,
  * auto-resized, and returned as an image content block that RequestBuilder delivers as a native user
  * file part (D3). Errors are typed model-visible failures.
@@ -96,7 +96,16 @@ export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 			),
 	})
 
-/** Read the text path: offset/limit selection, head truncation, and pi's verbatim notices. */
+/** Prefix text lines with right-aligned, 1-indexed line numbers and an arrow separator. */
+const numberTextLines = (content: string, startLine: number, outputLines: number): string => {
+	const width = String(startLine + outputLines - 1).length
+	return content
+		.split('\n')
+		.map((line, index) => `${String(startLine + index).padStart(width, ' ')}→${line}`)
+		.join('\n')
+}
+
+/** Read the text path: offset/limit selection, head truncation, line numbering, and continuation notices. */
 const readTextContent = (
 	bytes: Uint8Array,
 	params: { readonly path: string; readonly offset?: number | undefined; readonly limit?: number | undefined },
@@ -129,7 +138,7 @@ const readTextContent = (
 			})
 		}
 
-		let outputText = truncation.content
+		let outputText = numberTextLines(truncation.content, startLineDisplay, truncation.outputLines)
 		const endLineDisplay = startLineDisplay + truncation.outputLines - 1
 		const nextOffset = endLineDisplay + 1
 		const totalFileLines = allLines.length
