@@ -73,14 +73,14 @@ is optional and falls back to \`smart\`.
 | \`orchestrator\` | the RLM mode's primary agent |
 
 Each binding is \`{ "provider": <key>, "model"?: <id>, "reasoning"?: <level> }\`. Omitting \`model\`
-uses the provider kind's default: codex/opencode → \`gpt-5.6-sol\`, xai → \`grok-4.6\`, and
+uses the provider kind's default: codex → \`gpt-6-astra\`, opencode → \`gpt-5.6-sol\`, xai → \`grok-4.6\`, and
 anthropic → \`claude-opus-4-8\`
 (openai-compat requires an explicit model). \`reasoning\` is one of \`off · minimal · low · medium ·
 high · xhigh · max\` and is validated against the model catalog - a level the model does not support
 fails the launch naming the supported levels. All roles referenced by a launch resolve eagerly, so
 every binding needs working credentials.
 
-The starter config defaults \`smart\` to Codex \`gpt-5.6-sol\` with \`medium\` reasoning, so a new
+The starter config defaults \`smart\` to Codex \`gpt-6-astra\` with \`medium\` reasoning, so a new
 default-mode session uses that model unless the user selects a profile or direct model override.
 
 ## Profiles - named presets (roles + optional mode)
@@ -143,7 +143,7 @@ foldcode --prompt "..."              # one-shot run; exit codes 0/130/1
 foldcode --profile ultracodex        # profile's roles + its pinned mode (rlm)
 foldcode --mode rlm --rpi            # explicit mode + RPI roster
 foldcode --role fast --reasoning off # primary on the fast role, reasoning off
-foldcode --provider codex            # kind change drops the stale model -> gpt-5.6-sol default
+foldcode --provider codex            # kind change drops the stale model -> gpt-6-astra default
 foldcode --resume latest|sess_*      # resume (config re-resolves; drift writes a durable transition)
 foldcode sessions                    # list this project's session logs
 foldcode config init|validate        # starter config + schema | validate

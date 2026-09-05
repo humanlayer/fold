@@ -45,7 +45,7 @@ export const CODEX_API_URL = 'https://chatgpt.com/backend-api/codex'
 export const DEFAULT_REQUEST_RETRY_TIMES = 3
 
 /** The codex model used when {@link CodexModelOptions.model} is omitted. */
-export const DEFAULT_CODEX_MODEL_ID = 'gpt-5.6-sol'
+export const DEFAULT_CODEX_MODEL_ID = 'gpt-6-astra'
 
 type ResponsesPayload = Omit<typeof OpenAiSchema.CreateResponse.Encoded, 'stream'>
 type ResponseBody = typeof OpenAiSchema.Response.Type
@@ -216,7 +216,7 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 
 /** Options for {@link codexModel}. */
 export type CodexModelOptions = {
-	/** Codex model id, for example `gpt-5.6-sol`. Defaults to {@link DEFAULT_CODEX_MODEL_ID}. */
+	/** Codex model id, for example `gpt-6-astra`. Defaults to {@link DEFAULT_CODEX_MODEL_ID}. */
 	readonly model?: string
 	/** Reasoning level for requests. Defaults to `off`, which leaves the backend default untouched. */
 	readonly reasoning?: ReasoningLevel

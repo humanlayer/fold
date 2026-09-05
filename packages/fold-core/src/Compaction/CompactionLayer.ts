@@ -82,13 +82,14 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 	const turnPrefixOutputFraction = 0.5
 
 	/**
-	 * Resolve the agent's context window: an explicit `autoCompact.contextWindow` always wins, then
-	 * the session's ModelCatalog entry for the active model, then the interim pattern table (D15).
-	 * The Reference default is the empty catalog, so this adds nothing to the effect requirements.
+	 * Resolve the agent's context window: an explicit `autoCompact.contextWindow` always wins. Codex
+	 * uses its app-specific window because the public OpenAI API catalog can advertise a larger limit;
+	 * other providers use the session ModelCatalog before the interim pattern table (D15).
 	 */
 	const contextWindowFor = (input: CompactionCheckInput): Effect.Effect<number> =>
 		Effect.gen(function* () {
 			if (config.contextWindow !== undefined) return config.contextWindow
+			if (input.model?.providerKind === 'codex') return defaultContextWindowFor(input.model.modelId)
 
 			const entry = input.model === null ? null : yield* (yield* ModelCatalog).lookup(input.model)
 

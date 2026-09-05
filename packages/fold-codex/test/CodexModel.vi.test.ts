@@ -270,7 +270,7 @@ describe('codexModel defaults', () => {
 	it('omitting the model binds the default codex model id', () => {
 		const model = codexModel({})
 
-		expect(DEFAULT_CODEX_MODEL_ID).toBe('gpt-5.6-sol')
+		expect(DEFAULT_CODEX_MODEL_ID).toBe('gpt-6-astra')
 		expect(model.activeModel.modelId).toBe(DEFAULT_CODEX_MODEL_ID)
 		expect(model.activeModel.providerKind).toBe('codex')
 	})

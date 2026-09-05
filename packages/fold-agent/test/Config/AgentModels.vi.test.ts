@@ -294,7 +294,7 @@ const defaultsConfigText = `{
 	}
 }`
 
-it.effect('a codex binding without a model resolves to the gpt-5.6-sol default', () =>
+it.effect('a codex binding without a model resolves to the gpt-6-astra default', () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(defaultsConfigText)
 		const models = agentModelsFromConfig(config, {
@@ -304,8 +304,8 @@ it.effect('a codex binding without a model resolves to the gpt-5.6-sol default',
 
 		const model = yield* models.resolve('smart')
 		expect(model.activeModel.providerKind).toBe('codex')
-		expect(model.activeModel.modelId).toBe('gpt-5.6-sol')
-		// Catalog validation ran against the defaulted id: sol supports 'max'.
+		expect(model.activeModel.modelId).toBe('gpt-6-astra')
+		// Catalog validation ran against the defaulted id: Astra supports 'max'.
 		expect(model.activeModel.requestedReasoningLevel).toBe('max')
 	}),
 )
@@ -336,7 +336,7 @@ it.effect('an openai-compat binding without a model fails with the required-mode
 		expect(error._tag).toBe('RoleResolutionError')
 		expect(error.role).toBe('orchestrator')
 		expect(error.message).toContain('without a model')
-		expect(error.message).toContain('codex → gpt-5.6-sol')
+		expect(error.message).toContain('codex → gpt-6-astra')
 		expect(error.message).toContain('anthropic → claude-opus-4-8')
 		expect(error.message).toContain('required for openai-compat')
 	}),
