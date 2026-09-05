@@ -3,7 +3,7 @@
  * head-truncated lines with right-aligned line-number prefixes and pi's continuation notices and
  * 1-indexed offset/limit; images (the ticket's hard requirement) are magic-byte sniffed, normalized,
  * auto-resized, and returned as an image content block that RequestBuilder delivers as a native user
- * file part (D3). Errors are typed model-visible failures.
+ * file part (D3). Binary and malformed UTF-8 files are rejected with typed model-visible failures.
  */
 import {
 	defineTool,
@@ -24,6 +24,68 @@ import { Effect, FileSystem, Match, Schema, type PlatformError } from 'effect'
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
 import { processImage } from './Image/Process'
+
+const binaryFileExtensions = new Set([
+	'.zip',
+	'.tar',
+	'.gz',
+	'.exe',
+	'.dll',
+	'.so',
+	'.class',
+	'.jar',
+	'.war',
+	'.7z',
+	'.doc',
+	'.docx',
+	'.xls',
+	'.xlsx',
+	'.ppt',
+	'.pptx',
+	'.odt',
+	'.ods',
+	'.odp',
+	'.pdf',
+	'.bin',
+	'.dat',
+	'.obj',
+	'.o',
+	'.a',
+	'.lib',
+	'.wasm',
+	'.pyc',
+	'.pyo',
+])
+
+const binaryDetectionSampleBytes = 4_096
+
+/** Match OpenCode's extension and control-byte heuristic for model-facing text reads. */
+const isBinaryFile = (path: string, bytes: Uint8Array): boolean => {
+	const extensionStart = path.lastIndexOf('.')
+	if (extensionStart !== -1 && binaryFileExtensions.has(path.slice(extensionStart).toLowerCase())) return true
+
+	const sample = bytes.subarray(0, binaryDetectionSampleBytes)
+	if (sample.length === 0) return false
+
+	let nonPrintableBytes = 0
+	for (const byte of sample) {
+		if (byte === 0) return true
+		if (byte < 0x09 || (byte > 0x0d && byte < 0x20)) nonPrintableBytes += 1
+	}
+
+	return nonPrintableBytes / sample.length > 0.3
+}
+
+const decodeTextFile = (path: string, bytes: Uint8Array): Effect.Effect<string, ToolResultFailure> => {
+	if (isBinaryFile(path, bytes) || bytes.includes(0)) {
+		return Effect.fail(ToolResultFailure.make({ text: `Cannot read binary file: ${path}` }))
+	}
+
+	return Effect.try({
+		try: () => new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+		catch: () => ToolResultFailure.make({ text: `Cannot read file because it is not valid UTF-8: ${path}` }),
+	})
+}
 
 /** Render one platform error as a short, model-actionable failure message. */
 export const platformErrorMessage = (action: string, path: string, error: PlatformError.PlatformError): string => {
@@ -88,7 +150,8 @@ export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 					})
 				}
 
-				return yield* readTextContent(bytes, params)
+				const text = yield* decodeTextFile(params.path, bytes)
+				return yield* readTextContent(text, params)
 			}).pipe(
 				Effect.mapError((error) =>
 					Schema.is(ToolResultFailure)(error) ? error : ToolResultFailure.make({ text: error.message }),
@@ -107,11 +170,11 @@ const numberTextLines = (content: string, startLine: number, outputLines: number
 
 /** Read the text path: offset/limit selection, head truncation, line numbering, and continuation notices. */
 const readTextContent = (
-	bytes: Uint8Array,
+	text: string,
 	params: { readonly path: string; readonly offset?: number | undefined; readonly limit?: number | undefined },
 ): Effect.Effect<ToolResultText, ToolResultFailure> =>
 	Effect.gen(function* () {
-		const allLines = new TextDecoder().decode(bytes).split('\n')
+		const allLines = text.split('\n')
 		const startLine = params.offset !== undefined && params.offset > 0 ? Math.max(0, params.offset - 1) : 0
 		const startLineDisplay = startLine + 1
 

@@ -24,6 +24,32 @@ it.live('captures stdout and reports success on exit 0', () =>
 	}),
 )
 
+it.live('omits null-containing stdout with a model-actionable notice', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		const ambient = yield* makeAmbientServices()
+		const result = yield* handlerOf(bashTool({ cwd: dir }))({ command: `printf 'before\\0after'` }).pipe(
+			Effect.provide(ambient.layer),
+		)
+
+		expect(outputOf(result)).toContain('[stdout output omitted because it contained binary data or invalid UTF-8]')
+		expect(outputOf(result)).not.toContain('\0')
+		expect((yield* ambient.emitted).map(decodeBashOutputDelta).every((delta) => !delta?.text.includes('\0'))).toBe(
+			true,
+		)
+	}),
+)
+
+it.live('omits malformed UTF-8 stderr with a model-actionable notice', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		const result = yield* runHandler(handlerOf(bashTool({ cwd: dir }))({ command: `printf '\\200' >&2` }))
+
+		expect(outputOf(result)).toContain('[stderr output omitted because it contained binary data or invalid UTF-8]')
+		expect(outputOf(result)).not.toContain('\uFFFD')
+	}),
+)
+
 it.live('passes host-provided session environment to Bash subprocesses', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir

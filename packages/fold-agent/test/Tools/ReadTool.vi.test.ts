@@ -133,6 +133,44 @@ it.effect('fails with a model-actionable message for missing files', () =>
 	}),
 )
 
+it.effect('rejects binary files without returning database-invalid null bytes', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		writeFileSync(join(dir, 'binary.dat'), Buffer.from([0x61, 0x62, 0x00, 0x63]))
+
+		const failure = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'binary.dat' })).pipe(Effect.flip)
+
+		expect(messageOf(failure)).toBe('Cannot read binary file: binary.dat')
+		expect(messageOf(failure)).not.toContain('\0')
+	}),
+)
+
+it.effect('rejects a null byte beyond the binary detection sample', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		writeFileSync(join(dir, 'late-null.txt'), Buffer.concat([Buffer.alloc(5_000, 0x61), Buffer.from([0x00])]))
+
+		const failure = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'late-null.txt' })).pipe(
+			Effect.flip,
+		)
+
+		expect(messageOf(failure)).toBe('Cannot read binary file: late-null.txt')
+	}),
+)
+
+it.effect('rejects malformed UTF-8 with a model-actionable message', () =>
+	Effect.gen(function* () {
+		const dir = yield* tempDir
+		writeFileSync(join(dir, 'malformed.txt'), Buffer.from([0x61, 0x80, 0x62]))
+
+		const failure = yield* runHandler(handlerOf(readTool({ cwd: dir }))({ path: 'malformed.txt' })).pipe(
+			Effect.flip,
+		)
+
+		expect(messageOf(failure)).toBe('Cannot read file because it is not valid UTF-8: malformed.txt')
+	}),
+)
+
 it.effect('returns PNG images as an image content block with a note (hard requirement)', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir

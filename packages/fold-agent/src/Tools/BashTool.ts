@@ -27,7 +27,7 @@ import {
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Duration, Effect, Fiber, FileSystem, Option, Path, Random, Ref, Schema, Semaphore, Stream } from 'effect'
+import { Data, Duration, Effect, Fiber, FileSystem, Option, Path, Random, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { resolveToCwd } from '../Fs/PathResolve'
@@ -75,6 +75,19 @@ const killGrace = Duration.millis(200)
 // Keep a bounded in-memory tail once output spills: 4x the byte limit comfortably covers the
 // tail-truncation window while the spill file holds the full output.
 const inMemoryRetentionBytes = 4 * defaultMaxBytes
+
+class BashOutputNotTextError extends Data.TaggedError('BashOutputNotTextError')<{
+	readonly stream: 'stdout' | 'stderr'
+	readonly cause?: unknown
+}> {}
+
+class BashOutputStreamError extends Data.TaggedError('BashOutputStreamError')<{
+	readonly stream: 'stdout' | 'stderr'
+	readonly cause: unknown
+}> {}
+
+const omittedNonTextOutputMessage = (stream: 'stdout' | 'stderr') =>
+	`\n[${stream} output omitted because it contained binary data or invalid UTF-8]`
 
 /** Options for {@link bashTool}. */
 export type BashToolOptions = {
@@ -318,19 +331,45 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					name: 'stdout' | 'stderr',
 				): Effect.Effect<void> =>
 					Effect.gen(function* () {
-						const decoder = new TextDecoder()
+						const decoder = new TextDecoder('utf-8', { fatal: true })
+						let rejectedNonTextOutput = false
 						const push = (text: string): Effect.Effect<void> =>
 							text.length === 0
 								? Effect.void
 								: accumulator
 										.append(text)
 										.pipe(Effect.andThen(events.emit({ tool: 'bash', stream: name, text })))
+						const decode = (bytes?: Uint8Array): Effect.Effect<string, BashOutputNotTextError> =>
+							Effect.try({
+								try: () => {
+									const text = decoder.decode(bytes, { stream: bytes !== undefined })
+									if (text.includes('\0')) throw new Error('null byte in process output')
+									return text
+								},
+								catch: (cause) => new BashOutputNotTextError({ stream: name, cause }),
+							})
 
-						yield* Stream.runForEach(stream, (bytes) => push(decoder.decode(bytes, { stream: true }))).pipe(
-							Effect.catch((error) => accumulator.append(`\n[${name} stream error: ${String(error)}]`)),
+						yield* Stream.runForEach(
+							stream.pipe(Stream.mapError((cause) => new BashOutputStreamError({ stream: name, cause }))),
+							(bytes) => decode(bytes).pipe(Effect.flatMap(push)),
+						).pipe(
+							Effect.catchTags({
+								BashOutputNotTextError: () => {
+									rejectedNonTextOutput = true
+									return push(omittedNonTextOutputMessage(name))
+								},
+								BashOutputStreamError: (error) =>
+									accumulator.append(`\n[${name} stream error: ${String(error.cause)}]`),
+							}),
 						)
-						// Flush any trailing partial UTF-8 sequence (pi's finish()).
-						yield* push(decoder.decode())
+						if (!rejectedNonTextOutput) {
+							yield* decode().pipe(
+								Effect.flatMap(push),
+								Effect.catchTag('BashOutputNotTextError', () =>
+									push(omittedNonTextOutputMessage(name)),
+								),
+							)
+						}
 					})
 
 				const run = Effect.gen(function* () {
