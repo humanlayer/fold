@@ -147,6 +147,7 @@ it('defaultContextWindowFor uses the interim table with a conservative fallback'
 	expect(defaultContextWindowFor('claude-fable-5')).toBe(200_000)
 	expect(defaultContextWindowFor('gpt-5.5')).toBe(272_000)
 	expect(defaultContextWindowFor('gpt-5.3-codex')).toBe(272_000)
+	expect(defaultContextWindowFor('gpt-6-astra')).toBe(1_050_000)
 	expect(defaultContextWindowFor('some-unknown-model')).toBe(128_000)
 	expect(defaultContextWindowFor(null)).toBe(128_000)
 })

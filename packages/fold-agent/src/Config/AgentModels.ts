@@ -6,7 +6,7 @@
  * which carries no key (it uses `~/.fold/auth.json`).
  *
  * `orchestrator` falls back to `smart` when unbound (D25). A binding without a model fills the provider
- * kind's default (codex → gpt-5.6-sol, anthropic → claude-opus-4-8); openai-compat has no default and
+ * kind's default (codex → gpt-6-astra, anthropic → claude-opus-4-8); openai-compat has no default and
  * requires an explicit model. Provider cross-references were validated at decode (ConfigSchema), so
  * remaining resolution failures are a missing credential env var, a model-less openai-compat binding,
  * or - when a model catalog is provided - a reasoning level the bound model does not support (D23:

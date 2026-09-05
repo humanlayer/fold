@@ -88,7 +88,7 @@ export const describeModelConfiguration = (
 			.filter((entry) => catalogProviderIds.includes(entry.providerId))
 			.map((entry) => entry.modelId)
 		const defaultModels = Match.value(provider.kind).pipe(
-			Match.when('codex', () => [DEFAULT_OPENCODE_MODEL_ID]),
+			Match.when('codex', () => [DEFAULT_CODEX_MODEL_ID]),
 			Match.when('opencode', () => [DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID]),
 			Match.when('xai', () => XAI_FRONTIER_MODELS.map(({ modelId }) => modelId)),
 			Match.orElse((): ReadonlyArray<string> => []),

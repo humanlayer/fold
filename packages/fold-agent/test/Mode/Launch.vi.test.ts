@@ -519,7 +519,7 @@ it.effect('mergeModelSelection drops the stale model when the newly named provid
 		const config = yield* parseFoldConfig(mergeConfigText)
 
 		// `fold --provider codex` alone: the anthropic model id must NOT ride onto codex - the binding
-		// comes back model-less so the codex default (gpt-5.6-sol) applies at resolution.
+		// comes back model-less so the codex default (gpt-6-astra) applies at resolution.
 		const merged = mergeModelSelection(config, config.roles.smart, { provider: 'codex' })
 		expect(merged).toEqual({ provider: 'codex', reasoning: 'medium' })
 		expect(merged.model).toBeUndefined()

@@ -1,5 +1,5 @@
 /**
- * Baked-catalog resolution tests for the gpt-5.6 model family (D23): the codex provider kind maps
+ * Baked-catalog resolution tests for current Codex models (D23): the codex provider kind maps
  * onto the models.dev `openai` provider id, so a codex-kind ActiveModel resolves the same catalog
  * entry an openai-compatible one does. Asserting limits, pricing, and the `max` effort level against
  * the shipped data proves the entries that make `reasoning: max` valid for these models are live.
@@ -14,6 +14,15 @@ const codexSol: ActiveModel = {
 	providerId: 'codex',
 	providerKind: 'codex',
 	modelId: 'gpt-5.6-sol',
+	role: null,
+	requestedReasoningLevel: 'max',
+	reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
+}
+
+const codexAstra: ActiveModel = {
+	providerId: 'codex',
+	providerKind: 'codex',
+	modelId: 'gpt-6-astra',
 	role: null,
 	requestedReasoningLevel: 'max',
 	reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
@@ -46,6 +55,19 @@ it('resolves a codex-kind gpt-5.6-sol to the baked openai entry', () => {
 	expect(entry?.contextWindow).toBe(1050000)
 	expect(entry?.pricing?.inputPerMTokens).toBe(5)
 	expect(entry?.pricing?.outputPerMTokens).toBe(30)
+	expect(entry?.reasoningEfforts).toContain('max')
+})
+
+it('resolves a codex-kind gpt-6-astra to the baked OpenAI entry', () => {
+	const entry = lookupCatalogEntry(bakedModelCatalog, codexAstra)
+
+	expect(entry).not.toBeNull()
+	expect(entry?.providerId).toBe('openai')
+	expect(entry?.modelId).toBe('gpt-6-astra')
+	expect(entry?.contextWindow).toBe(1_050_000)
+	expect(entry?.maxInputTokens).toBe(922_000)
+	expect(entry?.pricing?.inputPerMTokens).toBe(10)
+	expect(entry?.pricing?.outputPerMTokens).toBe(50)
 	expect(entry?.reasoningEfforts).toContain('max')
 })
 

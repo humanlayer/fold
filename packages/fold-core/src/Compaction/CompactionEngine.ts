@@ -37,6 +37,7 @@ const filePartEstimateChars = 4_800
  */
 export const defaultModelContextWindows: ReadonlyArray<readonly [RegExp, number]> = [
 	[/claude|fable|mythos/, 200_000],
+	[/gpt-6-astra/, 1_050_000],
 	[/gpt-5|codex/, 272_000],
 	[/gpt-4\.1/, 1_000_000],
 ]
