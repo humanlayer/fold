@@ -1,6 +1,5 @@
 import { decodeBashOutputDelta } from '@humanlayer/fold-agent'
 import {
-	defaultContextWindowFor,
 	lookupCatalogEntry,
 	shortAgentId,
 	usageCacheRead,
@@ -21,6 +20,7 @@ import {
 import { Data, Effect, Match } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
+import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from './ContextWindow'
 
 type Writer = (text: string) => Effect.Effect<void>
 
@@ -249,8 +249,8 @@ const contextText = (usage: UsageEncoded, model: ActiveModel | null, entry: Mode
 	const used = usageInputTotal(usage) + usageOutputTotal(usage)
 	if (model === null) return formatInt(used)
 
-	const limit = entry?.contextWindow ?? defaultContextWindowFor(model.modelId)
-	const percent = Math.round((used / limit) * 100)
+	const limit = contextWindowLimitForDisplay(model, entry?.contextWindow)
+	const percent = contextUsedPercentForDisplay(used, model, limit)
 	return `${formatInt(used)}/${formatInt(limit)} (${percent}%)`
 }
 

@@ -17,6 +17,7 @@ import { layerLiveIdFactory, lookupCatalogEntry, type SessionId, type FoldSessio
 import { Cause, Duration, Effect, type FileSystem, Match, Option, Scope } from 'effect'
 import { createSignal, type Accessor } from 'solid-js'
 
+import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from '../ContextWindow'
 import { makeHostedTuiSession, type HostedTuiSession, type HostedTuiSessionMetadata } from './HostedTuiSession'
 import { requestToLaunchOptions, sessionToLaunchOptions } from './LaunchRequests'
 import { makeLiveSessionHost } from './LiveSessionHost'
@@ -100,14 +101,19 @@ export const makeTuiSessionWorkspace = (options: {
 								summary.model === null || options.tui.catalog === undefined
 									? null
 									: lookupCatalogEntry(options.tui.catalog, summary.model)
+							const contextWindow =
+								summary.model === null || entry === null || entry.contextWindow <= 0
+									? null
+									: contextWindowLimitForDisplay(summary.model, entry.contextWindow)
 							return {
 								...summary,
 								contextPercent:
-									summary.contextTokens === null || entry === null || entry.contextWindow <= 0
+									summary.contextTokens === null || summary.model === null || contextWindow === null
 										? null
-										: Math.min(
-												100,
-												Math.round((summary.contextTokens / entry.contextWindow) * 100),
+										: contextUsedPercentForDisplay(
+												summary.contextTokens,
+												summary.model,
+												contextWindow,
 											),
 							}
 						})
