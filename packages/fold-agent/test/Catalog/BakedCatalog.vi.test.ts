@@ -62,8 +62,8 @@ it('resolves a codex-kind gpt-5.6-sol to the baked openai entry', () => {
 	expect(entry?.providerId).toBe('openai')
 	expect(entry?.modelId).toBe('gpt-5.6-sol')
 	expect(entry?.contextWindow).toBe(1050000)
-	expect(entry?.pricing?.inputPerMTokens).toBe(4)
-	expect(entry?.pricing?.outputPerMTokens).toBe(20)
+	expect(entry?.pricing?.inputPerMTokens).toBe(5)
+	expect(entry?.pricing?.outputPerMTokens).toBe(30)
 	expect(entry?.reasoningEfforts).toContain('max')
 })
 
@@ -111,8 +111,8 @@ it('resolves an openai-compatible gpt-5.6-terra to the baked openai entry', () =
 	expect(entry?.providerId).toBe('openai')
 	expect(entry?.modelId).toBe('gpt-5.6-terra')
 	expect(entry?.contextWindow).toBe(1050000)
-	expect(entry?.pricing?.inputPerMTokens).toBe(2)
-	expect(entry?.pricing?.outputPerMTokens).toBe(12)
+	expect(entry?.pricing?.inputPerMTokens).toBe(2.5)
+	expect(entry?.pricing?.outputPerMTokens).toBe(15)
 	expect(entry?.reasoningEfforts).toContain('max')
 })
 
