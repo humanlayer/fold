@@ -278,4 +278,17 @@ describe('codexModel defaults', () => {
 	it('an explicit model wins over the default', () => {
 		expect(codexModel({ model: 'gpt-5.5' }).activeModel.modelId).toBe('gpt-5.5')
 	})
+
+	it('preserves the canonical GPT-6 Sol and Luna ids and max reasoning', () => {
+		for (const modelId of ['gpt-6-sol', 'gpt-6-luna']) {
+			const model = codexModel({ model: modelId, reasoning: 'max' })
+
+			expect(model.activeModel.modelId).toBe(modelId)
+			expect(model.activeModel).toMatchObject({
+				providerKind: 'codex',
+				requestedReasoningLevel: 'max',
+				reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
+			})
+		}
+	})
 })

@@ -605,6 +605,37 @@ it.effect('a Codex model uses the app context window instead of the public API c
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
+it.effect('GPT-6 Sol and Luna compact against the 272k Codex window instead of the public catalog', () =>
+	Effect.gen(function* () {
+		for (const modelId of ['gpt-6-sol', 'gpt-6-luna']) {
+			const activeModel = { ...codexActiveModel, modelId }
+			const { model, scripted } = yield* scriptedModel(activeModel, [
+				textTurn(`noted ${'a'.repeat(120)}`, { inputTokens: 224_000 }),
+				textTurn(`## Goal\n- ${modelId} summary`),
+				textTurn(`${modelId} answer`),
+			])
+
+			const session = yield* startSession({
+				agent: defineAgent({ model, autoCompact: { enabled: true, keepRecentTokens: 10 } }),
+				catalog: [
+					{
+						...scriptedCatalogEntry(1_050_000),
+						providerId: 'openai',
+						modelId,
+					},
+				],
+			})
+
+			yield* session.send(`${modelId} topic one`)
+			const finished = yield* session.send(`${modelId} topic two`)
+
+			expect(finished.resultText).toBe(`${modelId} answer`)
+			expect(compactionEntries(yield* session.entries)).toHaveLength(1)
+			expect(yield* scripted.remainingTurns).toBe(0)
+		}
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
 it.effect('an explicit autoCompact.contextWindow beats the catalog entry', () =>
 	Effect.gen(function* () {
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [

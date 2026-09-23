@@ -251,6 +251,36 @@ it.effect('switchModel records thinking-change when the reasoning level changes 
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
+it.effect('switchModel preserves exact GPT-6 Sol and Luna ids in the durable transition and requests', () =>
+	Effect.gen(function* () {
+		const sol: ActiveModel = {
+			...gptActiveModel,
+			providerId: 'codex',
+			providerKind: 'codex',
+			modelId: 'gpt-6-sol',
+			requestedReasoningLevel: 'max',
+			reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
+		}
+		const luna: ActiveModel = { ...sol, modelId: 'gpt-6-luna' }
+		const first = yield* scriptedModel(sol, [textTurn('from sol')])
+		const second = yield* scriptedModel(luna, [textTurn('from luna')])
+		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+
+		yield* session.send('first turn')
+		yield* session.switchModel(second.model, { reason: 'switch canonical model' })
+		yield* session.send('second turn')
+
+		const entries = yield* session.entries
+		const modelChanges = entries.filter((entry): entry is ModelChangeLogEntry =>
+			Predicate.isTagged(entry, 'model-change'),
+		)
+		expect(modelChanges).toHaveLength(1)
+		expect(modelChanges[0]?.model.modelId).toBe('gpt-6-luna')
+		expect((yield* first.scripted.requests)[0]?.openAiConfig?.model).toBe('gpt-6-sol')
+		expect((yield* second.scripted.requests)[0]?.openAiConfig?.model).toBe('gpt-6-luna')
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
 it.effect('switchModel rejects duplicate tool names in the replacement toolset as a defect', () =>
 	Effect.gen(function* () {
 		const first = yield* scriptedModel(gptActiveModel, [textTurn('one')])

@@ -19,6 +19,7 @@ import {
 	resumeSession,
 	startSession,
 	ToolCallId,
+	type ActiveModel,
 	type EventLogService,
 } from '../../src/index'
 import { textTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -162,6 +163,45 @@ it.effect('resume with a different model binding writes one epoch transition (D1
 
 		const finished = yield* session.send('continue')
 		expect(finished.resultText).toBe('answered by the new model')
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('resume records exactly one durable transition from GPT-6 Sol to Luna', () =>
+	Effect.gen(function* () {
+		const sharedLog = yield* makeSharedLog
+		const sol: ActiveModel = {
+			...gptActiveModel,
+			providerId: 'codex',
+			providerKind: 'codex',
+			modelId: 'gpt-6-sol',
+			requestedReasoningLevel: 'max',
+			reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
+		}
+		const luna: ActiveModel = { ...sol, modelId: 'gpt-6-luna' }
+
+		yield* Effect.scoped(
+			Effect.gen(function* () {
+				const first = yield* scriptedModel(sol, [textTurn('first answer')])
+				const session = yield* startSession({
+					agent: defineAgent({ model: first.model, systemPrompt: 'You are the assistant.' }),
+					log: eventLogSource(Effect.succeed(sharedLog)),
+				})
+				yield* session.send('go')
+			}),
+		)
+
+		const resumed = yield* scriptedModel(luna, [textTurn('second answer')])
+		const session = yield* resumeSession({
+			agent: defineAgent({ model: resumed.model, systemPrompt: 'You are the assistant.' }),
+			log: eventLogSource(Effect.succeed(sharedLog)),
+		})
+		const entries = yield* session.entries
+		const modelChanges = entries.filter((entry) => Predicate.isTagged(entry, 'model-change'))
+
+		expect(modelChanges).toHaveLength(1)
+		expect(modelChanges[0]).toMatchObject({ model: { modelId: 'gpt-6-luna' } })
+		yield* session.send('continue')
+		expect((yield* resumed.scripted.requests)[0]?.openAiConfig?.model).toBe('gpt-6-luna')
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 

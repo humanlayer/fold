@@ -266,6 +266,24 @@ it.effect("an openai-compat binding for gpt-5.6-luna with reasoning 'max' resolv
 	}),
 )
 
+it.effect("GPT-6 Sol and Luna bindings with reasoning 'max' resolve against the baked catalog", () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": { "codex": { "kind": "codex" } },
+			"roles": {
+				"smart": { "provider": "codex", "model": "gpt-6-sol", "reasoning": "max" },
+				"fast": { "provider": "codex", "model": "gpt-6-luna", "reasoning": "max" }
+			}
+		}`)
+		const models = agentModelsFromConfig(config, { env: env({}), catalog: bakedModelCatalog })
+
+		const smart = yield* models.resolve('smart')
+		const fast = yield* models.resolve('fast')
+		expect(smart.activeModel).toMatchObject({ modelId: 'gpt-6-sol', requestedReasoningLevel: 'max' })
+		expect(fast.activeModel).toMatchObject({ modelId: 'gpt-6-luna', requestedReasoningLevel: 'max' })
+	}),
+)
+
 it.effect("gpt-5.5 with reasoning 'max' fails RoleResolutionError naming its supported levels", () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(gpt56ConfigText('gpt-5.5'))

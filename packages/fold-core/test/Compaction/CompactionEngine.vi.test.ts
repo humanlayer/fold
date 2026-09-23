@@ -148,6 +148,8 @@ it('defaultContextWindowFor uses the interim table with a conservative fallback'
 	expect(defaultContextWindowFor('gpt-5.5')).toBe(272_000)
 	expect(defaultContextWindowFor('gpt-5.3-codex')).toBe(272_000)
 	expect(defaultContextWindowFor('gpt-6-astra')).toBe(272_000)
+	expect(defaultContextWindowFor('gpt-6-sol')).toBe(272_000)
+	expect(defaultContextWindowFor('gpt-6-luna')).toBe(272_000)
 	expect(defaultContextWindowFor('some-unknown-model')).toBe(128_000)
 	expect(defaultContextWindowFor(null)).toBe(128_000)
 })
@@ -157,6 +159,8 @@ it('compactionUsableTokens applies the D11 formula, clamped for tiny windows', (
 	expect(compactionUsableTokens({ contextWindow: 200_000, reserveTokens: 16_384 })).toBe(151_616)
 	// Tiny windows clamp the output budget to window/4 and the reserve to window/8, staying positive.
 	expect(compactionUsableTokens({ contextWindow: 2_000, reserveTokens: 16_384 })).toBe(1_250)
+	// Fold's raw 272k Codex window compacts at 223,616 for Sol and Luna.
+	expect(compactionUsableTokens({ contextWindow: 272_000, reserveTokens: 16_384 })).toBe(223_616)
 })
 
 // ── Stale-usage / progress guard ─────────────────────────────────────────────
