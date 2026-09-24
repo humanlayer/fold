@@ -26,8 +26,13 @@ import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
 import type { HttpClientResponse } from 'effect/unstable/http'
 
 import type { CodexAuthStore } from './AuthStore'
+import { makeBedrockAuth, withBedrockAuth } from './BedrockAuth'
+import { makeCodexBedrockAuthStore } from './BedrockAuthStore'
+import type { CodexBedrockAuthStore } from './BedrockAuthStore'
 import type { CodexIdentityOptions } from './CodexAuth'
 import { makeCodexAuth, withCodexAuth } from './CodexAuth'
+import type { CodexConnection } from './CodexConnection'
+import { resolveCodexConnection } from './CodexConnection'
 import type { CodexHardeningOptions, CodexRetryOptions, StreamRetryInfo } from './Hardening'
 import {
 	CODEX_ERROR_MODULE,
@@ -226,6 +231,10 @@ export type CodexModelOptions = {
 	readonly apiUrl?: string
 	/** Credential store override. Defaults to the `codex` entry of `~/.fold/auth.json`. */
 	readonly store?: CodexAuthStore
+	/** Explicit connection mode. When omitted, Fold auth and Codex config files are resolved. */
+	readonly connection?: CodexConnection
+	/** Codex configuration directory. Defaults to `$CODEX_HOME`, then `~/.codex`. */
+	readonly codexHome?: string
 	/** Identity headers (`originator`/`User-Agent`/`session_id`) sent on model requests. */
 	readonly identity?: CodexIdentityOptions
 	/** Maximum transport retry attempts. Provider response retries use {@link CodexHardeningOptions.firstEventTimeoutRetries}. */
@@ -245,28 +254,53 @@ export const makeCodexLanguageModel = (
 	options: CodexModelOptions,
 ): Effect.Effect<LanguageModel.Service, never, Scope.Scope> =>
 	Effect.gen(function* () {
+		const logicalModel = options.model ?? DEFAULT_CODEX_MODEL_ID
+		const connectionOptions: {
+			logicalModel: string
+			connection?: CodexConnection
+			codexHome?: string
+			bedrockStore?: CodexBedrockAuthStore
+		} = {
+			logicalModel,
+		}
+		if (options.connection !== undefined) connectionOptions.connection = options.connection
+		if (options.codexHome !== undefined) connectionOptions.codexHome = options.codexHome
+		if (options.store !== undefined) {
+			connectionOptions.bedrockStore = yield* makeCodexBedrockAuthStore({ path: options.store.path })
+		}
+		const connection = yield* resolveCodexConnection(connectionOptions).pipe(Effect.orDie)
 		const httpContext = yield* Layer.build(FetchHttpClient.layer)
 		const baseClient = Context.get(httpContext, HttpClient.HttpClient)
-
-		const authOptions: { store?: CodexAuthStore } = {}
-		if (options.store !== undefined) authOptions.store = options.store
-		const auth = yield* makeCodexAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, baseClient))
 
 		// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
 		// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
 		// where the first-event retry can honor a provider Retry-After rather than retrying a 429 immediately.
-		const modelClient = withCodexAuth(
-			baseClient.pipe(
-				HttpClient.retryTransient({
-					retryOn: 'errors-only',
-					times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
-				}),
-			),
-			auth,
-			options.identity,
+		const retryingClient = baseClient.pipe(
+			HttpClient.retryTransient({
+				retryOn: 'errors-only',
+				times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
+			}),
 		)
+		const modelClient =
+			connection.type === 'bedrock'
+				? withBedrockAuth(
+						retryingClient,
+						yield* makeBedrockAuth(
+							connection.profile === undefined
+								? { region: connection.region }
+								: { profile: connection.profile, region: connection.region },
+						),
+					)
+				: withCodexAuth(
+						retryingClient,
+						yield* makeCodexAuth(options.store === undefined ? {} : { store: options.store }).pipe(
+							Effect.provideService(HttpClient.HttpClient, baseClient),
+						),
+						options.identity,
+					)
 
-		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl: options.apiUrl ?? CODEX_API_URL })).pipe(
+		const apiUrl = connection.type === 'bedrock' ? connection.baseUrl : (options.apiUrl ?? CODEX_API_URL)
+		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl })).pipe(
 			Effect.provideService(HttpClient.HttpClient, modelClient),
 		)
 		const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
@@ -282,7 +316,7 @@ export const makeCodexLanguageModel = (
 		})
 
 		return yield* OpenAiLanguageModel.make({
-			model: options.model ?? DEFAULT_CODEX_MODEL_ID,
+			model: connection.type === 'bedrock' ? connection.model : logicalModel,
 			config: {
 				// The ChatGPT backend does no server-side response storage (clanka parity).
 				store: false,

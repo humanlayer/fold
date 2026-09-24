@@ -15,8 +15,14 @@
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
+		"@aws/bedrock-token-generator": "catalog:",
+		"@aws-sdk/credential-providers": "catalog:",
 		"@humanlayer/effect-ai-openai": "workspace:*",
-		"@humanlayer/fold-core": "workspace:*"
+		"@humanlayer/fold-core": "workspace:*",
+		"@smithy/config-resolver": "catalog:",
+		"@smithy/node-config-provider": "catalog:",
+		"@smithy/types": "catalog:",
+		"smol-toml": "catalog:"
 	},
 	"peerDependencies": {
 		"@effect/platform-node": "catalog:",
