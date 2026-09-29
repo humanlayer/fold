@@ -32,7 +32,7 @@ import { ToolState } from '../ToolRuntime/ToolStateService'
  * the executing call's identity (`CurrentAgent`/`CurrentToolCall` - D12), the `InterruptNote` enriching
  * this call's synthetic result if it is interrupted, and the `Subagents` engine (the subagent tool's
  * handler delegates to it). The runtime provides all of them around each call; handlers needing none of
- * them simply have a smaller `R`.
+ * them simply have a smaller `R`. Platform services are not among them: see {@link PlatformServices}.
  */
 export type ToolHandlerServices =
 	| ToolState
@@ -42,9 +42,13 @@ export type ToolHandlerServices =
 	| CurrentToolCall
 	| InterruptNote
 	| Subagents
-	| FileSystem.FileSystem
 
-type PlatformToolServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+/**
+ * Host services that disk- and process-backed descriptors (coding tools, a JSONL log, a disk skill
+ * source) may declare. A session never requires them: it passes along whichever ones its caller
+ * provides, so a host without a filesystem can run any session whose descriptors don't declare one.
+ */
+export type PlatformServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
 
 type ToolDependency =
 	| typeof ToolState
@@ -125,7 +129,7 @@ export type DefineToolOptions<Params extends Schema.Top, Success extends Schema.
 	readonly dependencies?: typeof platformToolDependencies
 	readonly handler: (
 		params: Params['Type'],
-	) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices | PlatformToolServices>
+	) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices | PlatformServices>
 }
 
 /**
@@ -162,7 +166,6 @@ export const defineTool = <
 			CurrentToolCall,
 			InterruptNote,
 			Subagents,
-			FileSystem.FileSystem,
 			...(options.dependencies ?? []),
 		],
 	}

@@ -21,13 +21,14 @@ import {
 	ToolEvents,
 	ToolState,
 	type FoldTool,
+	type PlatformServices,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
 export const makeAmbientServices = (): Effect.Effect<{
-	readonly layer: Layer.Layer<ToolHandlerServices>
+	readonly layer: Layer.Layer<ToolHandlerServices | PlatformServices>
 	readonly emitted: Effect.Effect<ReadonlyArray<typeof Schema.Json.Type>>
 	/** The most recent InterruptNote the handler recorded, or null. */
 	readonly interruptNote: Effect.Effect<string | null>
@@ -71,11 +72,13 @@ export const makeAmbientServices = (): Effect.Effect<{
 /** Invoke one tool's handler through its init: the realized handler, still needing the ambient R. */
 export const handlerOf =
 	(tool: FoldTool) =>
-	(params: unknown): Effect.Effect<unknown, unknown, ToolHandlerServices> =>
+	(params: unknown): Effect.Effect<unknown, unknown, ToolHandlerServices | FileSystem.FileSystem> =>
 		tool.init.pipe(Effect.flatMap((contribution) => contribution.handler(params)))
 
 /** Run one handler with throwaway ambient services. */
-export const runHandler = <A, E>(effect: Effect.Effect<A, E, ToolHandlerServices>): Effect.Effect<A, E> =>
+export const runHandler = <A, E>(
+	effect: Effect.Effect<A, E, ToolHandlerServices | FileSystem.FileSystem>,
+): Effect.Effect<A, E> =>
 	Effect.gen(function* () {
 		const ambient = yield* makeAmbientServices()
 		return yield* effect.pipe(Effect.provide(ambient.layer))

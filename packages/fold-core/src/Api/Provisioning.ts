@@ -19,7 +19,7 @@
 import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Context, Effect, Layer, Match, Stream } from 'effect'
-import type { FileSystem, Scope } from 'effect'
+import type { Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
@@ -95,7 +95,6 @@ export type SessionProvisioningServices =
 	| ToolEventSink
 	| Subagents
 	| SessionControls
-	| FileSystem.FileSystem
 
 /** Lower a model descriptor to the LanguageModel layer for its provider connection. */
 export const languageModelLayerFor = (model: FoldModel): Layer.Layer<LanguageModel.LanguageModel> => {
