@@ -37,6 +37,7 @@ import {
 	FileSystem,
 	Layer,
 	Match,
+	Path,
 	Ref,
 	Schema,
 	Scope,
@@ -44,6 +45,7 @@ import {
 	Stream,
 } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
+import { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
@@ -104,7 +106,7 @@ import type { AgentDefinition } from './AgentDefinition'
 import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
-import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
+import type { PlatformServices, RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
@@ -281,11 +283,31 @@ type SessionAgentConfig = {
 	readonly tools: ReadonlyArray<FoldTool>
 }
 
+/**
+ * Pass along whichever platform services the caller provided, the way Effect AI's Toolkit passes its
+ * build context to handlers. A session never requires them; descriptors that declare them (disk tools,
+ * a JSONL log, a disk skill source) read them from here, and die with a missing-service defect when the
+ * caller left one out.
+ */
+const providedPlatformServices: Effect.Effect<Context.Context<PlatformServices>> = Effect.map(
+	Effect.context<never>(),
+	(caller) => {
+		const platform = Context.pick(FileSystem.FileSystem, Path.Path, ChildProcessSpawner.ChildProcessSpawner)(caller)
+		// SAFETY: `pick` keeps only the keys present, so this may hold some of the platform services. That
+		// is the point: a descriptor that declares one the caller did not provide fails when it asks for it.
+		// oxlint-disable-next-line typescript/consistent-type-assertions
+		return platform as Context.Context<PlatformServices>
+	},
+)
+
 /** Lower the event log descriptor to its EventLog layer. */
-const eventLogLayerFor = (log: FoldEventLog): Layer.Layer<EventLog, unknown, Ids | FileSystem.FileSystem> =>
+const eventLogLayerFor = (
+	log: FoldEventLog,
+	platformServices: Context.Context<PlatformServices>,
+): Layer.Layer<EventLog, unknown, Ids> =>
 	Match.valueTags(log, {
 		memory: () => layerInMemoryEventLogWithIds,
-		source: ({ make }) => Layer.effect(EventLog, make),
+		source: ({ make }) => Layer.effect(EventLog, make.pipe(Effect.provideContext(platformServices))),
 	})
 
 /** Fold a leading-prompt config value into an ordered block list. */
@@ -308,9 +330,7 @@ type SessionGraph = {
 		profiles: SessionProfiles,
 	) => Effect.Effect<void>
 	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
-	readonly ensureToolContributions: (
-		tools: ReadonlyArray<FoldTool>,
-	) => Effect.Effect<void, never, FileSystem.FileSystem>
+	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
 	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
@@ -318,7 +338,6 @@ type SessionGraph = {
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
 	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
-	readonly fileSystem: FileSystem.FileSystem
 	readonly leadingPromptFor: (
 		systemPrompt: string | ReadonlyArray<string> | null,
 		tools: ReadonlyArray<FoldTool>,
@@ -337,9 +356,10 @@ const assembleSessionGraph = (options: {
 	readonly profiles?: SessionProfiles
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}): Effect.Effect<SessionGraph, never, Scope.Scope | FileSystem.FileSystem> =>
+}): Effect.Effect<SessionGraph, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const agent = options.agent
+		const platformServices = yield* providedPlatformServices
 		const rootTools = agent.tools ?? []
 		const rootHooks = agent.hooks ?? {}
 
@@ -382,12 +402,14 @@ const assembleSessionGraph = (options: {
 		// leading-prompt block, skill source - is reused by every agent listing that value, across
 		// epochs, and by every subagent dispatch (D20's one-snapshot law).
 		const toolContributions = new Map<FoldTool, SessionToolContribution>()
-		const ensureToolContributions = (
-			tools: ReadonlyArray<FoldTool>,
-		): Effect.Effect<void, never, FileSystem.FileSystem> =>
+		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
 			Effect.forEach(
 				tools.filter((tool) => !toolContributions.has(tool)),
-				(tool) => tool.init.pipe(Effect.map((contribution) => toolContributions.set(tool, contribution))),
+				(tool) =>
+					tool.init.pipe(
+						Effect.provideContext(platformServices),
+						Effect.map((contribution) => toolContributions.set(tool, contribution)),
+					),
 				{ discard: true },
 			).pipe(Effect.asVoid)
 
@@ -459,18 +481,17 @@ const assembleSessionGraph = (options: {
 		// One shared service graph per session; every provisioned runtime closes over these same
 		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
 		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
-		// carries its own agent's hook chains (D16/D21).
-		const fileSystem = yield* FileSystem.FileSystem
+		// carries its own agent's hook chains (D16/D21). Tool handlers get their declared platform
+		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
 		const idsLayer = layerLiveIdFactory
-		const fsLayer = Layer.succeed(FileSystem.FileSystem, fileSystem)
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(Layer.mergeAll(idsLayer, fsLayer))),
+			eventLogLayerFor(options.log ?? memoryEventLog(), platformServices).pipe(Layer.provide(idsLayer)),
 			idsLayer,
 			liveAgentEventsLayer,
 		)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
-			fsLayer,
+			Layer.succeedContext(platformServices),
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
@@ -584,7 +605,6 @@ const assembleSessionGraph = (options: {
 			provisionRootRuntime,
 			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
 			currentProvisionedRuntime: Ref.get(runtimeRef),
-			fileSystem,
 			leadingPromptFor,
 		}
 	})
@@ -846,72 +866,63 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 
 	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
 		gate.withPermit(
-			Effect.provideService(
-				FileSystem.FileSystem,
-				graph.fileSystem,
-			)(
-				Effect.gen(function* () {
-					const current = yield* Ref.get(configRef)
-					const currentProfiles = yield* profiles.snapshot
-					const candidateProfiles = switchOptions?.profiles ?? currentProfiles
-					const next: SessionAgentConfig = {
-						model,
-						promptCacheKey: current.promptCacheKey,
-						systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
-						tools: switchOptions?.tools ?? current.tools,
-					}
-					yield* validateToolNames(next.tools)
+			Effect.gen(function* () {
+				const current = yield* Ref.get(configRef)
+				const currentProfiles = yield* profiles.snapshot
+				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
+				const next: SessionAgentConfig = {
+					model,
+					promptCacheKey: current.promptCacheKey,
+					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+					tools: switchOptions?.tools ?? current.tools,
+				}
+				yield* validateToolNames(next.tools)
 
-					// A switch may introduce new session-initialized tools and subagent types. The switch gate
-					// is the sole extension boundary, so dispatch can never observe a partially installed graph.
-					yield* graph.ensureToolContributions(next.tools)
-					const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
-					yield* Effect.forEach(
-						introduced.subagents,
-						(definition) => validateToolNames(definition.tools ?? []),
-						{
-							discard: true,
-						},
-					)
-					yield* Effect.forEach(
-						introduced.subagents,
-						(definition) => graph.ensureToolContributions(definition.tools ?? []),
-						{
-							discard: true,
-						},
-					)
-					yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
+				// A switch may introduce new session-initialized tools and subagent types. The switch gate
+				// is the sole extension boundary, so dispatch can never observe a partially installed graph.
+				yield* graph.ensureToolContributions(next.tools)
+				const introduced = yield* graph.collectNewSubagentDefinitions(next.tools)
+				yield* Effect.forEach(introduced.subagents, (definition) => validateToolNames(definition.tools ?? []), {
+					discard: true,
+				})
+				yield* Effect.forEach(
+					introduced.subagents,
+					(definition) => graph.ensureToolContributions(definition.tools ?? []),
+					{
 						discard: true,
-					})
-					yield* Effect.forEach(
-						introduced.forkAgents,
-						(definition) => graph.ensureToolContributions(definition.tools),
-						{ discard: true },
-					)
-					yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
+					},
+				)
+				yield* Effect.forEach(introduced.forkAgents, (definition) => validateToolNames(definition.tools), {
+					discard: true,
+				})
+				yield* Effect.forEach(
+					introduced.forkAgents,
+					(definition) => graph.ensureToolContributions(definition.tools),
+					{ discard: true },
+				)
+				yield* graph.validateSubagentRegistry(introduced, candidateProfiles)
 
-					// Provision against the new toolset before writing the transition, so the durable
-					// tools-change below resolves over the newly installed tools. Nothing can run in
-					// between: root runs wait on the same gate.
-					const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
-					const previousRuntime = yield* graph.currentProvisionedRuntime
-					yield* graph.setProvisionedRuntime(nextRuntime)
-					const transition = yield* session
-						.switchModel({
-							model: model.activeModel,
-							systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
-							reason: switchOptions?.reason ?? null,
-						})
-						.pipe(Effect.orDie, Effect.exit)
-					if (Exit.isFailure(transition)) {
-						yield* graph.setProvisionedRuntime(previousRuntime)
-						return yield* Effect.failCause(transition.cause)
-					}
-					graph.extendSubagentRegistry(introduced)
-					yield* profiles.replace(candidateProfiles)
-					yield* Ref.set(configRef, next)
-				}),
-			),
+				// Provision against the new toolset before writing the transition, so the durable
+				// tools-change below resolves over the newly installed tools. Nothing can run in
+				// between: root runs wait on the same gate.
+				const nextRuntime = yield* graph.provisionRootRuntime(model, next.tools)
+				const previousRuntime = yield* graph.currentProvisionedRuntime
+				yield* graph.setProvisionedRuntime(nextRuntime)
+				const transition = yield* session
+					.switchModel({
+						model: model.activeModel,
+						systemPrompt: graph.leadingPromptFor(next.systemPrompt, next.tools),
+						reason: switchOptions?.reason ?? null,
+					})
+					.pipe(Effect.orDie, Effect.exit)
+				if (Exit.isFailure(transition)) {
+					yield* graph.setProvisionedRuntime(previousRuntime)
+					return yield* Effect.failCause(transition.cause)
+				}
+				graph.extendSubagentRegistry(introduced)
+				yield* profiles.replace(candidateProfiles)
+				yield* Ref.set(configRef, next)
+			}),
 		)
 
 	const compact = (options?: CompactOptions): Effect.Effect<CompactionLogEntry | null> =>
@@ -955,9 +966,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = (
-	options: StartSessionOptions,
-): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
+export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const config = yield* Ref.get(graph.configRef)
@@ -990,9 +999,7 @@ export const startSession = (
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = (
-	options: ResumeSessionOptions,
-): Effect.Effect<FoldSession, never, Scope.Scope | FileSystem.FileSystem> =>
+export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(

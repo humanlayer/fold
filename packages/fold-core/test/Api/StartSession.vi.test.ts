@@ -7,13 +7,14 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
  * SessionIsolation.vi.test.ts.
  */
 import { expect, it } from '@effect/vitest'
-import { Predicate, Context, Effect, Fiber, Layer, Schema, Stream } from 'effect'
+import { Predicate, Context, Effect, Fiber, FileSystem, Layer, Schema, Stream } from 'effect'
 
 import {
 	defineAgent,
 	defineTool,
 	defineToolState,
 	eventLogSource,
+	platformToolDependencies,
 	startSession,
 	EventLog,
 	layerInMemoryEventLog,
@@ -341,4 +342,49 @@ it.effect('rejects duplicate tool names as a defect', () =>
 		expect(exit._tag).toBe('Failure')
 		expect(String(exit)).toContain('duplicate tool names: echo')
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('runs a tool-calling session without a FileSystem when no descriptor declares one', () =>
+	Effect.gen(function* () {
+		const { model } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-1', name: 'echo', params: { text: 'no disk' } }]),
+			textTurn('done'),
+		])
+
+		const session = yield* startSession({ agent: defineAgent({ model, tools: [echoTool] }) })
+		const finished = yield* session.send('echo something')
+
+		expect(finished.outcome).toBe('completed')
+		expect(firstToolResultPart(yield* session.entries).result).toEqual({ echoed: 'no disk' })
+	}).pipe(Effect.scoped),
+)
+
+it.effect('tool handlers that declare platform services read the FileSystem the caller provided', () =>
+	Effect.gen(function* () {
+		const { model } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-1', name: 'read_note', params: {} }]),
+			textTurn('done'),
+		])
+		const readNote = defineTool({
+			name: 'read_note',
+			description: 'Reads the note file.',
+			success: Schema.String,
+			dependencies: platformToolDependencies,
+			handler: () =>
+				Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString('/note.txt')).pipe(Effect.orDie),
+		})
+
+		const session = yield* startSession({ agent: defineAgent({ model, tools: [readNote] }) })
+		yield* session.send('read the note')
+
+		expect(firstToolResultPart(yield* session.entries).result).toBe('from the host')
+	}).pipe(
+		Effect.scoped,
+		Effect.provide(
+			Layer.succeed(
+				FileSystem.FileSystem,
+				FileSystem.makeNoop({ readFileString: () => Effect.succeed('from the host') }),
+			),
+		),
+	),
 )

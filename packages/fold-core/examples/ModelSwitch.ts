@@ -10,7 +10,6 @@
  *
  * Run: OPENAI_API_KEY=... ANTHROPIC_API_KEY=... bun packages/fold-core/examples/ModelSwitch.ts
  */
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Console, Effect, Schema } from 'effect'
 
 import { anthropicModel, defineAgent, defineTool, openaiModel, startSession } from '../src/index'
@@ -61,7 +60,7 @@ const makeProgram = (openAiKey: string, anthropicKey: string) =>
 
 		const entries = yield* session.entries
 		yield* Console.log(`log: ${entries.map((entry) => entry._tag).join(' -> ')}`)
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
+	}).pipe(Effect.scoped)
 
 if (openAiKey === undefined || openAiKey === '' || anthropicKey === undefined || anthropicKey === '') {
 	console.error('Set OPENAI_API_KEY and ANTHROPIC_API_KEY to run this example.')

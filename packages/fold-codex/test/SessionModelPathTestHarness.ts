@@ -24,6 +24,7 @@ import {
 	ToolEvents,
 	ToolState,
 	type FoldTool,
+	type PlatformServices,
 	type ToolHandlerServices,
 	type ToolResultLogEntry,
 } from '@humanlayer/fold-core'
@@ -122,7 +123,7 @@ export const makeDeterministicColorBandsPng = (): Uint8Array => {
 	])
 }
 
-const toolHandlerTestLayer: Layer.Layer<ToolHandlerServices> = Layer.mergeAll(
+const toolHandlerTestLayer: Layer.Layer<ToolHandlerServices | PlatformServices> = Layer.mergeAll(
 	NodeServices.layer,
 	Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
 	Layer.succeed(ToolEvents, { emit: () => Effect.void }),
