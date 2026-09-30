@@ -4,7 +4,7 @@
  * result with an error message, D21) narrow raw Causes through these helpers, so the model always sees
  * the same escaped, truncated, single-line description regardless of which boundary caught the defect.
  */
-import { Cause, Option, Predicate, Schema } from 'effect'
+import { Cause } from 'effect'
 
 const maxModelVisibleErrorMessageLength = 300
 
@@ -24,25 +24,15 @@ export const truncateModelVisibleErrorMessage = (message: string): string => {
 	return `${singleLine.slice(0, maxModelVisibleErrorMessageLength - 3)}...`
 }
 
-const encodeJsonString = Schema.encodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
+/**
+ * Render the first failure or defect of a Cause as safe model-visible text. Effect's own
+ * `Cause.prettyErrors` turns each failure/defect into an Error (message kept, strings used as-is,
+ * other values JSON-rendered), so no raw thrown value is inspected here. Interrupt-only and empty
+ * causes carry no failure to show.
+ */
+export const modelVisibleErrorDetailsFromCause = <E>(cause: Cause.Cause<E>): string => {
+	const first = Cause.hasInterruptsOnly(cause) ? undefined : Cause.prettyErrors(cause)[0]
+	const message = first === undefined || first.message === '' ? 'unknown error' : first.message
 
-const stringifyUnknown = (value: unknown): string =>
-	Predicate.isError(value) ? value.message : Option.getOrElse(encodeJsonString(value), () => String(value))
-
-/** Render an unknown thrown/failed value as safe model-visible text. */
-export const modelVisibleErrorDetailsFromUnknown = (value: unknown): string => {
-	const raw = Predicate.isError(value) ? value.message : stringifyUnknown(value)
-
-	return escapeSystemInformationContent(truncateModelVisibleErrorMessage(raw === '' ? 'unknown error' : raw))
-}
-
-/** Render the first non-interrupt reason of a Cause as safe model-visible text. */
-export const modelVisibleErrorDetailsFromCause = (cause: Cause.Cause<unknown>): string => {
-	const reason = cause.reasons.find((reason) => !Cause.isInterruptReason(reason))
-
-	if (reason === undefined) return 'unknown error'
-	if (Cause.isDieReason(reason)) return modelVisibleErrorDetailsFromUnknown(reason.defect)
-	if (Cause.isFailReason(reason)) return modelVisibleErrorDetailsFromUnknown(reason.error)
-
-	return 'unknown error'
+	return escapeSystemInformationContent(truncateModelVisibleErrorMessage(message))
 }

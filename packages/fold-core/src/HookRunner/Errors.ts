@@ -1,4 +1,4 @@
-import { Data, Predicate, type Cause } from 'effect'
+import { Data, type Cause } from 'effect'
 
 export type HookPhase = 'preRequest' | 'preToolUse' | 'postToolUse' | 'onComplete'
 
@@ -15,6 +15,3 @@ export class HookExecutionError extends Data.TaggedError('HookExecutionError')<{
 		return `${this.phase} hook "${this.hookName}" failed`
 	}
 }
-
-export const isHookExecutionError = (error: unknown): error is HookExecutionError =>
-	Predicate.isTagged(error, 'HookExecutionError')

@@ -16,7 +16,7 @@ type QueueEntry = {
 
 const queues = new Map<string, QueueEntry>()
 // Serializes map registration so two concurrent callers cannot race a key into existence twice.
-const registration = Effect.runSync(Semaphore.make(1))
+const registration = Semaphore.makeUnsafe(1)
 
 /**
  * Compute the queue key: realpath when the file exists, resolved absolute path when it does not exist

@@ -16,7 +16,7 @@ import { AiError, LanguageModel, type Prompt, type Response } from 'effect/unsta
 
 /** Optional shaping for a scripted turn's finish part. */
 export type ScriptedFinishOptions = {
-	readonly reason?: typeof Response.FinishReason.Type
+	readonly reason?: Response.FinishReason
 	readonly inputTokens?: number
 	readonly outputTokens?: number
 }

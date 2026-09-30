@@ -18,7 +18,7 @@ import { Array as Arr, Clock, Duration, Effect, FileSystem, Schema } from 'effec
 import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
 import { bakedModelCatalog } from './BakedCatalog'
-import { decodeModelsDevModels, ModelsDevDecodeError } from './ModelsDevSchema'
+import { decodeModelsDevModels, ModelsDevDecodeError, ModelsDevPayload } from './ModelsDevSchema'
 import { modelCatalogEntriesFromModelsDev } from './Normalize'
 
 /** The models.dev endpoint fetched when the local cache is stale. */
@@ -44,7 +44,7 @@ export class CatalogFetchError extends Schema.TaggedError<CatalogFetchError>()('
  */
 export const ModelCatalogCache = Schema.Struct({
 	version: Schema.Literal(1),
-	fetchedAt: Schema.Number,
+	fetchedAt: Schema.Finite,
 	entries: Schema.Array(ModelCatalogEntry),
 }).annotate({ identifier: 'ModelCatalogCache' })
 export type ModelCatalogCache = typeof ModelCatalogCache.Type
@@ -64,13 +64,21 @@ export type LoadModelCatalogOptions = {
 /** The cache file path for a fold home directory. */
 export const modelCatalogCachePath = (foldHome: string): string => join(foldHome, 'cache', 'models-dev.json')
 
-/** GET the models.dev payload as JSON through the ambient `HttpClient`, with a 10s timeout. */
-const fetchModelsDevPayload: Effect.Effect<Schema.Json, CatalogFetchError, HttpClient.HttpClient> = HttpClient.get(
-	MODELS_DEV_URL,
-).pipe(
+/** GET the models.dev payload and decode its provider map through the ambient `HttpClient`, with a 10s timeout. */
+const fetchModelsDevPayload: Effect.Effect<
+	ModelsDevPayload,
+	CatalogFetchError | ModelsDevDecodeError,
+	HttpClient.HttpClient
+> = HttpClient.get(MODELS_DEV_URL).pipe(
 	Effect.flatMap(HttpClientResponse.filterStatusOk),
-	Effect.flatMap((response) => response.json),
-	Effect.catchTag('HttpClientError', (error) => Effect.fail(new CatalogFetchError({ message: error.message }))),
+	Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelsDevPayload)),
+	Effect.catchTags({
+		HttpClientError: (error) => Effect.fail(new CatalogFetchError({ message: error.message })),
+		SchemaError: (error) =>
+			Effect.fail(
+				new ModelsDevDecodeError({ message: `models.dev payload is not a provider map: ${error.message}` }),
+			),
+	}),
 	Effect.timeoutOrElse({
 		duration: Duration.millis(fetchTimeoutMillis),
 		orElse: () =>
@@ -87,7 +95,7 @@ const encodeCacheText = Schema.encodeEffect(ModelCatalogCacheText)
 /** Read the cache: absent, unreadable, corrupt, or wrong-version files all read as null. */
 const readCache = (fs: FileSystem.FileSystem, path: string): Effect.Effect<ModelCatalogCache | null> =>
 	Effect.gen(function* () {
-		const text = yield* fs.readFileString(path).pipe(Effect.catch(() => Effect.succeed(null)))
+		const text = yield* fs.readFileString(path).pipe(Effect.orElseSucceed(() => null))
 		if (text === null) return null
 
 		return yield* decodeCacheText(text).pipe(

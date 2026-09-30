@@ -19,7 +19,7 @@ const projectedToolResultPart = (projected: ReturnType<typeof messagesForAgent>)
 
 it.effect('projects tool handler defects as model-visible tool failures', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const toolLayer = TestToolkit.toLayer(
 			TestToolkit.of({
 				echo: ({ text }) =>
@@ -126,7 +126,7 @@ it.effect('projects tool defects after cooperative stop requests as model-visibl
 
 it.effect('projects preToolUse hook defects as model-visible tool failures and skips the handler', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const hookLayer = makeHookRunner({
 			preToolUse: [
 				{
@@ -164,7 +164,7 @@ it.effect('projects preToolUse hook defects as model-visible tool failures and s
 
 it.effect('projects postToolUse hook defects as model-visible tool failures', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const hookLayer = makeHookRunner({
 			postToolUse: [
 				{
@@ -202,7 +202,7 @@ it.effect('projects postToolUse hook defects as model-visible tool failures', ()
 
 it.effect('projects hook defects after StopController requests as hook failures', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const hookLayer = makeHookRunner({
 			preToolUse: [
 				{

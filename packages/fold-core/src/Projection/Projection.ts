@@ -1,5 +1,6 @@
-import { Array as Arr, Data, Match, Predicate } from 'effect'
+import { Array as Arr, Data, Match, Predicate, type Schema } from 'effect'
 
+import { encodedContentParts, encodedContentText, isPartOfType } from '../EventLog/MessageContent'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -76,7 +77,7 @@ const ProjectedMessage = Data.taggedEnum<ProjectedMessage>()
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 /** Tool-owned key/value state for one agent namespace, built by folding tool_state entries in log order. */
-export type ToolStateProjection = Readonly<Record<string, unknown>>
+export type ToolStateProjection = Readonly<Record<string, Schema.Json>>
 
 const ownEntriesForAgent = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): ReadonlyArray<LogEntry> =>
 	entries.filter((entry) => entry.agentId === agentId)
@@ -95,23 +96,17 @@ const findAgentFinished = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): 
 
 const compareSeq = (left: LogEntry, right: LogEntry) => left.seq - right.seq
 
-const userMessageText = (entry: UserMessageLogEntry): string =>
-	typeof entry.message.content === 'string'
-		? entry.message.content
-		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-
 const isInjectedSkillMessage = (entry: LogEntry): boolean => {
 	if (!Predicate.isTagged(entry, 'user-message')) return false
-	const content = userMessageText(entry).trim()
+	const content = encodedContentText(entry.message.content).trim()
 	return /^<skill(?:\s|>)/.test(content) && content.endsWith('</skill>')
 }
 
 const isSettledAssistantText = (entry: LogEntry): boolean => {
 	if (!Predicate.isTagged(entry, 'assistant-message')) return false
-	if (typeof entry.message.content === 'string') return entry.message.content.trim().length > 0
-	return (
-		Arr.isReadonlyArrayNonEmpty(entry.message.content) &&
-		entry.message.content.every((part) => part.type === 'text')
+	return Match.value(entry.message.content).pipe(
+		Match.when(Match.string, (text) => text.trim().length > 0),
+		Match.orElse((parts) => Arr.isReadonlyArrayNonEmpty(parts) && parts.every(isPartOfType('text'))),
 	)
 }
 
@@ -250,7 +245,7 @@ export const toolStateForAgent = (
 	agentId: AgentId,
 	namespace: string,
 ): ToolStateProjection => {
-	const state: Record<string, unknown> = {}
+	const state: Record<string, Schema.Json> = {}
 
 	for (const entry of ownEntriesForAgent(entries, agentId)) {
 		if (!Predicate.isTagged(entry, 'tool_state') || entry.namespace !== namespace) continue
@@ -274,14 +269,13 @@ const latestLeadingSystemMessage = (entries: ReadonlyArray<LogEntry>): SystemMes
 const latestCompaction = (entries: ReadonlyArray<LogEntry>): CompactionLogEntry | null =>
 	entries.findLast((entry): entry is CompactionLogEntry => Predicate.isTagged(entry, 'compaction')) ?? null
 
-const toolCallIdsForAssistantMessage = (message: AssistantMessageEncoded): ReadonlyArray<string> => {
-	if (typeof message.content === 'string') return []
-
-	return message.content.flatMap((part) => (part.type === 'tool-call' ? [part.id] : []))
-}
+const toolCallIdsForAssistantMessage = (message: AssistantMessageEncoded): ReadonlyArray<string> =>
+	encodedContentParts(message.content)
+		.filter(isPartOfType('tool-call'))
+		.map((part) => part.id)
 
 const toolResultIds = (message: ToolMessageEncoded): ReadonlyArray<string> =>
-	message.content.flatMap((part) => (part.type === 'tool-result' ? [part.id] : []))
+	message.content.filter(isPartOfType('tool-result')).map((part) => part.id)
 
 /** Put completed tool results back into the assistant's tool-call order before building the next prompt. */
 const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): ReadonlyArray<ProjectedMessage> => {

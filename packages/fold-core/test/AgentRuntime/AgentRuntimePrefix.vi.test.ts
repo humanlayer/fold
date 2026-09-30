@@ -31,7 +31,7 @@ const stablePromptJson = (messages: ReadonlyArray<Prompt.Message>): string =>
 
 it.effect('keeps the second request prompt a byte-stable extension of the first', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('One'), textTurn('Two')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 

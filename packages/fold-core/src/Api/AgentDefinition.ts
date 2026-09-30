@@ -4,12 +4,28 @@
  * can run against any event log backend, and the same definition's prompt blocks are recomposed when the
  * session switches models (D17).
  */
+import { Match } from 'effect'
+
 import type { AutoCompactConfig } from '../Compaction/CompactionService'
 import type { HookConfig } from '../HookRunner/Types'
 import type { ModelFamily } from '../Model/ModelFamily'
 import type { StopConditionConfig } from '../StopConditions/StopConditions'
 import type { FoldModel } from './ModelDescriptor'
 import type { FoldTool } from './ToolDefinition'
+
+/** A leading system prompt as a host writes it: one block or an ordered set of blocks. */
+export type SystemPromptInput = string | ReadonlyArray<string>
+
+/**
+ * Normalize a host-written system prompt to its ordered block list. Called once where a descriptor is
+ * received (session start, model switch, registry build), so everything downstream sees blocks only.
+ */
+export const systemPromptBlocks = (systemPrompt: SystemPromptInput | undefined): ReadonlyArray<string> =>
+	Match.value(systemPrompt).pipe(
+		Match.when(Match.undefined, (): ReadonlyArray<string> => []),
+		Match.when(Match.string, (block): ReadonlyArray<string> => [block]),
+		Match.orElse((blocks) => blocks),
+	)
 
 /** Configuration for one agent, as plain data. Built with {@link defineAgent}. */
 export type AgentDefinition = {
@@ -20,7 +36,7 @@ export type AgentDefinition = {
 	/** Stable provider cache-affinity key. Forked children derive and persist their own key from this one. */
 	readonly promptCacheKey?: string
 	/** The agent's own leading system prompt: one block or an ordered set of blocks. */
-	readonly systemPrompt?: string | ReadonlyArray<string>
+	readonly systemPrompt?: SystemPromptInput
 	/**
 	 * Tools installed for this agent, from {@link defineTool} and the system-tool factories: skills
 	 * come from `skillTool(source)` and subagent dispatch from `subagentTool([...definitions])`, both

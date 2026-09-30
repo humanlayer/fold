@@ -9,7 +9,7 @@ import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestH
 
 it.effect('completes a text-only run with the full log shape', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -50,7 +50,7 @@ it.effect('completes a text-only run with the full log shape', () =>
 
 it.effect('persists a multi-block system prompt as one leading entry with one message per block', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 

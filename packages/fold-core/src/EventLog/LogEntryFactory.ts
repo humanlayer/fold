@@ -18,13 +18,13 @@ export const makeStoredLogEntry = (
 	ids: Pick<IdsService, 'makeEventId'>,
 ): Effect.Effect<LogEntry, EventLogInvalidEntryError> =>
 	Effect.gen(function* () {
-		const decodedInput = yield* Schema.decodeUnknownEffect(LogEntryInput)(input).pipe(
+		const decodedInput = yield* Schema.decodeEffect(LogEntryInput)(input).pipe(
 			Effect.mapError((cause) => invalidEntryError('Invalid EventLog entry input', cause)),
 		)
 		const eventId = yield* ids.makeEventId
 		const ts = yield* Clock.currentTimeMillis
 
-		return yield* Schema.decodeUnknownEffect(LogEntry)({
+		return yield* Schema.decodeEffect(LogEntry)({
 			...decodedInput,
 			seq,
 			eventId,

@@ -8,7 +8,7 @@ import { agentId, collectEntries, makeAssistantToolCall, toolRuntimeBaseLayer } 
 
 it.effect('tool handler can write durable ToolState', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const layer = toolRuntimeBaseLayer(hookRunnerNoop, layerStatefulEchoTool(recorder))
 
 		const result = yield* Effect.gen(function* () {

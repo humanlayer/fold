@@ -4,12 +4,12 @@
  * per-call ToolState, ToolEvents, and StopController services while handlers run, then persists one durable
  * tool-result entry per call, including synthetic interruption results when a tool fiber is interrupted.
  */
-import { Data, Match, Option, Predicate, Cause, Effect, Layer, Ref, Schema, Stream } from 'effect'
+import { Data, Equal, Match, Predicate, Cause, Effect, Layer, Ref, Schema, Stream } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
 import { LogEntryInputs, type LogEntry, type ToolResultLogEntry } from '../EventLog/Schemas'
-import { isHookExecutionError, type HookExecutionError } from '../HookRunner/Errors'
+import type { HookExecutionError } from '../HookRunner/Errors'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, ToolCallId, type AgentId } from '../Ids'
 import { modelVisibleErrorDetailsFromCause, systemInformation } from './ModelVisibleErrors'
@@ -80,7 +80,7 @@ const toolCallsFromAssistantMessage = (assistantMessage: Prompt.AssistantMessage
 
 /** Decode and validate the provider-supplied tool call id as a Fold ToolCallId. */
 const decodeToolCallId = (toolCall: ToolCallPart): Effect.Effect<ToolCallId> =>
-	Schema.decodeUnknownEffect(ToolCallId)(toolCall.id).pipe(Effect.orDie)
+	Schema.decodeEffect(ToolCallId)(toolCall.id).pipe(Effect.orDie)
 
 /** Encode one persisted tool-result message in Effect AI's Prompt schema. */
 const encodedToolResultMessage = (input: {
@@ -89,35 +89,21 @@ const encodedToolResultMessage = (input: {
 	readonly result: unknown
 	readonly isFailure: boolean
 }) =>
-	Effect.sync(() =>
-		Schema.encodeUnknownSync(Prompt.ToolMessage)(
-			Prompt.toolMessage({
-				content: [
-					Prompt.toolResultPart({
-						id: input.toolCallId,
-						name: input.toolName,
-						result: input.result,
-						isFailure: input.isFailure,
-						providerExecuted: false,
-					}),
-				],
-			}),
-		),
-	)
+	Schema.encodeEffect(Prompt.ToolMessage)(
+		Prompt.toolMessage({
+			content: [
+				Prompt.toolResultPart({
+					id: input.toolCallId,
+					name: input.toolName,
+					result: input.result,
+					isFailure: input.isFailure,
+					providerExecuted: false,
+				}),
+			],
+		}),
+	).pipe(Effect.orDie)
 
-const encodeJsonString = Schema.encodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
-
-/** Compare unknown values by JSON representation, falling back to object identity when either has none. */
-const valuesHaveSameJsonRepresentation = (left: unknown, right: unknown): boolean => {
-	const leftJson = encodeJsonString(left)
-	const rightJson = encodeJsonString(right)
-
-	return Option.isSome(leftJson) && Option.isSome(rightJson)
-		? leftJson.value === rightJson.value
-		: Object.is(left, right)
-}
-
-const unexpectedToolFailureResult = (toolName: string, cause: Cause.Cause<unknown>): string =>
+const unexpectedToolFailureResult = <E>(toolName: string, cause: Cause.Cause<E>): string =>
 	systemInformation(`Tool "${toolName}" failed unexpectedly: ${modelVisibleErrorDetailsFromCause(cause)}`)
 
 const hookFailureResult = (error: HookExecutionError, toolName: string): string => {
@@ -129,22 +115,8 @@ const hookFailureResult = (error: HookExecutionError, toolName: string): string 
 	)
 }
 
-const hookExecutionErrorFromCause = (cause: Cause.Cause<unknown>): HookExecutionError | undefined => {
-	const reason = cause.reasons.find(Cause.isFailReason)
-
-	return isHookExecutionError(reason?.error) ? reason.error : undefined
-}
-
-const failureResultFromCause = (toolName: string, cause: Cause.Cause<unknown>): string => {
-	const hookError = hookExecutionErrorFromCause(cause)
-
-	return hookError === undefined
-		? unexpectedToolFailureResult(toolName, cause)
-		: hookFailureResult(hookError, toolName)
-}
-
 /** Build the final handler output used when a tool handler fails while streaming. */
-const failedToolHandlerOutput = (toolName: string, cause: Cause.Cause<unknown>): ToolHandlerOutput => ({
+const failedToolHandlerOutput = <E>(toolName: string, cause: Cause.Cause<E>): ToolHandlerOutput => ({
 	result: unexpectedToolFailureResult(toolName, cause),
 	encodedResult: unexpectedToolFailureResult(toolName, cause),
 	isFailure: true,
@@ -152,9 +124,9 @@ const failedToolHandlerOutput = (toolName: string, cause: Cause.Cause<unknown>):
 })
 
 /** Build the handler output for a failed or interrupted handler stream, reading the interrupt note. */
-const failedOrInterruptedToolHandlerOutput = (
+const failedOrInterruptedToolHandlerOutput = <E>(
 	toolName: string,
-	cause: Cause.Cause<unknown>,
+	cause: Cause.Cause<E>,
 	interruptNoteRef: Ref.Ref<string | null>,
 ): Effect.Effect<ToolHandlerOutput> =>
 	Cause.hasInterrupts(cause)
@@ -269,13 +241,22 @@ export const liveToolRuntimeLayer: Layer.Layer<
 						}),
 				})
 			}).pipe(
+				Effect.catchTag('HookExecutionError', (error) =>
+					Effect.succeed(
+						PreparedToolCall.replaceResult({
+							original: input.toolCall,
+							result: hookFailureResult(error, input.toolCall.name),
+							isFailure: true,
+						}),
+					),
+				),
 				Effect.catchCause((cause) =>
 					Effect.succeed(
 						PreparedToolCall.replaceResult({
 							original: input.toolCall,
 							result: Cause.hasInterrupts(cause)
 								? interruptedToolResult
-								: failureResultFromCause(input.toolCall.name, cause),
+								: unexpectedToolFailureResult(input.toolCall.name, cause),
 							isFailure: true,
 						}),
 					),
@@ -293,8 +274,8 @@ export const liveToolRuntimeLayer: Layer.Layer<
 			if (!input.output.preliminary) return Effect.void
 
 			return Effect.gen(function* () {
-				const payload = yield* Effect.sync(() =>
-					Schema.decodeUnknownSync(Schema.Json)(input.output.encodedResult),
+				const payload = yield* Schema.decodeUnknownEffect(Schema.Json)(input.output.encodedResult).pipe(
+					Effect.orDie,
 				)
 
 				yield* sink.emit({
@@ -407,7 +388,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 
 				const toolEvents = {
 					/** Annotate and forward one JSON progress payload from the running handler. */
-					emit: (payload: typeof Schema.Json.Type) =>
+					emit: (payload: Schema.Json) =>
 						sink.emit({
 							agentId: input.agentId,
 							parentAgentId: input.parentAgentId,
@@ -467,7 +448,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 						result: finalOutput.result,
 						isFailure: finalOutput.isFailure,
 					}
-					if (!valuesHaveSameJsonRepresentation(input.prepared.original.params, input.prepared.params)) {
+					if (!Equal.equals(input.prepared.original.params, input.prepared.params)) {
 						result.executedInput = input.prepared.params
 					}
 
@@ -501,6 +482,9 @@ export const liveToolRuntimeLayer: Layer.Layer<
 
 				return yield* Effect.uninterruptibleMask((restore) =>
 					restore(runnable).pipe(
+						Effect.catchTag('HookExecutionError', (error) =>
+							Effect.succeed({ result: hookFailureResult(error, toolName), isFailure: true }),
+						),
 						Effect.catchCause((cause) =>
 							Cause.hasInterrupts(cause)
 								? // Handler finalizers already ran during unwind, so the note carries their final
@@ -512,7 +496,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 										})),
 									)
 								: Effect.succeed({
-										result: failureResultFromCause(toolName, cause),
+										result: unexpectedToolFailureResult(toolName, cause),
 										isFailure: true,
 									}),
 						),

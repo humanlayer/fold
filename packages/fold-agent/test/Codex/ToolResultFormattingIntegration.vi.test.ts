@@ -61,7 +61,7 @@ const expectedModelText = [
 	'Successfully replaced 1 block(s) in editable.txt.',
 ]
 
-const expectedDurableResults: ReadonlyArray<typeof Schema.Json.Type> = [
+const expectedDurableResults: ReadonlyArray<Schema.Json> = [
 	{ _tag: 'text', text: '1→read alpha\n2→read beta\n3→' },
 	{ _tag: 'text', text: 'bash success\n' },
 	{ _tag: 'failure', text: 'bash failure\n\n\nCommand exited with code 7' },

@@ -22,7 +22,7 @@ const readNonEmpty = (path: string): Effect.Effect<CodexInstructionSource | null
 			Effect.map((content) =>
 				content.trim().length === 0 ? null : { path, content, scope: 'ancestor' as const },
 			),
-			Effect.catch(() => Effect.succeed(null)),
+			Effect.orElseSucceed(() => null),
 		)
 	})
 

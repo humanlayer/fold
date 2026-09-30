@@ -107,15 +107,15 @@ export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 		const path = yield* Path.Path
 		const diagnostics: Array<CodexPluginDiagnostic> = []
 		const configPath = path.join(options.codexHome, 'config.toml')
-		const config = yield* fs.readFileString(configPath).pipe(Effect.catch(() => Effect.succeed('')))
+		const config = yield* fs.readFileString(configPath).pipe(Effect.orElseSucceed(() => ''))
 		const roots: Array<CodexPluginSkillRoot> = []
 		for (const plugin of parseEnabledPlugins(config)) {
 			const identity = `${plugin.name}@${plugin.marketplace}`
 			const cachePath = path.join(options.codexHome, 'plugins', 'cache', plugin.marketplace, plugin.name)
-			const entries = yield* fs.readDirectory(cachePath).pipe(Effect.catch(() => Effect.succeed([])))
+			const entries = yield* fs.readDirectory(cachePath).pipe(Effect.orElseSucceed(() => []))
 			const directories: Array<string> = []
 			for (const entry of entries) {
-				const info = yield* fs.stat(path.join(cachePath, entry)).pipe(Effect.catch(() => Effect.succeed(null)))
+				const info = yield* fs.stat(path.join(cachePath, entry)).pipe(Effect.orElseSucceed(() => null))
 				if (info?.type === 'Directory') directories.push(entry)
 			}
 			const version = selectedVersion(directories)
@@ -125,7 +125,7 @@ export const discoverCodexPluginSkillRoots = (options: CodexPluginOptions) =>
 			let manifestPath = ''
 			for (const relativePath of ['plugin.json', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json']) {
 				const candidate = path.join(bundle, relativePath)
-				const contents = yield* fs.readFileString(candidate).pipe(Effect.catch(() => Effect.succeed(null)))
+				const contents = yield* fs.readFileString(candidate).pipe(Effect.orElseSucceed(() => null))
 				if (contents === null) continue
 				manifestPath = candidate
 				manifest = Option.getOrNull(decodeCodexPluginManifest(contents))

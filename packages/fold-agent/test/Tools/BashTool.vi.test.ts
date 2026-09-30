@@ -27,7 +27,7 @@ it.live('captures stdout and reports success on exit 0', () =>
 it.live('omits null-containing stdout with a model-actionable notice', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const ambient = yield* makeAmbientServices()
+		const ambient = yield* makeAmbientServices
 		const result = yield* handlerOf(bashTool({ cwd: dir }))({ command: `printf 'before\\0after'` }).pipe(
 			Effect.provide(ambient.layer),
 		)
@@ -186,7 +186,7 @@ it.live('timeout kills the whole process group, including grandchildren', () =>
 it.live('emits schema-typed stdout/stderr deltas while running', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const ambient = yield* makeAmbientServices()
+		const ambient = yield* makeAmbientServices
 
 		yield* handlerOf(bashTool({ cwd: dir }))({ command: 'echo to-stdout && echo to-stderr 1>&2' }).pipe(
 			Effect.provide(ambient.layer),
@@ -235,7 +235,7 @@ it.live('uses OutputStore for deterministic bash spill paths when provided', () 
 		const sessionId = SessionId.make('sess_eeeeeeeeeeeeeeeeeeeeeeee')
 		const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
 		const outputStore = yield* makeOutputStore({ sessionId, foldHome: dir })
-		const ambient = yield* makeAmbientServices()
+		const ambient = yield* makeAmbientServices
 
 		const result = yield* handlerOf(bashTool({ cwd: dir, outputStore }))({ command: 'seq 1 3000' }).pipe(
 			Effect.provide(ambient.layer),
@@ -324,7 +324,7 @@ it.live('an empty-output timeout reports only the status (no "(no output)" prefi
 it.live('streams output to the spill file as it is written; interruption notes the path (ruling 5)', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const ambient = yield* makeAmbientServices()
+		const ambient = yield* makeAmbientServices
 		const tool = bashTool({ cwd: dir, spillDir: dir })
 
 		const commandFiber = yield* Effect.forkChild(

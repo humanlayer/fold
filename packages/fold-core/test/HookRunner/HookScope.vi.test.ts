@@ -21,7 +21,7 @@ const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
 const GuardState = defineToolState({
 	namespace: 'guard',
 	keys: {
-		count: Schema.Number,
+		count: Schema.Finite,
 	},
 })
 
@@ -100,7 +100,7 @@ describe('HookRunner hook scope services', () => {
 			const JudgeState = defineToolState({
 				namespace: 'judge',
 				keys: {
-					attempts: Schema.Number,
+					attempts: Schema.Finite,
 				},
 			})
 

@@ -9,6 +9,7 @@
  */
 import { Effect } from 'effect'
 
+import { systemPromptBlocks } from '../Api/AgentDefinition'
 import type { FoldTool } from '../Api/ToolDefinition'
 import type { HookConfig } from '../HookRunner/Types'
 import type { ForkAgentDefinition, ForkAgentDefinitionId } from './ForkAgentDefinition'
@@ -25,7 +26,8 @@ export type CollectedAgentDefinitions = {
 export type RegisteredAgentType = {
 	readonly name: string
 	readonly description: string
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	/** Own leading prompt blocks, normalized from the definition (empty when it has none). */
+	readonly systemPrompt: ReadonlyArray<string>
 	/**
 	 * The type's tools exactly as configured - its skillTool/subagentTool values included. The
 	 * Subagents service realizes session-initialized values from their session-start contributions
@@ -136,7 +138,7 @@ export const agentRegistryFromDefinitions = (definitions: CollectedAgentDefiniti
 	const registeredFrom = (definition: SubagentDefinition): RegisteredAgentType => ({
 		name: definition.name,
 		description: definition.description,
-		systemPrompt: definition.systemPrompt ?? null,
+		systemPrompt: systemPromptBlocks(definition.systemPrompt),
 		tools: definition.tools ?? [],
 		model: definition.model,
 		hooks: definition.hooks ?? {},

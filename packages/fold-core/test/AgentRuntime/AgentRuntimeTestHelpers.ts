@@ -51,7 +51,7 @@ export const startInput = (overrides?: Partial<StartAgentInput>): StartAgentInpu
 	skill: null,
 	agentType: null,
 	model: testModel,
-	systemPrompt: 'You are a test agent.',
+	systemPrompt: ['You are a test agent.'],
 	...overrides,
 })
 

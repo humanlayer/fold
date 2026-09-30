@@ -59,9 +59,7 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 							if (Predicate.isTagged(op, 'add')) continue
 							if (!files.has(op.path)) {
 								const source = yield* resolvePath(op.path)
-								const content = yield* fs
-									.readFileString(source)
-									.pipe(Effect.catch(() => Effect.succeed<string | null>(null)))
+								const content = yield* fs.readFileString(source).pipe(Effect.orElseSucceed(() => null))
 								files.set(op.path, content)
 							}
 						}

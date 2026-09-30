@@ -46,15 +46,15 @@ export const BashOutputDelta = Schema.Struct({
 })
 export type BashOutputDelta = typeof BashOutputDelta.Type
 
-const isBashOutputDelta = Schema.is(BashOutputDelta)
+const decodeBashOutputDeltaOption = Schema.decodeUnknownOption(BashOutputDelta)
 
 /** Decode one tool-progress payload as a bash output delta; null when it is something else. */
-export const decodeBashOutputDelta = (payload: unknown): BashOutputDelta | null =>
-	isBashOutputDelta(payload) ? payload : null
+export const decodeBashOutputDelta = (payload: Schema.Json): BashOutputDelta | null =>
+	Option.getOrNull(decodeBashOutputDeltaOption(payload))
 
 const BashParameters = Schema.Struct({
 	command: Schema.String.annotate({ description: 'Bash command to execute' }),
-	timeout_ms: Schema.optionalKey(Schema.Number).annotate({
+	timeout_ms: Schema.optionalKey(Schema.Finite).annotate({
 		description: 'Timeout in milliseconds (default 120000)',
 	}),
 	workdir: Schema.optionalKey(Schema.String).annotate({
@@ -225,13 +225,13 @@ const killWithEscalation = (handle: ChildProcessSpawner.ChildProcessHandle): Eff
 	Effect.gen(function* () {
 		const graceful = yield* handle.kill({ killSignal: 'SIGTERM' }).pipe(
 			Effect.timeoutOption(killGrace),
-			Effect.catch(() => Effect.succeed(Option.some<void>(undefined))),
+			Effect.orElseSucceed(() => Option.some<void>(undefined)),
 		)
 
 		if (Option.isNone(graceful)) {
 			yield* handle.kill({ killSignal: 'SIGKILL' }).pipe(
 				Effect.timeoutOption(Duration.seconds(5)),
-				Effect.catch(() => Effect.succeed(Option.none<void>())),
+				Effect.orElseSucceed(() => Option.none<void>()),
 			)
 		}
 	})
@@ -275,7 +275,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					params.workdir === undefined ? configuredCwd : yield* resolveToCwd(params.workdir, configuredCwd)
 				const timeoutMilliseconds = yield* validateTimeout(params.timeout_ms ?? defaultTimeoutMilliseconds)
 
-				if (!(yield* fs.exists(cwd).pipe(Effect.catch(() => Effect.succeed(false))))) {
+				if (!(yield* fs.exists(cwd).pipe(Effect.orElseSucceed(() => false)))) {
 					return yield* Effect.fail({
 						message: `Working directory does not exist: ${cwd}\nCannot execute bash commands.`,
 					})
@@ -401,7 +401,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					// null = killed by a signal (no exit code): pi treats that as success, not an error.
 					const awaitExit: Effect.Effect<number | null> = handle.exitCode.pipe(
 						Effect.map((code) => Number(code)),
-						Effect.catch(() => Effect.succeed(null)),
+						Effect.orElseSucceed(() => null),
 					)
 
 					const firstExit = yield* awaitExit.pipe(Effect.timeoutOption(Duration.millis(timeoutMilliseconds)))

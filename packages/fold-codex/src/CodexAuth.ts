@@ -15,7 +15,7 @@ import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
 import { Clock, Context, Effect, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
-import { type CodexAuthStore, type CodexTokenData, makeCodexAuthStore } from './AuthStore'
+import { type CodexAuthStore, type CodexAuthStoreError, type CodexTokenData, makeCodexAuthStore } from './AuthStore'
 import type { BrowserFlowOptions, DeviceCodePrompt } from './OAuthFlows'
 import {
 	CodexAuthError,
@@ -76,7 +76,7 @@ export const makeCodexAuth = Effect.fnUntraced(function* (options?: MakeCodexAut
 
 	let currentToken = yield* store.load
 
-	const storeFailed = (cause: unknown) =>
+	const storeFailed = (cause: CodexAuthStoreError) =>
 		new CodexAuthError({
 			reason: 'StoreFailed',
 			message: `Failed to persist Codex credentials to ${store.path}`,

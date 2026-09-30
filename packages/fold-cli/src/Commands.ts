@@ -37,7 +37,13 @@ import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode }
 import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
 
 declare const FOLD_VERSION: string
+/** The release version the native build defines as a global; source runs have no such global. */
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- probes a build-time global that may not be defined
 const version = typeof FOLD_VERSION === 'string' ? FOLD_VERSION : '0.0.0'
+
+/** Whether the CLI runs on Bun (the native package); the full-screen TUI needs Bun's runtime. */
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- probes for the Bun global, absent under Node
+const isBunRuntime = typeof Bun !== 'undefined'
 
 type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
 
@@ -349,7 +355,7 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const prompt = optionValue(input.prompt)
-			if (prompt === undefined && typeof Bun === 'undefined') {
+			if (prompt === undefined && !isBunRuntime) {
 				yield* printFailure(
 					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 				)
@@ -394,7 +400,7 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 
 const launchTui = (options: CliSessionOptions, catalog: ReadonlyArray<ModelCatalogEntry>, prompt?: string) =>
 	Effect.gen(function* () {
-		if (typeof Bun === 'undefined') {
+		if (!isBunRuntime) {
 			yield* printFailure(
 				'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 			)
@@ -466,7 +472,7 @@ const sessions = Command.make(
 const tui = Command.make('tui', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			if (typeof Bun === 'undefined') {
+			if (!isBunRuntime) {
 				yield* printFailure(
 					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 				)

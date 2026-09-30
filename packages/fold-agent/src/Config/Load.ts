@@ -150,7 +150,7 @@ export const loadFoldConfig = (
 		const fs = yield* FileSystem.FileSystem
 		const path = configPathFor(options)
 
-		const exists = yield* fs.exists(path).pipe(Effect.catch(() => Effect.succeed(false)))
+		const exists = yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))
 		if (!exists) return yield* new ConfigFileNotFoundError({ path })
 
 		const text = yield* fs.readFileString(path).pipe(Effect.orDie)

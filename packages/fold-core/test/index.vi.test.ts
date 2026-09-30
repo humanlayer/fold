@@ -6,7 +6,7 @@ import { LogSeq, ToolCallId } from '../src/index'
 
 it.effect('defines core schemas', () =>
 	Effect.gen(function* () {
-		const seq = yield* Schema.decodeUnknownEffect(LogSeq)(0)
+		const seq = yield* Schema.decodeEffect(LogSeq)(0)
 		const toolCallId = ToolCallId.create()
 
 		expect(seq).toBe(0)

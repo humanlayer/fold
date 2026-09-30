@@ -15,10 +15,10 @@ const Device = Schema.Struct({
 	device_code: Schema.String,
 	user_code: Schema.String,
 	verification_uri_complete: Schema.String,
-	expires_in: Schema.Number,
-	interval: Schema.Number,
+	expires_in: Schema.Finite,
+	interval: Schema.Finite,
 })
-const Token = Schema.Struct({ access_token: Schema.String, refresh_token: Schema.String, expires_in: Schema.Number })
+const Token = Schema.Struct({ access_token: Schema.String, refresh_token: Schema.String, expires_in: Schema.Finite })
 const DeviceToken = Schema.Union([
 	Schema.Struct({ _tag: Schema.tagDefaultOmit('Granted'), ...Token.fields }),
 	Schema.Struct({ _tag: Schema.tagDefaultOmit('Pending'), error: Schema.Literal('authorization_pending') }),
@@ -63,8 +63,7 @@ const post = <S extends Schema.Top>(
 	HttpClientRequest.post(url).pipe(
 		HttpClientRequest.acceptJson,
 		HttpClientRequest.schemaBodyJson(Schema.Record(Schema.String, Schema.String))(body),
-		Effect.flatMap(client.execute),
-		Effect.flatMap((r) => (statusOk ? HttpClientResponse.filterStatusOk(r) : Effect.succeed(r))),
+		Effect.flatMap((statusOk ? HttpClient.filterStatusOk(client) : client).execute),
 		Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
 	)
 const get = <S extends Schema.Top>(client: HttpClient.HttpClient, url: string, access: string, schema: S) =>

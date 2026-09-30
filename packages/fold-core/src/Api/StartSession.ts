@@ -74,6 +74,7 @@ import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { runtimeForAgent } from '../Projection/Projection'
 import { AgentNotRunningError } from '../Session/Errors'
 import {
+	isProfileRole,
 	makeProfiles,
 	profileModelFor,
 	Profiles,
@@ -102,7 +103,7 @@ import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '
 import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
 import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
-import type { AgentDefinition } from './AgentDefinition'
+import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from './AgentDefinition'
 import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
@@ -117,7 +118,7 @@ export type StartSessionOptions = {
 	readonly log?: FoldEventLog
 	/** Host working directory recorded on `session_started`; omit on hosts without a filesystem. */
 	readonly cwd?: string
-	readonly meta?: Readonly<Record<string, typeof Schema.Json.Type>>
+	readonly meta?: Readonly<Record<string, Schema.Json>>
 	/**
 	 * Pre-minted session id, for hosts that name the log location by session id (D5 layout). Defaults
 	 * to a freshly minted id.
@@ -168,7 +169,7 @@ export type ResumeSessionOptions = {
 export type SwitchModelOptions = {
 	readonly reason?: string
 	/** Replace the agent's own leading prompt blocks from this epoch on. */
-	readonly systemPrompt?: string | ReadonlyArray<string>
+	readonly systemPrompt?: SystemPromptInput
 	/** Replace the installed tools from this epoch on. */
 	readonly tools?: ReadonlyArray<FoldTool>
 	/**
@@ -279,7 +280,8 @@ export type FoldSession = {
 type SessionAgentConfig = {
 	readonly model: FoldModel
 	readonly promptCacheKey: string | null
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	/** The agent's own leading blocks, normalized from its descriptor. */
+	readonly systemPrompt: ReadonlyArray<string>
 	readonly tools: ReadonlyArray<FoldTool>
 }
 
@@ -304,15 +306,11 @@ const providedPlatformServices: Effect.Effect<Context.Context<PlatformServices>>
 const eventLogLayerFor = (
 	log: FoldEventLog,
 	platformServices: Context.Context<PlatformServices>,
-): Layer.Layer<EventLog, unknown, Ids> =>
+): Layer.Layer<EventLog, never, Ids> =>
 	Match.valueTags(log, {
 		memory: () => layerInMemoryEventLogWithIds,
 		source: ({ make }) => Layer.effect(EventLog, make.pipe(Effect.provideContext(platformServices))),
 	})
-
-/** Fold a leading-prompt config value into an ordered block list. */
-const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
-	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
 
 const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
 const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
@@ -342,7 +340,7 @@ type SessionGraph = {
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
 	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
 	readonly leadingPromptFor: (
-		systemPrompt: string | ReadonlyArray<string> | null,
+		systemPrompt: ReadonlyArray<string>,
 		tools: ReadonlyArray<FoldTool>,
 	) => ReadonlyArray<string> | null
 }
@@ -378,7 +376,7 @@ const assembleSessionGraph = (options: {
 		// models need no profiles at all.
 		const initialProfiles = options.profiles ?? {}
 		for (const entry of registry.entries) {
-			if (typeof entry.model !== 'string') continue
+			if (!isProfileRole(entry.model)) continue
 			if (profileModelFor(initialProfiles, entry.model) !== undefined) continue
 			const needed =
 				entry.model === 'orchestrator' ? 'profiles.orchestrator (or profiles.smart)' : `profiles.${entry.model}`
@@ -404,6 +402,9 @@ const assembleSessionGraph = (options: {
 		// constant; for the skill tool it is the roster scan): the contribution - realized tool,
 		// leading-prompt block, skill source - is reused by every agent listing that value, across
 		// epochs, and by every subagent dispatch (D20's one-snapshot law).
+		// Tool inits may acquire services (a tool's own layer); they live as long as the session, including
+		// tools first introduced by a later agent switch.
+		const sessionScope = yield* Effect.scope
 		const toolContributions = new Map<FoldTool, SessionToolContribution>()
 		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
 			Effect.forEach(
@@ -411,6 +412,7 @@ const assembleSessionGraph = (options: {
 				(tool) =>
 					tool.init.pipe(
 						Effect.provideContext(platformServices),
+						Scope.provide(sessionScope),
 						Effect.map((contribution) => toolContributions.set(tool, contribution)),
 					),
 				{ discard: true },
@@ -449,17 +451,17 @@ const assembleSessionGraph = (options: {
 
 		/** One agent's leading blocks: its own, then its tools' contributed blocks (skills block, D20). */
 		const leadingPromptFor = (
-			systemPrompt: string | ReadonlyArray<string> | null,
+			systemPrompt: ReadonlyArray<string>,
 			tools: ReadonlyArray<FoldTool>,
 		): ReadonlyArray<string> | null => {
-			const blocks = [...promptBlocksOf(systemPrompt), ...realizeAgentTools(tools).promptBlocks]
+			const blocks = [...systemPrompt, ...realizeAgentTools(tools).promptBlocks]
 			return Arr.isArrayEmpty(blocks) ? null : blocks
 		}
 
 		const initialConfig: SessionAgentConfig = {
 			model: agent.model,
 			promptCacheKey: agent.promptCacheKey ?? null,
-			systemPrompt: agent.systemPrompt ?? null,
+			systemPrompt: systemPromptBlocks(agent.systemPrompt),
 			tools: rootTools,
 		}
 
@@ -516,7 +518,6 @@ const assembleSessionGraph = (options: {
 		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
 		// would share module-level layers - the event log, the event spine - across sessions, and hand
 		// every model switch the previous epoch's memoized runtime.
-		const sessionScope = yield* Effect.scope
 		const sessionMemoMap = yield* Layer.makeMemoMap
 		const sessionServices = yield* Layer.buildWithMemoMap(servicesLayer, sessionMemoMap, sessionScope).pipe(
 			Effect.orDie,
@@ -591,7 +592,7 @@ const assembleSessionGraph = (options: {
 						),
 					]
 					for (const entry of bindings) {
-						if (typeof entry.model !== 'string') continue
+						if (!isProfileRole(entry.model)) continue
 						if (profileModelFor(candidateProfiles, entry.model) !== undefined) continue
 						throw new Error(
 							`subagent type "${entry.name}" binds model role "${entry.model}", but the session has no covering profile binding`,
@@ -874,7 +875,10 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 				const next: SessionAgentConfig = {
 					model,
 					promptCacheKey: current.promptCacheKey,
-					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+					systemPrompt:
+						switchOptions?.systemPrompt === undefined
+							? current.systemPrompt
+							: systemPromptBlocks(switchOptions.systemPrompt),
 					tools: switchOptions?.tools ?? current.tools,
 				}
 				yield* validateToolNames(next.tools)

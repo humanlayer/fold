@@ -10,7 +10,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { SessionId, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
+import { SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
 import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
 import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
 
@@ -73,22 +73,22 @@ export const sessionLogPathFor = (sessionId: SessionId, options?: SessionLayoutO
 /** Schema for a deleted session record in the index. */
 const DeletedIndexRecord = Schema.TaggedStruct('deleted', {
 	sessionId: SessionId,
-	ts: Schema.Number,
+	ts: Schema.Finite,
 })
 
 /** Schema for the session summary as persisted in the index. */
 const SessionSummarySchema = Schema.Struct({
 	sessionId: SessionId,
 	path: Schema.String,
-	mtimeMs: Schema.Number,
-	size: Schema.optional(Schema.Number),
+	mtimeMs: Schema.Finite,
+	size: Schema.optional(Schema.Finite),
 	title: Schema.String,
 	status: Schema.Literals(['ready', 'running', 'stopped', 'error']),
-	turns: Schema.Number,
+	turns: Schema.Finite,
 	providerId: Schema.NullOr(Schema.String),
 	modelId: Schema.NullOr(Schema.String),
 	model: Schema.NullOr(Schema.Any),
-	contextTokens: Schema.NullOr(Schema.Number),
+	contextTokens: Schema.NullOr(Schema.Finite),
 	mode: Schema.NullOr(Schema.String),
 	rpi: Schema.Boolean,
 	profile: Schema.NullOr(Schema.String),
@@ -96,8 +96,8 @@ const SessionSummarySchema = Schema.Struct({
 
 /** Schema for a summary record in the index (includes source file metadata for cache validation). */
 const SummaryIndexRecord = Schema.TaggedStruct('summary', {
-	sourceMtimeMs: Schema.Number,
-	sourceSize: Schema.Number,
+	sourceMtimeMs: Schema.Finite,
+	sourceSize: Schema.Finite,
 	summary: SessionSummarySchema,
 })
 
@@ -148,7 +148,7 @@ const loadSessionIndex = (
 				}
 				return latest
 			}),
-			Effect.catch(() => Effect.succeed(new Map<SessionId, SessionIndexRecord>())),
+			Effect.orElseSucceed(() => new Map<SessionId, SessionIndexRecord>()),
 		)
 	})
 
@@ -182,9 +182,7 @@ export const listSessionLogs = (
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
 
-		const names = yield* fs
-			.readDirectory(directory)
-			.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
+		const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []))
 
 		const refs: Array<SessionLogRef> = []
 		for (const name of names) {
@@ -193,7 +191,7 @@ export const listSessionLogs = (
 			if (Option.isNone(decoded)) continue
 
 			const path = join(directory, name)
-			const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+			const info = yield* fs.stat(path).pipe(Effect.orElseSucceed(() => null))
 			if (info === null || info.type !== 'File') continue
 
 			refs.push({
@@ -230,12 +228,20 @@ type FinishedAssistantMessage = Extract<LogEntry, { readonly _tag: 'assistant-me
 const isFinishedAssistantMessage = (entry: LogEntry): entry is FinishedAssistantMessage =>
 	Predicate.isTagged(entry, 'assistant-message') && entry.finish !== null
 
-const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message' }>): string => {
-	const content = entry.message.content
-	return typeof content === 'string'
-		? content
-		: content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-}
+/**
+ * The launch fields fold records in `session_started.meta`. Meta is an open JSON record; a session
+ * whose meta does not match reads as having none of these fields.
+ */
+const FoldSessionMeta = Schema.Struct({
+	mode: Schema.optionalKey(Schema.String),
+	rpi: Schema.optionalKey(Schema.Boolean),
+	profile: Schema.optionalKey(Schema.String),
+})
+type FoldSessionMeta = typeof FoldSessionMeta.Type
+const decodeFoldSessionMeta = Schema.decodeUnknownOption(FoldSessionMeta)
+
+const sessionMeta = (started: Extract<LogEntry, { readonly _tag: 'session_started' }> | undefined): FoldSessionMeta =>
+	started === undefined ? {} : Option.getOrElse(decodeFoldSessionMeta(started.meta), () => ({}))
 
 const computeStatus = (
 	lastFinished: Extract<LogEntry, { readonly _tag: 'agent-finished' }> | undefined,
@@ -272,11 +278,11 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 			? generatedTitle.title
 			: userEntries[0] === undefined
 				? 'Untitled session'
-				: userMessageText(userEntries[0]).replace(/\s+/g, ' ').trim()
+				: encodedContentText(userEntries[0].message.content).replace(/\s+/g, ' ').trim()
 	const modelEntry = rootEntries.findLast(carriesModel)
 	const model = modelEntry?.model ?? null
 	const latestUsage = rootEntries.findLast(isFinishedAssistantMessage)
-	const meta = started?.meta ?? {}
+	const meta = sessionMeta(started)
 	const lastFinished = rootEntries.findLast(isAgentFinished)
 	const latestRootEntry = rootEntries.findLast((entry) => !isSessionTitle(entry))
 	const status = computeStatus(lastFinished, latestRootEntry)
@@ -290,9 +296,9 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 		modelId: model?.modelId ?? null,
 		model,
 		contextTokens: latestUsage !== undefined ? usageInputTotal(latestUsage.finish.usage) : null,
-		mode: typeof meta.mode === 'string' ? meta.mode : null,
+		mode: meta.mode ?? null,
 		rpi: meta.rpi === true,
-		profile: typeof meta.profile === 'string' ? meta.profile : null,
+		profile: meta.profile ?? null,
 	}
 }
 
@@ -415,7 +421,7 @@ export const sessionLogById = (
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = sessionLogPathFor(sessionId, options)
-		const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+		const info = yield* fs.stat(path).pipe(Effect.orElseSucceed(() => null))
 
 		if (info === null || info.type !== 'File') return null
 

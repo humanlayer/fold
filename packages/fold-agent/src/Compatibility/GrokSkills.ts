@@ -1,8 +1,16 @@
 import { homedir } from 'node:os'
 
 import { SkillNotFoundError, type Skill, type SkillMeta, type SkillSourceService } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Path } from 'effect'
-import { parse as parseYaml } from 'yaml'
+import { Effect, FileSystem, Option, Path } from 'effect'
+
+import {
+	decodeSkillFrontmatter,
+	skillNameOr,
+	splitSkillFile,
+	type SkillFrontmatter,
+	type SkillFrontmatterInvalidFields,
+	type SkillFrontmatterInvalidYaml,
+} from '../Skills/SkillFrontmatter'
 
 export type GrokSkillOptions = {
 	readonly cwd: string
@@ -15,8 +23,7 @@ export type GrokSkillOptions = {
 	readonly ignoredPaths?: ReadonlyArray<string>
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const noFrontmatter: SkillFrontmatter = {}
 
 /**
  * Build the Grok-compatible skill source. FileSystem and Path are captured here, once; `list` and
@@ -55,38 +62,47 @@ export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill
 		return roots
 	}
 
+	const toSkill = (skillPath: string, frontmatter: SkillFrontmatter, content: string, namespace?: string): Skill => {
+		const directory = path.dirname(skillPath)
+		const rawName = skillNameOr(frontmatter, path.basename(directory))
+		const name = namespace === undefined ? rawName : `${namespace}:${rawName}`
+		const declared = (frontmatter.description ?? '').trim()
+		const description =
+			declared.length > 0
+				? declared
+				: content
+						.split(/\n\s*\n/)[0]
+						?.replace(/^#+\s*/, '')
+						.trim() || rawName
+		return { name, description, content, baseDir: directory }
+	}
+
+	/**
+	 * Grok frontmatter is optional: without it, or with fields of the wrong type, the name falls back to
+	 * the directory and the description to the body's first paragraph. Unparseable YAML skips the skill.
+	 */
 	const loadSkill = (skillPath: string, namespace?: string): Effect.Effect<Skill | null> =>
 		fs.readFileString(skillPath).pipe(
-			Effect.flatMap((raw) =>
-				Effect.try(() => {
-					const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-					const directory = path.dirname(skillPath)
-					let parsed: unknown = null
-					let content = normalized.trim()
-					if (normalized.startsWith('---\n')) {
-						const end = normalized.indexOf('\n---', 4)
-						if (end >= 0) {
-							parsed = parseYaml(normalized.slice(4, end))
-							content = normalized.slice(end + 4).trim()
-						}
-					}
-					const record = isRecord(parsed) ? parsed : {}
-					const rawName =
-						typeof record.name === 'string' && record.name.length > 0
-							? record.name
-							: path.basename(directory)
-					const name = namespace === undefined ? rawName : `${namespace}:${rawName}`
-					const description =
-						typeof record.description === 'string' && record.description.trim().length > 0
-							? record.description.trim()
-							: content
-									.split(/\n\s*\n/)[0]
-									?.replace(/^#+\s*/, '')
-									.trim() || rawName
-					return { name, description, content, baseDir: directory }
-				}),
-			),
-			Effect.orElseSucceed(() => null),
+			Effect.flatMap((raw) => {
+				const { frontmatter, body } = splitSkillFile(raw)
+				const fields: Effect.Effect<
+					SkillFrontmatter,
+					SkillFrontmatterInvalidYaml | SkillFrontmatterInvalidFields
+				> = Option.match(frontmatter, {
+					onNone: () => Effect.succeed(noFrontmatter),
+					onSome: decodeSkillFrontmatter,
+				})
+				return fields.pipe(
+					Effect.catchTag('SkillFrontmatterInvalidFields', (error) =>
+						Effect.as(
+							Effect.logWarning(`skill frontmatter ignored (invalid fields): ${skillPath}`, error),
+							noFrontmatter,
+						),
+					),
+					Effect.map((decoded) => toSkill(skillPath, decoded, body, namespace)),
+				)
+			}),
+			Effect.catch((error) => Effect.as(Effect.logWarning(`skill skipped: ${skillPath}`, error), null)),
 		)
 
 	const scanRoot = (

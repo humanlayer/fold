@@ -160,3 +160,26 @@ it.effect('skips malformed skill frontmatter and rejects backslash plugin roots 
 		})
 	}),
 )
+
+it.effect('falls back to the directory name and first paragraph without usable frontmatter', () =>
+	Effect.gen(function* () {
+		const fs = memoryFileSystem({
+			'/repo/.grok/skills/plain/SKILL.md': '# Plain skill\r\n\r\nMore detail.',
+			'/repo/.grok/skills/typed/SKILL.md': '---\nname: 42\ndescription: Ignored\n---\n# Typed skill\n\nBody',
+			'/repo/.grok/skills/named/SKILL.md': '---\nname: renamed\n---\nFirst paragraph\n\nSecond',
+		})
+
+		const compatibility = yield* loadGrokCompatibility({
+			cwd: '/repo',
+			projectRoot: '/repo',
+			home: '',
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
+
+		expect(yield* compatibility.skills.list).toEqual([
+			{ name: 'renamed', description: 'First paragraph' },
+			{ name: 'plain', description: 'Plain skill' },
+			{ name: 'typed', description: 'Typed skill' },
+		])
+		expect((yield* compatibility.skills.load('plain')).content).toBe('# Plain skill\n\nMore detail.')
+	}),
+)

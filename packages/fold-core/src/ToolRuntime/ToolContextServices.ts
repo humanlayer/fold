@@ -13,7 +13,7 @@ export type ToolRuntimeEvent = {
 	readonly parentAgentId: AgentId | null
 	readonly toolCallId: ToolCallId
 	readonly toolName: string
-	readonly payload: typeof Schema.Json.Type
+	readonly payload: Schema.Json
 }
 
 /** Session-level sink for ephemeral tool progress. ToolRuntime annotates events with runtime identity. */
@@ -34,7 +34,7 @@ export const noopToolEventSink: ToolEventSinkService = {
 /** Ambient service visible to tool handlers. Tools emit arbitrary JSON progress here. */
 export type ToolEventsService = {
 	/** Publish one JSON progress payload from the currently running tool call. */
-	readonly emit: (payload: typeof Schema.Json.Type) => Effect.Effect<void>
+	readonly emit: (payload: Schema.Json) => Effect.Effect<void>
 }
 
 /** Per-call tool progress emitter. ToolRuntime provides this around each handler. */

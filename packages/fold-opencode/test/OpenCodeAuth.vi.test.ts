@@ -1,5 +1,5 @@
 import { describe, it } from '@effect/vitest'
-import { Effect, Layer, Option } from 'effect'
+import { Effect } from 'effect'
 import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 import { expect } from 'vitest'
 
@@ -18,7 +18,7 @@ describe('OpenCode device OAuth', () => {
 		let polls = 0
 		const store: OpenCodeAuthStore = {
 			path: '/tmp/auth.json',
-			load: Effect.succeed(Option.none()),
+			load: Effect.succeedNone,
 			save: (token) =>
 				Effect.sync(() => {
 					saved.push(token.access)
@@ -74,6 +74,6 @@ describe('OpenCode device OAuth', () => {
 				'/api/user',
 				'/api/orgs',
 			])
-		}).pipe(Effect.provide(Layer.succeed(HttpClient.HttpClient, client)))
+		}).pipe(Effect.provideService(HttpClient.HttpClient, client))
 	})
 })

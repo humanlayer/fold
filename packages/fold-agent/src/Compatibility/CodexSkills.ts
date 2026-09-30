@@ -2,7 +2,8 @@ import { homedir } from 'node:os'
 
 import { SkillNotFoundError, type Skill, type SkillMeta, type SkillSourceService } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Path } from 'effect'
-import { parse as parseYaml } from 'yaml'
+
+import { parseSkillFile, skillNameOr } from '../Skills/SkillFrontmatter'
 
 export type CodexSkillOptions = {
 	readonly cwd: string
@@ -12,9 +13,6 @@ export type CodexSkillOptions = {
 	readonly bundledPaths?: ReadonlyArray<string>
 	readonly pluginPaths?: ReadonlyArray<{ readonly name: string; readonly path: string }>
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
  * Build the Codex-compatible skill source. FileSystem and Path are captured here, once; `list` and
@@ -27,7 +25,7 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 	const path = yield* Path.Path
 
 	const exists = (candidate: string): Effect.Effect<boolean> =>
-		fs.exists(candidate).pipe(Effect.catch(() => Effect.succeed(false)))
+		fs.exists(candidate).pipe(Effect.orElseSucceed(() => false))
 
 	const isAncestor = (ancestor: string, candidate: string): boolean => {
 		let current = candidate
@@ -53,32 +51,19 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 		return roots
 	}
 
+	/** Codex requires frontmatter with a non-blank description; a read or parse failure skips the skill. */
 	const loadSkill = (skillPath: string, namespace?: string): Effect.Effect<Skill | null> =>
 		fs.readFileString(skillPath).pipe(
-			Effect.map((raw) => {
-				const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-				if (!normalized.startsWith('---\n')) return null
-				const end = normalized.indexOf('\n---', 4)
-				if (end < 0) return null
-				const parsed: unknown = parseYaml(normalized.slice(4, end))
-				if (
-					!isRecord(parsed) ||
-					typeof parsed.description !== 'string' ||
-					parsed.description.trim().length === 0
-				)
-					return null
+			Effect.flatMap(parseSkillFile),
+			Effect.map(({ frontmatter, body }) => {
+				const description = (frontmatter.description ?? '').trim()
+				if (description.length === 0) return null
 				const directory = path.dirname(skillPath)
-				const rawName =
-					typeof parsed.name === 'string' && parsed.name.length > 0 ? parsed.name : path.basename(directory)
+				const rawName = skillNameOr(frontmatter, path.basename(directory))
 				const name = namespace === undefined ? rawName : `${namespace}:${rawName}`
-				return {
-					name,
-					description: parsed.description.trim(),
-					content: normalized.slice(end + 4).trim(),
-					baseDir: directory,
-				}
+				return { name, description, content: body, baseDir: directory }
 			}),
-			Effect.catch(() => Effect.succeed(null)),
+			Effect.catch((error) => Effect.as(Effect.logWarning(`skill skipped: ${skillPath}`, error), null)),
 		)
 
 	const scanRoot = (root: string, namespace?: string): Effect.Effect<ReadonlyArray<Skill>> =>
@@ -93,11 +78,11 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 						if (skill !== null) found.push(skill)
 						return
 					}
-					const entries = yield* fs.readDirectory(directory).pipe(Effect.catch(() => Effect.succeed([])))
+					const entries = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []))
 					for (const entry of [...entries].sort()) {
 						if (entry.startsWith('.') || entry === 'node_modules') continue
 						const child = path.join(directory, entry)
-						const info = yield* fs.stat(child).pipe(Effect.catch(() => Effect.succeed(null)))
+						const info = yield* fs.stat(child).pipe(Effect.orElseSucceed(() => null))
 						if (info?.type === 'Directory') yield* scan(child)
 					}
 				})

@@ -94,10 +94,7 @@ it('gives researcher read + bash + skill only - no editing tools, no way to dele
 	}
 	expect(dispatchableFrom(researcher)).toEqual([])
 	// The shared ast-grep outline guidance rides as a second leading block after the ported prompt.
-	expect(Array.isArray(researcher.systemPrompt)).toBe(true)
-	if (Array.isArray(researcher.systemPrompt)) {
-		expect(researcher.systemPrompt.at(-1)).toBe(AST_GREP_OUTLINE_GUIDANCE)
-	}
+	expect(researcher.systemPrompt).toEqual([expect.any(String), AST_GREP_OUTLINE_GUIDANCE])
 })
 
 it('gives web-search-researcher web tools only and no way to delegate', () => {

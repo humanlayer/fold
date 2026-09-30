@@ -34,7 +34,7 @@ export type StartAgentInput = {
 	readonly model: ActiveModel
 	readonly promptCacheKey?: string | null
 	/** One leading system block, an ordered set of blocks (one system message each), or null for none. */
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	readonly systemPrompt: ReadonlyArray<string> | null
 }
 
 /** Input for running one started agent through a full user-message-to-finished run. */
@@ -56,7 +56,7 @@ export type SwitchModelInput = {
 	readonly toolCallId: ToolCallId | null
 	readonly model: ActiveModel
 	/** The agent's own prompt blocks, recomposed with the new family's base prompt. */
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	readonly systemPrompt: ReadonlyArray<string> | null
 	readonly reason: string | null
 }
 

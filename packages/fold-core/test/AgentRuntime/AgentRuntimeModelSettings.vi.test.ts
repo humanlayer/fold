@@ -50,7 +50,7 @@ const openAiMediumModel: ActiveModel = {
 
 it.effect('applies the projected reasoning to requests and rebinds after a thinking-change', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('one'), textTurn('two')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -83,7 +83,7 @@ it.effect('applies the projected reasoning to requests and rebinds after a think
 
 it.effect('binds the model but sends no reasoning config when the active level is off', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('one')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -101,7 +101,7 @@ it.effect('binds the model but sends no reasoning config when the active level i
 
 it.effect('a tools-change entry rebinds the advertised toolkit on the next request', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('one'), textTurn('two')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -249,7 +249,9 @@ it.effect('openai agents start with the gpt base prompt, apply_patch toolset, an
 		const result = yield* Effect.gen(function* () {
 			const runtime = yield* AgentRuntime
 
-			const started = yield* runtime.start(startInput({ model: openAiMediumModel, systemPrompt: 'agent rules' }))
+			const started = yield* runtime.start(
+				startInput({ model: openAiMediumModel, systemPrompt: ['agent rules'] }),
+			)
 			yield* runtime.run(runInput('go'))
 			const entries = yield* collectEntries
 
@@ -280,7 +282,7 @@ it.effect('anthropic agents start with the claude base prompt, write/edit toolse
 			const runtime = yield* AgentRuntime
 
 			const started = yield* runtime.start(
-				startInput({ model: claudeAdaptiveModel, systemPrompt: 'agent rules' }),
+				startInput({ model: claudeAdaptiveModel, systemPrompt: ['agent rules'] }),
 			)
 			yield* runtime.run(runInput('go'))
 			const entries = yield* collectEntries
@@ -314,7 +316,7 @@ it.effect('switchModel from openai to anthropic rebinds prompt, toolset, and pro
 		const entries = yield* Effect.gen(function* () {
 			const runtime = yield* AgentRuntime
 
-			yield* runtime.start(startInput({ model: openAiMediumModel, systemPrompt: 'agent rules' }))
+			yield* runtime.start(startInput({ model: openAiMediumModel, systemPrompt: ['agent rules'] }))
 			yield* runtime.run(runInput('first'))
 
 			yield* runtime.switchModel({
@@ -322,7 +324,7 @@ it.effect('switchModel from openai to anthropic rebinds prompt, toolset, and pro
 				parentAgentId: null,
 				toolCallId: null,
 				model: claudeAdaptiveModel,
-				systemPrompt: 'agent rules',
+				systemPrompt: ['agent rules'],
 				reason: 'test switches models',
 			})
 
@@ -367,7 +369,7 @@ it.effect('switchModel appends thinking-change when the requested level changes 
 		const entries = yield* Effect.gen(function* () {
 			const runtime = yield* AgentRuntime
 
-			yield* runtime.start(startInput({ model: openAiMediumModel, systemPrompt: 'agent rules' }))
+			yield* runtime.start(startInput({ model: openAiMediumModel, systemPrompt: ['agent rules'] }))
 			yield* runtime.run(runInput('first'))
 
 			yield* runtime.switchModel({
@@ -375,7 +377,7 @@ it.effect('switchModel appends thinking-change when the requested level changes 
 				parentAgentId: null,
 				toolCallId: null,
 				model: openAiHighModel,
-				systemPrompt: 'agent rules',
+				systemPrompt: ['agent rules'],
 				reason: 'test raises reasoning',
 			})
 
@@ -414,7 +416,7 @@ it.effect('switchModel from anthropic to codex flips write/edit to apply_patch',
 		yield* Effect.gen(function* () {
 			const runtime = yield* AgentRuntime
 
-			yield* runtime.start(startInput({ model: claudeAdaptiveModel, systemPrompt: 'agent rules' }))
+			yield* runtime.start(startInput({ model: claudeAdaptiveModel, systemPrompt: ['agent rules'] }))
 			yield* runtime.run(runInput('first'))
 
 			yield* runtime.switchModel({
@@ -422,7 +424,7 @@ it.effect('switchModel from anthropic to codex flips write/edit to apply_patch',
 				parentAgentId: null,
 				toolCallId: null,
 				model: codexModel,
-				systemPrompt: 'agent rules',
+				systemPrompt: ['agent rules'],
 				reason: 'test switches models',
 			})
 

@@ -5,7 +5,7 @@
  */
 import { Match, Schema } from 'effect'
 
-import type { Photon, PhotonImage } from './Photon'
+import type { PhotonImage, PhotonModule } from './Photon'
 
 const Orientation = Schema.Literals([1, 2, 3, 4, 5, 6, 7, 8])
 type Orientation = typeof Orientation.Type
@@ -134,7 +134,7 @@ export const exifOrientation = (bytes: Uint8Array): Orientation => {
 
 type DstIndex = (x: number, y: number, width: number, height: number) => number
 
-const rotate90 = (photon: Photon, image: PhotonImage, dstIndex: DstIndex): PhotonImage => {
+const rotate90 = (photon: PhotonModule, image: PhotonImage, dstIndex: DstIndex): PhotonImage => {
 	const width = image.get_width()
 	const height = image.get_height()
 	const source = image.get_raw_pixels()
@@ -155,7 +155,11 @@ const rotate90 = (photon: Photon, image: PhotonImage, dstIndex: DstIndex): Photo
 }
 
 /** Apply the EXIF orientation to a decoded image. Rotations return a NEW image; flips mutate. */
-export const applyExifOrientation = (photon: Photon, image: PhotonImage, originalBytes: Uint8Array): PhotonImage =>
+export const applyExifOrientation = (
+	photon: PhotonModule,
+	image: PhotonImage,
+	originalBytes: Uint8Array,
+): PhotonImage =>
 	Match.value(exifOrientation(originalBytes)).pipe(
 		Match.when(1, () => image),
 		Match.when(2, () => {

@@ -6,13 +6,13 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Option, Schema } from 'effect'
 
-import { CodexTokenData, makeCodexAuthStore, TOKEN_EXPIRY_BUFFER_MS } from '../src/index'
+import { CodexAuthDocument, CodexTokenData, makeCodexAuthStore, TOKEN_EXPIRY_BUFFER_MS } from '../src/index'
 
 const tempStorePath = (): string => join(mkdtempSync(join(tmpdir(), 'fold-codex-store-')), 'auth.json')
 
-const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))
+const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(CodexAuthDocument))
 
-const readDocument = (path: string): Record<string, unknown> => {
+const readDocument = (path: string): CodexAuthDocument => {
 	const document = decodeDocument(readFileSync(path, 'utf8'))
 	if (Option.isNone(document)) throw new Error(`invalid auth document at ${path}`)
 	return document.value
@@ -97,6 +97,31 @@ describe('CodexAuthStore', () => {
 
 			expect(Option.isNone(loaded)).toBe(true)
 			expect(readFileSync(path, 'utf8')).toBe('not json at all {')
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
+	)
+
+	it.effect('save and clear refuse to overwrite a corrupt document', () =>
+		Effect.gen(function* () {
+			const path = tempStorePath()
+			writeFileSync(path, 'not json at all {')
+
+			const store = yield* makeCodexAuthStore({ path })
+			const saveError = yield* Effect.flip(store.save(sampleToken))
+			const clearError = yield* Effect.flip(store.clear)
+
+			expect(saveError.reason).toBe('InvalidDocument')
+			expect(clearError.reason).toBe('InvalidDocument')
+			expect(readFileSync(path, 'utf8')).toBe('not json at all {')
+		}).pipe(Effect.provide(NodeFileSystem.layer)),
+	)
+
+	it.effect('a token without an account id encodes without the key', () =>
+		Effect.gen(function* () {
+			const path = tempStorePath()
+			const store = yield* makeCodexAuthStore({ path })
+			yield* store.save(new CodexTokenData({ type: 'oauth', access: 'a', refresh: 'r', expires: 1 }))
+
+			expect(readDocument(path)['codex']).toEqual({ type: 'oauth', access: 'a', refresh: 'r', expires: 1 })
 		}).pipe(Effect.provide(NodeFileSystem.layer)),
 	)
 

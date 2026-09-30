@@ -23,7 +23,8 @@ import { Effect, FileSystem, Match, Option, Schema, type PlatformError } from 'e
 
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
-import { processImage } from './Image/Process'
+import { Photon } from './Image/Photon'
+import { imageOmittedNote, processImage } from './Image/Process'
 
 const binaryFileExtensions = new Set([
 	'.zip',
@@ -118,6 +119,7 @@ export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 	defineTool({
 		...readToolContract,
 		dependencies: platformToolDependencies,
+		layer: Photon.layer,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
@@ -134,21 +136,27 @@ export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 
 				const imageMimeType = detectSupportedImageMimeType(bytes.subarray(0, imageSniffBytes))
 				if (imageMimeType !== null) {
-					const processed = yield* Effect.promise(() => processImage(bytes, imageMimeType))
-
-					if (!processed.ok) {
-						return ToolResultText.make({
-							text: `Read image file [${imageMimeType}]\n${processed.message}`,
-						})
-					}
-
-					const note = [`Read image file [${processed.mimeType}]`, ...processed.hints].join('\n')
-					return ToolResultMultipart.make({
-						content: [
-							ToolResultTextPart.make({ text: note }),
-							ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
-						],
-					})
+					return yield* processImage(bytes, imageMimeType).pipe(
+						Effect.map((processed) =>
+							ToolResultMultipart.make({
+								content: [
+									ToolResultTextPart.make({
+										text: [`Read image file [${processed.mimeType}]`, ...processed.hints].join(
+											'\n',
+										),
+									}),
+									ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
+								],
+							}),
+						),
+						Effect.catchTag('ImageProcessError', (error) =>
+							Effect.succeed(
+								ToolResultText.make({
+									text: `Read image file [${imageMimeType}]\n${imageOmittedNote(error)}`,
+								}),
+							),
+						),
+					)
 				}
 
 				const text = yield* decodeTextFile(params.path, bytes)

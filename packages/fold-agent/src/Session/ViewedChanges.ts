@@ -9,7 +9,7 @@ const ViewedChangeRecord = Schema.Struct({
 	sessionId: SessionId,
 	changeKey: Schema.String,
 	patchHash: Schema.String,
-	ts: Schema.Number,
+	ts: Schema.Finite,
 })
 
 const ViewedChangeLine = Schema.fromJsonString(ViewedChangeRecord)
@@ -40,7 +40,7 @@ export const loadViewedPatchHashes = (
 				}
 				return viewed
 			}),
-			Effect.catch(() => Effect.succeed({})),
+			Effect.orElseSucceed(() => ({})),
 		)
 	})
 

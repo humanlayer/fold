@@ -81,7 +81,7 @@ export const skillSourceFromData = (skills: ReadonlyArray<SkillData>): Effect.Ef
 /** Skills configuration descriptor for {@link defineAgent}: data-backed or a custom source seam. */
 export type FoldSkills =
 	| { readonly _tag: 'fromData'; readonly skills: ReadonlyArray<SkillData> }
-	| { readonly _tag: 'source'; readonly make: Effect.Effect<SkillSourceService, unknown, FileSystem.FileSystem> }
+	| { readonly _tag: 'source'; readonly make: Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> }
 
 const FoldSkills = Data.taggedEnum<FoldSkills>()
 
@@ -90,11 +90,12 @@ export const skillsFromData = (skills: ReadonlyArray<SkillData>): FoldSkills => 
 
 /**
  * Configure an agent's skills from a custom source implementation (the extension seam, mirroring
- * `eventLogSource`): fold-agent exposes its disk loader through this.
+ * `eventLogSource`): fold-agent exposes its disk loader through this. A construction failure is an
+ * infrastructure defect.
  */
-export const skillSource = (make: Effect.Effect<SkillSourceService, unknown, FileSystem.FileSystem>): FoldSkills =>
-	FoldSkills.source({ make })
+export const skillSource = <E>(make: Effect.Effect<SkillSourceService, E, FileSystem.FileSystem>): FoldSkills =>
+	FoldSkills.source({ make: Effect.orDie(make) })
 
 /** Lower a skills descriptor to its source implementation (composition-root internal). */
 export const skillSourceFor = (skills: FoldSkills): Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> =>
-	Predicate.isTagged(skills, 'fromData') ? skillSourceFromData(skills.skills) : skills.make.pipe(Effect.orDie)
+	Predicate.isTagged(skills, 'fromData') ? skillSourceFromData(skills.skills) : skills.make

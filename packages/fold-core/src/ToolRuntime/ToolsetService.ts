@@ -36,7 +36,7 @@ export type ToolsetService = {
 	 */
 	readonly handle: (
 		name: string,
-		params: unknown,
+		params: Tool.ParametersEncoded<Tool.Any>,
 	) => Effect.Effect<
 		Stream.Stream<
 			ToolHandlerOutput,

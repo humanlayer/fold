@@ -24,6 +24,8 @@
 		".opencode/**",
 		".pi/**",
 		"tools/**",
+		"scripts/**",
+		"packages/fold/postinstall.mjs",
 	],
 	"rules": {
 		"anti-slop/no-conditional-empty-object-spread": "error",
@@ -65,6 +67,11 @@
 		"automation/no-in-operator": "error",
 		"automation/no-switch": "error",
 		"automation/no-type-assertion": "error",
+		"automation/no-try-catch": "error",
+		"automation/no-typeof-object": "error",
+		"anti-slop/no-runtime-typeof": "error",
+		"anti-slop/no-unknown-parameters": "error",
+		"anti-slop/no-unsafe-dictionary-type": "error",
 		"import-extensions/no-relative-source-extensions": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
@@ -114,6 +121,8 @@
 		// Effect generator, which the vitest plugin can't see as a test block. Disabled to
 		// avoid a false positive on every Effect test.
 		"vitest/no-standalone-expect": "off",
+		// Vitest's `expect(value, message)` takes an optional failure message as its second argument.
+		"vitest/valid-expect": ["error", { "maxArgs": 2 }],
 		// Disallow `.ts` extensions in imports; TypeScript resolves them without extensions.
 		"import/extensions": ["error", "never"],
 	},
@@ -157,6 +166,11 @@
 				"automation/no-in-operator": "off",
 				"automation/no-switch": "off",
 				"automation/no-type-assertion": "off",
+				"automation/no-try-catch": "off",
+				"automation/no-typeof-object": "off",
+				"anti-slop/no-runtime-typeof": "off",
+				"anti-slop/no-unknown-parameters": "off",
+				"anti-slop/no-unsafe-dictionary-type": "off",
 			},
 		},
 		{
@@ -176,7 +190,7 @@
 			},
 		},
 		{
-			// Tests may cast to build deliberately invalid inputs, and build JSON fixtures directly.
+			// Tests may cast to build deliberately invalid inputs, build JSON fixtures directly, and inspect raw values.
 			"files": [
 				"**/test/**",
 				"**/tests/**",
@@ -192,6 +206,11 @@
 				"automation/no-banned-type-assertions": "off",
 				"automation/no-global-json": "off",
 				"automation/no-type-assertion": "off",
+				"automation/no-try-catch": "off",
+				"automation/no-typeof-object": "off",
+				"anti-slop/no-runtime-typeof": "off",
+				"anti-slop/no-unknown-parameters": "off",
+				"anti-slop/no-unsafe-dictionary-type": "off",
 			},
 		},
 		{
@@ -217,13 +236,6 @@
 			"rules": {
 				"import/extensions": "off",
 				"import-extensions/no-relative-source-extensions": "off",
-			},
-		},
-		{
-			// The published launcher's postinstall runs under plain Node with no dependencies, so it cannot use Effect.
-			"files": ["packages/fold/postinstall.mjs"],
-			"rules": {
-				"automation/no-global-json": "off",
 			},
 		},
 		{

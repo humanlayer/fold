@@ -28,10 +28,12 @@ import type { HttpClientResponse } from 'effect/unstable/http'
 import type { CodexAuthStore } from './AuthStore'
 import type { CodexIdentityOptions } from './CodexAuth'
 import { makeCodexAuth, withCodexAuth } from './CodexAuth'
-import type { CodexHardeningOptions, CodexRetryOptions, StreamRetryInfo } from './Hardening'
+import type { CodexHardeningOptions, CodexRetryOptions, CodexStreamError, StreamRetryInfo } from './Hardening'
 import {
 	CODEX_ERROR_MODULE,
-	codexAcquisitionStallError,
+	CodexFirstEventStall,
+	codexRetryAfter,
+	codexStallToAiError,
 	defaultCodexHardening,
 	isCodexRetryableBeforeFirstEvent,
 	withFirstEventRetry,
@@ -48,8 +50,8 @@ export const DEFAULT_REQUEST_RETRY_TIMES = 3
 export const DEFAULT_CODEX_MODEL_ID = 'gpt-6-astra'
 
 type ResponsesPayload = Omit<typeof OpenAiSchema.CreateResponse.Encoded, 'stream'>
-type ResponseBody = typeof OpenAiSchema.Response.Type
-type ResponseEvent = typeof OpenAiSchema.ResponseStreamEvent.Type
+type ResponseBody = OpenAiSchema.Response
+type ResponseEvent = OpenAiSchema.ResponseStreamEvent
 type EventStream = Stream.Stream<ResponseEvent, AiError.AiError>
 type MutableCodexRetryOptions = { -readonly [Key in keyof CodexRetryOptions]: CodexRetryOptions[Key] }
 
@@ -113,14 +115,16 @@ type ResponseFold = {
  */
 export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
 	// `min` caps the infinite exponential delay; `max` intersects it with the finite retry counter.
-	const retryDelaySchedule: Schedule.Schedule<Duration.Duration, AiError.AiError> = Schedule.min([
+	const retryDelaySchedule: Schedule.Schedule<Duration.Duration, CodexStreamError> = Schedule.min([
 		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
 		Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs)),
 	]).pipe(Schedule.jittered, (schedule) =>
 		Schedule.max([schedule, Schedule.recurs(options.firstEventTimeoutRetries)]),
 	)
 	const retrySchedule = Schedule.passthrough(retryDelaySchedule).pipe(
-		Schedule.modifyDelay(({ output, duration }) => Effect.succeed(output.retryAfter ?? duration)),
+		Schedule.modifyDelay(({ output, duration }) =>
+			Effect.succeed(Option.getOrElse(codexRetryAfter(output), () => duration)),
+		),
 	)
 
 	// One request attempt, bounded by the first-event timeout: a request that gets no response at all
@@ -130,7 +134,8 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 		Effect.suspend(() => inner.createResponseStream(payload)).pipe(
 			Effect.timeoutOrElse({
 				duration: Duration.millis(options.firstEventTimeoutMs),
-				orElse: () => Effect.fail(codexAcquisitionStallError(options.firstEventTimeoutMs)),
+				orElse: () =>
+					Effect.fail(new CodexFirstEventStall({ phase: 'request', timeoutMs: options.firstEventTimeoutMs })),
 			}),
 		)
 
@@ -138,15 +143,16 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 		payload: ResponsesPayload,
 	): Effect.Effect<readonly [HttpClientResponse.HttpClientResponse, EventStream], AiError.AiError> => {
 		const transformed = liftLeadingSystemIntoInstructions(payload)
+		type HardenedStream = Stream.Stream<ResponseEvent, CodexStreamError>
 
 		// Attempt 0 acquires eagerly (its HttpClientResponse is the tuple's response); retryable acquisition
 		// failures retry in-effect - nothing has streamed yet, so a re-send cannot duplicate anything.
 		return acquireOnce(transformed).pipe(
 			Effect.retry({ while: isCodexRetryableBeforeFirstEvent, schedule: retrySchedule }),
 			Effect.map(([response, firstStream]) => {
-				let pending: EventStream | null = firstStream
+				let pending: HardenedStream | null = firstStream
 
-				const makeAttempt = (): EventStream => {
+				const makeAttempt = (): HardenedStream => {
 					if (pending !== null) {
 						const stream = pending
 						pending = null
@@ -158,11 +164,21 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 					return Stream.unwrap(Effect.map(acquireOnce(transformed), ([, stream]) => stream))
 				}
 
-				const hardened = withFirstEventRetry(() => makeAttempt().pipe(withStallTimeouts(options)), options)
+				// Stalls stay typed through the retry policy; the OpenAI client contract carries only AiError.
+				const hardened: EventStream = withFirstEventRetry(
+					() => makeAttempt().pipe(withStallTimeouts(options)),
+					options,
+				).pipe(
+					Stream.catchTags({
+						CodexFirstEventStall: (stall) => Stream.fail(codexStallToAiError(stall)),
+						CodexIdleStall: (stall) => Stream.fail(codexStallToAiError(stall)),
+					}),
+				)
 
 				const result: readonly [HttpClientResponse.HttpClientResponse, EventStream] = [response, hardened]
 				return result
 			}),
+			Effect.catchTag('CodexFirstEventStall', (stall) => Effect.fail(codexStallToAiError(stall))),
 		)
 	}
 

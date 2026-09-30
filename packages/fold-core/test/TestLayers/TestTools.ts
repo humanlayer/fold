@@ -25,11 +25,10 @@ export type EchoRecorder = {
 	readonly calls: Ref.Ref<ReadonlyArray<string>>
 }
 
-export const makeEchoRecorder = (): Effect.Effect<EchoRecorder> =>
-	Effect.gen(function* () {
-		const calls = yield* Ref.make<ReadonlyArray<string>>([])
-		return { calls }
-	})
+export const makeEchoRecorder: Effect.Effect<EchoRecorder> = Effect.gen(function* () {
+	const calls = yield* Ref.make<ReadonlyArray<string>>([])
+	return { calls }
+})
 
 export const layerEchoTool = (recorder: EchoRecorder) =>
 	TestToolkit.toLayer(

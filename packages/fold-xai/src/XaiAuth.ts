@@ -3,7 +3,7 @@ import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
 import { Clock, Context, Effect, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
-import { makeXaiAuthStore, type XaiAuthStore, type XaiTokenData } from './AuthStore'
+import { makeXaiAuthStore, type XaiAuthStore, type XaiAuthStoreError, type XaiTokenData } from './AuthStore'
 import type { XaiBrowserFlowOptions, XaiDevicePrompt } from './OAuthFlows'
 import {
 	makeXaiIssuerClient,
@@ -39,7 +39,7 @@ export const makeXaiAuth = Effect.fnUntraced(function* (options?: MakeXaiAuthOpt
 	const client = makeXaiIssuerClient(yield* HttpClient.HttpClient)
 	const semaphore = Semaphore.makeUnsafe(1)
 	let current = yield* store.load
-	const storeError = (cause: unknown) =>
+	const storeError = (cause: XaiAuthStoreError) =>
 		new XaiAuthError({
 			reason: 'StoreFailed',
 			message: `Failed to persist xAI credentials to ${store.path}`,

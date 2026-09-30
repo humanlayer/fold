@@ -33,8 +33,8 @@ export class EventLogCorruptEntryError extends Schema.TaggedError<EventLogCorrup
 	{
 		operation: EventLogOperation,
 		message: Schema.String,
-		seq: Schema.optional(Schema.Number),
-		line: Schema.optional(Schema.Number),
+		seq: Schema.optional(Schema.Finite),
+		line: Schema.optional(Schema.Finite),
 		cause: Schema.optional(Schema.Defect()),
 	},
 ) {}

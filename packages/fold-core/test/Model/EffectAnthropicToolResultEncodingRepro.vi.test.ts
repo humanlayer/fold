@@ -112,7 +112,7 @@ it.effect('passes strings through and emits multipart client tool results in Eff
 			]),
 		}).pipe(Effect.provide(modelLayer))
 
-		const body = Schema.decodeUnknownSync(CapturedRequest)(requestBody)
+		const body = yield* Schema.decodeUnknownEffect(CapturedRequest)(requestBody)
 		const toolResults = body.messages.flatMap((message) =>
 			message.content.filter(
 				(block) => block['type'] === 'tool_result' && Predicate.isString(block['tool_use_id']),

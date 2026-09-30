@@ -21,7 +21,7 @@ import { createSignal, type Accessor } from 'solid-js'
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from '../ContextWindow'
 import { makeHostedTuiSession, type HostedTuiSession, type HostedTuiSessionMetadata } from './HostedTuiSession'
 import { requestToLaunchOptions, sessionToLaunchOptions } from './LaunchRequests'
-import { makeLiveSessionHost } from './LiveSessionHost'
+import { type LiveSessionHostClosedError, makeLiveSessionHost } from './LiveSessionHost'
 import type { NewSessionRequest } from './NewSessionModal'
 import { projectSessionRows, type SessionRow } from './SessionListProjection'
 import type { TuiOptions } from './TuiSessionOptions'
@@ -60,7 +60,9 @@ export type TuiSessionWorkspace = {
 	readonly currentMode: Accessor<ProfileModeName>
 	readonly get: (sessionId: SessionId) => HostedTuiSession | null
 	readonly openInitial: Effect.Effect<HostedTuiSession, TuiInitialSessionError>
-	readonly open: (sessionId: SessionId) => Option.Option<Effect.Effect<HostedTuiSession, unknown>>
+	readonly open: (
+		sessionId: SessionId,
+	) => Option.Option<Effect.Effect<HostedTuiSession, TuiInitialSessionError | LiveSessionHostClosedError>>
 	readonly create: (request: NewSessionRequest) => Option.Option<Effect.Effect<HostedTuiSession, LaunchModelError>>
 	readonly delete: (sessionId: SessionId) => Option.Option<Effect.Effect<void>>
 }
@@ -143,7 +145,7 @@ export const makeTuiSessionWorkspace = (options: {
 				),
 			)
 		}
-		const host = makeLiveSessionHost<HostedTuiSession>(parentScope, (hosted) => ({
+		const host = makeLiveSessionHost<HostedTuiSession, TuiInitialSessionError>(parentScope, (hosted) => ({
 			sessionId: hosted.sessionId,
 			phase: 'live',
 			status: hosted.state().status,

@@ -9,7 +9,7 @@ import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestH
 
 it.effect('stops gracefully after repeated identical tool-call batches', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([
 			toolCallTurn([{ id: 'provider-call-1', name: 'echo', params: { text: 'loop' } }]),
 			toolCallTurn([{ id: 'provider-call-2', name: 'echo', params: { text: 'loop' } }]),

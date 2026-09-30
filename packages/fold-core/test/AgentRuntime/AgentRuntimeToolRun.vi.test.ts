@@ -10,7 +10,7 @@ import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestH
 
 it.effect('runs a tool turn end to end, rewriting and restoring provider tool-call ids', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([
 			toolCallTurn([{ id: 'provider-call-1', name: 'echo', params: { text: 'hi' } }]),
 			textTurn('Tool said hi'),

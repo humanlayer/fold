@@ -1,11 +1,11 @@
 /**
  * File-backed Xai credential store: one provider-keyed JSON document (default `~/.fold/auth.json`)
  * holding OAuth tokens only (D23). Field names are agentlayer-compatible (`access`/`refresh`/`expires`/
- * `accountId`), so existing entries copy across verbatim. Reads degrade to "no credentials" on missing
- * or malformed data - the document may hold other providers' entries, so a bad xai entry is skipped,
- * never clobbered; writes merge over the existing document and force `0600` permissions. The FileSystem
- * is a default-or-override seam like fold-agent tools: tests pass an implementation, everyone else gets
- * the Node platform filesystem.
+ * `accountId`), so existing entries copy across verbatim. The document may hold other providers'
+ * entries, so it decodes as provider-keyed JSON and only our entry decodes as a token. A missing file is
+ * an empty document. `load` degrades to "no credentials" (with a logged warning) on an unreadable or
+ * corrupt document or a bad xai entry; `save`/`clear` fail on an unreadable or corrupt document rather
+ * than clobber it. Writes merge over the existing document and force `0600` permissions.
  */
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -23,7 +23,7 @@ export class XaiTokenData extends Schema.Class<XaiTokenData>('fold/XaiTokenData'
 	type: Schema.Literal('oauth'),
 	access: Schema.String,
 	refresh: Schema.String,
-	expires: Schema.Number,
+	expires: Schema.Finite,
 	accountId: Schema.optional(Schema.String),
 }) {
 	/** True when the token is expired - or within the safety buffer of expiring - at `nowMs`. */
@@ -32,9 +32,9 @@ export class XaiTokenData extends Schema.Class<XaiTokenData>('fold/XaiTokenData'
 	}
 }
 
-/** Auth store persistence failure (reads never fail - they degrade to absent credentials). */
+/** Auth store failure: the document could not be read, is not provider-keyed JSON, or could not be written. */
 export class XaiAuthStoreError extends Schema.TaggedError<XaiAuthStoreError>()('XaiAuthStoreError', {
-	reason: Schema.Literals(['WriteFailed']),
+	reason: Schema.Literals(['ReadFailed', 'InvalidDocument', 'WriteFailed']),
 	message: Schema.String,
 	cause: Schema.optional(Schema.Defect()),
 }) {}
@@ -56,25 +56,22 @@ export type MakeXaiAuthStoreOptions = {
 	readonly providerId?: string
 }
 
-/** The auth document is provider-keyed; entries other than ours are opaque and preserved verbatim. */
-const AuthDocument = Schema.Record(Schema.String, Schema.Unknown)
+/** The auth document: JSON entries keyed by provider id. Entries other than ours are preserved verbatim. */
+export const XaiAuthDocument = Schema.Record(Schema.String, Schema.Json)
+export type XaiAuthDocument = typeof XaiAuthDocument.Type
 
-const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(AuthDocument))
+const emptyDocument: XaiAuthDocument = {}
 
-const encodeDocument = Schema.encodeEffect(Schema.fromJsonString(AuthDocument, { space: 2 }))
+const decodeDocument = Schema.decodeEffect(Schema.fromJsonString(XaiAuthDocument))
 
-const decodeToken = Schema.decodeUnknownOption(XaiTokenData)
+const encodeDocument = Schema.encodeEffect(Schema.fromJsonString(XaiAuthDocument, { space: 2 }))
 
-const encodeToken = (token: XaiTokenData): Record<string, unknown> => {
-	const encoded: Record<string, unknown> = {
-		type: token.type,
-		access: token.access,
-		refresh: token.refresh,
-		expires: token.expires,
-	}
-	if (token.accountId !== undefined) encoded['accountId'] = token.accountId
-	return encoded
-}
+/** Our entry's JSON codec: decodes a document value into a token and encodes a token back to JSON. */
+const XaiTokenEntry = Schema.toCodecJson(XaiTokenData)
+
+const decodeTokenEntry = Schema.decodeOption(XaiTokenEntry)
+
+const encodeTokenEntry = Schema.encodeEffect(XaiTokenEntry)
 
 /** Build a file-backed Xai credential store. */
 export const makeXaiAuthStore = (
@@ -84,20 +81,37 @@ export const makeXaiAuthStore = (
 		const path = options?.path ?? defaultAuthStorePath()
 		const providerId = options?.providerId ?? 'xai'
 
-		const readDocument: Effect.Effect<Record<string, unknown>> = fs.readFileString(path).pipe(
-			Effect.flatMap((content) => {
-				const document = decodeDocument(content)
-				return Option.isSome(document)
-					? Effect.succeed(document.value)
-					: Effect.logWarning(`Auth store ${path} is not a JSON object; treating it as empty`).pipe(
-							Effect.as<Record<string, unknown>>({}),
-						)
-			}),
-			// A missing (or unreadable) document is simply "no credentials stored yet".
-			Effect.catch(() => Effect.succeed<Record<string, unknown>>({})),
+		// A missing document is simply "no credentials stored yet"; any other read failure is real.
+		const readDocument: Effect.Effect<XaiAuthDocument, XaiAuthStoreError> = fs.readFileString(path).pipe(
+			Effect.asSome,
+			Effect.catchReason('PlatformError', 'NotFound', () => Effect.succeed(Option.none<string>())),
+			Effect.mapError(
+				(cause) =>
+					new XaiAuthStoreError({
+						reason: 'ReadFailed',
+						message: `Failed to read the auth store at ${path}`,
+						cause,
+					}),
+			),
+			Effect.flatMap(
+				Option.match({
+					onNone: () => Effect.succeed(emptyDocument),
+					onSome: (text) =>
+						decodeDocument(text).pipe(
+							Effect.mapError(
+								(cause) =>
+									new XaiAuthStoreError({
+										reason: 'InvalidDocument',
+										message: `Auth store ${path} is not a JSON object of provider entries`,
+										cause,
+									}),
+							),
+						),
+				}),
+			),
 		)
 
-		const writeDocument = (document: Record<string, unknown>): Effect.Effect<void, XaiAuthStoreError> =>
+		const writeDocument = (document: XaiAuthDocument): Effect.Effect<void, XaiAuthStoreError> =>
 			Effect.gen(function* () {
 				yield* fs.makeDirectory(dirname(path), { recursive: true })
 				const text = yield* encodeDocument(document)
@@ -120,20 +134,36 @@ export const makeXaiAuthStore = (
 			const entry = document[providerId]
 			if (entry === undefined) return Option.none<XaiTokenData>()
 
-			const token = decodeToken(entry)
+			const token = decodeTokenEntry(entry)
 			if (Option.isNone(token)) {
 				yield* Effect.logWarning(`Ignoring invalid "${providerId}" entry in ${path}`)
 			}
 
 			return token
-		}).pipe(Effect.withSpan('fold.xaiAuthStore.load'))
+		}).pipe(
+			Effect.catchTag('XaiAuthStoreError', (error) =>
+				Effect.logWarning(`${error.message}; treating it as holding no credentials`, error.cause).pipe(
+					Effect.as(Option.none<XaiTokenData>()),
+				),
+			),
+			Effect.withSpan('fold.xaiAuthStore.load'),
+		)
 
-		const save = (token: XaiTokenData) =>
-			Effect.gen(function* () {
-				const document = yield* readDocument
-				yield* writeDocument({ ...document, [providerId]: encodeToken(token) })
-				return token
-			}).pipe(Effect.withSpan('fold.xaiAuthStore.save'))
+		const save = Effect.fn('fold.xaiAuthStore.save')(function* (token: XaiTokenData) {
+			const document = yield* readDocument
+			const entry = yield* encodeTokenEntry(token).pipe(
+				Effect.mapError(
+					(cause) =>
+						new XaiAuthStoreError({
+							reason: 'WriteFailed',
+							message: `Failed to encode the "${providerId}" entry for ${path}`,
+							cause,
+						}),
+				),
+			)
+			yield* writeDocument({ ...document, [providerId]: entry })
+			return token
+		})
 
 		const clear = Effect.gen(function* () {
 			const document = yield* readDocument

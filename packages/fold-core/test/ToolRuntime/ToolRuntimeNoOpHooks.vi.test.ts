@@ -8,7 +8,7 @@ import { agentId, collectEntries, makeAssistantToolCall, toolRuntimeBaseLayer } 
 
 it.effect('settles a real tool call with NoOpHookRunner', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const layer = toolRuntimeBaseLayer(hookRunnerNoop, layerEchoTool(recorder))
 
 		const result = yield* Effect.gen(function* () {

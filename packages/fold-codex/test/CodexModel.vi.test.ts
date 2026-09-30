@@ -16,7 +16,7 @@ import {
 import type { CodexRetryOptions } from '../src/index'
 
 type ResponsesPayload = Omit<typeof OpenAiSchema.CreateResponse.Encoded, 'stream'>
-type ResponseEvent = typeof OpenAiSchema.ResponseStreamEvent.Type
+type ResponseEvent = OpenAiSchema.ResponseStreamEvent
 type EventStream = Stream.Stream<ResponseEvent, AiError.AiError>
 
 // The unknown-event fallback in the stream-event union makes plain tagged objects valid events.
@@ -182,7 +182,7 @@ describe('decorateCodexClient', () => {
 						const attempt = yield* Ref.updateAndGet(attempts, (count) => count + 1)
 						if (attempt === 1) {
 							yield* Deferred.succeed(firstAttempt, undefined)
-							return yield* Effect.fail(rateLimitError)
+							return yield* rateLimitError
 						}
 						return [httpResponse, Stream.make(tick('one'))] as const
 					}),

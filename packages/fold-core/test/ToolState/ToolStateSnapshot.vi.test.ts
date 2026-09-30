@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Predicate, Effect, Layer, Stream } from 'effect'
+import { Predicate, Effect, Layer, type Schema, Stream } from 'effect'
 
 import {
 	AgentId,
@@ -17,7 +17,7 @@ const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
 
 const layer = Layer.mergeAll(layerInMemoryEventLog, layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }))
 
-const appendSharedValue = (value: unknown) =>
+const appendSharedValue = (value: Schema.Json) =>
 	Effect.gen(function* () {
 		const eventLog = yield* EventLog
 

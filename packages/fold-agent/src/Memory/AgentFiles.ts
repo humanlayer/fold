@@ -63,7 +63,7 @@ const ancestorDirectories = (start: string): ReadonlyArray<string> => {
 }
 
 const fileExists = (fs: FileSystem.FileSystem, path: string): Effect.Effect<boolean> =>
-	fs.exists(path).pipe(Effect.catch(() => Effect.succeed(false)))
+	fs.exists(path).pipe(Effect.orElseSucceed(() => false))
 
 /**
  * Load agentfiles for a working directory in render order (global, then root..cwd; base then local
@@ -83,7 +83,7 @@ export const loadMemoryFiles = (
 		const addFile = (path: string): Effect.Effect<void> =>
 			Effect.gen(function* () {
 				if (seen.has(path)) return
-				const content = yield* fs.readFileString(path).pipe(Effect.catch(() => Effect.succeed(null)))
+				const content = yield* fs.readFileString(path).pipe(Effect.orElseSucceed(() => null))
 				if (content === null) return
 				seen.add(path)
 				collected.push({ path, content })

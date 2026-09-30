@@ -39,7 +39,7 @@ const corruptEntry = (message: string, cause: unknown, seq?: number) => {
  * so an older runtime never guesses how to replay newer state.
  */
 export const decodeStoredLogEntry = Effect.fn('fold.event_log.decode_stored_entry')(
-	(input: unknown) =>
+	(input: Schema.Json) =>
 		Effect.gen(function* () {
 			const record = yield* Schema.decodeUnknownEffect(PersistedRecord)(input).pipe(
 				Effect.mapError((cause) => corruptEntry('Persisted EventLog entry is not an object', cause)),

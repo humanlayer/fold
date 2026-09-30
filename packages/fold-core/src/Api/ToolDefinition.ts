@@ -11,7 +11,7 @@
  * scan into its description and contributes the skills prompt block - do real work in theirs. Sharing
  * the same value across several agents' `tools` arrays shares one init (one scan, one snapshot).
  */
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { type Context, Effect, FileSystem, Layer, Path, Schema, type Scope } from 'effect'
 import { Tool } from 'effect/unstable/ai'
 import { ChildProcessSpawner } from 'effect/unstable/process'
 
@@ -78,8 +78,10 @@ export const platformToolDependencies = [
 	ChildProcessSpawner.ChildProcessSpawner,
 ] as const
 
-/** Handler stored on a tool descriptor, erased to the runtime dispatch shape. */
-export type ErasedToolHandler = (params: unknown) => Effect.Effect<unknown, unknown, ToolHandlerServices>
+/** Handler stored on a tool descriptor, erased to the runtime dispatch shape (Effect AI's erased tool params). */
+export type ErasedToolHandler = (
+	params: Tool.Parameters<Tool.Any>,
+) => Effect.Effect<unknown, unknown, ToolHandlerServices>
 
 /**
  * What one tool contributes to a session once its `init` has run: the realized tool definition (final
@@ -105,8 +107,11 @@ export type SessionToolContribution = {
  */
 export type FoldTool = {
 	readonly name: string
-	/** Run ONCE per distinct value per session by the composition root; contributions are reused. */
-	readonly init: Effect.Effect<SessionToolContribution, never, FileSystem.FileSystem>
+	/**
+	 * Run ONCE per distinct value per session by the composition root; contributions are reused. Resources
+	 * it acquires (such as a tool's own services) live for the session's scope.
+	 */
+	readonly init: Effect.Effect<SessionToolContribution, never, PlatformServices | Scope.Scope>
 }
 
 /** One realized tool ready to install into a Toolset: the composition-internal, post-init stage. */
@@ -117,7 +122,12 @@ export type RealizedFoldTool = {
 }
 
 /** Options for {@link defineTool}. Schemas default to no parameters, void success, and no failure. */
-export type DefineToolOptions<Params extends Schema.Top, Success extends Schema.Top, Failure extends Schema.Top> = {
+export type DefineToolOptions<
+	Params extends Schema.Top,
+	Success extends Schema.Top,
+	Failure extends Schema.Top,
+	Services = never,
+> = {
 	readonly name: string
 	readonly description: string
 	/** Parameter schema advertised to the model. Defaults to an empty struct (no parameters). */
@@ -127,9 +137,14 @@ export type DefineToolOptions<Params extends Schema.Top, Success extends Schema.
 	/** Failure schema for expected, model-visible failures. Defaults to never (handler cannot fail). */
 	readonly failure?: Failure
 	readonly dependencies?: typeof platformToolDependencies
+	/**
+	 * Services this tool's handler needs beyond the per-call and platform services. The session builds the
+	 * layer once, when the tool is initialized, and every call of this tool uses the same services.
+	 */
+	readonly layer?: Layer.Layer<Services, never, PlatformServices>
 	readonly handler: (
 		params: Params['Type'],
-	) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices | PlatformServices>
+	) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices | PlatformServices | Services>
 }
 
 /**
@@ -149,8 +164,9 @@ export const defineTool = <
 	Params extends Schema.Top = Tool.EmptyParams,
 	Success extends Schema.Top = typeof Schema.Void,
 	Failure extends Schema.Top = typeof Schema.Never,
+	Services = never,
 >(
-	options: DefineToolOptions<Params, Success, Failure>,
+	options: DefineToolOptions<Params, Success, Failure, Services>,
 ): FoldTool => {
 	const toolOptions: ToolOptionsBuilder<Params, Success, Failure> = {
 		description: options.description,
@@ -182,19 +198,31 @@ export const defineTool = <
 		options.success === undefined
 			? (params: Params['Type']) => options.handler(params).pipe(Effect.asVoid)
 			: options.handler
-	// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table. Effect AI
-	// decodes model-supplied params against `parameters` before invoking it, so it only ever receives
-	// `Params['Type']`, and supplies the platform services declared by `dependencies`; the erased table
-	// retains only Fold's per-call services because collected tools cannot keep their own dependency rows.
-	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
-	const handler = handlerWithDependencies as ErasedToolHandler
+	const withToolServices =
+		(context: Context.Context<Services>) =>
+		(params: Params['Type']): Effect.Effect<unknown, unknown, ToolHandlerServices | PlatformServices> =>
+			handlerWithDependencies(params).pipe(Effect.provideContext(context))
+	const contributionFor = (
+		handlerWithServices: (
+			params: Params['Type'],
+		) => Effect.Effect<unknown, unknown, ToolHandlerServices | PlatformServices | Services>,
+	): SessionToolContribution => ({
+		tool,
+		// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table. Effect AI
+		// decodes model-supplied params against `parameters` before invoking it, so it only ever receives
+		// `Params['Type']`, and supplies the platform services declared by `dependencies`; the erased table
+		// retains only Fold's per-call services because collected tools cannot keep their own dependency rows.
+		// `Services` is already provided when `layer` is set, and is `never` when it is omitted.
+		// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
+		handler: handlerWithServices as ErasedToolHandler,
+		promptBlock: null,
+	})
 
 	return {
 		name: options.name,
-		init: Effect.succeed({
-			tool,
-			handler,
-			promptBlock: null,
-		}),
+		init:
+			options.layer === undefined
+				? Effect.succeed(contributionFor(handlerWithDependencies))
+				: Layer.build(options.layer).pipe(Effect.map((context) => contributionFor(withToolServices(context)))),
 	}
 }

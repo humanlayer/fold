@@ -6,7 +6,7 @@ import {
 	webSearchToolContract,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Data, Duration, Effect, Schema } from 'effect'
+import { Data, Duration, Effect, Option, Schema } from 'effect'
 import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/unstable/http'
 
 const defaultTimeoutMs = 25_000
@@ -63,7 +63,7 @@ const selectProvider = (seed: string, options?: WebSearchToolOptions): WebSearch
 /** The JSON-RPC `tools/call` request both MCP search endpoints accept. */
 const McpToolCall = Schema.Struct({
 	jsonrpc: Schema.Literal('2.0'),
-	id: Schema.Number,
+	id: Schema.Finite,
 	method: Schema.Literal('tools/call'),
 	params: Schema.Struct({
 		name: Schema.String,
@@ -83,16 +83,18 @@ type McpToolResponse = typeof McpToolResponse.Type
 
 const decodeMcpPayload = Schema.decodeEffect(Schema.fromJsonString(McpToolResponse))
 
-const firstText = (response: McpToolResponse): string | undefined =>
-	response.result?.content?.map(({ text }) => text).find((text) => text !== undefined && text.length > 0)
+const firstText = (response: McpToolResponse): Option.Option<string> =>
+	Option.fromUndefinedOr(
+		response.result?.content?.map(({ text }) => text).find((text) => text !== undefined && text.length > 0),
+	)
 
 /** A web search failed; `message` is shown to the model. */
 class McpFailure extends Data.TaggedError('McpFailure')<{ readonly message: string }> {}
 
 /** Decode one JSON payload (a whole body or an SSE `data:` line); non-JSON payloads carry no result. */
-const parsePayload = (payload: string): Effect.Effect<string | undefined, McpFailure> => {
+const parsePayload = (payload: string): Effect.Effect<Option.Option<string>, McpFailure> => {
 	const trimmed = payload.trim()
-	if (!trimmed.startsWith('{')) return Effect.succeed(undefined)
+	if (!trimmed.startsWith('{')) return Effect.succeedNone
 	return decodeMcpPayload(trimmed).pipe(
 		Effect.map(firstText),
 		Effect.mapError(
@@ -101,18 +103,18 @@ const parsePayload = (payload: string): Effect.Effect<string | undefined, McpFai
 	)
 }
 
-const parseMcpResponse = (body: string): Effect.Effect<string | undefined, McpFailure> =>
+const parseMcpResponse = (body: string): Effect.Effect<Option.Option<string>, McpFailure> =>
 	Effect.gen(function* () {
 		const direct = yield* parsePayload(body)
-		if (direct !== undefined) return direct
+		if (Option.isSome(direct)) return direct
 
 		for (const line of body.split('\n')) {
 			if (!line.startsWith('data: ')) continue
 			const text = yield* parsePayload(line.slice(6))
-			if (text !== undefined) return text
+			if (Option.isSome(text)) return text
 		}
 
-		return undefined
+		return Option.none()
 	})
 
 const callMcp = (input: {
@@ -121,7 +123,7 @@ const callMcp = (input: {
 	readonly arguments: Record<string, Schema.Json>
 	readonly headers?: Record<string, string>
 	readonly timeoutMs: number
-}): Effect.Effect<string | undefined, McpFailure, HttpClient.HttpClient> =>
+}): Effect.Effect<Option.Option<string>, McpFailure, HttpClient.HttpClient> =>
 	Effect.gen(function* () {
 		const request = yield* HttpClientRequest.post(input.url, {
 			headers: { accept: 'application/json, text/event-stream', ...input.headers },
@@ -156,6 +158,7 @@ const callMcp = (input: {
 export const webSearchTool = (options?: WebSearchToolOptions): FoldTool =>
 	defineTool({
 		...webSearchToolContract,
+		layer: FetchHttpClient.layer,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const currentAgent = yield* CurrentAgent
@@ -192,9 +195,8 @@ export const webSearchTool = (options?: WebSearchToolOptions): FoldTool =>
 								timeoutMs,
 							})
 
-				return ToolResultText.make({ text: result ?? 'No search results found. Please try a different query.' })
-			}).pipe(
-				Effect.provide(FetchHttpClient.layer),
-				Effect.mapError((error) => ToolResultFailure.make({ text: error.message })),
-			),
+				return ToolResultText.make({
+					text: Option.getOrElse(result, () => 'No search results found. Please try a different query.'),
+				})
+			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
 	})

@@ -5,7 +5,7 @@
 import { expect, it } from '@effect/vitest'
 import { CodexTokenData, makeCodexLanguageModel } from '@humanlayer/fold-codex'
 import type { CodexAuthStore } from '@humanlayer/fold-codex'
-import { Effect, Encoding, Option, Schema } from 'effect'
+import { Effect, Encoding, Schema } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 
 import { type CapturedFetchRequest, makeCapturingFetch, runImageReadInference } from './SessionModelPathTestHarness'
@@ -26,7 +26,7 @@ const token = new CodexTokenData({
 
 const memoryAuthStore: CodexAuthStore = {
 	path: 'memory://codex-image-read-capture',
-	load: Effect.succeed(Option.some(token)),
+	load: Effect.succeedSome(token),
 	save: (updated) => Effect.succeed(updated),
 	clear: Effect.void,
 }

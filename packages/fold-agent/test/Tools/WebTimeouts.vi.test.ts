@@ -7,7 +7,7 @@ import { expect } from 'vitest'
 
 import { webFetchTool } from '../../src/Tools/WebFetchTool'
 import { webSearchTool } from '../../src/Tools/WebSearchTool'
-import { handlerOf, messageOf, runHandler } from '../TestHelpers'
+import { handlerOf, makeAmbientServices, messageOf, realizeTool, runHandler } from '../TestHelpers'
 
 const cases: ReadonlyArray<{
 	readonly name: string
@@ -85,7 +85,11 @@ for (const testCase of cases) {
 					}),
 				{ preconnect: globalThis.fetch.preconnect },
 			)
-			const fiber = yield* runHandler(handlerOf(testCase.tool())(testCase.params)).pipe(
+			// Initialize the tool first (its layer loads photon for real), so the clock only times the request.
+			const ambient = yield* makeAmbientServices
+			const handler = yield* realizeTool(testCase.tool()).pipe(Effect.provide(ambient.layer))
+			const fiber = yield* handler(testCase.params).pipe(
+				Effect.provide(ambient.layer),
 				Effect.provideService(FetchHttpClient.Fetch, fetch),
 				Effect.flip,
 				Effect.forkChild,

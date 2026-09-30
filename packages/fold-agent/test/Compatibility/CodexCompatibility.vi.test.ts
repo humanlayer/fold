@@ -105,3 +105,20 @@ it.effect('loads enabled plugin skills from local or the newest cached version',
 		expect(compatibility.diagnostics).toEqual([])
 	}),
 )
+
+it.effect('skips skills with malformed YAML, wrong field types, or a blank description', () =>
+	Effect.gen(function* () {
+		const fs = memoryFileSystem({
+			'/repo/.agents/skills/broken/SKILL.md': '---\nname: [unterminated\n---\nBroken',
+			'/repo/.agents/skills/numeric/SKILL.md': '---\nname: 42\ndescription: Numeric name\n---\nBody',
+			'/repo/.agents/skills/blank/SKILL.md': '---\nname: blank\ndescription: "  "\n---\nBody',
+			'/repo/.agents/skills/plain/SKILL.md': 'No frontmatter',
+			'/repo/.agents/skills/good/SKILL.md': skill('good', 'Good skill'),
+		})
+		const source = yield* makeCodexSkillSource({ cwd: '/repo', home: '' }).pipe(
+			Effect.provideService(FileSystem.FileSystem, fs),
+			Effect.provide(Path.layer),
+		)
+		expect(yield* source.list).toEqual([{ name: 'good', description: 'Good skill' }])
+	}),
+)

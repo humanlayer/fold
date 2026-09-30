@@ -1,5 +1,5 @@
 import type { SessionId } from '@humanlayer/fold-core'
-import { Deferred, Effect, Exit, Fiber, Scope, Semaphore } from 'effect'
+import { Data, Deferred, Effect, Exit, Fiber, Scope, Semaphore } from 'effect'
 import { createSignal, type Accessor } from 'solid-js'
 
 export type HostedSessionSnapshot =
@@ -10,9 +10,9 @@ export type HostedSessionSnapshot =
 			readonly status: 'RUNNING' | 'IDLE' | 'STOPPED' | 'ERROR'
 	  }
 
-type AcquiringSession<A> = {
+type AcquiringSession<A, E> = {
 	readonly _tag: 'acquiring'
-	readonly result: Deferred.Deferred<A, unknown>
+	readonly result: Deferred.Deferred<A, E | LiveSessionHostClosedError>
 	readonly lease: Lease
 }
 
@@ -30,34 +30,38 @@ type ClosingSession = {
 	readonly done: Deferred.Deferred<void>
 }
 
-type HostedSession<A> = AcquiringSession<A> | LiveSession<A> | ClosingSession
+type HostedSession<A, E> = AcquiringSession<A, E> | LiveSession<A> | ClosingSession
 
 type Registration = Lease
 
-export class LiveSessionHostClosedError extends Error {
-	readonly _tag = 'LiveSessionHostClosedError'
-	constructor() {
-		super('Live session host is closed')
+export class LiveSessionHostClosedError extends Data.TaggedError('LiveSessionHostClosedError')<{}> {
+	override get message(): string {
+		return 'Live session host is closed'
 	}
 }
 
-export type LiveSessionHost<A extends { readonly sessionId: SessionId }> = {
+export type LiveSessionHost<A extends { readonly sessionId: SessionId }, E> = {
 	readonly snapshots: Accessor<ReadonlyArray<HostedSessionSnapshot>>
 	readonly values: Accessor<ReadonlyArray<A>>
 	readonly get: (sessionId: SessionId) => A | null
-	readonly open: <E>(sessionId: SessionId, acquire: Effect.Effect<A, E, Scope.Scope>) => Effect.Effect<A, unknown>
+	readonly open: (
+		sessionId: SessionId,
+		acquire: Effect.Effect<A, E, Scope.Scope>,
+	) => Effect.Effect<A, E | LiveSessionHostClosedError>
 	/** Registers a launch whose generated SessionId is not known until acquisition completes. */
-	readonly register: <E>(acquire: Effect.Effect<A, E, Scope.Scope>) => Effect.Effect<A, E>
+	readonly register: <RegisterError>(
+		acquire: Effect.Effect<A, RegisterError, Scope.Scope>,
+	) => Effect.Effect<A, RegisterError>
 	readonly close: (sessionId: SessionId) => Effect.Effect<void>
 	/** Permanently shuts down the host and releases pending and live sessions. */
 	readonly closeAll: Effect.Effect<void>
 }
 
-export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }>(
+export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }, E = never>(
 	parentScope: Scope.Scope,
 	snapshot: (value: A) => HostedSessionSnapshot,
-): LiveSessionHost<A> => {
-	const sessions = new Map<SessionId, HostedSession<A>>()
+): LiveSessionHost<A, E> => {
+	const sessions = new Map<SessionId, HostedSession<A, E>>()
 	const registrations = new Set<Registration>()
 	const mutex = Semaphore.makeUnsafe(1)
 	let shutdown = false
@@ -85,9 +89,12 @@ export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }>
 			record.closeDone = done
 			return Scope.close(record.scope, Exit.void).pipe(Effect.ensuring(Deferred.succeed(done, undefined)))
 		})
-	const awaitResult = (result: Deferred.Deferred<A, unknown>) => Deferred.await(result)
+	const awaitResult = (result: Deferred.Deferred<A, E | LiveSessionHostClosedError>) => Deferred.await(result)
 
-	const open = <E>(sessionId: SessionId, acquire: Effect.Effect<A, E, Scope.Scope>): Effect.Effect<A, unknown> =>
+	const open = (
+		sessionId: SessionId,
+		acquire: Effect.Effect<A, E, Scope.Scope>,
+	): Effect.Effect<A, E | LiveSessionHostClosedError> =>
 		Effect.uninterruptibleMask((restore) =>
 			Effect.gen(function* () {
 				const decision = yield* locked(
@@ -97,9 +104,9 @@ export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }>
 						if (current?._tag === 'live') return { _tag: 'live' as const, value: current.value }
 						if (current?._tag === 'acquiring') return { _tag: 'wait' as const, result: current.result }
 						if (current?._tag === 'closing') return { _tag: 'closing' as const, done: current.done }
-						const pending: AcquiringSession<A> = {
+						const pending: AcquiringSession<A, E> = {
 							_tag: 'acquiring',
-							result: yield* Deferred.make<A, unknown>(),
+							result: yield* Deferred.make<A, E | LiveSessionHostClosedError>(),
 							lease: { scope: Scope.forkUnsafe(parentScope), closeDone: null },
 						}
 						sessions.set(sessionId, pending)
@@ -107,7 +114,7 @@ export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }>
 						return { _tag: 'acquire' as const, pending }
 					}),
 				)
-				if (decision._tag === 'closed') return yield* Effect.fail(new LiveSessionHostClosedError())
+				if (decision._tag === 'closed') return yield* new LiveSessionHostClosedError()
 				if (decision._tag === 'live') return decision.value
 				if (decision._tag === 'wait') return yield* restore(awaitResult(decision.result))
 				if (decision._tag === 'closing') {
@@ -140,7 +147,7 @@ export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }>
 					}),
 				)
 				if (!published) yield* closeOnce(pending.lease)
-				const resultExit: Exit.Exit<A, unknown> =
+				const resultExit: Exit.Exit<A, E | LiveSessionHostClosedError> =
 					Exit.isSuccess(exit) && published
 						? exit
 						: Exit.isFailure(exit)
@@ -152,7 +159,9 @@ export const makeLiveSessionHost = <A extends { readonly sessionId: SessionId }>
 			}),
 		)
 
-	const register = <E>(acquire: Effect.Effect<A, E, Scope.Scope>): Effect.Effect<A, E> =>
+	const register = <RegisterError>(
+		acquire: Effect.Effect<A, RegisterError, Scope.Scope>,
+	): Effect.Effect<A, RegisterError> =>
 		Effect.uninterruptible(
 			Effect.gen(function* () {
 				const registration: Registration = { scope: Scope.forkUnsafe(parentScope), closeDone: null }

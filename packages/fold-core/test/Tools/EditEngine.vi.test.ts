@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Result } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 
-import { applyEdits, EditEngineError, normalizeEditInput } from '../../src/index'
+import { applyEdits, EditEngineError, editToolContract, normalizeEditInput } from '../../src/index'
+
+const decodeEditParameters = Schema.decodeUnknownEffect(editToolContract.parameters)
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.result(effect)
 
@@ -206,9 +208,10 @@ describe('normalizeEditInput', () => {
 		}),
 	)
 
-	it.effect('parses a JSON-string edits array (models sometimes stringify it)', () =>
+	it.effect('decodes a JSON-string edits array (models sometimes stringify it)', () =>
 		Effect.gen(function* () {
-			const edits = yield* normalizeEditInput({ edits: '[{"oldText":"a","newText":"b"}]' })
+			const params = yield* decodeEditParameters({ path: 'file.ts', edits: '[{"oldText":"a","newText":"b"}]' })
+			const edits = yield* normalizeEditInput(params)
 
 			expect(edits).toEqual([{ oldText: 'a', newText: 'b' }])
 		}),
@@ -235,9 +238,11 @@ describe('normalizeEditInput', () => {
 		expect(message).toBe('Edit tool input is invalid. edits must contain at least one replacement.')
 	})
 
-	it('fails on a malformed JSON-string edits value', async () => {
-		const message = await expectFailure(normalizeEditInput({ edits: 'not json' }))
+	it.effect('rejects a malformed JSON-string edits value at parameter decoding', () =>
+		Effect.gen(function* () {
+			const error = yield* decodeEditParameters({ path: 'file.ts', edits: 'not json' }).pipe(Effect.flip)
 
-		expect(message).toBe('Edit tool input is invalid. edits must be an array of {oldText, newText}.')
-	})
+			expect(error._tag).toBe('SchemaError')
+		}),
+	)
 })

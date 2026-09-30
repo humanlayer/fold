@@ -5,6 +5,7 @@ import {
 	bootstrapFoldHome,
 	defaultFoldHome,
 	ensureManagedBinaries,
+	type ManagedBinaries,
 	launchSession,
 	modeForName,
 	resumeLatestSession,
@@ -240,10 +241,7 @@ const renderLiveEvents = (
 			onEmpty: () => 0,
 			onNonEmpty: (nonEmpty) => Arr.lastNonEmpty(nonEmpty).seq + 1,
 		})
-		const render = session.events(fromSeq).pipe(
-			Stream.runForEach(renderer.renderEvent),
-			Effect.catchCause(() => Effect.void),
-		)
+		const render = session.events(fromSeq).pipe(Stream.runForEach(renderer.renderEvent), Effect.ignoreCause)
 		const fiber = yield* Effect.forkScoped(render, { startImmediately: true })
 		yield* Effect.yieldNow
 		return fiber
@@ -289,22 +287,23 @@ const bootstrapForRun = (
 ): Effect.Effect<void, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
 	const bootstrapOptions: Mutable<NonNullable<Parameters<typeof bootstrapFoldHome>[0]>> = {}
 	if (options.foldHome !== undefined) bootstrapOptions.foldHome = options.foldHome
+	// Debug level: a warning on the console would mix into prompt and JSON output, and the launch reports
+	// a broken home through its own config error moments later.
 	return bootstrapFoldHome(bootstrapOptions).pipe(
 		Effect.asVoid,
-		Effect.catchCause(() => Effect.void),
+		Effect.catchCause((cause) => Effect.logDebug('fold home bootstrap failed', cause)),
 	)
 }
 
 const forkStartupEnsures = (
 	options: CliSessionOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<void, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
-	Effect.forkDetach(
+): Effect.Effect<void, never, ManagedBinaries | Scope.Scope> =>
+	Effect.forkScoped(
 		Effect.gen(function* () {
 			const statuses = yield* ensureManagedBinaries({
 				foldHome: options.foldHome ?? defaultFoldHome(),
 				requireManagedInstall: true,
-				suppressWarnings: true,
 			})
 			yield* Effect.forEach(
 				statuses.filter((status) => status.resolution === 'installed-now'),
@@ -320,7 +319,7 @@ export const runPrompt = (
 ): Effect.Effect<
 	AgentFinishedLogEntry,
 	OpenSessionError,
-	Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient
+	Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient | ManagedBinaries
 > =>
 	Effect.gen(function* () {
 		yield* bootstrapForRun(options)

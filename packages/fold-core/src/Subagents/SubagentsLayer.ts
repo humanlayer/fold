@@ -21,6 +21,7 @@ import type { FoldModel } from '../Api/ModelDescriptor'
 import { AgentProvisioner } from '../Api/Provisioning'
 import type { RealizedFoldTool, FoldTool } from '../Api/ToolDefinition'
 import { EventLog } from '../EventLog/EventLogService'
+import { encodedContentText } from '../EventLog/MessageContent'
 import {
 	ActiveModel,
 	LogEntryInputs,
@@ -36,7 +37,7 @@ import {
 import type { HookConfig } from '../HookRunner/Types'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
 import { runtimeForAgent } from '../Projection/Projection'
-import { Profiles } from '../Session/Profiles'
+import { isProfileRole, Profiles } from '../Session/Profiles'
 import { SessionControls } from '../Session/SessionControls'
 import { SkillNotFoundError, type SkillSourceService } from '../Skills/SkillSource'
 import { renderSkillContent } from '../Skills/SkillTool'
@@ -80,7 +81,7 @@ export type RootAgentSnapshot = {
 	readonly tools: ReadonlyArray<FoldTool>
 	readonly hooks: HookConfig
 	/** The root's own leading blocks, WITHOUT tool-contributed blocks (those come from realization). */
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	readonly systemPrompt: ReadonlyArray<string>
 }
 
 /** Composition-root wiring for the Subagents engine, supplied by `startSession`. */
@@ -100,7 +101,7 @@ type AgentConfigurationSnapshot = {
 	readonly promptCacheKey: string | null
 	readonly tools: ReadonlyArray<FoldTool>
 	readonly hooks: HookConfig
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	readonly systemPrompt: ReadonlyArray<string>
 }
 
 /** Everything one subagent launch/resume needs, resolved before the run fiber forks. */
@@ -135,16 +136,12 @@ type LaunchSubagentParams = {
 
 const SubagentLaunch = Data.taggedEnum<LaunchSubagentParams['launch']>()
 
-/** Fold a leading-prompt config value into an ordered block list. */
-const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
-	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
-
 /** Leading blocks for one agent: its own blocks, then its tools' contributed blocks. */
 const leadingBlocksFor = (
-	systemPrompt: string | ReadonlyArray<string> | null,
+	systemPrompt: ReadonlyArray<string>,
 	realized: RealizedAgentTools,
 ): ReadonlyArray<string> | null => {
-	const blocks = [...promptBlocksOf(systemPrompt), ...realized.promptBlocks]
+	const blocks = [...systemPrompt, ...realized.promptBlocks]
 	return Arr.isArrayEmpty(blocks) ? null : blocks
 }
 
@@ -196,10 +193,7 @@ const lastAssistantTextForRun = (
 	)
 	if (lastAssistant === undefined) return null
 
-	const content = lastAssistant.message.content
-	if (typeof content === 'string') return content.length > 0 ? content : null
-
-	const text = content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+	const text = encodedContentText(lastAssistant.message.content)
 	return text.length > 0 ? text : null
 }
 
@@ -239,7 +233,7 @@ export const makeSubagents = (
 
 		/** Resolve one registry entry's model binding: a role name reads the current profiles map. */
 		const resolveModelBinding = (binding: SubagentModelBinding): Effect.Effect<FoldModel> =>
-			typeof binding === 'string' ? profiles.resolve(binding) : Effect.succeed(binding)
+			isProfileRole(binding) ? profiles.resolve(binding) : Effect.succeed(binding)
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
 			eventLog.append(input).pipe(Effect.orDie)

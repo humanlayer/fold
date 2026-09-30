@@ -31,10 +31,10 @@ export type ToolFailure = typeof ToolFailure.Type
 
 const ReadParameters = Schema.Struct({
 	path: Schema.String.annotate({ description: 'Path to the file to read (relative or absolute)' }),
-	offset: Schema.optionalKey(Schema.Number).annotate({
+	offset: Schema.optionalKey(Schema.Finite).annotate({
 		description: 'Line number to start reading from (1-indexed)',
 	}),
-	limit: Schema.optionalKey(Schema.Number).annotate({ description: 'Maximum number of lines to read' }),
+	limit: Schema.optionalKey(Schema.Finite).annotate({ description: 'Maximum number of lines to read' }),
 })
 
 /** Contract for the read tool (pi port): text head-truncated, images returned as content blocks. */
@@ -83,7 +83,11 @@ const EditPair = Schema.Struct({
 
 const EditParameters = Schema.Struct({
 	path: Schema.String.annotate({ description: 'Path to the file to edit (relative or absolute)' }),
-	edits: Schema.optionalKey(Schema.Union([Schema.Array(EditPair), Schema.String])).annotate({
+	// Some models stringify the edits array; the JSON-string form decodes to the same array here, so the
+	// handler only ever sees `ReadonlyArray<EditPair>`.
+	edits: Schema.optionalKey(
+		Schema.Union([Schema.Array(EditPair), Schema.fromJsonString(Schema.Array(EditPair))]),
+	).annotate({
 		description:
 			'One or more targeted replacements. Every oldText matches against the original file content, so ' +
 			'edits must target disjoint regions.',
@@ -164,7 +168,7 @@ const WebFetchParameters = Schema.Struct({
 	format: Schema.optionalKey(Schema.Literals(['markdown', 'text', 'html'])).annotate({
 		description: 'Output format. Defaults to markdown; html returns raw HTML; text strips HTML tags.',
 	}),
-	timeout_seconds: Schema.optionalKey(Schema.Number).annotate({
+	timeout_seconds: Schema.optionalKey(Schema.Finite).annotate({
 		description: 'Request timeout in seconds. Defaults to 30 seconds; capped at 120 seconds.',
 	}),
 })
@@ -184,11 +188,11 @@ export const webFetchToolContract = {
 
 const WebSearchParameters = Schema.Struct({
 	query: Schema.String.annotate({ description: 'Search query to run against the web.' }),
-	timeout_seconds: Schema.optionalKey(Schema.Number).annotate({
+	timeout_seconds: Schema.optionalKey(Schema.Finite).annotate({
 		description:
 			'Request timeout in seconds. Overrides the configured timeout; defaults to 25 seconds when unconfigured.',
 	}),
-	numResults: Schema.optionalKey(Schema.Number).annotate({
+	numResults: Schema.optionalKey(Schema.Finite).annotate({
 		description: 'Number of search results to return. Defaults to 8; maximum 20.',
 	}),
 	livecrawl: Schema.optionalKey(Schema.Literals(['fallback', 'preferred'])).annotate({
@@ -197,7 +201,7 @@ const WebSearchParameters = Schema.Struct({
 	type: Schema.optionalKey(Schema.Literals(['auto', 'fast', 'deep'])).annotate({
 		description: "Search type: 'auto' balances search, 'fast' is quicker, 'deep' is more comprehensive.",
 	}),
-	contextMaxCharacters: Schema.optionalKey(Schema.Number).annotate({
+	contextMaxCharacters: Schema.optionalKey(Schema.Finite).annotate({
 		description: 'Maximum characters for the LLM-optimized context string. Defaults to 10000; maximum 50000.',
 	}),
 })

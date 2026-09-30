@@ -31,7 +31,7 @@ export { testModel }
 export const startSessionInput = (overrides?: Partial<StartSessionInput>): StartSessionInput => ({
 	cwd: '/test',
 	model: testModel,
-	systemPrompt: 'You are a test agent.',
+	systemPrompt: ['You are a test agent.'],
 	...overrides,
 })
 

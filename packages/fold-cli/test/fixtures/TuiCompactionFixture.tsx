@@ -8,7 +8,7 @@ import { createSignal } from 'solid-js'
 import { TuiApp } from '../../src/tui/App'
 import { makeSessionStateFromEntries } from '../../src/tui/SessionState'
 
-const rootAgentId = Schema.decodeUnknownSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+const rootAgentId = Schema.decodeSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
 const entry = (input: Record<string, unknown>) =>
 	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create() })
 const initialEntries = [

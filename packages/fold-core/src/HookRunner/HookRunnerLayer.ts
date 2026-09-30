@@ -37,10 +37,9 @@ const catchHookExecutionError = <A, R>(
 	hookName: string,
 ): Effect.Effect<A, HookExecutionError, R> =>
 	effect.pipe(
-		Effect.catchCause((cause) =>
-			Cause.hasInterrupts(cause)
-				? Effect.failCause(cause)
-				: Effect.fail(new HookExecutionError(phase, hookName, cause)),
+		Effect.catchCauseIf(
+			(cause) => !Cause.hasInterrupts(cause),
+			(cause) => Effect.fail(new HookExecutionError(phase, hookName, cause)),
 		),
 	)
 

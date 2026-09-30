@@ -6,7 +6,7 @@ import { relativeSessionTime, shortSessionId } from '../../src/tui/SessionPicker
 
 describe('TUI session picker formatting', () => {
 	it('uses a compact display id without losing the typed full id at the data boundary', () => {
-		const sessionId = Schema.decodeUnknownSync(SessionId)('sess_abcdefghijklmnopqrstuvwx')
+		const sessionId = Schema.decodeSync(SessionId)('sess_abcdefghijklmnopqrstuvwx')
 
 		expect(shortSessionId(sessionId)).toBe('sess_abcdef')
 	})

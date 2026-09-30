@@ -37,7 +37,7 @@ export class XaiAuthError extends Schema.TaggedError<XaiAuthError>()('XaiAuthErr
 const TokenResponse = Schema.Struct({
 	access_token: Schema.String,
 	refresh_token: Schema.optional(Schema.String),
-	expires_in: Schema.optional(Schema.Number),
+	expires_in: Schema.optional(Schema.Finite),
 })
 
 const DeviceResponse = Schema.Struct({
@@ -45,8 +45,8 @@ const DeviceResponse = Schema.Struct({
 	user_code: Schema.String,
 	verification_uri: Schema.String,
 	verification_uri_complete: Schema.optional(Schema.String),
-	expires_in: Schema.optional(Schema.Number),
-	interval: Schema.optional(Schema.Number),
+	expires_in: Schema.optional(Schema.Finite),
+	interval: Schema.optional(Schema.Finite),
 })
 
 const DeviceError = Schema.Struct({
@@ -242,6 +242,8 @@ export const runXaiBrowserFlow = Effect.fn('fold.xaiAuth.browserFlow')(function*
 	const nonce = base64Url(yield* crypto.randomBytes(32).pipe(Effect.orDie))
 	const code = yield* Effect.scoped(
 		Effect.gen(function* () {
+			const effectContext = yield* Effect.context<never>()
+
 			const callback = yield* Deferred.make<string, XaiAuthError>()
 			yield* Effect.acquireRelease(
 				Effect.tryPromise({
@@ -250,7 +252,9 @@ export const runXaiBrowserFlow = Effect.fn('fold.xaiAuth.browserFlow')(function*
 							const server = createServer((request, response) => {
 								const url = new URL(request.url ?? '/', XAI_BROWSER_REDIRECT_URI)
 								const fail = (message: string, status = 400) => {
-									Effect.runSync(Deferred.fail(callback, failure('BrowserFlowFailed', message)))
+									Effect.runSyncWith(effectContext)(
+										Deferred.fail(callback, failure('BrowserFlowFailed', message)),
+									)
 									response.writeHead(status, { 'Content-Type': 'text/plain' })
 									response.end(message)
 								}
@@ -262,7 +266,7 @@ export const runXaiBrowserFlow = Effect.fn('fold.xaiAuth.browserFlow')(function*
 									return fail('Invalid state - potential CSRF attack')
 								const received = url.searchParams.get('code')
 								if (received === null) return fail('Missing authorization code')
-								Effect.runSync(Deferred.succeed(callback, received))
+								Effect.runSyncWith(effectContext)(Deferred.succeed(callback, received))
 								response.writeHead(200, { 'Content-Type': 'text/plain' })
 								response.end('xAI authorization successful. Return to fold.')
 							})

@@ -4,7 +4,8 @@
  * emits the same tool-call batch repeatedly, fold lets the current batch settle, then stops gracefully
  * before another model request.
  */
-import { Array as Arr, Context, Option, Schema } from 'effect'
+import { Array as Arr, Context, Equal } from 'effect'
+import type { Prompt } from 'effect/unstable/ai'
 
 /** Doom-loop detector configuration. Omitted means disabled. */
 export type DoomLoopStopCondition =
@@ -20,16 +21,16 @@ export type StopConditionConfig = {
 	readonly doomLoop?: DoomLoopStopCondition
 }
 
-/** Per-run doom-loop detector state. */
-export type DoomLoopState = {
-	readonly fingerprint: string | null
-	readonly count: number
-}
-
 /** A model-visible tool call, projected to only the fields relevant for doom-loop detection. */
 export type ToolCallFingerprintInput = {
 	readonly name: string
-	readonly params: unknown
+	readonly params: Prompt.ToolCallPart['params']
+}
+
+/** Per-run doom-loop detector state: the last observed batch and how many times it repeated in a row. */
+export type DoomLoopState = {
+	readonly batch: ReadonlyArray<ToolCallFingerprintInput> | null
+	readonly count: number
 }
 
 /** Result of observing a tool-call batch against the stop-condition policy. */
@@ -39,31 +40,7 @@ export type DoomLoopObservation = {
 }
 
 /** Empty per-run detector state. */
-export const initialDoomLoopState: DoomLoopState = { fingerprint: null, count: 0 }
-
-const normalizeForFingerprint = (value: Schema.Json): Schema.Json => {
-	if (Arr.isArray<Schema.Json>(value)) return value.map(normalizeForFingerprint)
-	if (typeof value !== 'object' || value === null) return value
-
-	return Object.fromEntries(
-		Object.entries(value)
-			.sort(([left], [right]) => left.localeCompare(right))
-			.map(([key, child]) => [key, normalizeForFingerprint(child)]),
-	)
-}
-
-const decodeJson = Schema.decodeUnknownOption(Schema.Json)
-const encodeJsonString = Schema.encodeOption(Schema.fromJsonString(Schema.Json))
-
-const safeStableStringify = (value: unknown): string =>
-	decodeJson(value).pipe(
-		Option.map(normalizeForFingerprint),
-		Option.flatMap(encodeJsonString),
-		Option.getOrElse(() => String(value)),
-	)
-
-const batchFingerprint = (toolCalls: ReadonlyArray<ToolCallFingerprintInput>): string =>
-	toolCalls.map((call) => `${call.name}:${safeStableStringify(call.params)}`).join('\n')
+export const initialDoomLoopState: DoomLoopState = { batch: null, count: 0 }
 
 /** Observe one tool-call batch and decide whether the configured doom-loop policy should stop the run. */
 export const observeDoomLoop = (
@@ -75,9 +52,9 @@ export const observeDoomLoop = (
 		return { state: initialDoomLoopState, reason: null }
 	}
 
-	const fingerprint = batchFingerprint(toolCalls)
-	const count = state.fingerprint === fingerprint ? state.count + 1 : 1
-	const nextState = { fingerprint, count }
+	// Effect's structural equality ignores object key order, so reordered params still repeat.
+	const count = Equal.equals(state.batch, toolCalls) ? state.count + 1 : 1
+	const nextState = { batch: toolCalls, count }
 	const threshold = config.doomLoop.repeatedToolCalls
 
 	return count >= threshold

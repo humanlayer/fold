@@ -7,8 +7,8 @@ import { createSignal } from 'solid-js'
 
 import { SessionPicker } from '../../src/tui/SessionPicker'
 
-const firstId = Schema.decodeUnknownSync(SessionId)('sess_abcdefghijklmnopqrstuvwx')
-const secondId = Schema.decodeUnknownSync(SessionId)('sess_bcdefghijklmnopqrstuvwxy')
+const firstId = Schema.decodeSync(SessionId)('sess_abcdefghijklmnopqrstuvwx')
+const secondId = Schema.decodeSync(SessionId)('sess_bcdefghijklmnopqrstuvwxy')
 const initialSessions = [
 	{
 		sessionId: firstId,

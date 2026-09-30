@@ -7,7 +7,7 @@ import { agentId, collectEntries, makeAssistantToolCall, toolRuntimeBaseLayer } 
 
 it.effect('live preToolUse hook can replace the result and skip the handler', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const hookLayer = makeHookRunner({
 			preToolUse: [
 				{
@@ -53,7 +53,7 @@ it.effect('live preToolUse hook can replace the result and skip the handler', ()
 
 it.effect('live preToolUse hook can update execution params without changing prompt projection', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const hookLayer = makeHookRunner({
 			preToolUse: [
 				{
@@ -106,7 +106,7 @@ it.effect('live preToolUse hook can update execution params without changing pro
 
 it.effect('postToolUse receives original, executed, and handler values while hooks compose in order', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const observed = yield* Ref.make<ReadonlyArray<unknown>>([])
 		const hookLayer = makeHookRunner({
 			preToolUse: [

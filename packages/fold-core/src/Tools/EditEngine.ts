@@ -15,8 +15,6 @@ export const EditPair = Schema.Struct({
 })
 export type EditPair = typeof EditPair.Type
 
-const decodeEditPairsJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(EditPair)))
-
 /** A model-visible edit failure. `message` strings are pi's, verbatim. */
 export class EditEngineError extends Schema.TaggedError<EditEngineError>()('EditEngineError', {
 	message: Schema.String,
@@ -302,28 +300,20 @@ export const applyEdits = (input: {
 	})
 
 /**
- * Normalize edit-tool input into an edit batch (pi's `prepareEditArguments` + `validateEditInput`):
- * accepts the batch form, a JSON-string edits array (some models stringify it), and the legacy
- * top-level oldText/newText pair, which appends as the final edit.
+ * Normalize decoded edit-tool input into an edit batch (pi's `prepareEditArguments` +
+ * `validateEditInput`): the batch form, plus the legacy top-level oldText/newText pair, which appends as
+ * the final edit. A JSON-string edits array is already decoded to the batch form by the edit tool's
+ * parameter schema.
  */
 export const normalizeEditInput = (input: {
-	readonly edits?: ReadonlyArray<EditPair> | string | undefined
+	readonly edits?: ReadonlyArray<EditPair> | undefined
 	readonly oldText?: string | undefined
 	readonly newText?: string | undefined
 }): Effect.Effect<ReadonlyArray<EditPair>, EditEngineError> =>
 	Effect.gen(function* () {
-		const invalidEdits = new EditEngineError({
-			message: 'Edit tool input is invalid. edits must be an array of {oldText, newText}.',
-		})
-		let edits: Array<EditPair> = []
+		const edits: Array<EditPair> = [...(input.edits ?? [])]
 
-		if (typeof input.edits === 'string') {
-			edits = [...(yield* decodeEditPairsJson(input.edits).pipe(Effect.mapError(() => invalidEdits)))]
-		} else if (input.edits !== undefined) {
-			edits = [...input.edits]
-		}
-
-		if (typeof input.oldText === 'string' && typeof input.newText === 'string') {
+		if (input.oldText !== undefined && input.newText !== undefined) {
 			edits.push({ oldText: input.oldText, newText: input.newText })
 		}
 

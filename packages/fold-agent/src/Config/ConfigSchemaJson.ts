@@ -19,19 +19,22 @@ import { defaultConfigPath, defaultFoldHome } from './Load'
 /** The generated schema file path for a home directory. */
 export const configSchemaPath = (foldHome?: string): string => join(foldHome ?? defaultFoldHome(), 'config.schema.json')
 
-/** The `FoldConfig` JSON Schema as a self-contained draft-07 document object (ready to serialize). */
-export const foldConfigJsonSchema = (): Record<string, unknown> => {
-	const document = JsonSchema.toDocumentDraft07(Schema.toJsonSchemaDocument(FoldConfig))
-	const hasDefinitions = Arr.isArrayNonEmpty(Object.keys(document.definitions))
-	const schema: Record<string, unknown> = {
-		$schema: JsonSchema.META_SCHEMA_URI_DRAFT_07,
-		...document.schema,
-	}
-	if (hasDefinitions) schema.definitions = document.definitions
-	return schema
+/** A self-contained draft-07 JSON Schema document: the root schema plus its `$schema` URI and inlined definitions. */
+export type FoldConfigJsonSchemaDocument = JsonSchema.JsonSchema & {
+	readonly $schema: string
+	readonly definitions?: JsonSchema.Definitions
 }
 
-const JsonSchemaDocumentText = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown), { space: '\t' })
+/** The `FoldConfig` JSON Schema as a self-contained draft-07 document object (ready to serialize). */
+export const foldConfigJsonSchema = (): FoldConfigJsonSchemaDocument => {
+	const document = JsonSchema.toDocumentDraft07(Schema.toJsonSchemaDocument(FoldConfig))
+	const root = { $schema: JsonSchema.META_SCHEMA_URI_DRAFT_07, ...document.schema }
+	return Arr.isArrayNonEmpty(Object.keys(document.definitions))
+		? { ...root, definitions: document.definitions }
+		: root
+}
+
+const JsonSchemaDocumentText = Schema.fromJsonString(Schema.Unknown, { space: '\t' })
 const encodeJsonSchemaDocumentText = Schema.encodeSync(JsonSchemaDocumentText)
 
 /** The generated schema serialized as JSON text (tab-indented, trailing newline). */
@@ -171,13 +174,13 @@ export const bootstrapFoldHome = (
 		const infoPath = yield* writeFoldInfo(options)
 
 		const configPath = defaultConfigPath(options?.foldHome)
-		const configExists = yield* fs.exists(configPath).pipe(Effect.catch(() => Effect.succeed(false)))
+		const configExists = yield* fs.exists(configPath).pipe(Effect.orElseSucceed(() => false))
 		if (!configExists) {
 			yield* fs.writeFileString(configPath, starterConfigJsonc()).pipe(Effect.orDie)
 		}
 
 		const authPath = join(options?.foldHome ?? defaultFoldHome(), 'auth.json')
-		const authExists = yield* fs.exists(authPath).pipe(Effect.catch(() => Effect.succeed(false)))
+		const authExists = yield* fs.exists(authPath).pipe(Effect.orElseSucceed(() => false))
 		if (!authExists) {
 			// Same document shape and permissions the codex auth store maintains (provider-keyed JSON).
 			yield* fs.writeFileString(authPath, '{}\n', { mode: 0o600 }).pipe(Effect.orDie)

@@ -5,7 +5,7 @@
  * existing config. All filesystem work is over an in-memory FileSystem.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem, JsonSchema, Layer } from 'effect'
+import { Effect, FileSystem, JsonSchema } from 'effect'
 
 import {
 	configInit,
@@ -108,5 +108,5 @@ it.effect('configInit writes the schema and a starter config, then never clobber
 		const configFile = yield* memoryFileFor(fs, second.configPath)
 		expect(configFile).toBe('{ "edited": true }')
 		expect(yield* memoryFileFor(fs, second.authPath)).toBe('{ "codex": { "access": "tok" } }')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })

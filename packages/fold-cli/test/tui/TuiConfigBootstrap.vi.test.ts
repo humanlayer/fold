@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { describeModelConfiguration } from '@humanlayer/fold-agent'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem } from 'effect'
 
 import { memoryFileFor, memoryFileSystem } from '../../../fold-agent/test/TestHelpers'
 import { providerManagementRows } from '../../src/tui/ProviderConfigState'
@@ -15,7 +15,7 @@ it.effect('bootstraps and loads a fresh fold home before deriving provider manag
 	Effect.gen(function* () {
 		const fs = memoryFileSystem({})
 		const result = yield* bootstrapTuiConfig({ foldHome: '/fresh/.fold' }).pipe(
-			Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)),
+			Effect.provideService(FileSystem.FileSystem, fs),
 		)
 
 		expect(result.notice).toBeNull()
@@ -46,7 +46,7 @@ it.effect('does not rewrite an old commented config while virtual provider rows 
 		}\n`
 		const fs = memoryFileSystem({ '/old/.fold/config.jsonc': oldConfig })
 		const result = yield* bootstrapTuiConfig({ foldHome: '/old/.fold' }).pipe(
-			Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)),
+			Effect.provideService(FileSystem.FileSystem, fs),
 		)
 
 		expect(result.notice).toBeNull()
@@ -72,7 +72,7 @@ it.effect('surfaces bootstrap failure while canonical virtual rows remain availa
 		const fs = { ...base, writeFileString: () => Effect.die(new Error('fixture write failure')) }
 		const result = yield* bootstrapTuiConfig({ foldHome: '/blocked' }).pipe(
 			// oxlint-disable-next-line typescript/consistent-type-assertions
-			Effect.provide(Layer.succeed(FileSystem.FileSystem, fs as FileSystem.FileSystem)),
+			Effect.provideService(FileSystem.FileSystem, fs as FileSystem.FileSystem),
 		)
 
 		expect(result.config).toBeNull()

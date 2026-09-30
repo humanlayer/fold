@@ -6,6 +6,7 @@ import {
 	defaultFoldHome,
 	describeModelConfiguration,
 	ensureManagedBinaries,
+	type ManagedBinaries,
 	loadViewedPatchHashes,
 	loadFoldConfigOrNull,
 	saveViewedPatchHash,
@@ -28,6 +29,7 @@ import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js
 import { TuiApp } from './App'
 import { loadGitSnapshot, type GitSnapshot } from './GitChanges'
 import type { HostedTuiSession } from './HostedTuiSession'
+import type { LiveSessionHostClosedError } from './LiveSessionHost'
 import { openUrlInBrowser } from './OpenUrl'
 import {
 	codexAuthStoreOptions,
@@ -57,7 +59,7 @@ export const runTui = (
 ): Effect.Effect<
 	void,
 	TuiRequiresTtyError | TuiRendererError | TuiInitialSessionError,
-	Scope.Scope | FileSystem.FileSystem
+	Scope.Scope | FileSystem.FileSystem | ManagedBinaries
 > =>
 	Effect.gen(function* () {
 		if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return yield* new TuiRequiresTtyError()
@@ -72,8 +74,7 @@ export const runTui = (
 			ensureManagedBinaries({
 				foldHome: options.foldHome ?? defaultFoldHome(),
 				requireManagedInstall: true,
-				suppressWarnings: true,
-			}).pipe(Effect.asVoid, Effect.provide(FetchHttpClient.layer)),
+			}).pipe(Effect.asVoid),
 		)
 		const initialConfig = bootstrapped.config
 		const initialConfiguration: ModelConfiguration =
@@ -396,7 +397,9 @@ export const runTui = (
 			return route._tag === 'session' ? workspace.get(route.sessionId) : null
 		}
 		const activate = (
-			operation: Option.Option<Effect.Effect<HostedTuiSession, unknown>>,
+			operation: Option.Option<
+				Effect.Effect<HostedTuiSession, TuiInitialSessionError | LiveSessionHostClosedError>
+			>,
 			focusInput: boolean,
 		): void => {
 			if (Option.isNone(operation)) return
@@ -420,7 +423,7 @@ export const runTui = (
 			const route = router.route()
 			const wasActive = route._tag === 'session' && route.sessionId === sessionId
 			if (wasActive) router.showPicker()
-			runFork(operation.value.pipe(Effect.catchCause(() => Effect.void)))
+			runFork(operation.value.pipe(Effect.ignoreCause))
 		}
 
 		yield* Effect.tryPromise({

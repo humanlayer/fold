@@ -70,23 +70,23 @@ it.effect('layerNoHooks returns pass-through decisions', () =>
 
 it.effect('defines schema-derived hook decision types', () =>
 	Effect.gen(function* () {
-		const preRequest = yield* Schema.decodeUnknownEffect(PreRequestHookDecision)({
+		const preRequest = yield* Schema.decodeEffect(PreRequestHookDecision)({
 			_tag: 'unchanged',
 		})
 
-		const preToolUse = yield* Schema.decodeUnknownEffect(PreToolUseHookDecision)({
+		const preToolUse = yield* Schema.decodeEffect(PreToolUseHookDecision)({
 			_tag: 'replaceResult',
 			result: { blocked: true },
 			isFailure: true,
 		})
 
-		const postToolUse = yield* Schema.decodeUnknownEffect(PostToolUseHookDecision)({
+		const postToolUse = yield* Schema.decodeEffect(PostToolUseHookDecision)({
 			_tag: 'replace',
 			result: { rewritten: true },
 			isFailure: false,
 		})
 
-		const onComplete = yield* Schema.decodeUnknownEffect(OnCompleteHookDecision)({
+		const onComplete = yield* Schema.decodeEffect(OnCompleteHookDecision)({
 			_tag: 'continueWith',
 			text: 'keep going',
 		})

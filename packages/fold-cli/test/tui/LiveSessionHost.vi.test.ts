@@ -1,11 +1,12 @@
 import { SessionId } from '@humanlayer/fold-core'
-import { Deferred, Effect, Exit, Fiber, Schema, Scope } from 'effect'
+import { Data, Deferred, Effect, Exit, Fiber, Schema, Scope } from 'effect'
 import { describe, expect, it } from 'vitest'
 
 import { makeLiveSessionHost } from '../../src/tui/LiveSessionHost'
 
-const id = (suffix: string) =>
-	Schema.decodeUnknownSync(SessionId)(`sess_${suffix.replace(/[^a-z0-9]/g, '').padEnd(24, 'x')}`)
+const id = (suffix: string) => Schema.decodeSync(SessionId)(`sess_${suffix.replace(/[^a-z0-9]/g, '').padEnd(24, 'x')}`)
+class AcquireFailed extends Data.TaggedError('AcquireFailed') {}
+
 const snapshot = (value: { sessionId: SessionId; status: 'IDLE' }) => ({ ...value, phase: 'live' as const })
 
 describe('LiveSessionHost', () => {
@@ -136,9 +137,12 @@ describe('LiveSessionHost', () => {
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					const host = makeLiveSessionHost(yield* Scope.Scope, snapshot)
+					const host = makeLiveSessionHost<{ sessionId: SessionId; status: 'IDLE' }, AcquireFailed>(
+						yield* Scope.Scope,
+						snapshot,
+					)
 					for (const [sessionId, acquire] of [
-						[id('failure'), Effect.fail('nope')],
+						[id('failure'), Effect.fail(new AcquireFailed())],
 						[id('mismatch'), Effect.succeed({ sessionId: id('other'), status: 'IDLE' as const })],
 					] as const) {
 						const first = yield* Effect.forkScoped(host.open(sessionId, acquire))

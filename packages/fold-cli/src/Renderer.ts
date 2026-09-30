@@ -1,6 +1,11 @@
 import { decodeBashOutputDelta } from '@humanlayer/fold-agent'
 import {
+	encodedContentParts,
+	encodedContentText,
+	isPartOfType,
+	jsonText,
 	lookupCatalogEntry,
+	toolCallParamsText,
 	shortAgentId,
 	ToolCallId,
 	usageCacheRead,
@@ -18,21 +23,12 @@ import {
 	type UsageEncoded,
 	type FoldEvent,
 } from '@humanlayer/fold-core'
-import { Array as Arr, Data, Effect, Match, Option, Schema } from 'effect'
+import { Array as Arr, Data, Effect, Match, Schema } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from './ContextWindow'
 
 type Writer = (text: string) => Effect.Effect<void>
-
-type EncodedPart = {
-	readonly type: string
-	readonly text?: string
-	readonly name?: string
-	readonly params?: unknown
-	readonly result?: unknown
-	readonly isFailure?: boolean
-}
 
 /** Creation options for the colored headless output renderer. */
 export type RendererOptions = {
@@ -98,10 +94,6 @@ export type OutputRenderer = {
 
 const defaultStdout: Writer = (text) => Effect.sync(() => process.stdout.write(text))
 const defaultStderr: Writer = (text) => Effect.sync(() => process.stderr.write(text))
-
-const encodeUnknownJson = Schema.encodeOption(Schema.fromJsonString(Schema.Unknown))
-
-const safeStringify = (value: unknown): string => Option.getOrElse(encodeUnknownJson(value), () => String(value))
 
 const DeltaPart = Schema.Union([
 	Schema.Struct({ type: Schema.Literal('text-delta'), id: Schema.String, delta: Schema.String }),
@@ -186,20 +178,6 @@ export const makePromptOutputRenderer = (options?: RendererOptions): OutputRende
 
 const truncate = (text: string, max: number): string =>
 	text.length <= max ? text : `${text.slice(0, max)}... (${text.length - max} more chars)`
-
-const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
-	if (typeof content === 'string') return [{ type: 'text', text: content }]
-	if (!Array.isArray(content)) return []
-
-	return content.filter(
-		(part): part is EncodedPart => typeof part === 'object' && part !== null && typeof part.type === 'string',
-	)
-}
-
-const textContent = (content: unknown): string =>
-	contentParts(content)
-		.flatMap((part) => (part.type === 'text' ? [part.text ?? ''] : []))
-		.join('')
 
 const label = (ansi: AnsiPalette, text: string): string => ansi.dim(`[${text}]`)
 
@@ -427,19 +405,17 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 
 	const renderToolCalls = (entry: Extract<LogEntry, { readonly _tag: 'assistant-message' }>) =>
 		Effect.forEach(
-			contentParts(entry.message.content).filter((part) => part.type === 'tool-call'),
+			encodedContentParts(entry.message.content).filter(isPartOfType('tool-call')),
 			(part) =>
 				renderAgentLine(
 					entry.agentId,
-					`${label(ansi, 'tool')} ${ansi.cyan(part.name ?? 'tool')} ${truncate(safeStringify(part.params), verbose ? 2000 : 300)}`,
+					`${label(ansi, 'tool')} ${ansi.cyan(part.name)} ${truncate(toolCallParamsText(part), verbose ? 2000 : 300)}`,
 				),
 			{ discard: true },
 		)
 
 	const renderToolResult = (entry: Extract<LogEntry, { readonly _tag: 'tool-result' }>) => {
-		const failed = contentParts(entry.message.content).some(
-			(part) => part.type === 'tool-result' && part.isFailure === true,
-		)
+		const failed = entry.message.content.filter(isPartOfType('tool-result')).some((part) => part.isFailure)
 		const color = failed ? ansi.red : ansi.green
 		return renderAgentLine(entry.agentId, `${label(ansi, 'tool')} ${color('result')} ${ansi.dim(entry.toolCallId)}`)
 	}
@@ -467,7 +443,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 						)
 			},
 			'user-message': (message) => {
-				const text = textContent(message.message.content)
+				const text = encodedContentText(message.message.content)
 				return text.length === 0 ? Effect.void : renderAgentLine(message.agentId, `${ansi.cyan('>')} ${text}`)
 			},
 			'assistant-message': (message) => {
@@ -478,7 +454,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 					})
 				}
 
-				const text = textContent(message.message.content)
+				const text = encodedContentText(message.message.content)
 				const textEffect = streamedAssistantText.has(message.agentId)
 					? Effect.void
 					: renderAssistantText(message.agentId, text)
@@ -594,7 +570,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 
 					return renderAgentLine(
 						event.agentId,
-						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(safeStringify(payload), verbose ? 2000 : 300)}`,
+						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(jsonText(payload), verbose ? 2000 : 300)}`,
 					)
 				},
 			}),

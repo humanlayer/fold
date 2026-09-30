@@ -6,6 +6,7 @@
  * but the session flattens everything reachable into one flat registry - nesting scopes
  * *dispatchability*, never state; every dispatched subagent lives in one id space on one log.
  */
+import type { SystemPromptInput } from '../Api/AgentDefinition'
 import type { FoldModel } from '../Api/ModelDescriptor'
 import type { FoldTool } from '../Api/ToolDefinition'
 import type { HookConfig } from '../HookRunner/Types'
@@ -30,7 +31,7 @@ export type SubagentDefinition = {
 	 * This type's own leading prompt blocks, appended after the family base prompt - the same
 	 * semantics as `defineAgent.systemPrompt` (append/compose; pi precedent, ruled 2026-07-07).
 	 */
-	readonly systemPrompt?: string | ReadonlyArray<string>
+	readonly systemPrompt?: SystemPromptInput
 	/**
 	 * Tools installed for this type: platform tools from `defineTool`, plus `skillTool(...)` for its
 	 * skill setup and `subagentTool([...])` for the types IT may dispatch (no subagentTool means it

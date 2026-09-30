@@ -164,20 +164,16 @@ export const makeOutputStore = (
 		const sweep = Effect.gen(function* () {
 			const root = toolOutputRootFor({ foldHome })
 			const now = yield* Clock.currentTimeMillis
-			const sessions = yield* fs
-				.readDirectory(root)
-				.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
+			const sessions = yield* fs.readDirectory(root).pipe(Effect.orElseSucceed(() => []))
 
 			for (const sessionName of sessions) {
 				const sessionDir = join(root, sessionName)
-				const files = yield* fs
-					.readDirectory(sessionDir)
-					.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
+				const files = yield* fs.readDirectory(sessionDir).pipe(Effect.orElseSucceed(() => []))
 
 				for (const file of files) {
 					if (!file.endsWith('.txt')) continue
 					const path = join(sessionDir, file)
-					const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+					const info = yield* fs.stat(path).pipe(Effect.orElseSucceed(() => null))
 					if (info === null || info.type !== 'File') continue
 
 					const mtime = Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })

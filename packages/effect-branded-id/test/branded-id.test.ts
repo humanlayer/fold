@@ -26,10 +26,10 @@ it('accepts custom brand name', () => {
 })
 
 it('throws on invalid prefix', () => {
-	expect(() => makeBrandedId('')).toThrow()
-	expect(() => makeBrandedId('123')).toThrow()
-	expect(() => makeBrandedId('UPPER')).toThrow()
-	expect(() => makeBrandedId('_starts_underscore')).toThrow()
+	expect(() => makeBrandedId('')).toThrow('Invalid prefix')
+	expect(() => makeBrandedId('123')).toThrow('Invalid prefix')
+	expect(() => makeBrandedId('UPPER')).toThrow('Invalid prefix')
+	expect(() => makeBrandedId('_starts_underscore')).toThrow('Invalid prefix')
 })
 
 it('generates valid IDs with prefix', () => {
@@ -57,7 +57,7 @@ it('make() creates branded ID from valid string', () => {
 
 it('make() validates input and throws on invalid', () => {
 	// In Effect Schema, make() validates. Use for trusted input that still needs type narrowing.
-	expect(() => UserId.make('usr_invalid')).toThrow()
+	expect(() => UserId.make('usr_invalid')).toThrow('Schema validation failed')
 })
 
 it('is() returns true for valid IDs', () => {
@@ -83,7 +83,7 @@ it('is() returns false for malformed input', () => {
 it.effect('decodes valid IDs', () =>
 	Effect.gen(function* () {
 		const id = UserId.create()
-		const exit = yield* Effect.exit(Schema.decodeUnknownEffect(UserId)(id))
+		const exit = yield* Effect.exit(Schema.decodeEffect(UserId)(id))
 		expect(exit).toStrictEqual(Exit.succeed(id))
 	}),
 )
@@ -91,21 +91,21 @@ it.effect('decodes valid IDs', () =>
 it.effect('fails to decode wrong prefix', () =>
 	Effect.gen(function* () {
 		const orderId = OrderId.create()
-		const exit = yield* Effect.exit(Schema.decodeUnknownEffect(UserId)(orderId))
+		const exit = yield* Effect.exit(Schema.decodeEffect(UserId)(orderId))
 		expect(exit._tag).toBe('Failure')
 	}),
 )
 
 it.effect('fails to decode invalid CUID', () =>
 	Effect.gen(function* () {
-		const exit = yield* Effect.exit(Schema.decodeUnknownEffect(UserId)('usr_invalid'))
+		const exit = yield* Effect.exit(Schema.decodeEffect(UserId)('usr_invalid'))
 		expect(exit._tag).toBe('Failure')
 	}),
 )
 
 it.effect('fails to decode missing prefix', () =>
 	Effect.gen(function* () {
-		const exit = yield* Effect.exit(Schema.decodeUnknownEffect(UserId)('noprefixhere'))
+		const exit = yield* Effect.exit(Schema.decodeEffect(UserId)('noprefixhere'))
 		expect(exit._tag).toBe('Failure')
 	}),
 )

@@ -168,7 +168,7 @@ type RolesRef = {
 	readonly orchestrator?: RoleBindingRef
 }
 type ConfigCrossReferences = {
-	readonly providers: Record<string, unknown>
+	readonly providers: Readonly<Record<string, ProviderConnection>>
 	readonly roles: RolesRef
 	readonly profiles?: Record<string, RolesRef>
 }

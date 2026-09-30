@@ -24,7 +24,7 @@ export const providerToolCallIdKey = 'providerToolCallId'
 
 /** A projected message could not be decoded into a live Prompt message. */
 export class PromptDecodeError extends Schema.TaggedError<PromptDecodeError>()('PromptDecodeError', {
-	sourceSeq: Schema.Number,
+	sourceSeq: Schema.Finite,
 	entryTag: Schema.String,
 	message: Schema.String,
 	cause: Schema.optional(Schema.Defect()),
@@ -231,7 +231,9 @@ const markLatestUserSideCacheBreakpoint = (messages: ReadonlyArray<Prompt.Messag
 }
 
 /** Convert a durable canonical result to provider-neutral live Prompt content. */
-const prepareToolResult = (result: unknown): Effect.Effect<unknown, Encoding.EncodingError> => {
+const prepareToolResult = (
+	result: Prompt.ToolResultPart['result'],
+): Effect.Effect<Prompt.ToolResultPart['result'], Encoding.EncodingError> => {
 	const decoded = decodeToolResultOutput(result)
 	if (Option.isNone(decoded)) return Effect.succeed(result)
 

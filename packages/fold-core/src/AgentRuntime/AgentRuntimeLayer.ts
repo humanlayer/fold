@@ -511,18 +511,13 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			readonly parentAgentId: AgentId | null
 			readonly toolCallId: ToolCallId | null
 			readonly model: ActiveModel
-			readonly systemPrompt: string | ReadonlyArray<string> | null
+			readonly systemPrompt: ReadonlyArray<string> | null
 		}
 
 		/** Compose and append one epoch's leading system-message block set (agent start and model switch). */
 		const appendLeadingSystemMessage = (input: LeadingSystemMessageInput): Effect.Effect<void> =>
 			Effect.gen(function* () {
-				const agentBlocks =
-					input.systemPrompt === null
-						? []
-						: typeof input.systemPrompt === 'string'
-							? [input.systemPrompt]
-							: input.systemPrompt
+				const agentBlocks = input.systemPrompt ?? []
 
 				const blocks = yield* systemPrompt.compose({ model: input.model, agentBlocks })
 

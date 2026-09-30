@@ -62,7 +62,7 @@ export function updatesByDay(items: ReadonlyArray<GhItem>, days: number): Array<
 	startOfToday.setHours(0, 0, 0, 0)
 	const todayMs = startOfToday.getTime()
 
-	const buckets = new Array<number>(days).fill(0)
+	const buckets = Array.from({ length: days }, () => 0)
 	for (const item of items) {
 		const updated = new Date(item.updatedAt).getTime()
 		if (Number.isNaN(updated)) continue

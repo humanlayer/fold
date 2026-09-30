@@ -23,7 +23,7 @@ const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
 const GuardState = defineToolState({
 	namespace: 'guard',
 	keys: {
-		count: Schema.Number,
+		count: Schema.Finite,
 	},
 })
 

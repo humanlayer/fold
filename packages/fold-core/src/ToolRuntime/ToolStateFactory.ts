@@ -5,8 +5,9 @@
  * as of the handler fork point plus the call's own writes, so parallel sibling calls cannot leak
  * mid-batch state into each other. Both variants append durable tool_state entries immediately.
  */
-import { Effect, Ref, Stream } from 'effect'
+import { Effect, Ref, type Schema, Stream } from 'effect'
 
+import type { EventLogError } from '../EventLog/Errors'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import { LogEntryInputs, type LogEntry } from '../EventLog/Schemas'
 import { Ids, type AgentId, type IdsService, type ToolCallId } from '../Ids'
@@ -15,7 +16,7 @@ import type { ToolStateService } from './ToolStateService'
 
 /** Collect every persisted event so ToolState reads can derive the latest value from projections. */
 const collectEventLogEntries = Effect.fn('fold.tool_state.collect_entries')(
-	(entries: Stream.Stream<LogEntry, unknown>) =>
+	(entries: Stream.Stream<LogEntry, EventLogError>) =>
 		Stream.runCollect(entries).pipe(
 			Effect.orDie,
 			Effect.map((entries): ReadonlyArray<LogEntry> => entries),
@@ -124,7 +125,7 @@ export const makeToolStateServiceForHandler: Effect.Effect<
 	return (input: ToolStateForHandlerInput): Effect.Effect<ToolStateService> =>
 		Effect.gen(function* () {
 			const ownWrites = yield* Ref.make<
-				ReadonlyArray<{ readonly namespace: string; readonly key: string; readonly value: unknown }>
+				ReadonlyArray<{ readonly namespace: string; readonly key: string; readonly value: Schema.Json }>
 			>([])
 			const appendDurable = appendToolStateEntry(input, eventLog, ids)
 
