@@ -72,7 +72,7 @@ import { runtimeForAgent } from '../Projection/Projection'
 import { AgentNotRunningError } from '../Session/Errors'
 import {
 	isProfileRole,
-	makeProfiles,
+	layerProfiles,
 	profileModelFor,
 	Profiles,
 	type ProfileRole,
@@ -80,7 +80,7 @@ import {
 	type SessionProfiles,
 } from '../Session/Profiles'
 import {
-	makeSessionControls,
+	layerSessionControls,
 	SessionControls,
 	type SessionControlsService,
 	type SteeringMode,
@@ -98,7 +98,7 @@ import {
 import { SubagentNotFoundError } from '../Subagents/Errors'
 import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
 import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
-import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
+import { layerSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
 import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from './AgentDefinition'
 import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
@@ -483,7 +483,7 @@ const assembleSessionGraph = <R>(options: {
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
 			Layer.succeedContext(hostServices),
-			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
+			layerSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
 			Layer.succeed(Subagents, delegatingSubagents),
@@ -492,13 +492,10 @@ const assembleSessionGraph = <R>(options: {
 			// entries build the empty catalog, which behaves exactly like the Reference default.
 			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
 			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
-			Layer.effect(
-				SessionControls,
-				makeSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
-			),
+			layerSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
 			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
 			// setProfile and the Subagents engine's per-dispatch/resume resolution.
-			Layer.effect(Profiles, makeProfiles(initialProfiles)),
+			layerProfiles(initialProfiles),
 		)
 		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
 		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map

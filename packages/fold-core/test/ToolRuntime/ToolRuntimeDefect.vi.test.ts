@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Ref } from 'effect'
 
-import { makeHookRunner, messagesForAgent, StopController, ToolRuntime } from '../../src/index'
+import { layerHookRunner, messagesForAgent, StopController, ToolRuntime } from '../../src/index'
 import { layerEchoTool, makeEchoRecorder, TestToolkit } from '../TestLayers/TestTools'
 import { agentId, collectEntries, makeAssistantToolCall, toolRuntimeBaseLayer } from './ToolRuntimeTestHelpers'
 
@@ -29,7 +29,7 @@ it.effect('projects tool handler defects as model-visible tool failures', () =>
 					}),
 			}),
 		)
-		const layer = toolRuntimeBaseLayer(makeHookRunner({}), toolLayer)
+		const layer = toolRuntimeBaseLayer(layerHookRunner({}), toolLayer)
 
 		const result = yield* Effect.gen(function* () {
 			const runtime = yield* ToolRuntime
@@ -63,7 +63,7 @@ it.effect('truncates long defect messages before projecting them to the model', 
 				echo: () => Effect.die(new Error(longMessage)),
 			}),
 		)
-		const layer = toolRuntimeBaseLayer(makeHookRunner({}), toolLayer)
+		const layer = toolRuntimeBaseLayer(layerHookRunner({}), toolLayer)
 
 		const projected = yield* Effect.gen(function* () {
 			const runtime = yield* ToolRuntime
@@ -100,7 +100,7 @@ it.effect('projects tool defects after cooperative stop requests as model-visibl
 					}),
 			}),
 		)
-		const layer = toolRuntimeBaseLayer(makeHookRunner({}), toolLayer)
+		const layer = toolRuntimeBaseLayer(layerHookRunner({}), toolLayer)
 
 		const result = yield* Effect.gen(function* () {
 			const runtime = yield* ToolRuntime
@@ -127,7 +127,7 @@ it.effect('projects tool defects after cooperative stop requests as model-visibl
 it.effect('projects preToolUse hook defects as model-visible tool failures and skips the handler', () =>
 	Effect.gen(function* () {
 		const recorder = yield* makeEchoRecorder
-		const hookLayer = makeHookRunner({
+		const hookLayer = layerHookRunner({
 			preToolUse: [
 				{
 					name: 'guard',
@@ -165,7 +165,7 @@ it.effect('projects preToolUse hook defects as model-visible tool failures and s
 it.effect('projects postToolUse hook defects as model-visible tool failures', () =>
 	Effect.gen(function* () {
 		const recorder = yield* makeEchoRecorder
-		const hookLayer = makeHookRunner({
+		const hookLayer = layerHookRunner({
 			postToolUse: [
 				{
 					name: 'redactor',
@@ -203,7 +203,7 @@ it.effect('projects postToolUse hook defects as model-visible tool failures', ()
 it.effect('projects hook defects after StopController requests as hook failures', () =>
 	Effect.gen(function* () {
 		const recorder = yield* makeEchoRecorder
-		const hookLayer = makeHookRunner({
+		const hookLayer = layerHookRunner({
 			preToolUse: [
 				{
 					name: 'stopper',

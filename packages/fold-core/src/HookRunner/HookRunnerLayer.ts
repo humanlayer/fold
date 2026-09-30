@@ -87,7 +87,7 @@ const provideHookState =
 		})
 
 /** Build a HookRunner layer from hook configuration data. */
-export const makeHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never, EventLog | Ids> =>
+export const layerHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never, EventLog | Ids> =>
 	Layer.effect(
 		HookRunner,
 		Effect.gen(function* () {

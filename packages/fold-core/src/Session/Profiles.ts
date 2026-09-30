@@ -8,7 +8,7 @@
  * at resolve time is an engine invariant violation - session-start validation rejects any roster whose
  * role bindings the initial profiles do not cover - and dies like other configuration invariants.
  */
-import { Context, Effect, Match, Ref, Schema } from 'effect'
+import { Context, Effect, Layer, Match, Ref, Schema } from 'effect'
 
 import type { FoldModel } from '../Api/ModelDescriptor'
 
@@ -57,34 +57,37 @@ export type ProfilesService = {
 /** Profiles service tag; one instance per session, shared by the facade and the Subagents engine. */
 export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles') {}
 
-/** Build one session's profiles over the initial bindings from `startSession`/`resumeSession`. */
-export const makeProfiles = (initial: SessionProfiles): Effect.Effect<ProfilesService> =>
-	Effect.gen(function* () {
-		const state = yield* Ref.make<SessionProfiles>(initial)
+/** One session's profiles over the initial bindings from `startSession`/`resumeSession`. */
+export const layerProfiles = (initial: SessionProfiles): Layer.Layer<Profiles> =>
+	Layer.effect(
+		Profiles,
+		Effect.gen(function* () {
+			const state = yield* Ref.make<SessionProfiles>(initial)
 
-		const resolve = (role: ProfileRole): Effect.Effect<FoldModel> =>
-			Ref.get(state).pipe(
-				Effect.flatMap((profiles) => {
-					const model = profileModelFor(profiles, role)
-					return model === undefined
-						? Effect.die(
-								new Error(
-									`profile role "${role}" has no bound model - session-start validation should have rejected this roster`,
-								),
-							)
-						: Effect.succeed(model)
-				}),
-			)
+			const resolve = (role: ProfileRole): Effect.Effect<FoldModel> =>
+				Ref.get(state).pipe(
+					Effect.flatMap((profiles) => {
+						const model = profileModelFor(profiles, role)
+						return model === undefined
+							? Effect.die(
+									new Error(
+										`profile role "${role}" has no bound model - session-start validation should have rejected this roster`,
+									),
+								)
+							: Effect.succeed(model)
+					}),
+				)
 
-		const set = (role: ProfileRole, model: FoldModel): Effect.Effect<void> =>
-			Ref.update(state, (profiles) =>
-				Match.value(role).pipe(
-					Match.when('smart', () => ({ ...profiles, smart: model })),
-					Match.when('fast', () => ({ ...profiles, fast: model })),
-					Match.when('orchestrator', () => ({ ...profiles, orchestrator: model })),
-					Match.exhaustive,
-				),
-			)
+			const set = (role: ProfileRole, model: FoldModel): Effect.Effect<void> =>
+				Ref.update(state, (profiles) =>
+					Match.value(role).pipe(
+						Match.when('smart', () => ({ ...profiles, smart: model })),
+						Match.when('fast', () => ({ ...profiles, fast: model })),
+						Match.when('orchestrator', () => ({ ...profiles, orchestrator: model })),
+						Match.exhaustive,
+					),
+				)
 
-		return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }
-	})
+			return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }
+		}),
+	)

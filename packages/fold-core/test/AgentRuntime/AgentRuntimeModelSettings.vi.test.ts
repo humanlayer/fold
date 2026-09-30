@@ -13,12 +13,11 @@ import {
 	liveAgentRuntimeLayer,
 	liveModelRequestSettingsLayer,
 	liveToolRuntimeLayer,
-	makeHookRunner,
-	makeSessionControls,
-	makeSystemPrompt,
-	makeToolsetResolver,
+	layerHookRunner,
+	layerSessionControls,
+	layerSystemPrompt,
+	layerToolsetResolver,
 	noopToolEventSink,
-	SessionControls,
 	Subagents,
 	type SystemPrompt,
 	ToolEventSink,
@@ -171,7 +170,7 @@ const familyToolkitLayer = FamilyToolkit.toLayer(
 	}),
 )
 
-const familyBasePrompts = makeSystemPrompt({
+const familyBasePrompts = layerSystemPrompt({
 	basePrompts: {
 		gpt: 'GPT BASE PROMPT',
 		claude: 'CLAUDE BASE PROMPT',
@@ -193,13 +192,13 @@ const familyAgentLayer = (
 		idsLayer,
 		liveAgentEventsLayer,
 		toolsetLayer,
-		makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
+		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 		systemPromptLayer,
 		liveModelRequestSettingsLayer,
-		makeHookRunner({}).pipe(Layer.provide(Layer.mergeAll(memoryLayer, idsLayer))),
+		layerHookRunner({}).pipe(Layer.provide(Layer.mergeAll(memoryLayer, idsLayer))),
 		Layer.succeed(ToolEventSink, noopToolEventSink),
 		Layer.succeed(Subagents, noSubagentsStub),
-		Layer.effect(SessionControls, makeSessionControls()),
+		layerSessionControls(),
 		NodeFileSystem.layer,
 	)
 

@@ -10,7 +10,7 @@ import {
 	type Ids,
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
-	makeHookRunner,
+	layerHookRunner,
 	Subagents,
 	ToolCallId,
 	ToolRuntime,
@@ -164,7 +164,7 @@ describe('ToolRuntime handler state snapshots', () => {
 
 			// The hook shares state with the tool because both use the same ProbeState definition, not
 			// because of any name match - the hook name deliberately differs from the declared namespace.
-			const hookLayer = makeHookRunner({
+			const hookLayer = layerHookRunner({
 				preToolUse: [
 					{
 						name: 'probe-seed',

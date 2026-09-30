@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
 
-import { makeToolsetResolver, Toolset, ToolsetResolver, type ActiveModel } from '../../src/index'
+import { layerToolsetResolver, Toolset, ToolsetResolver, type ActiveModel } from '../../src/index'
 
 /** Toolset stub exposing only installed names; the resolver never touches handlers. */
 const stubToolset = (names: ReadonlyArray<string>): Layer.Layer<Toolset> =>
@@ -59,7 +59,7 @@ const resolveFor = (model: ActiveModel, layer: Layer.Layer<ToolsetResolver>) =>
 
 it.effect('codex-family models edit through apply_patch: write and edit are hidden', () =>
 	Effect.gen(function* () {
-		const layer = makeToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
+		const layer = layerToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
 		const resolved = yield* resolveFor(codexModel, layer)
 
 		expect(resolved.names).toEqual(['echo', 'read', 'apply_patch', 'bash'])
@@ -68,7 +68,7 @@ it.effect('codex-family models edit through apply_patch: write and edit are hidd
 
 it.effect('claude-family models edit through write/edit: apply_patch is hidden', () =>
 	Effect.gen(function* () {
-		const layer = makeToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
+		const layer = layerToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
 		const resolved = yield* resolveFor(claudeModel, layer)
 
 		expect(resolved.names).toEqual(['echo', 'read', 'write', 'edit', 'bash'])
@@ -77,7 +77,7 @@ it.effect('claude-family models edit through write/edit: apply_patch is hidden',
 
 it.effect('gpt-family models edit through apply_patch: write and edit are hidden', () =>
 	Effect.gen(function* () {
-		const layer = makeToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
+		const layer = layerToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
 		const resolved = yield* resolveFor(gptModel, layer)
 
 		expect(resolved.names).toEqual(['echo', 'read', 'apply_patch', 'bash'])
@@ -86,7 +86,7 @@ it.effect('gpt-family models edit through apply_patch: write and edit are hidden
 
 it.effect('unknown families default to write/edit editing', () =>
 	Effect.gen(function* () {
-		const layer = makeToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
+		const layer = layerToolsetResolver().pipe(Layer.provide(stubToolset(installed)))
 		const resolved = yield* resolveFor(unknownModel, layer)
 
 		expect(resolved.names).toEqual(['echo', 'read', 'write', 'edit', 'bash'])
@@ -95,7 +95,7 @@ it.effect('unknown families default to write/edit editing', () =>
 
 it.effect('policy overrides merge over the default family exclusions', () =>
 	Effect.gen(function* () {
-		const layer = makeToolsetResolver({ excludedToolsByFamily: { claude: ['bash', 'apply_patch'] } }).pipe(
+		const layer = layerToolsetResolver({ excludedToolsByFamily: { claude: ['bash', 'apply_patch'] } }).pipe(
 			Layer.provide(stubToolset(installed)),
 		)
 		const resolved = yield* resolveFor(claudeModel, layer)

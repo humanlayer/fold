@@ -30,7 +30,7 @@ import { AgentRuntime, type AgentRuntimeService } from '../AgentRuntime/AgentRun
 import { compactionLayerFor } from '../Compaction/CompactionLayer'
 import type { AutoCompactConfig } from '../Compaction/CompactionService'
 import type { EventLog } from '../EventLog/EventLogService'
-import { makeHookRunner } from '../HookRunner/HookRunnerLayer'
+import { layerHookRunner } from '../HookRunner/HookRunnerLayer'
 import type { HookConfig } from '../HookRunner/Types'
 import type { Ids } from '../Ids'
 import type { ModelRequestSettings } from '../Model/ModelRequestSettings'
@@ -40,7 +40,7 @@ import type { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import type { ToolEventSink } from '../ToolRuntime/ToolContextServices'
 import { liveToolRuntimeLayer } from '../ToolRuntime/ToolRuntimeLayer'
 import { toolsetLayerFromToolkit } from '../ToolRuntime/ToolsetFactory'
-import { makeToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
+import { layerToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
 import type { FoldModel } from './ModelDescriptor'
 import type { RealizedFoldTool, FoldTool } from './ToolDefinition'
 
@@ -200,8 +200,8 @@ export const makeAgentProvisioner = (
 			const languageModelLayer = languageModelLayerFor(input.model)
 			const epochServicesLayer = Layer.mergeAll(
 				toolsetLayer,
-				makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
-				makeHookRunner(input.hooks).pipe(Layer.provide(sessionServicesLayer)),
+				layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
+				layerHookRunner(input.hooks).pipe(Layer.provide(sessionServicesLayer)),
 			)
 			const toolRuntimeLayer = liveToolRuntimeLayer.pipe(
 				Layer.provideMerge(Layer.mergeAll(sessionServicesLayer, epochServicesLayer)),
