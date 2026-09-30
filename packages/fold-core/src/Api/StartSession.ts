@@ -301,6 +301,20 @@ const providedPlatformServices: Effect.Effect<Context.Context<PlatformServices>>
 )
 
 /** Lower the event log descriptor to its EventLog layer. */
+/**
+ * Run the tool's handler with the session's platform services over whatever is in scope where the turn
+ * runs. Effect AI merges the turn's services over the toolkit's, so a host whose request handling carries
+ * its own FileSystem (Alchemy's Worker runtime provides Node's) would otherwise shadow the session's.
+ */
+const withPlatformServices = (
+	contribution: SessionToolContribution,
+	platformServices: Context.Context<PlatformServices>,
+): SessionToolContribution => ({
+	...contribution,
+	handler: (params) =>
+		contribution.handler(params).pipe(Effect.updateContext((context) => Context.merge(context, platformServices))),
+})
+
 const eventLogLayerFor = (
 	log: FoldEventLog,
 	platformServices: Context.Context<PlatformServices>,
@@ -408,7 +422,9 @@ const assembleSessionGraph = (options: {
 				(tool) =>
 					tool.init.pipe(
 						Effect.provideContext(platformServices),
-						Effect.map((contribution) => toolContributions.set(tool, contribution)),
+						Effect.map((contribution) =>
+							toolContributions.set(tool, withPlatformServices(contribution, platformServices)),
+						),
 					),
 				{ discard: true },
 			).pipe(Effect.asVoid)
