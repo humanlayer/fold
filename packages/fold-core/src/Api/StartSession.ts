@@ -28,6 +28,7 @@
  * send.
  */
 import {
+	Array as Arr,
 	Predicate,
 	Cause,
 	Context,
@@ -450,7 +451,7 @@ const assembleSessionGraph = (options: {
 			tools: ReadonlyArray<FoldTool>,
 		): ReadonlyArray<string> | null => {
 			const blocks = [...promptBlocksOf(systemPrompt), ...realizeAgentTools(tools).promptBlocks]
-			return blocks.length === 0 ? null : blocks
+			return Arr.isArrayEmpty(blocks) ? null : blocks
 		}
 
 		const initialConfig: SessionAgentConfig = {

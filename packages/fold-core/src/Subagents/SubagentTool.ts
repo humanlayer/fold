@@ -8,7 +8,7 @@
  * the tool's instructive failure payload with `catchTag`/`catchTags` - all choreography lives in the
  * deep module, and no error is ever inspected as a value.
  */
-import { Effect, Match } from 'effect'
+import { Array as Arr, Effect, Match } from 'effect'
 
 import { defineTool, type FoldTool } from '../Api/ToolDefinition'
 import type { SkillNotFoundError } from '../Skills/SkillSource'
@@ -90,7 +90,7 @@ const rosterFailure = (error: SubagentTypeNotInRosterError): SubagentToolFailure
 	ToolResultFailure.make({
 		text:
 			`Agent type "${error.requested}" is not available to you. Available agent types: ` +
-			`${error.availableAgents.length === 0 ? '(none)' : error.availableAgents.join(', ')}.`,
+			`${Arr.isReadonlyArrayEmpty(error.availableAgents) ? '(none)' : error.availableAgents.join(', ')}.`,
 		details: { availableAgents: error.availableAgents },
 	})
 
@@ -99,7 +99,7 @@ const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<st
 	ToolResultFailure.make({
 		text:
 			`Skill "${error.name}" not found. Available skills: ` +
-			`${error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')}.`,
+			`${Arr.isReadonlyArrayEmpty(error.availableSkills) ? '(none)' : error.availableSkills.join(', ')}.`,
 		details: { availableAgents: allowedAgents },
 	})
 
@@ -107,7 +107,7 @@ const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<st
 const notFoundFailure = (error: SubagentNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure =>
 	ToolResultFailure.make({
 		text:
-			error.candidates === undefined || error.candidates.length === 0
+			error.candidates === undefined || Arr.isReadonlyArrayEmpty(error.candidates)
 				? `No subagent with agent_id "${error.requested}" exists in this session. Use the agent_id from a ` +
 					`previous subagent result, or dispatch a fresh agent with the agent parameter.`
 				: `agent_id "${error.requested}" is ambiguous: it matches ${error.candidates.length} agents ` +

@@ -18,7 +18,7 @@
  */
 import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
-import { Context, Effect, Layer, Match, Stream } from 'effect'
+import { Array as Arr, Context, Effect, Layer, Match, Stream } from 'effect'
 import type { Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
@@ -149,7 +149,7 @@ export const validateToolNames = (tools: ReadonlyArray<FoldTool>): Effect.Effect
 		...new Set(tools.map((tool) => tool.name).filter((name, index, names) => names.indexOf(name) !== index)),
 	]
 
-	return duplicates.length === 0
+	return Arr.isArrayEmpty(duplicates)
 		? Effect.void
 		: Effect.die(new Error(`duplicate tool names: ${duplicates.join(', ')}`))
 }

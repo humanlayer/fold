@@ -1,5 +1,5 @@
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Array as Arr, Effect } from 'effect'
 
 import { AgentRuntime } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
@@ -15,7 +15,7 @@ const withoutCacheControl = (value: unknown): unknown => {
 		if (key === 'cacheControl') continue
 		const normalized = withoutCacheControl(nested)
 		if (key === 'anthropic' && typeof normalized === 'object' && normalized !== null) {
-			if (Object.keys(normalized).length === 0) continue
+			if (Arr.isArrayEmpty(Object.keys(normalized))) continue
 		}
 		out[key] = normalized
 	}

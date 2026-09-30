@@ -9,7 +9,7 @@
  * cannot themselves be full ids (4-20 characters - a full cuid segment is 21-32). The 4-char floor
  * matches the CLI renderer's tag suffix, so an id read off a tag is always a valid reference.
  */
-import { Data, Predicate, Schema } from 'effect'
+import { Array as Arr, Data, Predicate, Schema } from 'effect'
 
 import type { LogEntry } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'
@@ -76,7 +76,7 @@ export const resolveAgentIdRef = (knownIds: Iterable<AgentId>, ref: string): Age
 	const matches = ids.filter((id) => cuidSegmentOf(id).startsWith(wanted))
 	const [single] = matches
 	if (matches.length === 1 && single !== undefined) return AgentIdRefResolution.resolved({ agentId: single })
-	if (matches.length === 0) return AgentIdRefResolution['not-found']()
+	if (Arr.isArrayEmpty(matches)) return AgentIdRefResolution['not-found']()
 
 	return AgentIdRefResolution.ambiguous({ candidates: matches.map(shortAgentId) })
 }

@@ -14,7 +14,7 @@
 import { dirname, join } from 'node:path'
 
 import { ModelCatalogEntry } from '@humanlayer/fold-core'
-import { Clock, Effect, FileSystem, Predicate, Schema } from 'effect'
+import { Array as Arr, Clock, Effect, FileSystem, Predicate, Schema } from 'effect'
 
 import { bakedModelCatalog } from './BakedCatalog'
 import { decodeModelsDevModels, ModelsDevDecodeError } from './ModelsDevSchema'
@@ -139,7 +139,7 @@ const fetchCatalogEntries = (
 		const payload = yield* fetchJson(MODELS_DEV_URL)
 		const models = yield* decodeModelsDevModels(payload)
 		const entries = modelCatalogEntriesFromModelsDev(models)
-		if (entries.length === 0) {
+		if (Arr.isReadonlyArrayEmpty(entries)) {
 			// An empty catalog would poison the cache for a full TTL; treat it as a decode failure.
 			return yield* new ModelsDevDecodeError({ message: 'the models.dev payload contained no usable models' })
 		}

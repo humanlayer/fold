@@ -6,7 +6,7 @@
  * byte-identical even when a normalized match was needed; BOM and CRLF endings are preserved. Error
  * strings are pi's, verbatim. Pure and isomorphic: platform handlers do the file IO around it.
  */
-import { Effect, Schema } from 'effect'
+import { Array as Arr, Effect, Schema } from 'effect'
 
 /** One targeted replacement: exact old text and its replacement. */
 export type EditPair = {
@@ -340,7 +340,7 @@ export const normalizeEditInput = (input: {
 			edits.push({ oldText: input.oldText, newText: input.newText })
 		}
 
-		if (edits.length === 0) {
+		if (Arr.isArrayEmpty(edits)) {
 			return yield* new EditEngineError({
 				message: 'Edit tool input is invalid. edits must contain at least one replacement.',
 			})

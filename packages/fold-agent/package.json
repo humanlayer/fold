@@ -30,6 +30,7 @@
 	"devDependencies": {
 		"@effect/platform-node": "catalog:",
 		"@effect/vitest": "catalog:",
+		"@humanlayer/effect-ai-openai": "workspace:*",
 		"@humanlayer/fold-vitest-config": "workspace:*",
 		"@types/turndown": "catalog:",
 		"effect": "catalog:",

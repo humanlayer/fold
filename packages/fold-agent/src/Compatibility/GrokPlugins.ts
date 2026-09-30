@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { Array as Arr, Effect, FileSystem, Path, Schema } from 'effect'
 
 export const GrokPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['manifest', 'discovery']),
@@ -81,28 +81,78 @@ const readManifest = (
 		return null
 	})
 
+const resolvePluginParents = (options: GrokPluginOptions): Effect.Effect<ReadonlyArray<string>, never, Path.Path> =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		const cwd = path.resolve(options.cwd)
+		const homeValue = options.home === undefined ? homedir() : options.home
+		const home = homeValue.length === 0 ? null : path.resolve(homeValue)
+		const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
+		const projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
+		const projectRootIsAncestor = projectRoot !== null && (yield* isAncestor(projectRoot, cwd))
+		const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
+		const boundary = projectRootIsAncestor ? projectRoot : homeIsAncestor ? home : null
+		return [
+			...(options.configuredPaths ?? []).map((configuredPath) => path.resolve(configuredPath)),
+			...(yield* ancestorDirectories(cwd, boundary)).flatMap((directory) => [
+				path.join(directory, '.grok', 'plugins'),
+				path.join(directory, '.claude', 'plugins'),
+			]),
+			path.join(grokHome, 'plugins'),
+			...(home === null ? [] : [path.join(home, '.claude', 'plugins')]),
+		]
+	})
+
+const listPluginCandidates = (
+	parent: string,
+	parentManifest: { path: string; value: unknown } | null,
+): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem | Path.Path> =>
+	Effect.gen(function* () {
+		if (parentManifest !== null) return [parent]
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		return (yield* fs.readDirectory(parent).pipe(Effect.orElseSucceed(() => [])))
+			.sort((left, right) => left.localeCompare(right))
+			.map((entry) => path.join(parent, entry))
+	})
+
+const pluginName = (manifestValue: Record<string, unknown> | null, fallback: string): string =>
+	manifestValue !== null && typeof manifestValue.name === 'string' ? manifestValue.name : fallback
+
+const declaredSkillPaths = (manifestValue: Record<string, unknown> | null): ReadonlyArray<unknown> =>
+	manifestValue === null || manifestValue.skills === undefined
+		? ['skills']
+		: Array.isArray(manifestValue.skills)
+			? manifestValue.skills
+			: [manifestValue.skills]
+
+const resolveSkillRoots = (
+	candidate: string,
+	declared: ReadonlyArray<unknown>,
+	manifestPath: string,
+	diagnostics: Array<GrokPluginDiagnostic>,
+): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem | Path.Path> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const skillRoots: Array<string> = []
+		for (const value of declared) {
+			const relativePath = safeRelativePath(value)
+			if (relativePath === null) {
+				diagnostics.push({ stage: 'manifest', code: 'invalid_skill_root', path: manifestPath })
+				continue
+			}
+			const skillRoot = path.resolve(candidate, relativePath)
+			if (yield* fs.exists(skillRoot).pipe(Effect.orElseSucceed(() => false))) skillRoots.push(skillRoot)
+		}
+		return skillRoots
+	})
+
 export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.discover_plugin_skills')(function* (
 	options: GrokPluginOptions,
 ) {
-	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
-	const cwd = path.resolve(options.cwd)
-	const homeValue = options.home === undefined ? homedir() : options.home
-	const home = homeValue.length === 0 ? null : path.resolve(homeValue)
-	const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
-	const projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
-	const projectRootIsAncestor = projectRoot !== null && (yield* isAncestor(projectRoot, cwd))
-	const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
-	const boundary = projectRootIsAncestor ? projectRoot : homeIsAncestor ? home : null
-	const pluginParents = [
-		...(options.configuredPaths ?? []).map((configuredPath) => path.resolve(configuredPath)),
-		...(yield* ancestorDirectories(cwd, boundary)).flatMap((directory) => [
-			path.join(directory, '.grok', 'plugins'),
-			path.join(directory, '.claude', 'plugins'),
-		]),
-		path.join(grokHome, 'plugins'),
-		...(home === null ? [] : [path.join(home, '.claude', 'plugins')]),
-	]
+	const pluginParents = yield* resolvePluginParents(options)
 	const diagnostics: Array<GrokPluginDiagnostic> = []
 	const roots: Array<GrokPluginSkillRoot> = []
 	const seenPaths = new Set<string>()
@@ -110,12 +160,7 @@ export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.d
 
 	for (const parent of pluginParents) {
 		const parentManifest = yield* readManifest(parent)
-		const candidates =
-			parentManifest === null
-				? (yield* fs.readDirectory(parent).pipe(Effect.orElseSucceed(() => [])))
-						.sort((left, right) => left.localeCompare(right))
-						.map((entry) => path.join(parent, entry))
-				: [parent]
+		const candidates = yield* listPluginCandidates(parent, parentManifest)
 		for (const candidate of candidates) {
 			const normalized = path.resolve(candidate)
 			if (seenPaths.has(normalized)) continue
@@ -127,32 +172,15 @@ export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.d
 				continue
 			}
 			const manifestValue = manifest === null || !isRecord(manifest.value) ? null : manifest.value
-			const name =
-				manifestValue !== null && typeof manifestValue.name === 'string'
-					? manifestValue.name
-					: path.basename(candidate)
+			const name = pluginName(manifestValue, path.basename(candidate))
 			if (name.length === 0 || seenNames.has(name)) continue
-			const declared =
-				manifestValue === null || manifestValue.skills === undefined
-					? ['skills']
-					: Array.isArray(manifestValue.skills)
-						? manifestValue.skills
-						: [manifestValue.skills]
-			const skillRoots: Array<string> = []
-			for (const value of declared) {
-				const relativePath = safeRelativePath(value)
-				if (relativePath === null) {
-					diagnostics.push({
-						stage: 'manifest',
-						code: 'invalid_skill_root',
-						path: manifest?.path ?? candidate,
-					})
-					continue
-				}
-				const skillRoot = path.resolve(candidate, relativePath)
-				if (yield* fs.exists(skillRoot).pipe(Effect.orElseSucceed(() => false))) skillRoots.push(skillRoot)
-			}
-			if (skillRoots.length === 0) continue
+			const skillRoots = yield* resolveSkillRoots(
+				candidate,
+				declaredSkillPaths(manifestValue),
+				manifest?.path ?? candidate,
+				diagnostics,
+			)
+			if (Arr.isReadonlyArrayEmpty(skillRoots)) continue
 			seenNames.add(name)
 			for (const skillRoot of skillRoots) roots.push({ name, path: skillRoot })
 		}

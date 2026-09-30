@@ -7,6 +7,7 @@
  * one). Truncation happens exactly once, at result creation; the truncated text is then immortal in
  * log and prompt (the prefix-stability rule).
  */
+import { Array as Arr } from 'effect'
 
 /** Default line limit shared by read and bash truncation (pi parity). */
 export const defaultMaxLines = 2000
@@ -83,7 +84,7 @@ export const truncateHead = (text: string, options?: TruncateOptions): Truncatio
 		}
 	}
 
-	if (lines.length > 0 && utf8ByteLength(lines[0] ?? '') > maxBytes) {
+	if (Arr.isReadonlyArrayNonEmpty(lines) && utf8ByteLength(lines[0]) > maxBytes) {
 		return {
 			content: '',
 			truncated: true,
@@ -105,7 +106,7 @@ export const truncateHead = (text: string, options?: TruncateOptions): Truncatio
 			break
 		}
 
-		const lineBytes = utf8ByteLength(line) + (kept.length > 0 ? 1 : 0)
+		const lineBytes = utf8ByteLength(line) + (Arr.isArrayNonEmpty(kept) ? 1 : 0)
 		if (bytes + lineBytes > maxBytes) {
 			truncatedBy = 'bytes'
 			break
@@ -184,7 +185,7 @@ export const truncateTail = (text: string, options?: TruncateOptions): Truncatio
 		}
 
 		const line = lines[index] ?? ''
-		const lineBytes = utf8ByteLength(line) + (kept.length > 0 ? 1 : 0)
+		const lineBytes = utf8ByteLength(line) + (Arr.isArrayNonEmpty(kept) ? 1 : 0)
 		if (bytes + lineBytes > maxBytes) {
 			truncatedBy = 'bytes'
 			break

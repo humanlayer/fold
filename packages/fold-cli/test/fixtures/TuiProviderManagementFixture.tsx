@@ -2,6 +2,7 @@ import type { ModelConfiguration } from '@humanlayer/fold-agent'
 /** @jsxImportSource @opentui/solid */
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
+import { constVoid } from 'effect/Function'
 import { createSignal, Show } from 'solid-js'
 
 import { ProviderConfigPage } from '../../src/tui/ProviderConfigPage'
@@ -62,9 +63,9 @@ await render(
 					sessions={sessions}
 					notice={notice}
 					opening={() => false}
-					onOpen={() => {}}
-					onDelete={() => {}}
-					onNew={() => {}}
+					onOpen={constVoid}
+					onDelete={constVoid}
+					onNew={constVoid}
 					onOpenProviders={() => setProvidersOpen(true)}
 					onQuit={() => renderer.destroy()}
 				/>
@@ -81,7 +82,7 @@ await render(
 						authStatus: action === 'logout' ? 'logged-out' : 'logged-in',
 					})
 				}
-				onInitialize={() => {}}
+				onInitialize={constVoid}
 				onCopyUrl={() => true}
 				onConfigure={(input, update) => {
 					setConfiguration((current) => ({

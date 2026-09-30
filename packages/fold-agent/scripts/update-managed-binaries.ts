@@ -12,7 +12,7 @@ import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { Effect, Predicate, Schema } from 'effect'
+import { Array as Arr, Effect, Predicate, Schema } from 'effect'
 
 import { MANAGED_BINARY_PLATFORMS, managedBinaryRegistry } from '../src/Bin/Registry'
 
@@ -105,7 +105,7 @@ const program = Effect.gen(function* () {
 	spawnSync('bunx', ['oxfmt', targetPath], { stdio: 'inherit' })
 	yield* Effect.log(`wrote ${digests.length} digests to ${targetPath}`)
 
-	if (failures.length > 0) {
+	if (Arr.isArrayNonEmpty(failures)) {
 		yield* Effect.logWarning(
 			`${failures.length} assets could not be hashed and stay UNPINNED (verification skipped at install):\n` +
 				failures.join('\n'),

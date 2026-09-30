@@ -7,6 +7,7 @@
  * no effort-list constraint (toggle/budget-style reasoning, or no reasoning at all).
  */
 import type { ModelCatalogEntry, ModelPricing } from '@humanlayer/fold-core'
+import { Array as Arr } from 'effect'
 
 import type { ModelsDevModel, ModelsDevNamedModel } from './ModelsDevSchema'
 
@@ -28,7 +29,7 @@ const reasoningEffortsFrom = (model: ModelsDevModel): ReadonlyArray<string> | nu
 
 	const efforts = effortOption.values.filter((value): value is string => value !== null)
 
-	return efforts.length === 0 ? null : efforts
+	return Arr.isArrayEmpty(efforts) ? null : efforts
 }
 
 /**

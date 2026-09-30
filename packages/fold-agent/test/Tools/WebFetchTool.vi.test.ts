@@ -10,6 +10,7 @@ import { createServer, type Server } from 'node:http'
 import { it } from '@effect/vitest'
 import { ToolResultMultipart, ToolResultText } from '@humanlayer/fold-core'
 import { Effect, Schema } from 'effect'
+import { constVoid } from 'effect/Function'
 import { afterAll, beforeAll, expect } from 'vitest'
 
 import { webFetchTool } from '../../src/index'
@@ -78,7 +79,7 @@ beforeAll(async () => {
 		if (path === '/streamed-huge') {
 			// No content-length: the streaming cap is the only guard. 6MB in 1MB chunks trips it at 5MB.
 			response.writeHead(200, { 'content-type': 'application/octet-stream' })
-			response.on('error', () => {})
+			response.on('error', constVoid)
 			for (let index = 0; index < 6; index++) response.write(Buffer.alloc(1024 * 1024, index))
 			response.end()
 			return
@@ -89,7 +90,7 @@ beforeAll(async () => {
 				'content-type': 'application/octet-stream',
 				'content-length': String(6 * 1024 * 1024),
 			})
-			response.on('error', () => {})
+			response.on('error', constVoid)
 			response.end(Buffer.alloc(16))
 			return
 		}

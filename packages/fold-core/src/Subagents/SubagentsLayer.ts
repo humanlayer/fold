@@ -14,8 +14,7 @@
  * `setProfile` swap binds on the very next run and the existing transition diff sees only concrete
  * models.
  */
-import { Data, Match, Predicate, Cause, Effect, Exit, Fiber, Ref, Schema, Stream } from 'effect'
-import type { Array as Arr } from 'effect'
+import { Array as Arr, Data, Match, Predicate, Cause, Effect, Exit, Fiber, Ref, Schema, Stream } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { FoldModel } from '../Api/ModelDescriptor'
@@ -145,7 +144,7 @@ const leadingBlocksFor = (
 	realized: RealizedAgentTools,
 ): ReadonlyArray<string> | null => {
 	const blocks = [...promptBlocksOf(systemPrompt), ...realized.promptBlocks]
-	return blocks.length === 0 ? null : blocks
+	return Arr.isArrayEmpty(blocks) ? null : blocks
 }
 
 /**

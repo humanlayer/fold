@@ -5,18 +5,18 @@
  * hidden by the family policy - and streaming rides the hardened first-event/idle timeout + retry
  * pipeline.
  *
- * Run: bun packages/fold-codex/examples/CodexAgent.ts
+ * Run: bun packages/fold-agent/examples/CodexAgent.ts
  */
 import { mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { codingTools, jsonlEventLog } from '@humanlayer/fold-agent'
+import { codexModel } from '@humanlayer/fold-codex'
 import { defineAgent, startSession } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
-import { codexModel } from '../src/index'
+import { codingTools, jsonlEventLog } from '../src/index'
 
 const modelId = process.env.FOLD_CODEX_MODEL ?? 'gpt-5.5'
 

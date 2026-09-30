@@ -1,4 +1,4 @@
-import { Effect, Layer, Ref } from 'effect'
+import { Array as Arr, Effect, Layer, Ref } from 'effect'
 
 import { StopController, type StopControllerService } from '../../src/index'
 
@@ -29,7 +29,7 @@ export const makeRecordingStopController: Effect.Effect<RecordingStopController>
 			/** Record one stop request reason. */
 			requestStop: (reason) => Ref.update(requests, (reasons) => [...reasons, reason]),
 			/** Report whether any stop request has been recorded. */
-			isStopRequested: Ref.get(requests).pipe(Effect.map((reasons) => reasons.length > 0)),
+			isStopRequested: Ref.get(requests).pipe(Effect.map((reasons) => Arr.isReadonlyArrayNonEmpty(reasons))),
 		},
 	}
 })

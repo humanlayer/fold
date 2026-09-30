@@ -17,7 +17,7 @@ import {
 	type UsageEncoded,
 	type FoldEvent,
 } from '@humanlayer/fold-core'
-import { Data, Effect, Match } from 'effect'
+import { Array as Arr, Data, Effect, Match } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from './ContextWindow'
@@ -283,7 +283,7 @@ const resumeCommand = (
 	input: { readonly model: ActiveModel | null; readonly flags: ReadonlyArray<ResumeCommandFlag> },
 ): string => {
 	const flags = [`--resume ${shellQuote(sessionId)}`]
-	if (input.flags.length > 0) {
+	if (Arr.isReadonlyArrayNonEmpty(input.flags)) {
 		flags.push(...input.flags.map(formattedFlag))
 	} else if (input.model !== null) {
 		const model = input.model

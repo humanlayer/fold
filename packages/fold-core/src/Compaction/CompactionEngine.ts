@@ -1,4 +1,4 @@
-import { Match, Predicate } from 'effect'
+import { Array as Arr, Match, Predicate } from 'effect'
 
 /**
  * This file is the pure auto-compaction engine (D11): the threshold arithmetic over API-reported
@@ -189,7 +189,7 @@ export const findCompactionCutPlan = (
 	messages: ReadonlyArray<ProjectedMessage>,
 	keepRecentTokens: number,
 ): CompactionCut => {
-	if (messages.length === 0) return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
+	if (Arr.isReadonlyArrayEmpty(messages)) return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
 
 	let accumulated = 0
 	let boundary = -1
@@ -282,10 +282,10 @@ export const serializeConversation = (messages: ReadonlyArray<ProjectedMessage>)
 				for (const part of reasoning) {
 					lines.push(`[Assistant thinking]: ${part.text ?? ''}`)
 				}
-				if (text.length > 0) {
+				if (Arr.isArrayNonEmpty(text)) {
 					lines.push(`[Assistant]: ${text.map((part) => part.text ?? '').join('\n')}`)
 				}
-				if (toolCalls.length > 0) {
+				if (Arr.isArrayNonEmpty(toolCalls)) {
 					lines.push(
 						`[Assistant tool calls]: ${toolCalls
 							.map((part) => `${part.name ?? 'tool'}(${safeStringify(part.params)})`)

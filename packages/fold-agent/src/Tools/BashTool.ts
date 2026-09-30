@@ -236,6 +236,16 @@ const killWithEscalation = (handle: ChildProcessSpawner.ChildProcessHandle): Eff
 		}
 	})
 
+const validateTimeout = (timeoutMilliseconds: number): Effect.Effect<number, { readonly message: string }> => {
+	if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
+		return Effect.fail({ message: 'Invalid timeout_ms: must be a finite number of milliseconds' })
+	}
+	if (timeoutMilliseconds > maxTimeoutMilliseconds) {
+		return Effect.fail({ message: `Invalid timeout_ms: maximum is ${maxTimeoutMilliseconds} milliseconds` })
+	}
+	return Effect.succeed(timeoutMilliseconds)
+}
+
 /** Build the bash tool. Runs real processes; only spill-file IO goes through the FileSystem seam. */
 export const bashTool = (options?: BashToolOptions): FoldTool =>
 	defineTool({
@@ -263,18 +273,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const configuredCwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const cwd =
 					params.workdir === undefined ? configuredCwd : yield* resolveToCwd(params.workdir, configuredCwd)
-				const timeoutMilliseconds = params.timeout_ms ?? defaultTimeoutMilliseconds
-
-				if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
-					return yield* Effect.fail({
-						message: 'Invalid timeout_ms: must be a finite number of milliseconds',
-					})
-				}
-				if (timeoutMilliseconds > maxTimeoutMilliseconds) {
-					return yield* Effect.fail({
-						message: `Invalid timeout_ms: maximum is ${maxTimeoutMilliseconds} milliseconds`,
-					})
-				}
+				const timeoutMilliseconds = yield* validateTimeout(params.timeout_ms ?? defaultTimeoutMilliseconds)
 
 				if (!(yield* fs.exists(cwd).pipe(Effect.catch(() => Effect.succeed(false))))) {
 					return yield* Effect.fail({

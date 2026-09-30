@@ -1,4 +1,4 @@
-import { Data, Match, Predicate } from 'effect'
+import { Array as Arr, Data, Match, Predicate } from 'effect'
 
 import type {
 	ActiveModel,
@@ -13,8 +13,8 @@ import type {
 	ToolMessageEncoded,
 	ToolResultLogEntry,
 	UserMessageLogEntry,
-} from '../EventLog/Schemas.ts'
-import type { AgentId } from '../Ids.ts'
+} from '../EventLog/Schemas'
+import type { AgentId } from '../Ids'
 
 /** Read model for an agent's lifecycle: how it started, whether it has finished, and whether it is runnable. */
 export type AgentLifecycleProjection = {
@@ -109,7 +109,10 @@ const isInjectedSkillMessage = (entry: LogEntry): boolean => {
 const isSettledAssistantText = (entry: LogEntry): boolean => {
 	if (!Predicate.isTagged(entry, 'assistant-message')) return false
 	if (typeof entry.message.content === 'string') return entry.message.content.trim().length > 0
-	return entry.message.content.length > 0 && entry.message.content.every((part) => part.type === 'text')
+	return (
+		Arr.isReadonlyArrayNonEmpty(entry.message.content) &&
+		entry.message.content.every((part) => part.type === 'text')
+	)
 }
 
 const eligibleForkHistory = (
@@ -295,7 +298,7 @@ const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): R
 		if (!Predicate.isTagged(message, 'assistant-message')) continue
 
 		const toolCallIds = toolCallIdsForAssistantMessage(message.message)
-		if (toolCallIds.length === 0) continue
+		if (Arr.isReadonlyArrayEmpty(toolCallIds)) continue
 
 		const toolResults: Array<ProjectedToolResult> = []
 		while (true) {

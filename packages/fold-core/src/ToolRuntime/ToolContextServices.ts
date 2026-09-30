@@ -5,7 +5,7 @@
  */
 import { Context, Effect, type Schema } from 'effect'
 
-import type { AgentId, ToolCallId } from '../Ids.ts'
+import type { AgentId, ToolCallId } from '../Ids'
 
 /** UI/progress event emitted by a running tool. This is not the durable final tool result. */
 export type ToolRuntimeEvent = {

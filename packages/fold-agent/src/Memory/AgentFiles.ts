@@ -18,7 +18,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { Effect, FileSystem, Schema } from 'effect'
+import { Array as Arr, Effect, FileSystem, Schema } from 'effect'
 
 /** One loaded agentfile. */
 export const MemoryFile = Schema.Struct({
@@ -124,7 +124,7 @@ const escapeXmlAttribute = (text: string): string =>
 
 /** Render loaded agentfiles as one `<project_context>` prompt block (pi shape). Null when empty. */
 export const renderMemoryFiles = (files: ReadonlyArray<MemoryFile>): string | null => {
-	if (files.length === 0) return null
+	if (Arr.isReadonlyArrayEmpty(files)) return null
 
 	const blocks = files.map(
 		(file) =>

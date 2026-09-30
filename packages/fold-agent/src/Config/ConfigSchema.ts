@@ -14,7 +14,7 @@
  */
 import { ReasoningLevel } from '@humanlayer/fold-core'
 import type { AutoCompactConfig as CoreAutoCompactConfig, StopConditionConfig } from '@humanlayer/fold-core'
-import { Schema } from 'effect'
+import { Array as Arr, Schema } from 'effect'
 
 /** How a configured provider profile is reached. */
 export const ProviderKind = Schema.Literals(['anthropic', 'openai-compat', 'codex', 'opencode', 'xai']).annotate({
@@ -188,7 +188,7 @@ const providersReferencedByRolesExist = Schema.makeFilter<CrossRefShape>(
 		const declared = new Set(Object.keys(providers))
 		const bindings = [...bindingsOf(roles), ...Object.values(profiles ?? {}).flatMap(bindingsOf)]
 		const missing = [...new Set(bindings.map((binding) => binding.provider).filter((name) => !declared.has(name)))]
-		return missing.length === 0
+		return Arr.isArrayEmpty(missing)
 			? undefined
 			: `roles reference undeclared providers: ${missing.join(', ')} (declared: ${[...declared].join(', ') || '(none)'})`
 	},

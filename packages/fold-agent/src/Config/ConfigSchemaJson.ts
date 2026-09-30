@@ -10,7 +10,7 @@
  */
 import { join } from 'node:path'
 
-import { JsonSchema, Effect, FileSystem, Schema } from 'effect'
+import { Array as Arr, JsonSchema, Effect, FileSystem, Schema } from 'effect'
 
 import { FoldConfig } from './ConfigSchema'
 import { writeFoldInfo } from './FoldInfo'
@@ -22,7 +22,7 @@ export const configSchemaPath = (foldHome?: string): string => join(foldHome ?? 
 /** The `FoldConfig` JSON Schema as a self-contained draft-07 document object (ready to serialize). */
 export const foldConfigJsonSchema = (): Record<string, unknown> => {
 	const document = JsonSchema.toDocumentDraft07(Schema.toJsonSchemaDocument(FoldConfig))
-	const hasDefinitions = Object.keys(document.definitions).length > 0
+	const hasDefinitions = Arr.isArrayNonEmpty(Object.keys(document.definitions))
 	const schema: Record<string, unknown> = {
 		$schema: JsonSchema.META_SCHEMA_URI_DRAFT_07,
 		...document.schema,

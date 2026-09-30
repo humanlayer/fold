@@ -9,7 +9,7 @@
  */
 import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
-import { Effect, Predicate, Stream } from 'effect'
+import { Array as Arr, Effect, Predicate, Stream } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 
 import { ModelCatalog } from '../Model/ModelCatalog'
@@ -205,7 +205,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				replacedMessages: discarded.length,
 				keptMessages: conversation.length - discarded.length,
 				splitTurn: cut.isSplitTurn,
-				summaryCalls: cut.isSplitTurn ? (toSummarize.length > 0 ? 2 : 1) : 1,
+				summaryCalls: cut.isSplitTurn ? (Arr.isArrayNonEmpty(toSummarize) ? 2 : 1) : 1,
 			})
 
 			const requestText = buildCompactionRequestText({
@@ -220,10 +220,9 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				additionalInstructions: input.additionalInstructions ?? null,
 			})
 
-			const historySummary =
-				toSummarize.length > 0
-					? yield* summarize(input, requestText, summaryOutputFraction)
-					: 'No prior history.'
+			const historySummary = Arr.isArrayNonEmpty(toSummarize)
+				? yield* summarize(input, requestText, summaryOutputFraction)
+				: 'No prior history.'
 			const summary = cut.isSplitTurn
 				? `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${yield* summarize(
 						input,

@@ -8,7 +8,7 @@
  * metadata into history. The assistant tool-call params stay exactly as decoded from the persisted
  * assistant message, keeping already-sent prompt bytes stable across turns.
  */
-import { Effect, Encoding, Match, Option, Predicate, Schema } from 'effect'
+import { Array as Arr, Effect, Encoding, Match, Option, Predicate, Schema } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { ProjectedMessage, ProjectedToolResult } from '../Projection/Projection'
@@ -67,7 +67,13 @@ const restoreAssistantToolCallIds = (
 			if (providerId === null) return part
 
 			providerIdsByFoldId.set(part.id, providerId)
-			return Prompt.toolCallPart({ ...part, id: providerId })
+			return Prompt.toolCallPart({
+				id: providerId,
+				name: part.name,
+				params: part.params,
+				providerExecuted: part.providerExecuted,
+				options: part.options,
+			})
 		}),
 		options: message.options,
 	})
@@ -84,7 +90,14 @@ const restoreToolResultIds = (
 			const providerId = providerIdsByFoldId.get(part.id)
 			if (providerId === undefined) return part
 
-			return Prompt.toolResultPart({ ...part, id: providerId })
+			return Prompt.toolResultPart({
+				id: providerId,
+				name: part.name,
+				isFailure: part.isFailure,
+				result: part.result,
+				providerExecuted: part.providerExecuted,
+				options: part.options,
+			})
 		}),
 		options: message.options,
 	})
@@ -246,7 +259,18 @@ const prepareToolResult = (result: unknown): Effect.Effect<unknown, Encoding.Enc
 const prepareToolMessage = (message: Prompt.ToolMessage): Effect.Effect<Prompt.ToolMessage, Encoding.EncodingError> =>
 	Effect.forEach(message.content, (part): Effect.Effect<Prompt.ToolMessagePart, Encoding.EncodingError> =>
 		part.type === 'tool-result'
-			? prepareToolResult(part.result).pipe(Effect.map((result) => Prompt.toolResultPart({ ...part, result })))
+			? prepareToolResult(part.result).pipe(
+					Effect.map((result) =>
+						Prompt.toolResultPart({
+							id: part.id,
+							name: part.name,
+							isFailure: part.isFailure,
+							result,
+							providerExecuted: part.providerExecuted,
+							options: part.options,
+						}),
+					),
+				)
 			: Effect.succeed(part),
 	).pipe(Effect.map((content) => Prompt.toolMessage({ content, options: message.options })))
 
@@ -276,7 +300,7 @@ export const buildPrompt = (
 				const toolCalls = unresolvedToolCallsFromAssistantMessage(assistant)
 				promptMessages.push(restoreAssistantToolCallIds(assistant, providerIdsByFoldId))
 
-				if (toolCalls.length === 0) continue
+				if (Arr.isReadonlyArrayEmpty(toolCalls)) continue
 
 				const results: Array<DecodedProjectedToolResult> = []
 				while (true) {

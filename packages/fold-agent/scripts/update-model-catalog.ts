@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { ModelCatalogEntry, ModelPricing } from '@humanlayer/fold-core'
-import { Effect, Schema } from 'effect'
+import { Array as Arr, Effect, Schema } from 'effect'
 
 import { decodeModelsDevModels } from '../src/Catalog/ModelsDevSchema'
 import { modelCatalogEntriesFromModelsDev } from '../src/Catalog/Normalize'
@@ -110,7 +110,7 @@ const main = Effect.gen(function* () {
 			: left.providerId.localeCompare(right.providerId),
 	)
 
-	if (entries.length === 0) {
+	if (Arr.isArrayEmpty(entries)) {
 		return yield* new CatalogBakeError({
 			message: 'no anthropic/openai/xai entries survived normalization; refusing to bake',
 		})

@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
 
 import * as NodeServices from '@effect/platform-node/NodeServices'
-import { readTool } from '@humanlayer/fold-agent'
 import {
 	AgentId,
 	buildPrompt,
@@ -30,6 +29,8 @@ import {
 } from '@humanlayer/fold-core'
 import { Effect, Layer, Predicate, Schema, type Scope, Stream } from 'effect'
 import { type LanguageModel, type Prompt, Toolkit } from 'effect/unstable/ai'
+
+import { readTool } from '../../src/index'
 
 export const imageIdentificationPrompt =
 	'Inspect the image returned by read. Name its three vertical color bands from left to right. ' +

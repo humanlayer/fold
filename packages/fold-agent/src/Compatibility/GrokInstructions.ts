@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { Array as Arr, Effect, FileSystem, Path, Schema } from 'effect'
 
 export const GrokInstructionSource = Schema.Struct({
 	path: Schema.String,
@@ -127,21 +127,39 @@ const markdownRules = (
 		)
 	})
 
+const resolveInstructionRoots = (
+	options: GrokInstructionOptions,
+): Effect.Effect<
+	{
+		readonly home: string | null
+		readonly grokHome: string
+		readonly directories: ReadonlyArray<string>
+		readonly ignoreRoot: string | undefined
+	},
+	never,
+	Path.Path
+> =>
+	Effect.gen(function* () {
+		const path = yield* Path.Path
+		const cwd = path.resolve(options.cwd)
+		const homeValue = options.home === undefined ? homedir() : options.home
+		const home = homeValue.length === 0 ? null : path.resolve(homeValue)
+		const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
+		const explicitRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
+		const explicitRootIsAncestor = explicitRoot !== null && (yield* isAncestor(explicitRoot, cwd))
+		const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
+		const boundary = explicitRootIsAncestor ? explicitRoot : homeIsAncestor ? home : null
+		const directories = yield* directoriesToBoundary(cwd, boundary)
+		const ignoreRoot = explicitRootIsAncestor ? explicitRoot : directories[0]
+		return { home, grokHome, directories, ignoreRoot }
+	})
+
 export const loadGrokInstructions = Effect.fn('fold.grok_compatibility.load_instructions')(function* (
 	options: GrokInstructionOptions,
 ) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
-	const cwd = path.resolve(options.cwd)
-	const homeValue = options.home === undefined ? homedir() : options.home
-	const home = homeValue.length === 0 ? null : path.resolve(homeValue)
-	const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
-	const explicitRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
-	const explicitRootIsAncestor = explicitRoot !== null && (yield* isAncestor(explicitRoot, cwd))
-	const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
-	const boundary = explicitRootIsAncestor ? explicitRoot : homeIsAncestor ? home : null
-	const directories = yield* directoriesToBoundary(cwd, boundary)
-	const ignoreRoot = explicitRootIsAncestor ? explicitRoot : directories[0]
+	const { home, grokHome, directories, ignoreRoot } = yield* resolveInstructionRoots(options)
 	const gitignore =
 		ignoreRoot === undefined
 			? ''
@@ -192,7 +210,7 @@ const escapeXmlAttribute = (text: string): string =>
 		.replace(/'/g, '&apos;')
 
 export const renderGrokInstructions = (sources: ReadonlyArray<GrokInstructionSource>): string | null => {
-	if (sources.length === 0) return null
+	if (Arr.isReadonlyArrayEmpty(sources)) return null
 	return `<project_context>\n${sources
 		.map(
 			(source) =>

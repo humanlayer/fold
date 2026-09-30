@@ -28,6 +28,7 @@ import type {
 	FoldSession,
 } from '@humanlayer/fold-core'
 import {
+	Array as Arr,
 	Data,
 	Match,
 	Predicate,
@@ -234,7 +235,10 @@ const renderLiveEvents = (
 ): Effect.Effect<Fiber.Fiber<void>, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const entries = yield* session.entries
-		const fromSeq = entries.length === 0 ? 0 : (entries.at(-1)?.seq ?? -1) + 1
+		const fromSeq = Arr.match(entries, {
+			onEmpty: () => 0,
+			onNonEmpty: (nonEmpty) => Arr.lastNonEmpty(nonEmpty).seq + 1,
+		})
 		const render = session.events(fromSeq).pipe(
 			Stream.runForEach(renderer.renderEvent),
 			Effect.catchCause(() => Effect.void),

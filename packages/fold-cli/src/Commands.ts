@@ -29,7 +29,7 @@ import {
 import { SessionId, type ModelCatalogEntry } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
 import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
-import { Clock, Console, Effect, Option, Schema } from 'effect'
+import { Array as Arr, Clock, Console, Effect, Option, Schema } from 'effect'
 import { type CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
@@ -456,7 +456,7 @@ const sessions = Command.make(
 			const sessionOptions: Mutable<NonNullable<Parameters<typeof listSessionLogs>[0]>> = { cwd }
 			if (foldHome !== undefined) sessionOptions.foldHome = foldHome
 			const sessions = yield* listSessionLogs(sessionOptions)
-			if (sessions.length === 0) {
+			if (Arr.isReadonlyArrayEmpty(sessions)) {
 				yield* Console.log(`No fold sessions for ${cwd}`)
 				return
 			}
@@ -932,7 +932,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			UserError: (error) => printFailure(error.message),
 			ShowHelp: (error) =>
 				Effect.sync(() => {
-					process.exitCode = error.errors.length === 0 ? 0 : 1
+					process.exitCode = Arr.isReadonlyArrayEmpty(error.errors) ? 0 : 1
 				}),
 			InvalidSessionIdError: (error: InvalidSessionIdError) =>
 				printFailure(`invalid --resume value "${error.value}"; pass "latest" or an exact sess_... id`),
@@ -947,7 +947,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			RoleResolutionError: (error) => printFailure(error.message),
 			UnknownProfileError: (error) =>
 				printFailure(
-					`unknown profile "${error.profile}"; available: ${error.available.length === 0 ? '(none configured)' : error.available.join(', ')}`,
+					`unknown profile "${error.profile}"; available: ${Arr.isReadonlyArrayEmpty(error.available) ? '(none configured)' : error.available.join(', ')}`,
 				),
 			NoSessionToResumeError: (error) => printFailure(`no fold sessions exist for ${error.cwd}`),
 			SessionToResumeNotFoundError: (error) =>

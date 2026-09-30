@@ -9,9 +9,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from '@effect/vitest'
+import { makeCodexLanguageModel } from '@humanlayer/fold-codex'
 import { Effect, Option, Schema, Stream } from 'effect'
 
-import { makeCodexLanguageModel } from '../src/index'
 import { expectedImageIdentification, runImageReadInference } from './SessionModelPathTestHarness'
 
 const authPath = join(homedir(), '.fold', 'auth.json')

@@ -1,8 +1,8 @@
 import { Context } from 'effect'
 import type { Effect, Stream } from 'effect'
 
-import type { EventLogError } from './Errors.ts'
-import type { LogEntry, LogEntryInput, LogSeq } from './Schemas.ts'
+import type { EventLogError } from './Errors'
+import type { LogEntry, LogEntryInput, LogSeq } from './Schemas'
 
 /** Public EventLog service surface for a single fold session log. */
 export type EventLogService = {

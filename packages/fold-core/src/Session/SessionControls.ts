@@ -15,7 +15,7 @@
  *   its batch boundaries (root and subagents alike - the tree stops together), cleared by the facade
  *   when the next send begins.
  */
-import { Context, Deferred, Effect, type Exit, Fiber, Ref, SynchronizedRef } from 'effect'
+import { Array as Arr, Context, Deferred, Effect, type Exit, Fiber, Ref, SynchronizedRef } from 'effect'
 
 import type { AgentFinishedLogEntry } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'
@@ -175,12 +175,12 @@ export const makeSessionControls = (options?: {
 		const drainSteering = (agentId: AgentId): Effect.Effect<ReadonlyArray<string>> =>
 			Ref.modify(steering, (current) => {
 				const queued = current.get(agentId) ?? []
-				if (queued.length === 0) return [[], current] as const
+				if (Arr.isReadonlyArrayEmpty(queued)) return [[], current] as const
 
 				const drained = steeringMode === 'all' ? queued : queued.slice(0, 1)
 				const remaining = steeringMode === 'all' ? [] : queued.slice(1)
 				const next = new Map(current)
-				if (remaining.length === 0) next.delete(agentId)
+				if (Arr.isReadonlyArrayEmpty(remaining)) next.delete(agentId)
 				else next.set(agentId, remaining)
 				return [drained, next] as const
 			})

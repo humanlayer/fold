@@ -8,11 +8,11 @@ import { join } from 'node:path'
 
 import { assert, it } from '@effect/vitest'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
-import { bashTool, editTool, readTool, writeTool } from '@humanlayer/fold-agent'
 import { Effect, Layer, Redacted, Schema } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient } from 'effect/unstable/http'
 
+import { bashTool, editTool, readTool, writeTool } from '../../src/index'
 import {
 	buildSessionPromptWithToolResults,
 	type CapturedFetchRequest,

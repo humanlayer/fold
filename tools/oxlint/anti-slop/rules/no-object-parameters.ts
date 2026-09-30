@@ -14,9 +14,15 @@ type ParameterOwner =
 	| ESTree.TSMethodSignature
 
 function parameterAnnotation(parameter: Parameter): ESTree.TSTypeAnnotation | null | undefined {
-	if (parameter.type === 'TSParameterProperty') return parameterAnnotation(parameter.parameter)
-	if (parameter.type === 'RestElement') return parameter.typeAnnotation ?? parameterAnnotation(parameter.argument)
-	if (parameter.type === 'AssignmentPattern') return parameter.typeAnnotation ?? parameter.left.typeAnnotation
+	if (parameter.type === 'TSParameterProperty') {
+		return parameterAnnotation(parameter.parameter)
+	}
+	if (parameter.type === 'RestElement') {
+		return parameter.typeAnnotation ?? parameterAnnotation(parameter.argument)
+	}
+	if (parameter.type === 'AssignmentPattern') {
+		return parameter.typeAnnotation ?? parameter.left.typeAnnotation
+	}
 	return parameter.typeAnnotation
 }
 
@@ -26,11 +32,13 @@ function parameterName(parameter: Parameter, sourceCode: SourceCode): string {
 		: sourceCode.getText(parameter).replace(/\s*:\s*object\s*$/u, '')
 }
 
+/** Ban the broad object type on function inputs, including local aliases to object. */
 export const noObjectParametersRule = defineRule({
 	meta: {
 		type: 'problem',
 		docs: {
-			description: 'Disallow object function parameters; inputs must use an owner-provided type.',
+			description:
+				'Disallow object function parameters; inputs must use an owner-provided type and be parsed at their boundary.',
 		},
 		messages: {
 			objectParameter:

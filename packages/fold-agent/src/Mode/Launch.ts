@@ -39,7 +39,7 @@ import {
 	type Ids,
 	type LogSeq,
 } from '@humanlayer/fold-core'
-import { Predicate, Effect, FileSystem, Layer, Match, Schema, Semaphore, type Scope } from 'effect'
+import { Array as Arr, Predicate, Effect, FileSystem, Layer, Match, Schema, Semaphore, type Scope } from 'effect'
 
 import { loadModelCatalog, type LoadModelCatalogOptions } from '../Catalog/LoadCatalog'
 import {
@@ -394,7 +394,7 @@ const buildAgentDefinition = (
 			autoCompact,
 			stopConditions: options.stopConditions ?? config?.stopConditions ?? defaultStopConditions,
 		}
-		if (blocks.length > 0) agentOptions.systemPrompt = blocks
+		if (Arr.isArrayNonEmpty(blocks)) agentOptions.systemPrompt = blocks
 		return defineAgent(agentOptions)
 	})
 

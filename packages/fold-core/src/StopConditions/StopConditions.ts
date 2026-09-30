@@ -4,7 +4,7 @@
  * emits the same tool-call batch repeatedly, fold lets the current batch settle, then stops gracefully
  * before another model request.
  */
-import { Context } from 'effect'
+import { Array as Arr, Context } from 'effect'
 
 /** Doom-loop detector configuration. Omitted means disabled. */
 export type DoomLoopStopCondition =
@@ -69,7 +69,7 @@ export const observeDoomLoop = (
 	state: DoomLoopState,
 	toolCalls: ReadonlyArray<ToolCallFingerprintInput>,
 ): DoomLoopObservation => {
-	if (config.doomLoop === undefined || !config.doomLoop.enabled || toolCalls.length === 0) {
+	if (config.doomLoop === undefined || !config.doomLoop.enabled || Arr.isReadonlyArrayEmpty(toolCalls)) {
 		return { state: initialDoomLoopState, reason: null }
 	}
 

@@ -11,7 +11,7 @@ import type {
 	PreRequestHookInput,
 	PreToolUseHookDecision,
 	PreToolUseHookInput,
-} from './Schema.ts'
+} from './Schema'
 
 /**
  * Ambient services every hook handler may use.

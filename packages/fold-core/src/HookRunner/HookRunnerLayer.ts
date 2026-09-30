@@ -23,7 +23,7 @@ import type {
 	PreToolUseHookDecision,
 	PreToolUseHookInput,
 } from './Schema'
-import type { HookScope, OnCompleteHook, PostToolUseHook, PreRequestHook, PreToolUseHook, HookConfig } from './Types.ts'
+import type { HookScope, OnCompleteHook, PostToolUseHook, PreRequestHook, PreToolUseHook, HookConfig } from './Types'
 
 type HookDecision = PreRequestHookDecision | PreToolUseHookDecision | PostToolUseHookDecision | OnCompleteHookDecision
 const HookDecision = Data.taggedEnum<HookDecision>()

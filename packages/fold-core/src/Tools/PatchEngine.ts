@@ -6,7 +6,7 @@
  * 4-pass line matcher (exact, rstrip, trim, unicode-fold) - plus clanka's strict superset of accepting
  * raw git/unified diffs. Failures are typed tagged errors, not defects (contrast clanka's orDie).
  */
-import { Data, Effect, Match, Schema } from 'effect'
+import { Array as Arr, Data, Effect, Match, Schema } from 'effect'
 
 /** The patch text could not be parsed into file operations. */
 export class PatchParseError extends Schema.TaggedError<PatchParseError>()('PatchParseError', {
@@ -115,7 +115,7 @@ export const seekSequence = (
 	startIndex: number,
 	eof: boolean,
 ): number => {
-	if (pattern.length === 0) return -1
+	if (Arr.isReadonlyArrayEmpty(pattern)) return -1
 
 	for (const compare of matchPasses) {
 		if (eof) {
@@ -172,6 +172,57 @@ const feedChunkLine = (state: ChunkParseState, line: string): void => {
 	}
 }
 
+type ParsedV4AOp = { readonly op: PatchOp; readonly nextIndex: number }
+
+/** Parse an `*** Add File` section starting at `start`; only `+` lines contribute content. */
+const parseV4AAdd = (lines: ReadonlyArray<string>, start: number, endIndex: number): ParsedV4AOp => {
+	const path = (lines[start] ?? '').slice(addMarker.length).trim()
+	const content: Array<string> = []
+	let index = start + 1
+	while (index < endIndex && !(lines[index] ?? '').startsWith('***')) {
+		const contentLine = lines[index] ?? ''
+		if (contentLine.startsWith('+')) content.push(contentLine.slice(1))
+		index += 1
+	}
+	return { op: PatchOp.add({ path, content: content.join('\n') }), nextIndex: index }
+}
+
+/** Parse an `*** Update File` section starting at `start`, including an optional move and its hunks. */
+const parseV4AUpdate = (lines: ReadonlyArray<string>, start: number, endIndex: number): ParsedV4AOp => {
+	const path = (lines[start] ?? '').slice(updateMarker.length).trim()
+	let index = start + 1
+
+	let movePath: string | null = null
+	if (index < endIndex && (lines[index] ?? '').startsWith(moveMarker)) {
+		movePath = (lines[index] ?? '').slice(moveMarker.length).trim()
+		index += 1
+	}
+
+	const state: ChunkParseState = { chunks: [], current: emptyChunk() }
+	while (index < endIndex) {
+		const bodyLine = lines[index] ?? ''
+		if (bodyLine.trim() === eofMarker) {
+			state.current.isEndOfFile = true
+			state.current.touched = true
+			index += 1
+			continue
+		}
+		if (bodyLine.startsWith('***')) break
+		if (bodyLine.startsWith('@@')) {
+			flushChunk(state)
+			state.current.context = bodyLine.slice(2).trim()
+			state.current.touched = true
+			index += 1
+			continue
+		}
+		feedChunkLine(state, bodyLine)
+		index += 1
+	}
+	flushChunk(state)
+
+	return { op: PatchOp.update({ path, movePath, chunks: state.chunks }), nextIndex: index }
+}
+
 const parseV4A = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<PatchOp>, PatchParseError> =>
 	Effect.gen(function* () {
 		const beginIndex = lines.findIndex((line) => line.trim() === beginMarker)
@@ -188,15 +239,9 @@ const parseV4A = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Pat
 			const line = lines[index] ?? ''
 
 			if (line.startsWith(addMarker)) {
-				const path = line.slice(addMarker.length).trim()
-				const content: Array<string> = []
-				index += 1
-				while (index < endIndex && !(lines[index] ?? '').startsWith('***')) {
-					const contentLine = lines[index] ?? ''
-					if (contentLine.startsWith('+')) content.push(contentLine.slice(1))
-					index += 1
-				}
-				ops.push(PatchOp.add({ path, content: content.join('\n') }))
+				const parsed = parseV4AAdd(lines, index, endIndex)
+				ops.push(parsed.op)
+				index = parsed.nextIndex
 				continue
 			}
 
@@ -207,38 +252,9 @@ const parseV4A = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Pat
 			}
 
 			if (line.startsWith(updateMarker)) {
-				const path = line.slice(updateMarker.length).trim()
-				index += 1
-
-				let movePath: string | null = null
-				if (index < endIndex && (lines[index] ?? '').startsWith(moveMarker)) {
-					movePath = (lines[index] ?? '').slice(moveMarker.length).trim()
-					index += 1
-				}
-
-				const state: ChunkParseState = { chunks: [], current: emptyChunk() }
-				while (index < endIndex) {
-					const bodyLine = lines[index] ?? ''
-					if (bodyLine.trim() === eofMarker) {
-						state.current.isEndOfFile = true
-						state.current.touched = true
-						index += 1
-						continue
-					}
-					if (bodyLine.startsWith('***')) break
-					if (bodyLine.startsWith('@@')) {
-						flushChunk(state)
-						state.current.context = bodyLine.slice(2).trim()
-						state.current.touched = true
-						index += 1
-						continue
-					}
-					feedChunkLine(state, bodyLine)
-					index += 1
-				}
-				flushChunk(state)
-
-				ops.push(PatchOp.update({ path, movePath, chunks: state.chunks }))
+				const parsed = parseV4AUpdate(lines, index, endIndex)
+				ops.push(parsed.op)
+				index = parsed.nextIndex
 				continue
 			}
 
@@ -292,6 +308,44 @@ type GitFileState = {
 	chunks: ChunkParseState
 }
 
+const gitFileFromHeader = (line: string): Effect.Effect<GitFileState, PatchParseError> => {
+	const header = line.slice('diff --git '.length).match(/^a\/(\S+)\s+b\/(\S+)\s*$/)
+	if (header === null) {
+		return Effect.fail(new PatchParseError({ message: `invalid git diff header: ${line}` }))
+	}
+	return Effect.succeed({
+		fromPath: header[1] ?? null,
+		toPath: header[2] ?? null,
+		renameFrom: null,
+		renameTo: null,
+		sawHeader: false,
+		chunks: { chunks: [], current: emptyChunk() },
+	})
+}
+
+/** Apply a `--- ` header, opening a new file when no `diff --git` line preceded it. */
+const withOldFileHeader = (file: GitFileState | null, path: string | null): GitFileState => {
+	if (file === null) {
+		return {
+			fromPath: path,
+			toPath: null,
+			renameFrom: null,
+			renameTo: null,
+			sawHeader: true,
+			chunks: { chunks: [], current: emptyChunk() },
+		}
+	}
+	file.fromPath = path
+	file.sawHeader = true
+	return file
+}
+
+const startGitHunk = (state: ChunkParseState, hunk: RegExpMatchArray): void => {
+	flushChunk(state)
+	state.current.context = hunk[1]?.trim() ?? ''
+	state.current.touched = true
+}
+
 const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<PatchOp>, PatchParseError> =>
 	Effect.gen(function* () {
 		const ops: Array<PatchOp> = []
@@ -323,7 +377,7 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 				if (fromPath === null || toPath === null) return
 
 				const movePath = fromPath === toPath ? null : toPath
-				if (state.chunks.chunks.length === 0 && movePath === null) {
+				if (Arr.isReadonlyArrayEmpty(state.chunks.chunks) && movePath === null) {
 					return yield* new PatchParseError({ message: `no hunks found for ${fromPath}` })
 				}
 				ops.push(PatchOp.update({ path: fromPath, movePath, chunks: state.chunks.chunks }))
@@ -332,18 +386,7 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 		for (const line of lines) {
 			if (line.startsWith('diff --git ')) {
 				yield* finishFile(file)
-				const header = line.slice('diff --git '.length).match(/^a\/(\S+)\s+b\/(\S+)\s*$/)
-				if (header === null) {
-					return yield* new PatchParseError({ message: `invalid git diff header: ${line}` })
-				}
-				file = {
-					fromPath: header[1] ?? null,
-					toPath: header[2] ?? null,
-					renameFrom: null,
-					renameTo: null,
-					sawHeader: false,
-					chunks: { chunks: [], current: emptyChunk() },
-				}
+				file = yield* gitFileFromHeader(line)
 				continue
 			}
 
@@ -357,20 +400,7 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 			}
 
 			if (line.startsWith('--- ')) {
-				const path = diffHeaderPath(line.slice(4))
-				if (file === null) {
-					file = {
-						fromPath: path,
-						toPath: null,
-						renameFrom: null,
-						renameTo: null,
-						sawHeader: true,
-						chunks: { chunks: [], current: emptyChunk() },
-					}
-				} else {
-					file.fromPath = path
-					file.sawHeader = true
-				}
+				file = withOldFileHeader(file, diffHeaderPath(line.slice(4)))
 				continue
 			}
 			if (line.startsWith('+++ ')) {
@@ -383,9 +413,7 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 
 			const hunk = line.match(unifiedHunkHeader)
 			if (hunk !== null && file !== null) {
-				flushChunk(file.chunks)
-				file.chunks.current.context = hunk[1]?.trim() ?? ''
-				file.chunks.current.touched = true
+				startGitHunk(file.chunks, hunk)
 				continue
 			}
 
@@ -399,7 +427,7 @@ const parseGitDiff = (lines: ReadonlyArray<string>): Effect.Effect<ReadonlyArray
 
 		yield* finishFile(file)
 
-		if (ops.length === 0) return yield* new PatchParseError({ message: 'no hunks found' })
+		if (Arr.isArrayEmpty(ops)) return yield* new PatchParseError({ message: 'no hunks found' })
 		return ops
 	})
 
@@ -421,7 +449,8 @@ export const parsePatch = (patchText: string): Effect.Effect<ReadonlyArray<Patch
 
 		if (lines.some((line) => line.trim() === beginMarker)) {
 			const ops = yield* parseV4A(lines)
-			if (ops.length === 0) return yield* new PatchParseError({ message: 'patch rejected: empty patch' })
+			if (Arr.isReadonlyArrayEmpty(ops))
+				return yield* new PatchParseError({ message: 'patch rejected: empty patch' })
 			return ops
 		}
 
@@ -446,7 +475,7 @@ export const applyChunks = (input: {
 
 		// A trailing newline parses as a trailing empty line; drop it for matching (references), and the
 		// exactly-one-trailing-newline rule below restores it.
-		if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+		if (Arr.isArrayNonEmpty(lines) && lines[lines.length - 1] === '') lines.pop()
 
 		type Replacement = {
 			readonly index: number
@@ -468,7 +497,7 @@ export const applyChunks = (input: {
 				lineIndex = contextIndex + 1
 			}
 
-			if (chunk.oldLines.length === 0) {
+			if (Arr.isReadonlyArrayEmpty(chunk.oldLines)) {
 				// Pure insertion: anchored at end of file (all three reference implementations).
 				replacements.push({ index: lines.length, deleteCount: 0, newLines: chunk.newLines })
 				continue
@@ -482,7 +511,8 @@ export const applyChunks = (input: {
 			if (matchIndex === -1 && oldLines[oldLines.length - 1] === '') {
 				oldLines = oldLines.slice(0, -1)
 				if (newLines[newLines.length - 1] === '') newLines = newLines.slice(0, -1)
-				if (oldLines.length > 0) matchIndex = seekSequence(lines, oldLines, lineIndex, chunk.isEndOfFile)
+				if (Arr.isReadonlyArrayNonEmpty(oldLines))
+					matchIndex = seekSequence(lines, oldLines, lineIndex, chunk.isEndOfFile)
 			}
 
 			if (matchIndex === -1) {

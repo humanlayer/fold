@@ -24,7 +24,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { Cause, Effect, FileSystem, Schema } from 'effect'
+import { Array as Arr, Cause, Effect, FileSystem, Schema } from 'effect'
 
 import { managedBinaryRegistry, type ManagedBinaryAsset, type ManagedBinaryDefinition } from './Registry'
 
@@ -461,7 +461,7 @@ const ensureOnce = (
 		const registry = options.registry ?? managedBinaryRegistry
 
 		return yield* Effect.forEach(registry, (definition) => resolveOneNeverFailing(context, definition), {
-			concurrency: registry.length === 0 ? 1 : registry.length,
+			concurrency: Arr.isReadonlyArrayEmpty(registry) ? 1 : registry.length,
 		})
 	})
 

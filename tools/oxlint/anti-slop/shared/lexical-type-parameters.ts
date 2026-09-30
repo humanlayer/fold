@@ -1,6 +1,6 @@
 import type { ESTree } from '@oxlint/plugins'
 
-type VisitorKeys = Readonly<Record<string, ReadonlyArray<string>>>
+type VisitorKeys = Readonly<Record<string, readonly string[]>>
 
 function isNode(value: unknown): value is ESTree.Node {
 	return typeof value === 'object' && value !== null && 'type' in value && typeof value.type === 'string'
@@ -22,6 +22,7 @@ function collectInferTypeParameterNames(node: ESTree.Node, visitorKeys: VisitorK
 	}
 }
 
+/** Collect type binders that are in scope at a node and can shadow module aliases. */
 export function lexicalTypeParameterNames(node: ESTree.Node, visitorKeys: VisitorKeys): ReadonlySet<string> {
 	const names = new Set<string>()
 	let descendant: ESTree.Node = node

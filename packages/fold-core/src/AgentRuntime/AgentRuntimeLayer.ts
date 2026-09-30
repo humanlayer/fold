@@ -40,6 +40,7 @@ import {
 	observeDoomLoop,
 	StopConditions,
 	type DoomLoopState,
+	type ToolCallFingerprintInput,
 } from '../StopConditions/StopConditions'
 import { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import { StopController, type StopControllerService } from '../ToolRuntime/ToolContextServices'
@@ -206,8 +207,10 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					const foldId = yield* ids.makeToolCallId
 					content.push(
 						Prompt.toolCallPart({
-							...part,
 							id: foldId,
+							name: part.name,
+							params: part.params,
+							providerExecuted: part.providerExecuted,
 							options: { ...part.options, [foldPartOptionsKey]: { [providerToolCallIdKey]: part.id } },
 						}),
 					)
@@ -279,6 +282,44 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 
 				if (Predicate.isTagged(entry, 'compaction')) return entry
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending compaction`))
+			})
+
+		/** Settle one assistant message's tool calls, then decide whether the run stops or continues. */
+		const settleToolCalls = (
+			input: RunAgentInput,
+			persistedAssistant: Prompt.AssistantMessage,
+			toolCalls: ReadonlyArray<ToolCallFingerprintInput>,
+			doomLoopRef: Ref.Ref<DoomLoopState>,
+		): Effect.Effect<TurnResult> =>
+			Effect.gen(function* () {
+				const doomLoop = observeDoomLoop(stopConditions, yield* Ref.get(doomLoopRef), toolCalls)
+				yield* Ref.set(doomLoopRef, doomLoop.state)
+
+				const settlement = yield* toolRuntime.settle({
+					agentId: input.agentId,
+					parentAgentId: input.parentAgentId,
+					assistantMessage: persistedAssistant,
+				})
+
+				if (settlement.stopRequested) {
+					const entry = yield* appendFinished(input, 'stopped', null, 'a tool or hook requested a stop')
+					return TurnResult.finished({ entry })
+				}
+
+				// D9: a session-wide stop lets the in-flight batch finish and its results land (above),
+				// then ends the run here - no further LLM call.
+				const sessionStopAfterBatch = yield* sessionControls.sessionStopReason
+				if (sessionStopAfterBatch !== null) {
+					const entry = yield* appendFinished(input, 'stopped', null, sessionStopAfterBatch)
+					return TurnResult.finished({ entry })
+				}
+
+				if (doomLoop.reason !== null) {
+					const entry = yield* appendFinished(input, 'stopped', null, doomLoop.reason)
+					return TurnResult.finished({ entry })
+				}
+
+				return TurnResult.continue()
 			})
 
 		/** Run one model turn: build the request, call the model, persist, and settle tool calls. */
@@ -447,37 +488,10 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const toolCalls = persistedAssistant.content.flatMap((part) =>
 					part.type === 'tool-call' ? [{ name: part.name, params: part.params }] : [],
 				)
-				const hasToolCalls = toolCalls.length > 0
+				const hasToolCalls = Arr.isArrayNonEmpty(toolCalls)
 
 				if (hasToolCalls) {
-					const doomLoop = observeDoomLoop(stopConditions, yield* Ref.get(doomLoopRef), toolCalls)
-					yield* Ref.set(doomLoopRef, doomLoop.state)
-
-					const settlement = yield* toolRuntime.settle({
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						assistantMessage: persistedAssistant,
-					})
-
-					if (settlement.stopRequested) {
-						const entry = yield* appendFinished(input, 'stopped', null, 'a tool or hook requested a stop')
-						return TurnResult.finished({ entry })
-					}
-
-					// D9: a session-wide stop lets the in-flight batch finish and its results land (above),
-					// then ends the run here - no further LLM call.
-					const sessionStopAfterBatch = yield* sessionControls.sessionStopReason
-					if (sessionStopAfterBatch !== null) {
-						const entry = yield* appendFinished(input, 'stopped', null, sessionStopAfterBatch)
-						return TurnResult.finished({ entry })
-					}
-
-					if (doomLoop.reason !== null) {
-						const entry = yield* appendFinished(input, 'stopped', null, doomLoop.reason)
-						return TurnResult.finished({ entry })
-					}
-
-					return TurnResult.continue()
+					return yield* settleToolCalls(input, persistedAssistant, toolCalls, doomLoopRef)
 				}
 
 				yield* Ref.set(doomLoopRef, initialDoomLoopState)
@@ -502,7 +516,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// D8: follow-ups queued while this agent was running drain exactly where the run would
 				// complete naturally - each becomes an ordinary user-message and the run continues.
 				const followUps = yield* sessionControls.drainFollowUps(input.agentId)
-				if (followUps.length > 0) {
+				if (Arr.isReadonlyArrayNonEmpty(followUps)) {
 					for (const text of followUps) {
 						yield* appendUserMessage(input, text)
 					}
@@ -567,7 +581,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					fork: input.fork,
 					agentType: input.agentType,
 				}
-				if (input.promptCacheKey != null) {
+				if (input.promptCacheKey !== undefined && input.promptCacheKey !== null) {
 					agentStartedInput.promptCacheKey = input.promptCacheKey
 				}
 				const entry = yield* appendToEventLog(LogEntryInputs['agent_started'](agentStartedInput))

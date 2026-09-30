@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { Array as Arr, Effect, FileSystem, Path, Schema } from 'effect'
 
 export const CodexPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['config', 'cache', 'manifest']),
@@ -73,10 +73,10 @@ const compareVersions = (left: string, right: string): number => {
 		const compared = compareNumeric(leftVersion[field], rightVersion[field])
 		if (compared !== 0) return compared
 	}
-	if (leftVersion.prerelease.length === 0 || rightVersion.prerelease.length === 0) {
+	if (Arr.isArrayEmpty(leftVersion.prerelease) || Arr.isArrayEmpty(rightVersion.prerelease)) {
 		return leftVersion.prerelease.length === rightVersion.prerelease.length
 			? 0
-			: leftVersion.prerelease.length === 0
+			: Arr.isArrayEmpty(leftVersion.prerelease)
 				? 1
 				: -1
 	}

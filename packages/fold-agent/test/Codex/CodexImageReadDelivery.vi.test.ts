@@ -3,11 +3,11 @@
  * the real read tool and session prompt builder, then asserts the intended request emitted with no active tools.
  */
 import { expect, it } from '@effect/vitest'
+import { CodexTokenData, makeCodexLanguageModel } from '@humanlayer/fold-codex'
+import type { CodexAuthStore } from '@humanlayer/fold-codex'
 import { Effect, Encoding, Option, Schema } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 
-import { CodexTokenData, makeCodexLanguageModel } from '../src/index'
-import type { CodexAuthStore } from '../src/index'
 import { type CapturedFetchRequest, makeCapturingFetch, runImageReadInference } from './SessionModelPathTestHarness'
 
 const terminalSse = `data: ${JSON.stringify({

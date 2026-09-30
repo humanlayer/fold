@@ -8,15 +8,15 @@ Bun monorepo. Packages live in `packages/*` and run TypeScript directly (no buil
 - **Framework:** Effect **v4** (`4.0.0-rc.109`)
 - **Testing:** Vitest + `@effect/vitest`
 - **Lint / format:** oxlint + oxfmt (120 col, no semicolons)
-- **Effect editor tooling:** `@effect/tsgo` with the `@effect/language-service` TS plugin. `tsc` is patched for
-  build-time Effect diagnostics via the `prepare` script (`effect-tsgo patch --typescript`).
+- **Effect editor tooling:** `@effect/tsgo` with the `@effect/language-service` TS plugin. `tsc` and oxlint are patched
+  for Effect diagnostics via the `prepare` script (`effect-tsgo patch --typescript --oxlint --force`).
 
 ## Commands
 
 - `bun install` — install deps (also patches TypeScript for Effect diagnostics)
 - `bun run test` / `bun run test:watch` — run tests
 - `bun run typecheck` — typecheck every package
-- `bun run lint` / `bun run lint:fix` — oxlint
+- `bun run lint` / `bun run lint:fix` — oxlint (with the `@effect/tsgo` recommended preset), then the typed rules in `tools/typed`; see `tools/oxlint/README.md`
 - `bun run format` / `bun run format:check` — oxfmt
 
 ## Dependency versions

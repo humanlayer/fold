@@ -8,8 +8,8 @@ import { Context } from 'effect'
 import type { Effect } from 'effect'
 import type { Prompt } from 'effect/unstable/ai'
 
-import type { ToolResultLogEntry } from '../EventLog/Schemas.ts'
-import type { AgentId } from '../Ids.ts'
+import type { ToolResultLogEntry } from '../EventLog/Schemas'
+import type { AgentId } from '../Ids'
 
 /** Result of settling all tool calls from one persisted assistant message. */
 export type ToolSettlement = {

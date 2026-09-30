@@ -18,7 +18,7 @@ import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import type * as OpenAiSchema from '@humanlayer/effect-ai-openai/OpenAiSchema'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
-import { Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
+import { Array as Arr, Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
 import type { Scope } from 'effect'
 import { AiError } from 'effect/unstable/ai'
 import type { LanguageModel } from 'effect/unstable/ai'
@@ -80,7 +80,7 @@ export const liftLeadingSystemIntoInstructions = (payload: ResponsesPayload): Re
 		if (Option.isNone(decoded)) break
 		leading.push(decoded.value.content)
 	}
-	if (leading.length === 0) return payload
+	if (Arr.isArrayEmpty(leading)) return payload
 
 	return { ...payload, instructions: leading.join('\n\n'), input: input.slice(leading.length) }
 }
@@ -198,8 +198,9 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 						// storage); the finished items arrive as `response.output_item.done` events, so
 						// graft them in. A terminal response that does carry output (standard OpenAI
 						// behavior) wins as-is.
-						const body: ResponseBody =
-							terminal.value.output.length > 0 ? terminal.value : { ...terminal.value, output: items }
+						const body: ResponseBody = Arr.isReadonlyArrayNonEmpty(terminal.value.output)
+							? terminal.value
+							: { ...terminal.value, output: items }
 
 						const result: readonly [ResponseBody, HttpClientResponse.HttpClientResponse] = [
 							body,
