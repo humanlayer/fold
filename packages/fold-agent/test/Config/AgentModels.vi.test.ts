@@ -284,6 +284,22 @@ it.effect("GPT-6 Sol and Luna bindings with reasoning 'max' resolve against the 
 	}),
 )
 
+it.effect("a GPT-6.1 Sol binding with reasoning 'max' resolves against the baked catalog", () =>
+	Effect.gen(function* () {
+		const config = yield* parseFoldConfig(`{
+			"providers": { "codex": { "kind": "codex" } },
+			"roles": {
+				"smart": { "provider": "codex", "model": "gpt-6.1-sol", "reasoning": "max" },
+				"fast": { "provider": "codex", "model": "gpt-6-luna", "reasoning": "low" }
+			}
+		}`)
+		const models = agentModelsFromConfig(config, { env: env({}), catalog: bakedModelCatalog })
+
+		const smart = yield* models.resolve('smart')
+		expect(smart.activeModel).toMatchObject({ modelId: 'gpt-6.1-sol', requestedReasoningLevel: 'max' })
+	}),
+)
+
 it.effect("gpt-5.5 with reasoning 'max' fails RoleResolutionError naming its supported levels", () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(gpt56ConfigText('gpt-5.5'))
@@ -312,7 +328,7 @@ const defaultsConfigText = `{
 	}
 }`
 
-it.effect('a codex binding without a model resolves to the gpt-6-astra default', () =>
+it.effect('a codex binding without a model resolves to the gpt-6.1-sol default', () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(defaultsConfigText)
 		const models = agentModelsFromConfig(config, {
@@ -322,8 +338,8 @@ it.effect('a codex binding without a model resolves to the gpt-6-astra default',
 
 		const model = yield* models.resolve('smart')
 		expect(model.activeModel.providerKind).toBe('codex')
-		expect(model.activeModel.modelId).toBe('gpt-6-astra')
-		// Catalog validation ran against the defaulted id: Astra supports 'max'.
+		expect(model.activeModel.modelId).toBe('gpt-6.1-sol')
+		// Catalog validation ran against the defaulted id: GPT-6.1 Sol supports 'max'.
 		expect(model.activeModel.requestedReasoningLevel).toBe('max')
 	}),
 )
@@ -354,7 +370,7 @@ it.effect('an openai-compat binding without a model fails with the required-mode
 		expect(error._tag).toBe('RoleResolutionError')
 		expect(error.role).toBe('orchestrator')
 		expect(error.message).toContain('without a model')
-		expect(error.message).toContain('codex → gpt-6-astra')
+		expect(error.message).toContain('codex → gpt-6.1-sol')
 		expect(error.message).toContain('anthropic → claude-opus-4-8')
 		expect(error.message).toContain('required for openai-compat')
 	}),

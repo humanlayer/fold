@@ -76,7 +76,7 @@ it.effect('applies provider-specific role defaults around the directly selected 
 		expect(normal.root.activeModel.role).toBe('smart')
 		expect(normal.smart.activeModel.modelId).toBe('chosen')
 		expect(normal.fast.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6-luna' })
-		expect(normal.orchestrator.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-6-astra' })
+		expect(normal.orchestrator.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-6.1-sol' })
 		expect(rlm.root.activeModel.modelId).toBe('chosen')
 		expect(rlm.root.activeModel.role).toBe('orchestrator')
 		expect(rlm.smart.activeModel).toMatchObject({ providerId: 'codex', modelId: 'gpt-5.6-terra' })
@@ -153,7 +153,7 @@ it.effect('describes profiles, credentials, and merged model candidates without 
 		expect(description.providers.find(({ name }) => name === 'codex')?.models).toEqual([
 			'catalog-only',
 			'default-fast',
-			'gpt-6-astra',
+			'gpt-6.1-sol',
 			'profile-fast',
 			'profile-orchestrator',
 			'profile-smart',

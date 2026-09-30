@@ -78,8 +78,8 @@ export const modelPickerChoices = (
 		case 'model':
 			return (configuration.providers.find(({ name }) => name === state.provider)?.models ?? [])
 				.toSorted((left, right) => {
-					if (left === 'gpt-5.6-sol') return -1
-					if (right === 'gpt-5.6-sol') return 1
+					if (left === 'gpt-6.1-sol') return -1
+					if (right === 'gpt-6.1-sol') return 1
 					return left.localeCompare(right)
 				})
 				.map((model) => ({
