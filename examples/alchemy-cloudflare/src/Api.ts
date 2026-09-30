@@ -2,21 +2,19 @@
  * The chat HTTP routes over {@link ChatSessions}, encoding responses with fold's log schemas.
  *
  * - `POST /sessions/:sessionId/messages` with `{ "text": string, "whenRunning"?: "queue" | "steer" |
- *   "interrupt" }` delivers one user message, starting the session if the id is new, and returns the
- *   `agent-finished` entry of the run that consumed it. `whenRunning` defaults to `queue`.
- * - `GET /sessions/:sessionId` returns the session's log entries.
+ *   "interrupt", "repos"?: [{ "url": string, "name"?: string, "ref"?: string }] }` delivers one user
+ *   message and returns the `agent-finished` entry of the run that consumed it. `whenRunning` defaults to
+ *   `queue`. A message to a new id clones its `repos` into `/workspace/<name>` and starts the session;
+ *   if a repo fails to clone the response is a 422 and nothing starts.
+ * - `GET /sessions/:sessionId/log` returns the session's fold event log.
  */
 import { AgentFinishedLogEntry, LogEntry, SessionId } from '@humanlayer/fold-core'
 import { Effect, Schema } from 'effect'
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from 'effect/unstable/http'
 
-import { ChatSessions, WhenRunning } from './ChatSessions'
+import { ChatSessions, Message } from './ChatSessions'
 
 const SessionParams = Schema.Struct({ sessionId: SessionId })
-const MessageBody = Schema.Struct({
-	text: Schema.String,
-	whenRunning: WhenRunning.pipe(Schema.withDecodingDefaultKey(Effect.succeed('queue'))),
-})
 const entriesJson = HttpServerResponse.schemaJson(Schema.Array(LogEntry))
 const finishedJson = HttpServerResponse.schemaJson(AgentFinishedLogEntry)
 
@@ -28,7 +26,7 @@ export const ChatRoutes = HttpRouter.use((router) =>
 
 		yield* router.add(
 			'GET',
-			'/sessions/:sessionId',
+			'/sessions/:sessionId/log',
 			Effect.gen(function* () {
 				const { sessionId } = yield* HttpRouter.schemaPathParams(SessionParams)
 				return yield* entriesJson(yield* sessions.entries(sessionId))
@@ -40,9 +38,14 @@ export const ChatRoutes = HttpRouter.use((router) =>
 			'/sessions/:sessionId/messages',
 			Effect.gen(function* () {
 				const { sessionId } = yield* HttpRouter.schemaPathParams(SessionParams)
-				const { text, whenRunning } = yield* HttpServerRequest.schemaBodyJson(MessageBody)
-				return yield* finishedJson(yield* sessions.send(sessionId, text, whenRunning))
-			}).pipe(Effect.catchTag('SchemaError', badRequest)),
+				const message = yield* HttpServerRequest.schemaBodyJson(Message)
+				return yield* finishedJson(yield* sessions.send(sessionId, message))
+			}).pipe(
+				Effect.catchTags({
+					SchemaError: badRequest,
+					RepoCloneError: ({ message }) => Effect.succeed(HttpServerResponse.text(message, { status: 422 })),
+				}),
+			),
 		)
 	}),
 )

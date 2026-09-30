@@ -1,12 +1,13 @@
 /**
  * The fold chat sessions this host serves, each addressed by its SessionId. There is no create step:
- * the first `send` to an id starts that session. The Worker implements this as RPC to the ChatSession
- * Durable Object holding each session.
+ * the first `send` to an id clones its repos and starts that session. The Worker implements this as RPC to
+ * the ChatSession Durable Object holding each session.
  */
 import type { AgentFinishedLogEntry, LogEntry, SessionId } from '@humanlayer/fold-core'
 import { Context, Effect, Layer, Schema } from 'effect'
 
 import ChatSession from './ChatSession'
+import { RepoCloneError, Repos } from './Workspace'
 
 /**
  * What `send` does when the session's root agent is already running. When it is idle, every mode just
@@ -19,6 +20,17 @@ import ChatSession from './ChatSession'
 export const WhenRunning = Schema.Literals(['queue', 'steer', 'interrupt'])
 export type WhenRunning = typeof WhenRunning.Type
 
+/**
+ * One user message. `repos` clone into the session's workspace when the message starts the session; later
+ * messages' `repos` are ignored.
+ */
+export const Message = Schema.Struct({
+	text: Schema.String,
+	whenRunning: WhenRunning.pipe(Schema.withDecodingDefaultKey(Effect.succeed('queue'))),
+	repos: Schema.optionalKey(Repos),
+})
+export type Message = typeof Message.Type
+
 export class ChatSessions extends Context.Service<
 	ChatSessions,
 	{
@@ -26,13 +38,10 @@ export class ChatSessions extends Context.Service<
 		readonly entries: (sessionId: SessionId) => Effect.Effect<ReadonlyArray<LogEntry>>
 		/**
 		 * Deliver one user message to the session's root agent, starting the session if it is new, and
-		 * resolve with the `agent-finished` entry of the run that consumed it.
+		 * resolve with the `agent-finished` entry of the run that consumed it. Fails, starting nothing, when a
+		 * new session's repo does not clone.
 		 */
-		readonly send: (
-			sessionId: SessionId,
-			text: string,
-			whenRunning: WhenRunning,
-		) => Effect.Effect<AgentFinishedLogEntry>
+		readonly send: (sessionId: SessionId, message: Message) => Effect.Effect<AgentFinishedLogEntry, RepoCloneError>
 	}
 >()('alchemy-cloudflare/ChatSessions') {
 	/** Each session is the ChatSession Durable Object named by its id. Build it in a Worker's construction. */
@@ -43,7 +52,19 @@ export class ChatSessions extends Context.Service<
 
 			return ChatSessions.of({
 				entries: (sessionId) => sessions.getByName(sessionId).entries(),
-				send: (sessionId, text, whenRunning) => sessions.getByName(sessionId).send(text, whenRunning),
+				// The object's failures arrive encoded: decode the clone failure, and die on anything else.
+				send: (sessionId, message) =>
+					sessions
+						.getByName(sessionId)
+						.send(message)
+						.pipe(
+							Effect.catch((error) =>
+								Schema.decodeUnknownEffect(RepoCloneError)(error).pipe(
+									Effect.orDie,
+									Effect.flatMap(Effect.fail),
+								),
+							),
+						),
 			})
 		}),
 	)

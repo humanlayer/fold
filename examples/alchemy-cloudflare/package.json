@@ -13,13 +13,17 @@
 		"test:watch": "bun vitest"
 	},
 	"dependencies": {
+		"@cloudflare/computer": "catalog:",
+		"@humanlayer/fold-agent": "workspace:*",
 		"@humanlayer/fold-core": "workspace:*",
+		"@platformatic/vfs": "catalog:",
 		"@effect/platform-bun": "catalog:",
 		"@effect/platform-node": "catalog:",
 		"alchemy": "catalog:",
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
 		"@effect/vitest": "catalog:",
 		"@humanlayer/fold-vitest-config": "workspace:*",
 		"typescript": "catalog:",
