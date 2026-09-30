@@ -52,6 +52,19 @@
 		"automation/no-static-effect-service-forwarders": "error",
 		"automation/pipe-max-arguments": "error",
 		"automation/require-context-service-in-services": "error",
+		"anti-slop/max-ternary-depth": "error",
+		"anti-slop/no-chained-type-assertions": "error",
+		"anti-slop/no-reflect-get": "error",
+		"anti-slop/no-reprovide-ambient-service": "error",
+		"anti-slop/no-shape-in-symbol-names": "error",
+		"anti-slop/no-unknown-returns": "error",
+		"anti-slop/require-safety-comment-for-type-assertion": "error",
+		"automation/no-banned-type-assertions": "error",
+		"automation/no-direct-fetch": "error",
+		"automation/no-global-json": "error",
+		"automation/no-in-operator": "error",
+		"automation/no-switch": "error",
+		"automation/no-type-assertion": "error",
 		"import-extensions/no-relative-source-extensions": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
@@ -131,6 +144,19 @@
 				"automation/prefer-option-from-nullable": "off",
 				"automation/prefer-tagged-error-handling": "off",
 				"automation/no-ambient-nondeterminism": "off",
+				"anti-slop/max-ternary-depth": "off",
+				"anti-slop/no-chained-type-assertions": "off",
+				"anti-slop/no-reflect-get": "off",
+				"anti-slop/no-reprovide-ambient-service": "off",
+				"anti-slop/no-shape-in-symbol-names": "off",
+				"anti-slop/no-unknown-returns": "off",
+				"anti-slop/require-safety-comment-for-type-assertion": "off",
+				"automation/no-banned-type-assertions": "off",
+				"automation/no-direct-fetch": "off",
+				"automation/no-global-json": "off",
+				"automation/no-in-operator": "off",
+				"automation/no-switch": "off",
+				"automation/no-type-assertion": "off",
 			},
 		},
 		{
@@ -147,6 +173,25 @@
 			],
 			"rules": {
 				"automation/no-manual-tagged-construction": "off",
+			},
+		},
+		{
+			// Tests may cast to build deliberately invalid inputs, and build JSON fixtures directly.
+			"files": [
+				"**/test/**",
+				"**/tests/**",
+				"**/*.test.ts",
+				"**/*.test.tsx",
+				"**/*.vi.test.ts",
+				"**/*.vi.test.tsx",
+				"**/fixtures/**",
+			],
+			"rules": {
+				"anti-slop/no-chained-type-assertions": "off",
+				"anti-slop/require-safety-comment-for-type-assertion": "off",
+				"automation/no-banned-type-assertions": "off",
+				"automation/no-global-json": "off",
+				"automation/no-type-assertion": "off",
 			},
 		},
 		{
@@ -172,6 +217,13 @@
 			"rules": {
 				"import/extensions": "off",
 				"import-extensions/no-relative-source-extensions": "off",
+			},
+		},
+		{
+			// The published launcher's postinstall runs under plain Node with no dependencies, so it cannot use Effect.
+			"files": ["packages/fold/postinstall.mjs"],
+			"rules": {
+				"automation/no-global-json": "off",
 			},
 		},
 		{

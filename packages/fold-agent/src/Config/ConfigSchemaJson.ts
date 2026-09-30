@@ -31,8 +31,11 @@ export const foldConfigJsonSchema = (): Record<string, unknown> => {
 	return schema
 }
 
+const JsonSchemaDocumentText = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown), { space: '\t' })
+const encodeJsonSchemaDocumentText = Schema.encodeSync(JsonSchemaDocumentText)
+
 /** The generated schema serialized as JSON text (tab-indented, trailing newline). */
-export const foldConfigJsonSchemaText = (): string => `${JSON.stringify(foldConfigJsonSchema(), null, '\t')}\n`
+export const foldConfigJsonSchemaText = (): string => `${encodeJsonSchemaDocumentText(foldConfigJsonSchema())}\n`
 
 /** A commented starter `config.jsonc` referencing the generated schema. */
 export const starterConfigJsonc = (): string =>

@@ -19,7 +19,7 @@ import {
 	truncateHead,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Match, Schema, type PlatformError } from 'effect'
+import { Effect, FileSystem, Match, Option, Schema, type PlatformError } from 'effect'
 
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
@@ -99,17 +99,18 @@ export const platformErrorMessage = (action: string, path: string, error: Platfo
 	)
 }
 
+const decodeErrnoCause = Schema.decodeUnknownOption(Schema.Struct({ code: Schema.String }))
+
 /** Extract the POSIX errno code (ENOENT, EACCES, ...) from a platform error, pi's error vocabulary. */
 export const errnoCode = (error: PlatformError.PlatformError): string => {
-	const cause: unknown = error.reason.cause
-	if (typeof cause === 'object' && cause !== null && 'code' in cause && typeof cause.code === 'string') {
-		return cause.code
-	}
-
-	return Match.value(error.reason).pipe(
-		Match.tags({ NotFound: () => 'ENOENT', PermissionDenied: () => 'EACCES' }),
-		Match.orElse((reason) => reason._tag),
-	)
+	return Option.match(decodeErrnoCause(error.reason.cause), {
+		onSome: ({ code }) => code,
+		onNone: () =>
+			Match.value(error.reason).pipe(
+				Match.tags({ NotFound: () => 'ENOENT', PermissionDenied: () => 'EACCES' }),
+				Match.orElse((reason) => reason._tag),
+			),
+	})
 }
 
 /** Build the read tool over the ambient FileSystem service. */

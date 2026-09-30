@@ -10,7 +10,7 @@ import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
 import { Array as Arr, Clock, Effect, FileSystem, Match, Random, Schema } from 'effect'
 
-import type { FoldConfig, ProviderKind } from './ConfigSchema'
+import { FoldConfig, type ProviderKind } from './ConfigSchema'
 import {
 	configPathFor,
 	loadFoldConfig,
@@ -109,6 +109,8 @@ const resolveCredentials = (
 		return { apiKey, apiKeyEnv }
 	})
 
+const encodeConfigText = Schema.encodeEffect(Schema.fromJsonString(FoldConfig, { space: '\t' }))
+
 const writeConfig = (
 	config: FoldConfig,
 	options: LoadConfigOptions | undefined,
@@ -121,7 +123,12 @@ const writeConfig = (
 		const now = yield* Clock.currentTimeMillis
 		const salt = (yield* Random.next).toString(36).slice(2)
 		const temporaryPath = `${path}.tmp-${process.pid}-${now}-${salt}`
-		const text = `${JSON.stringify(config, null, '\t')}\n`
+		const text = `${yield* encodeConfigText(config).pipe(
+			Effect.mapError(
+				(error) =>
+					new ProviderConfigurationWriteError({ path, message: `could not encode config: ${error.message}` }),
+			),
+		)}\n`
 		const writeDirect = fs.writeFileString(path, text, { mode: 0o600 }).pipe(Effect.andThen(fs.chmod(path, 0o600)))
 
 		return yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(

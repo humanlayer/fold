@@ -2,7 +2,7 @@
  * OpenCode Console OAuth client. Device endpoints and polling semantics are adapted from OpenCode's
  * MIT-licensed client implementation; see ../NOTICE and ../LICENSE.opencode.
  */
-import { Clock, Context, Duration, Effect, Option, Schema, Semaphore } from 'effect'
+import { Clock, Context, Duration, Effect, Match, Option, Schema, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
 import type { OpenCodeAuthStore } from './AuthStore'
@@ -19,8 +19,12 @@ const Device = Schema.Struct({
 	interval: Schema.Number,
 })
 const Token = Schema.Struct({ access_token: Schema.String, refresh_token: Schema.String, expires_in: Schema.Number })
-const Pending = Schema.Struct({ error: Schema.String })
-const DeviceToken = Schema.Union([Token, Pending])
+const DeviceToken = Schema.Union([
+	Schema.Struct({ _tag: Schema.tagDefaultOmit('Granted'), ...Token.fields }),
+	Schema.Struct({ _tag: Schema.tagDefaultOmit('Pending'), error: Schema.Literal('authorization_pending') }),
+	Schema.Struct({ _tag: Schema.tagDefaultOmit('SlowDown'), error: Schema.Literal('slow_down') }),
+	Schema.Struct({ _tag: Schema.tagDefaultOmit('Failed'), error: Schema.String }),
+])
 const User = Schema.Struct({ id: Schema.String, email: Schema.String })
 const Org = Schema.Struct({ id: Schema.String, name: Schema.String })
 type OpenCodeTokenMetadata = {
@@ -120,28 +124,32 @@ const poll = (
 				false,
 			),
 		),
-		Effect.flatMap((result) => {
-			if ('access_token' in result)
-				return credential(client, server, result).pipe(
-					Effect.mapError(
-						(cause) =>
+		Effect.flatMap(
+			Match.type<typeof DeviceToken.Type>().pipe(
+				Match.tagsExhaustive({
+					Granted: (token) =>
+						credential(client, server, token).pipe(
+							Effect.mapError(
+								(cause) =>
+									new OpenCodeAuthError({
+										reason: 'AuthorizationFailed',
+										message: 'Failed to load OpenCode account metadata',
+										cause,
+									}),
+							),
+						),
+					Pending: () => poll(client, server, code, interval),
+					SlowDown: () => poll(client, server, code, Duration.sum(interval, Duration.seconds(5))),
+					Failed: ({ error }) =>
+						Effect.fail(
 							new OpenCodeAuthError({
 								reason: 'AuthorizationFailed',
-								message: 'Failed to load OpenCode account metadata',
-								cause,
+								message: `Device authorization failed: ${error}`,
 							}),
-					),
-				)
-			if (result.error === 'authorization_pending') return poll(client, server, code, interval)
-			if (result.error === 'slow_down')
-				return poll(client, server, code, Duration.sum(interval, Duration.seconds(5)))
-			return Effect.fail(
-				new OpenCodeAuthError({
-					reason: 'AuthorizationFailed',
-					message: `Device authorization failed: ${result.error}`,
+						),
 				}),
-			)
-		}),
+			),
+		),
 		Effect.mapError((cause) =>
 			Schema.is(OpenCodeAuthError)(cause)
 				? cause

@@ -11,6 +11,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
  */
 import { layerLiveIdFactory } from '@humanlayer/fold-core'
 import { Console, Effect, Layer } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
 import { configInit, launchSession, loadFoldConfigOrNull } from '../src/index'
 
@@ -30,7 +31,7 @@ const program = Effect.gen(function* () {
 
 	const finished = yield* session.send(prompt)
 	yield* Console.log(`\n[${finished.outcome}] ${finished.resultText ?? '(no text)'}`)
-}).pipe(Effect.provide(Layer.mergeAll(layerLiveIdFactory, NodeFileSystem.layer)), Effect.scoped)
+}).pipe(Effect.provide(Layer.mergeAll(layerLiveIdFactory, NodeFileSystem.layer, FetchHttpClient.layer)), Effect.scoped)
 
 Effect.runPromise(program).catch((error) => {
 	console.error(error)

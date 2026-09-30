@@ -57,6 +57,7 @@ const defaultFs = (): FileSystem.FileSystem => {
 }
 const Document = Schema.Record(Schema.String, Schema.Unknown)
 const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(Document))
+const encodeDocument = Schema.encodeEffect(Schema.fromJsonString(Document, { space: 2 }))
 const decodeToken = Schema.decodeUnknownOption(OpenCodeTokenData)
 
 /** Construct a provider-keyed credential store; unrelated entries are preserved. */
@@ -71,7 +72,8 @@ export const makeOpenCodeAuthStore = (options?: MakeOpenCodeAuthStoreOptions): O
 	const write = (document: Record<string, unknown>) =>
 		Effect.gen(function* () {
 			yield* fs.makeDirectory(dirname(path), { recursive: true })
-			yield* fs.writeFileString(path, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 })
+			const text = yield* encodeDocument(document)
+			yield* fs.writeFileString(path, `${text}\n`, { mode: 0o600 })
 			yield* fs.chmod(path, 0o600)
 		}).pipe(Effect.mapError((cause) => new OpenCodeAuthStoreError({ message: `Failed to write ${path}`, cause })))
 	return {

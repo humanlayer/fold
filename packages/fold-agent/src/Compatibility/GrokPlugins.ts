@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 
-import { Array as Arr, Effect, FileSystem, Path, Schema } from 'effect'
+import { Array as Arr, Effect, FileSystem, Option, Path, Schema } from 'effect'
 
 export const GrokPluginDiagnostic = Schema.Struct({
 	stage: Schema.Literals(['manifest', 'discovery']),
@@ -19,8 +19,15 @@ export type GrokPluginOptions = {
 	readonly configuredPaths?: ReadonlyArray<string>
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
+const GrokPluginManifest = Schema.Struct({
+	name: Schema.optional(Schema.String),
+	skills: Schema.optional(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
+})
+type GrokPluginManifest = typeof GrokPluginManifest.Type
+const decodeGrokPluginManifest = Schema.decodeOption(Schema.fromJsonString(GrokPluginManifest))
+
+/** A manifest file found on disk; `value` is null when it could not be parsed. */
+type ManifestFile = { readonly path: string; readonly value: GrokPluginManifest | null }
 
 const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean, never, Path.Path> =>
 	Effect.gen(function* () {
@@ -52,8 +59,8 @@ const ancestorDirectories = (
 		return directories
 	})
 
-const safeRelativePath = (value: unknown): string | null => {
-	if (typeof value !== 'string' || value.length === 0 || value.includes('\\') || value.includes('\0')) return null
+const safeRelativePath = (value: string): string | null => {
+	if (value.length === 0 || value.includes('\\') || value.includes('\0')) return null
 	const normalized = value.replace(/^\.\//, '')
 	if (
 		normalized.length === 0 ||
@@ -65,9 +72,7 @@ const safeRelativePath = (value: unknown): string | null => {
 	return normalized
 }
 
-const readManifest = (
-	root: string,
-): Effect.Effect<{ path: string; value: unknown } | null, never, FileSystem.FileSystem | Path.Path> =>
+const readManifest = (root: string): Effect.Effect<ManifestFile | null, never, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
@@ -75,8 +80,7 @@ const readManifest = (
 			const manifestPath = path.join(root, name)
 			const contents = yield* fs.readFileString(manifestPath).pipe(Effect.orElseSucceed(() => null))
 			if (contents === null) continue
-			const value = yield* Effect.try(() => JSON.parse(contents)).pipe(Effect.orElseSucceed(() => null))
-			return { path: manifestPath, value }
+			return { path: manifestPath, value: Option.getOrNull(decodeGrokPluginManifest(contents)) }
 		}
 		return null
 	})
@@ -105,7 +109,7 @@ const resolvePluginParents = (options: GrokPluginOptions): Effect.Effect<Readonl
 
 const listPluginCandidates = (
 	parent: string,
-	parentManifest: { path: string; value: unknown } | null,
+	parentManifest: ManifestFile | null,
 ): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* () {
 		if (parentManifest !== null) return [parent]
@@ -116,19 +120,15 @@ const listPluginCandidates = (
 			.map((entry) => path.join(parent, entry))
 	})
 
-const pluginName = (manifestValue: Record<string, unknown> | null, fallback: string): string =>
-	manifestValue !== null && typeof manifestValue.name === 'string' ? manifestValue.name : fallback
+const pluginName = (manifestValue: GrokPluginManifest | null, fallback: string): string =>
+	manifestValue?.name ?? fallback
 
-const declaredSkillPaths = (manifestValue: Record<string, unknown> | null): ReadonlyArray<unknown> =>
-	manifestValue === null || manifestValue.skills === undefined
-		? ['skills']
-		: Array.isArray(manifestValue.skills)
-			? manifestValue.skills
-			: [manifestValue.skills]
+const declaredSkillPaths = (manifestValue: GrokPluginManifest | null): ReadonlyArray<string> =>
+	Arr.ensure(manifestValue?.skills ?? 'skills')
 
 const resolveSkillRoots = (
 	candidate: string,
-	declared: ReadonlyArray<unknown>,
+	declared: ReadonlyArray<string>,
 	manifestPath: string,
 	diagnostics: Array<GrokPluginDiagnostic>,
 ): Effect.Effect<ReadonlyArray<string>, never, FileSystem.FileSystem | Path.Path> =>
@@ -167,11 +167,11 @@ export const discoverGrokPluginSkillRoots = Effect.fn('fold.grok_compatibility.d
 			seenPaths.add(normalized)
 			const manifest =
 				candidate === parent && parentManifest !== null ? parentManifest : yield* readManifest(candidate)
-			if (manifest !== null && !isRecord(manifest.value)) {
+			if (manifest !== null && manifest.value === null) {
 				diagnostics.push({ stage: 'manifest', code: 'manifest_parse_failed', path: manifest.path })
 				continue
 			}
-			const manifestValue = manifest === null || !isRecord(manifest.value) ? null : manifest.value
+			const manifestValue = manifest?.value ?? null
 			const name = pluginName(manifestValue, path.basename(candidate))
 			if (name.length === 0 || seenNames.has(name)) continue
 			const skillRoots = yield* resolveSkillRoots(

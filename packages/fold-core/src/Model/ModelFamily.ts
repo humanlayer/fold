@@ -5,24 +5,24 @@
  * model id patterns for openai-compatible endpoints that serve many vendors (openrouter-style ids like
  * "anthropic/claude-...").
  */
+import { Match } from 'effect'
+
 import type { ActiveModel } from '../EventLog/Schemas'
 
 /** Coarse model grouping driving per-family prompt, toolset, and reasoning decisions. */
 export type ModelFamily = 'claude' | 'codex' | 'gpt' | 'unknown'
 
 /** Classify one resolved model snapshot into its family. */
-export const modelFamilyFor = (model: ActiveModel): ModelFamily => {
-	switch (model.providerKind) {
-		case 'anthropic':
-			return 'claude'
-		case 'codex':
-			return 'codex'
-		case 'openai-compatible': {
+export const modelFamilyFor = (model: ActiveModel): ModelFamily =>
+	Match.value(model.providerKind).pipe(
+		Match.when('anthropic', (): ModelFamily => 'claude'),
+		Match.when('codex', (): ModelFamily => 'codex'),
+		Match.when('openai-compatible', (): ModelFamily => {
 			const modelId = model.modelId.toLowerCase()
 			if (modelId.includes('claude')) return 'claude'
 			if (modelId.includes('codex')) return 'codex'
 			if (modelId.startsWith('gpt') || /^o\d/.test(modelId)) return 'gpt'
 			return 'unknown'
-		}
-	}
-}
+		}),
+		Match.exhaustive,
+	)

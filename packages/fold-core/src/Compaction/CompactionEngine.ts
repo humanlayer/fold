@@ -1,4 +1,4 @@
-import { Array as Arr, Match, Predicate } from 'effect'
+import { Array as Arr, Match, Option, Predicate, Schema } from 'effect'
 
 /**
  * This file is the pure auto-compaction engine (D11): the threshold arithmetic over API-reported
@@ -111,13 +111,9 @@ type EncodedPart = {
 	readonly isFailure?: boolean
 }
 
-const safeStringify = (value: unknown): string => {
-	try {
-		return JSON.stringify(value) ?? String(value)
-	} catch {
-		return String(value)
-	}
-}
+const encodeJson = Schema.encodeOption(Schema.fromJsonString(Schema.Unknown))
+
+const safeStringify = (value: unknown): string => Option.getOrElse(encodeJson(value), () => String(value))
 
 const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
 	if (typeof content === 'string') return [{ type: 'text', text: content }]
@@ -128,21 +124,14 @@ const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
 	)
 }
 
-const estimatePartChars = (part: EncodedPart): number => {
-	switch (part.type) {
-		case 'text':
-		case 'reasoning':
-			return part.text?.length ?? 0
-		case 'file':
-			return filePartEstimateChars
-		case 'tool-call':
-			return (part.name?.length ?? 0) + safeStringify(part.params).length
-		case 'tool-result':
-			return safeStringify(part.result).length
-		default:
-			return safeStringify(part).length
-	}
-}
+const estimatePartChars = (part: EncodedPart): number =>
+	Match.value(part.type).pipe(
+		Match.when(Match.is('text', 'reasoning'), () => part.text?.length ?? 0),
+		Match.when('file', () => filePartEstimateChars),
+		Match.when('tool-call', () => (part.name?.length ?? 0) + safeStringify(part.params).length),
+		Match.when('tool-result', () => safeStringify(part.result).length),
+		Match.orElse(() => safeStringify(part).length),
+	)
 
 /** Estimate one projected message's token footprint (chars/4 heuristic; image parts weigh 4800 chars). */
 export const estimateMessageTokens = (message: ProjectedMessage): number => {
@@ -242,16 +231,13 @@ export const findCompactionCut = (messages: ReadonlyArray<ProjectedMessage>, kee
 
 const serializeUserContent = (content: unknown): string =>
 	contentParts(content)
-		.map((part) => {
-			switch (part.type) {
-				case 'text':
-					return part.text ?? ''
-				case 'file':
-					return '[attached file]'
-				default:
-					return safeStringify(part)
-			}
-		})
+		.map((part) =>
+			Match.value(part.type).pipe(
+				Match.when('text', () => part.text ?? ''),
+				Match.when('file', () => '[attached file]'),
+				Match.orElse(() => safeStringify(part)),
+			),
+		)
 		.join('\n')
 
 const truncateToolResult = (serialized: string): string =>

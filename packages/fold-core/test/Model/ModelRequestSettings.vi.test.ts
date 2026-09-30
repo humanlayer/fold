@@ -155,7 +155,7 @@ it.effect('binds an agent-specific prompt cache key on OpenAI requests', () =>
 			promptCacheKey: 'session-child-affinity',
 		})
 
-		expect(Reflect.get(configs.openai ?? {}, 'prompt_cache_key')).toBe('session-child-affinity')
+		expect(configs.openai).toMatchObject({ prompt_cache_key: 'session-child-affinity' })
 	}),
 )
 

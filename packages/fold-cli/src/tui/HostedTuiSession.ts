@@ -7,7 +7,8 @@ import {
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
 import { renderSkillContent, type ModelCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import { Cause, Duration, Effect, type Scope, Stream } from 'effect'
+import { Cause, Duration, Effect, Layer, type Scope, Stream } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 import { batch, createSignal, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 
@@ -166,7 +167,7 @@ export const makeHostedTuiSession = (
 							else setTargetNotice({ agentId, text })
 						}),
 					),
-					Effect.provide(NodeFileSystem.layer),
+					Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
 				),
 			)
 		}
@@ -207,7 +208,7 @@ export const makeHostedTuiSession = (
 						}),
 					),
 					Effect.catchCause((cause) => Effect.sync(() => setNotice(Cause.pretty(cause)))),
-					Effect.provide(NodeFileSystem.layer),
+					Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
 				),
 			)
 		}

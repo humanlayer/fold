@@ -20,7 +20,7 @@ export type CompactionArchiveAccessOptions = {
 	readonly modeName: string
 }
 
-const logShapeCheatSheet = `Log shape cheat sheet:
+const logFormatCheatSheet = `Log shape cheat sheet:
 - This is JSONL: one dense JSON event per physical line, ordered by seq.
 - Top-level fields: _tag, seq, ts, agentId, parentAgentId, toolCallId.
 - session_started: sessionId, cwd, rootAgentId, meta.agentName.
@@ -55,7 +55,7 @@ If you are searching by a short agent id prefix, omit the trailing quote because
 
 rg -n -F '"agentId":"${shortAgentId(input.agentId)}' "${input.logPath}" | rg -F 'EXACT_TERM'
 
-${logShapeCheatSheet}
+${logFormatCheatSheet}
 </session-log-access>`
 
 const rlmRootInstructions = (input: FormatCompactionArchiveInstructionsInput): string => `<session-log-access>
@@ -82,7 +82,7 @@ rg -n -F '"agentId":"agent_abcd1234' "${input.logPath}" | rg -F 'EXACT_TERM'
 
 If the subagent was forked, inherited context may be referenced by agent_started.fork.fromAgentId and fork.atSeq rather than copied into the subagent's own rows.
 
-${logShapeCheatSheet}
+${logFormatCheatSheet}
 </session-log-access>`
 
 /** Format the post-compaction archive access block for one agent. */

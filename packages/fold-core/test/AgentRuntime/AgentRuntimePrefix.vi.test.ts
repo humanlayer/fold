@@ -1,33 +1,33 @@
 import { expect, it } from '@effect/vitest'
-import { Array as Arr, Effect } from 'effect'
+import { Array as Arr, Effect, Predicate, Schema } from 'effect'
+import { Prompt } from 'effect/unstable/ai'
 
 import { AgentRuntime } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'
 import { layerEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
 import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestHelpers'
 
-const withoutCacheControl = (value: unknown): unknown => {
-	if (Array.isArray(value)) return value.map(withoutCacheControl)
+/** Drop cache-control metadata and sort object keys so equal prompts encode to identical JSON. */
+const withoutCacheControl = (value: Schema.Json): Schema.Json => {
+	if (Arr.isArray<Schema.Json>(value)) return value.map(withoutCacheControl)
 	if (typeof value !== 'object' || value === null) return value
 
-	const out: Record<string, unknown> = {}
-	for (const [key, nested] of Object.entries(value)) {
+	const out: Record<string, Schema.Json> = {}
+	for (const [key, nested] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
 		if (key === 'cacheControl') continue
 		const normalized = withoutCacheControl(nested)
-		if (key === 'anthropic' && typeof normalized === 'object' && normalized !== null) {
-			if (Arr.isArrayEmpty(Object.keys(normalized))) continue
-		}
+		if (key === 'anthropic' && Predicate.isObject(normalized) && Arr.isArrayEmpty(Object.keys(normalized))) continue
 		out[key] = normalized
 	}
 	return out
 }
 
-const stablePromptJson = (value: unknown): string =>
-	JSON.stringify(withoutCacheControl(value), (key, nested) => {
-		if (key.length === 0 || Array.isArray(nested) || typeof nested !== 'object' || nested === null) return nested
+const encodeMessages = Schema.encodeSync(Schema.Array(Prompt.Message))
+const decodeJson = Schema.decodeUnknownSync(Schema.Json)
+const encodeJsonString = Schema.encodeSync(Schema.fromJsonString(Schema.Json))
 
-		return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)))
-	})
+const stablePromptJson = (messages: ReadonlyArray<Prompt.Message>): string =>
+	encodeJsonString(withoutCacheControl(decodeJson(encodeMessages(messages))))
 
 it.effect('keeps the second request prompt a byte-stable extension of the first', () =>
 	Effect.gen(function* () {

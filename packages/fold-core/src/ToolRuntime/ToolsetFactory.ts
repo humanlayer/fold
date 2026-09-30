@@ -35,7 +35,7 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 			// dispatches model-supplied names at runtime (guarded by `names.includes` below). TypeScript
 			// cannot express dynamic dispatch over a heterogeneous toolkit; the library erases internally
 			// for the same reason (Toolkit.ts: `handle: handle as any`). The one sanctioned assertion.
-			// oxlint-disable-next-line typescript/consistent-type-assertions
+			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion, automation/no-banned-type-assertions, anti-slop/no-chained-type-assertions
 			const withHandlers = (yield* toolkit) as unknown as Toolkit.WithHandler<Record<string, Tool.Any>>
 			const names = Object.keys(toolkit.tools)
 
@@ -61,7 +61,6 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 											isFailure: output.isFailure,
 											preliminary: output.preliminary,
 										})),
-										Stream.mapError((error): unknown => error),
 									),
 								),
 						}),

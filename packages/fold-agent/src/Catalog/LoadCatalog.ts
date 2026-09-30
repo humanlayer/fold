@@ -8,13 +8,14 @@
  * a catalog is a capability upgrade, not a launch prerequisite - and there are no background refresh
  * loops (CLI processes are short-lived).
  *
- * Seams follow the fold-agent options convention (AgentFiles/Load.ts): `fileSystem` for hermetic
- * tests, `env` for the disable flag, `fetchJson` for the network, `now`/`ttlMs` for freshness.
+ * Seams follow the fold-agent options convention (AgentFiles/Load.ts): `env` for the disable flag and
+ * `now`/`ttlMs` for freshness. The filesystem and the network (`HttpClient`) come from the environment.
  */
 import { dirname, join } from 'node:path'
 
 import { ModelCatalogEntry } from '@humanlayer/fold-core'
-import { Array as Arr, Clock, Effect, FileSystem, Predicate, Schema } from 'effect'
+import { Array as Arr, Clock, Duration, Effect, FileSystem, Schema } from 'effect'
+import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
 import { bakedModelCatalog } from './BakedCatalog'
 import { decodeModelsDevModels, ModelsDevDecodeError } from './ModelsDevSchema'
@@ -36,11 +37,6 @@ export class CatalogFetchError extends Schema.TaggedError<CatalogFetchError>()('
 	message: Schema.String,
 }) {}
 
-/** The cache file exists but is not valid JSON. */
-class CatalogCacheParseError extends Schema.TaggedError<CatalogCacheParseError>()('CatalogCacheParseError', {
-	message: Schema.String,
-}) {}
-
 /**
  * On-disk cache payload: entries are normalized at write time so every launch decodes a small,
  * already-shaped file instead of the 3MB models.dev payload. A wrong version or corrupt file is
@@ -59,8 +55,6 @@ export type LoadModelCatalogOptions = {
 	readonly foldHome: string
 	/** Environment lookup for {@link FOLD_DISABLE_MODELS_FETCH}. Defaults to reading `process.env`. */
 	readonly env?: (name: string) => string | undefined
-	/** Fetch seam returning the parsed JSON payload. Defaults to global `fetch` with a 10s timeout. */
-	readonly fetchJson?: (url: string) => Effect.Effect<unknown, CatalogFetchError>
 	/** Clock seam for cache freshness. Defaults to `Clock.currentTimeMillis`. */
 	readonly now?: Effect.Effect<number>
 	/** Cache freshness window in milliseconds. Defaults to {@link defaultCatalogTtlMs}. */
@@ -70,27 +64,25 @@ export type LoadModelCatalogOptions = {
 /** The cache file path for a fold home directory. */
 export const modelCatalogCachePath = (foldHome: string): string => join(foldHome, 'cache', 'models-dev.json')
 
-/** The ONE mapper from thrown fetch failures to the typed catalog fetch error. */
-const catalogFetchErrorFrom = (cause: unknown): CatalogFetchError =>
-	new CatalogFetchError({ message: Predicate.isError(cause) ? cause.message : String(cause) })
+/** GET the models.dev payload as JSON through the ambient `HttpClient`, with a 10s timeout. */
+const fetchModelsDevPayload: Effect.Effect<Schema.Json, CatalogFetchError, HttpClient.HttpClient> = HttpClient.get(
+	MODELS_DEV_URL,
+).pipe(
+	Effect.flatMap(HttpClientResponse.filterStatusOk),
+	Effect.flatMap((response) => response.json),
+	Effect.catchTag('HttpClientError', (error) => Effect.fail(new CatalogFetchError({ message: error.message }))),
+	Effect.timeoutOrElse({
+		duration: Duration.millis(fetchTimeoutMillis),
+		orElse: () =>
+			Effect.fail(
+				new CatalogFetchError({ message: `GET ${MODELS_DEV_URL} timed out after ${fetchTimeoutMillis}ms` }),
+			),
+	}),
+)
 
-const defaultFetchJson = (url: string): Effect.Effect<unknown, CatalogFetchError> =>
-	Effect.tryPromise({
-		try: async (signal): Promise<unknown> => {
-			const response = await fetch(url, { signal })
-			if (!response.ok) throw new Error(`GET ${url} responded ${response.status}`)
-			const body: unknown = await response.json()
-			return body
-		},
-		catch: catalogFetchErrorFrom,
-	}).pipe(
-		Effect.timeout(fetchTimeoutMillis),
-		Effect.catchTag('TimeoutError', () =>
-			Effect.fail(new CatalogFetchError({ message: `GET ${url} timed out after ${fetchTimeoutMillis}ms` })),
-		),
-	)
-
-const decodeCache = Schema.decodeUnknownEffect(ModelCatalogCache)
+const ModelCatalogCacheText = Schema.fromJsonString(ModelCatalogCache)
+const decodeCacheText = Schema.decodeEffect(ModelCatalogCacheText)
+const encodeCacheText = Schema.encodeEffect(ModelCatalogCacheText)
 
 /** Read the cache: absent, unreadable, corrupt, or wrong-version files all read as null. */
 const readCache = (fs: FileSystem.FileSystem, path: string): Effect.Effect<ModelCatalogCache | null> =>
@@ -98,12 +90,7 @@ const readCache = (fs: FileSystem.FileSystem, path: string): Effect.Effect<Model
 		const text = yield* fs.readFileString(path).pipe(Effect.catch(() => Effect.succeed(null)))
 		if (text === null) return null
 
-		return yield* Effect.try({
-			try: (): unknown => JSON.parse(text),
-			catch: (cause) =>
-				new CatalogCacheParseError({ message: Predicate.isError(cause) ? cause.message : String(cause) }),
-		}).pipe(
-			Effect.flatMap((parsed) => decodeCache(parsed)),
+		return yield* decodeCacheText(text).pipe(
 			Effect.catch((error) =>
 				// Corrupt or wrong-version caches are absent caches: warn, then rebuild from fetch/baked.
 				Effect.logWarning(`ignoring corrupt model catalog cache at ${path}: ${error.message}`).pipe(
@@ -116,7 +103,7 @@ const readCache = (fs: FileSystem.FileSystem, path: string): Effect.Effect<Model
 /** Write the cache, atomically when the FileSystem supports rename; failures only warn. */
 const writeCache = (fs: FileSystem.FileSystem, path: string, cache: ModelCatalogCache): Effect.Effect<void> =>
 	Effect.gen(function* () {
-		const json = JSON.stringify(cache)
+		const json = yield* encodeCacheText(cache)
 		const tmpPath = `${path}.tmp`
 
 		yield* fs.makeDirectory(dirname(path), { recursive: true })
@@ -132,20 +119,21 @@ const writeCache = (fs: FileSystem.FileSystem, path: string, cache: ModelCatalog
 	)
 
 /** Fetch and normalize the live catalog across ALL providers. Zero usable entries is a failure. */
-const fetchCatalogEntries = (
-	fetchJson: (url: string) => Effect.Effect<unknown, CatalogFetchError>,
-): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, CatalogFetchError | ModelsDevDecodeError> =>
-	Effect.gen(function* () {
-		const payload = yield* fetchJson(MODELS_DEV_URL)
-		const models = yield* decodeModelsDevModels(payload)
-		const entries = modelCatalogEntriesFromModelsDev(models)
-		if (Arr.isReadonlyArrayEmpty(entries)) {
-			// An empty catalog would poison the cache for a full TTL; treat it as a decode failure.
-			return yield* new ModelsDevDecodeError({ message: 'the models.dev payload contained no usable models' })
-		}
+const fetchCatalogEntries: Effect.Effect<
+	ReadonlyArray<ModelCatalogEntry>,
+	CatalogFetchError | ModelsDevDecodeError,
+	HttpClient.HttpClient
+> = Effect.gen(function* () {
+	const payload = yield* fetchModelsDevPayload
+	const models = yield* decodeModelsDevModels(payload)
+	const entries = modelCatalogEntriesFromModelsDev(models)
+	if (Arr.isReadonlyArrayEmpty(entries)) {
+		// An empty catalog would poison the cache for a full TTL; treat it as a decode failure.
+		return yield* new ModelsDevDecodeError({ message: 'the models.dev payload contained no usable models' })
+	}
 
-		return entries
-	})
+	return entries
+})
 
 /**
  * Load the model catalog entries for a launch. Never fails: fresh cache, else fetch-and-cache, else
@@ -153,13 +141,12 @@ const fetchCatalogEntries = (
  */
 export const loadModelCatalog = (
 	options: LoadModelCatalogOptions,
-): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem> =>
+): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const env = options.env ?? ((name: string) => process.env[name])
 		const now = yield* options.now ?? Clock.currentTimeMillis
 		const ttlMs = options.ttlMs ?? defaultCatalogTtlMs
-		const fetchJson = options.fetchJson ?? defaultFetchJson
 		const cachePath = modelCatalogCachePath(options.foldHome)
 
 		const cache = yield* readCache(fs, cachePath)
@@ -171,7 +158,7 @@ export const loadModelCatalog = (
 		const disableFlag = env(FOLD_DISABLE_MODELS_FETCH)
 		if (disableFlag !== undefined && disableFlag !== '') return fallbackEntries
 
-		return yield* fetchCatalogEntries(fetchJson).pipe(
+		return yield* fetchCatalogEntries.pipe(
 			Effect.flatMap((entries) =>
 				writeCache(fs, cachePath, { version: 1, fetchedAt: now, entries }).pipe(Effect.as(entries)),
 			),

@@ -70,14 +70,12 @@ export const describeModelConfiguration = (
 		...Object.entries(config.profiles ?? {}).map(([name, profile]) => ({ name, mode: profile.mode ?? null })),
 	],
 	providers: Object.entries(config.providers).map(([name, provider]) => {
-		const catalogProviderIds =
-			provider.kind === 'anthropic'
-				? [name, 'anthropic']
-				: provider.kind === 'codex' || provider.kind === 'opencode'
-					? [name, 'openai']
-					: provider.kind === 'xai'
-						? [name, 'xai']
-						: [name, 'openai']
+		const catalogProviderIds = Match.value(provider.kind).pipe(
+			Match.when('anthropic', () => [name, 'anthropic']),
+			Match.when('xai', () => [name, 'xai']),
+			Match.when(Match.is('codex', 'opencode', 'openai-compat'), () => [name, 'openai']),
+			Match.exhaustive,
+		)
 		const configured = bindings(config)
 			.filter(
 				(binding): binding is typeof binding & { readonly model: string } =>

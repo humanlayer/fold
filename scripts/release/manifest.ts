@@ -1,5 +1,7 @@
 import { join } from 'node:path'
 
+import { Schema } from 'effect'
+
 export const root = join(import.meta.dirname, '../..')
 export const stage = join(root, '.release')
 export const libraries = [
@@ -35,6 +37,17 @@ export const targets = [
 export const targetName = ([os, cpu, variant]: (typeof targets)[number]) =>
 	`@humanlayer/fold-${os}-${cpu}${variant ? `-${variant}` : ''}`
 
-export async function json<T extends object = Record<string, unknown>>(path: string): Promise<T> {
-	return Bun.file(path).json()
-}
+export const StringRecord = Schema.Record(Schema.String, Schema.String)
+
+export const RootManifest = Schema.Struct({ workspaces: Schema.Struct({ catalog: StringRecord }) })
+
+/** Read a JSON file and decode it with `schema`. */
+export const readJson = async <T, E>(path: string, schema: Schema.Codec<T, E>): Promise<T> =>
+	Schema.decodeSync(Schema.fromJsonString(schema))(await Bun.file(path).text())
+
+/** Encode `value` with `schema` as JSON text. */
+export const encodeJson = <T, E>(schema: Schema.Codec<T, E>, value: T, space?: number): string =>
+	Schema.encodeSync(Schema.fromJsonString(schema, { space }))(value)
+
+/** Encode `value` with `schema` as a pretty-printed JSON document with a trailing newline. */
+export const jsonDocument = <T, E>(schema: Schema.Codec<T, E>, value: T): string => `${encodeJson(schema, value, 2)}\n`

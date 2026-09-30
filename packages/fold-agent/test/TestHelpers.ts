@@ -24,7 +24,8 @@ import {
 	type PlatformServices,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
+import { Effect, FileSystem, Layer, PlatformError, Ref, Schema } from 'effect'
+import { HttpClient, HttpClientError } from 'effect/unstable/http'
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
 export const makeAmbientServices = (): Effect.Effect<{
@@ -162,22 +163,26 @@ export const memoryFileSystem = (initialFiles: Record<string, string>): FileSyst
 export const memoryFileFor = (fs: FileSystem.FileSystem, path: string): Effect.Effect<string | null> =>
 	fs.readFileString(path).pipe(Effect.catch(() => Effect.succeed(null)))
 
-/** Narrow one string-valued field out of an unknown tool result/failure (assertion helper). */
-const stringField =
-	(field: string) =>
-	(value: unknown): string => {
-		if (typeof value === 'object' && value !== null && field in value) {
-			const candidate: unknown = Reflect.get(value, field)
-			if (typeof candidate === 'string') return candidate
-		}
-		throw new Error(`expected a value with a string "${field}" field`)
-	}
+/** An HttpClient with no network: every request fails at the transport with "network down". */
+export const offlineHttpClient: Layer.Layer<HttpClient.HttpClient> = Layer.succeed(
+	HttpClient.HttpClient,
+	HttpClient.make((request) =>
+		Effect.fail(
+			new HttpClientError.HttpClientError({
+				reason: new HttpClientError.TransportError({ request, description: 'network down' }),
+			}),
+		),
+	),
+)
 
-/** The `message` field of a tool success/failure value. */
-export const messageOf: (value: unknown) => string = stringField('text')
+const TextResult = Schema.Struct({ text: Schema.String })
+const decodeTextResult = Schema.decodeUnknownSync(TextResult)
 
-/** The `output` field of a bash tool success value. */
-export const outputOf: (value: unknown) => string = stringField('text')
+/** The `text` field of a tool success/failure value. */
+export const messageOf = (value: unknown): string => decodeTextResult(value).text
+
+/** The `text` field of a bash tool success value. */
+export const outputOf = (value: unknown): string => decodeTextResult(value).text
 
 const parentDirs = (path: string): ReadonlyArray<string> => {
 	const parents: Array<string> = []

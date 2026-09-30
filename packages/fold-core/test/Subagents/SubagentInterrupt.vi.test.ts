@@ -47,9 +47,7 @@ it.effect('an interrupted subagent leaves honest durable markers and is resumabl
 		if (started === undefined) throw new Error('expected the dispatched subagent to have started')
 
 		// Write-through: everything the subagent did before the interrupt is already durable.
-		const subagentTags = entries
-			.filter((entry) => 'agentId' in entry && entry.agentId === started.agentId)
-			.map((entry) => entry._tag)
+		const subagentTags = entries.filter((entry) => entry.agentId === started.agentId).map((entry) => entry._tag)
 		expect(subagentTags).toEqual([
 			'agent_started',
 			'system-message',

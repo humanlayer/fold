@@ -57,16 +57,15 @@ export type ModelCatalogService = {
  * `anthropic`, the codex backend serves openai models, and openai-compatible endpoints usually proxy
  * `openai` models but may be a real catalog provider themselves (the configured profile id).
  */
-const candidateProviderIds = (model: ActiveModel): ReadonlyArray<string> => {
-	switch (model.providerKind) {
-		case 'anthropic':
-			return ['anthropic']
-		case 'codex':
-			return ['openai']
-		case 'openai-compatible':
-			return model.providerId === 'openai' ? ['openai'] : [model.providerId, 'openai']
-	}
-}
+const candidateProviderIds = (model: ActiveModel): ReadonlyArray<string> =>
+	Match.value(model.providerKind).pipe(
+		Match.when('anthropic', () => ['anthropic']),
+		Match.when('codex', () => ['openai']),
+		Match.when('openai-compatible', () =>
+			model.providerId === 'openai' ? ['openai'] : [model.providerId, 'openai'],
+		),
+		Match.exhaustive,
+	)
 
 /** Deterministic preference for bare-model-id matches: anthropic, then openai, then first-seen. */
 const bareMatchPriority = Match.type<string>().pipe(

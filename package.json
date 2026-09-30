@@ -53,6 +53,7 @@
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",
 		"@vitest/coverage-v8": "catalog:",
+		"effect": "catalog:",
 		"fast-glob": "3.3.3",
 		"oxfmt": "0.62.0",
 		"oxlint": "1.86.0",

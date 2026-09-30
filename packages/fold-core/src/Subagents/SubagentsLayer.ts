@@ -22,6 +22,7 @@ import { AgentProvisioner } from '../Api/Provisioning'
 import type { RealizedFoldTool, FoldTool } from '../Api/ToolDefinition'
 import { EventLog } from '../EventLog/EventLogService'
 import {
+	ActiveModel,
 	LogEntryInputs,
 	type AgentFinishedLogEntry,
 	type AgentFork,
@@ -203,7 +204,9 @@ const lastAssistantTextForRun = (
 }
 
 /** Structural model-binding comparison deciding whether a resume needs a D17 transition. */
-const activeModelsDiffer = (left: unknown, right: unknown): boolean => JSON.stringify(left) !== JSON.stringify(right)
+const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
+const activeModelsDiffer = (left: ActiveModel | null, right: ActiveModel | null): boolean =>
+	!activeModelsEquivalent(left, right)
 
 const CHILD_CACHE_SUFFIX_LENGTH = 28
 const MAX_PROMPT_CACHE_KEY_LENGTH = 64

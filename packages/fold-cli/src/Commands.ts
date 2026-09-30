@@ -29,7 +29,7 @@ import {
 import { SessionId, type ModelCatalogEntry } from '@humanlayer/fold-core'
 import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
 import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
-import { Array as Arr, Clock, Console, Effect, Option, Schema } from 'effect'
+import { Array as Arr, Clock, Console, Effect, Match, Option, Schema } from 'effect'
 import { type CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
@@ -218,16 +218,12 @@ const codexAuthStoreOptions = (
 	return options
 }
 
-const browserOpenCommand = (url: string): { readonly command: string; readonly args: ReadonlyArray<string> } => {
-	switch (process.platform) {
-		case 'darwin':
-			return { command: 'open', args: [url] }
-		case 'win32':
-			return { command: 'cmd', args: ['/c', 'start', '', url] }
-		default:
-			return { command: 'xdg-open', args: [url] }
-	}
-}
+const browserOpenCommand = (url: string): { readonly command: string; readonly args: ReadonlyArray<string> } =>
+	Match.value(process.platform).pipe(
+		Match.when('darwin', () => ({ command: 'open', args: [url] })),
+		Match.when('win32', () => ({ command: 'cmd', args: ['/c', 'start', '', url] })),
+		Match.orElse(() => ({ command: 'xdg-open', args: [url] })),
+	)
 
 const openUrlInBrowser = (url: string): Effect.Effect<boolean> =>
 	Effect.try({

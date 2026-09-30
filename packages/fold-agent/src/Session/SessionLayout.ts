@@ -104,7 +104,9 @@ const SummaryIndexRecord = Schema.TaggedStruct('summary', {
 const SessionIndexRecordSchema = Schema.Union([SummaryIndexRecord, DeletedIndexRecord])
 type SessionIndexRecord = typeof SessionIndexRecordSchema.Type
 
-const decodeIndexRecord = Schema.decodeUnknownOption(SessionIndexRecordSchema)
+const SessionIndexLine = Schema.fromJsonString(SessionIndexRecordSchema)
+const decodeIndexLine = Schema.decodeUnknownOption(SessionIndexLine)
+const encodeIndexLine = Schema.encodeEffect(SessionIndexLine)
 
 const appendSessionIndexRecord = (
 	record: SessionIndexRecord,
@@ -114,9 +116,8 @@ const appendSessionIndexRecord = (
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
 		yield* fs.makeDirectory(directory, { recursive: true }).pipe(
-			Effect.andThen(
-				fs.writeFileString(join(directory, 'index.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a' }),
-			),
+			Effect.andThen(encodeIndexLine(record)),
+			Effect.flatMap((line) => fs.writeFileString(join(directory, 'index.jsonl'), `${line}\n`, { flag: 'a' })),
 			Effect.catch((error) =>
 				Effect.logWarning(
 					`could not append session index record at ${join(directory, 'index.jsonl')}: ${error.message}`,
@@ -141,12 +142,9 @@ const loadSessionIndex = (
 				const latest = new Map<SessionId, SessionIndexRecord>()
 				for (const line of contents.split('\n')) {
 					if (line.trim().length === 0) continue
-					try {
-						const record = decodeIndexRecord(JSON.parse(line))
-						if (Option.isSome(record)) latest.set(sessionIdFromIndexRecord(record.value), record.value)
-					} catch {
-						// A partial/corrupt cache row is independently recoverable from the source log.
-					}
+					// A partial/corrupt cache row is independently recoverable from the source log.
+					const record = decodeIndexLine(line)
+					if (Option.isSome(record)) latest.set(sessionIdFromIndexRecord(record.value), record.value)
 				}
 				return latest
 			}),

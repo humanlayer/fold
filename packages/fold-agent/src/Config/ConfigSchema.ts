@@ -167,7 +167,7 @@ type RolesRef = {
 	readonly fast: RoleBindingRef
 	readonly orchestrator?: RoleBindingRef
 }
-type CrossRefShape = {
+type ConfigCrossReferences = {
 	readonly providers: Record<string, unknown>
 	readonly roles: RolesRef
 	readonly profiles?: Record<string, RolesRef>
@@ -183,7 +183,7 @@ const bindingsOf = (roles: RolesRef): ReadonlyArray<RoleBindingRef> => [
  * Every provider a role binds to - in the default `roles` map AND in every named profile - must be
  * declared in `providers` (decode-time typo/reference safety).
  */
-const providersReferencedByRolesExist = Schema.makeFilter<CrossRefShape>(
+const providersReferencedByRolesExist = Schema.makeFilter<ConfigCrossReferences>(
 	({ providers, roles, profiles }) => {
 		const declared = new Set(Object.keys(providers))
 		const bindings = [...bindingsOf(roles), ...Object.values(profiles ?? {}).flatMap(bindingsOf)]

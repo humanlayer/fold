@@ -2,7 +2,7 @@
  * Managed-binaries tests (D18): the system -> managed -> download resolution ladder, alias and
  * version-floor handling on system hits, sha256 verification before anything touches disk, the
  * download kill switch, never-failing degradation, and per-process memoization. Every seam is
- * injected (which/download/exec/env); installs land on a real temp dir so the extract/rename/chmod
+ * injected (which/exec/env, plus a fake HttpClient for downloads); installs land on a real temp dir so the extract/rename/chmod
  * path is exercised against the actual filesystem.
  */
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
@@ -10,21 +10,20 @@ import { dirname, join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Layer } from 'effect'
+import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
 import {
-	BinaryDownloadError,
 	BinaryExecError,
 	ensureManagedBinaries,
 	managedBinDir,
 	parseBinaryVersion,
 	FOLD_DISABLE_BINARY_DOWNLOADS,
-	type DownloadSeam,
 	type ExecSeam,
 	type ManagedBinaryDefinition,
 	type WhichSeam,
 } from '../../src/index'
-import { tempDir } from '../TestHelpers'
+import { offlineHttpClient, tempDir } from '../TestHelpers'
 
 const binaryBytes = new TextEncoder().encode('#!/bin/sh\necho fake binary\n')
 
@@ -49,16 +48,22 @@ const whichOf =
 	(name) =>
 		Effect.succeed(hits[name] ?? null)
 
-/** Download seam returning fixed bytes, recording every requested URL. */
-const recordingDownload = (bytes: Uint8Array): { readonly seam: DownloadSeam; readonly urls: Array<string> } => {
+/** HttpClient returning fixed bytes, recording every requested URL. */
+const recordingDownload = (
+	bytes: Uint8Array<ArrayBuffer>,
+): { readonly layer: Layer.Layer<HttpClient.HttpClient>; readonly urls: Array<string> } => {
 	const urls: Array<string> = []
 	return {
 		urls,
-		seam: (url) =>
-			Effect.sync(() => {
-				urls.push(url)
-				return bytes
-			}),
+		layer: Layer.succeed(
+			HttpClient.HttpClient,
+			HttpClient.make((request) =>
+				Effect.sync(() => {
+					urls.push(request.url)
+					return HttpClientResponse.fromWeb(request, new Response(bytes))
+				}),
+			),
+		),
 	}
 }
 
@@ -92,9 +97,8 @@ it.effect('a system alias hit short-circuits the ladder without downloading', ()
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({ fdfind: '/usr/bin/fdfind' }),
-			download: download.seam,
 			registry: [definitionOf({ name: 'fd', systemNames: ['fd', 'fdfind'] })],
-		})
+		}).pipe(Effect.provide(download.layer))
 
 		expect(status?.resolution).toBe('system')
 		expect(status?.path).toBe('/usr/bin/fdfind')
@@ -113,11 +117,10 @@ it.effect('requireManagedInstall installs the canonical managed binary even when
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({ rg: '/opt/homebrew/bin/rg' }),
-			download: download.seam,
 			exec: extractingExec('rg-1.0.0/rg'),
 			requireManagedInstall: true,
 			registry: [definitionOf()],
-		})
+		}).pipe(Effect.provide(download.layer))
 
 		expect(status?.resolution).toBe('installed-now')
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
@@ -137,7 +140,7 @@ it.effect('requireManagedInstall plus disabled downloads can still report a usab
 			which: whichOf({ rg: '/opt/homebrew/bin/rg' }),
 			requireManagedInstall: true,
 			registry: [definitionOf()],
-		})
+		}).pipe(Effect.provide(recordingDownload(binaryBytes).layer))
 
 		expect(status?.resolution).toBe('system')
 		expect(status?.path).toBe('/opt/homebrew/bin/rg')
@@ -156,7 +159,7 @@ it.effect('a system binary below the version floor falls through past the system
 			which: whichOf({ 'ast-grep': '/usr/bin/ast-grep' }),
 			exec: extractingExec('unused', 'ast-grep 0.39.6'),
 			registry: [definitionOf({ name: 'ast-grep', systemNames: ['ast-grep'], minVersion: '0.44.0' })],
-		})
+		}).pipe(Effect.provide(recordingDownload(binaryBytes).layer))
 
 		// Not 'system': the old binary was rejected; with downloads disabled the ladder ends unavailable.
 		expect(status?.resolution).toBe('unavailable')
@@ -176,9 +179,8 @@ it.effect('an already-installed managed binary resolves without downloading', ()
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({}),
-			download: download.seam,
 			registry: [definitionOf()],
-		})
+		}).pipe(Effect.provide(download.layer))
 
 		expect(status?.resolution).toBe('managed')
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
@@ -196,10 +198,9 @@ it.effect('a missing binary downloads, extracts, and installs into <foldHome>/bi
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({}),
-			download: download.seam,
 			exec: extractingExec('rg-1.0.0/rg'),
 			registry: [definitionOf()],
-		})
+		}).pipe(Effect.provide(download.layer))
 
 		expect(status?.resolution).toBe('installed-now')
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
@@ -216,7 +217,6 @@ it.effect('a sha256 mismatch degrades to unavailable and writes nothing', () =>
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({}),
-			download: recordingDownload(binaryBytes).seam,
 			exec: extractingExec('rg-1.0.0/rg'),
 			registry: [
 				definitionOf({
@@ -228,7 +228,7 @@ it.effect('a sha256 mismatch degrades to unavailable and writes nothing', () =>
 					}),
 				}),
 			],
-		})
+		}).pipe(Effect.provide(recordingDownload(binaryBytes).layer))
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('sha256 mismatch')
@@ -246,9 +246,8 @@ it.effect('the env kill switch skips downloads entirely', () =>
 			memoize: false,
 			env: (name) => (name === FOLD_DISABLE_BINARY_DOWNLOADS ? '1' : undefined),
 			which: whichOf({}),
-			download: download.seam,
 			registry: [definitionOf()],
-		})
+		}).pipe(Effect.provide(download.layer))
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(download.urls).toEqual([])
@@ -258,17 +257,13 @@ it.effect('the env kill switch skips downloads entirely', () =>
 it.effect('one failing binary never blocks the rest (ensure never fails)', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
-		const failingDownload: DownloadSeam = (url) =>
-			Effect.fail(new BinaryDownloadError({ message: `GET ${url}: network down` }))
-
 		const statuses = yield* ensureManagedBinaries({
 			foldHome: home,
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({ fd: '/usr/bin/fd' }),
-			download: failingDownload,
 			registry: [definitionOf(), definitionOf({ name: 'fd', systemNames: ['fd'] })],
-		})
+		}).pipe(Effect.provide(offlineHttpClient))
 
 		expect(statuses.map((status) => status.resolution)).toEqual(['unavailable', 'system'])
 		expect(statuses[0]?.detail).toContain('network down')
@@ -286,10 +281,9 @@ it.effect('an exec failure during extraction also degrades to unavailable', () =
 			memoize: false,
 			env: emptyEnv,
 			which: whichOf({}),
-			download: recordingDownload(binaryBytes).seam,
 			exec: brokenExec,
 			registry: [definitionOf()],
-		})
+		}).pipe(Effect.provide(recordingDownload(binaryBytes).layer))
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('exploded')
@@ -304,13 +298,12 @@ it.effect('memoized ensures share one resolution pass per (foldHome, mode)', () 
 			foldHome: home,
 			env: emptyEnv,
 			which: whichOf({}),
-			download: download.seam,
 			exec: extractingExec('rg-1.0.0/rg'),
 			registry: [definitionOf()],
 		}
 
-		const first = yield* ensureManagedBinaries(options)
-		const second = yield* ensureManagedBinaries(options)
+		const first = yield* ensureManagedBinaries(options).pipe(Effect.provide(download.layer))
+		const second = yield* ensureManagedBinaries(options).pipe(Effect.provide(download.layer))
 
 		expect(first[0]?.resolution).toBe('installed-now')
 		expect(second[0]?.resolution).toBe('installed-now')

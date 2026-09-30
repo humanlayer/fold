@@ -6,8 +6,8 @@ import {
 	webSearchToolContract,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, Fiber, Predicate } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { Data, Duration, Effect, Schema } from 'effect'
+import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/unstable/http'
 
 const defaultTimeoutMs = 25_000
 const maxNumResults = 20
@@ -60,103 +60,98 @@ const selectProvider = (seed: string, options?: WebSearchToolOptions): WebSearch
 	return checksum(seed) % 2 === 0 ? 'exa' : 'parallel'
 }
 
-const textField = (value: unknown): string | undefined => {
-	if (typeof value !== 'object' || value === null || !('text' in value)) return undefined
-	const text = Reflect.get(value, 'text')
-	return typeof text === 'string' && text.length > 0 ? text : undefined
-}
+/** The JSON-RPC `tools/call` request both MCP search endpoints accept. */
+const McpToolCall = Schema.Struct({
+	jsonrpc: Schema.Literal('2.0'),
+	id: Schema.Number,
+	method: Schema.Literal('tools/call'),
+	params: Schema.Struct({
+		name: Schema.String,
+		arguments: Schema.Record(Schema.String, Schema.Json),
+	}),
+})
 
-const parsePayload = (payload: string): string | undefined => {
-	const trimmed = payload.trim()
-	if (!trimmed.startsWith('{')) return undefined
-
-	const decoded: unknown = JSON.parse(trimmed)
-	if (typeof decoded !== 'object' || decoded === null || !('result' in decoded)) return undefined
-	const result = Reflect.get(decoded, 'result')
-	if (typeof result !== 'object' || result === null || !('content' in result)) return undefined
-	const content = Reflect.get(result, 'content')
-	if (!Array.isArray(content)) return undefined
-
-	return content.map(textField).find((text) => text !== undefined)
-}
-
-const parseMcpResponse = (body: string): Effect.Effect<string | undefined, { message: string }> =>
-	Effect.try({
-		try: () => {
-			const direct = body.trim().length > 0 ? parsePayload(body) : undefined
-			if (direct !== undefined) return direct
-
-			for (const line of body.split('\n')) {
-				if (!line.startsWith('data: ')) continue
-				const text = parsePayload(line.slice(6))
-				if (text !== undefined) return text
-			}
-
-			return undefined
-		},
-		catch: (error) => ({
-			message: `Failed to parse web search response: ${Predicate.isError(error) ? error.message : String(error)}`,
+/** The part of a JSON-RPC `tools/call` response the tool reads: the result's content blocks. */
+const McpToolResponse = Schema.Struct({
+	result: Schema.optional(
+		Schema.Struct({
+			content: Schema.optional(Schema.Array(Schema.Struct({ text: Schema.optional(Schema.String) }))),
 		}),
+	),
+})
+type McpToolResponse = typeof McpToolResponse.Type
+
+const decodeMcpPayload = Schema.decodeEffect(Schema.fromJsonString(McpToolResponse))
+
+const firstText = (response: McpToolResponse): string | undefined =>
+	response.result?.content?.map(({ text }) => text).find((text) => text !== undefined && text.length > 0)
+
+/** A web search failed; `message` is shown to the model. */
+class McpFailure extends Data.TaggedError('McpFailure')<{ readonly message: string }> {}
+
+/** Decode one JSON payload (a whole body or an SSE `data:` line); non-JSON payloads carry no result. */
+const parsePayload = (payload: string): Effect.Effect<string | undefined, McpFailure> => {
+	const trimmed = payload.trim()
+	if (!trimmed.startsWith('{')) return Effect.succeed(undefined)
+	return decodeMcpPayload(trimmed).pipe(
+		Effect.map(firstText),
+		Effect.mapError(
+			(error) => new McpFailure({ message: `Failed to parse web search response: ${error.message}` }),
+		),
+	)
+}
+
+const parseMcpResponse = (body: string): Effect.Effect<string | undefined, McpFailure> =>
+	Effect.gen(function* () {
+		const direct = yield* parsePayload(body)
+		if (direct !== undefined) return direct
+
+		for (const line of body.split('\n')) {
+			if (!line.startsWith('data: ')) continue
+			const text = yield* parsePayload(line.slice(6))
+			if (text !== undefined) return text
+		}
+
+		return undefined
 	})
 
 const callMcp = (input: {
 	readonly url: string
 	readonly tool: string
-	readonly arguments: Record<string, unknown>
+	readonly arguments: Record<string, Schema.Json>
 	readonly headers?: Record<string, string>
 	readonly timeoutMs: number
-}): Effect.Effect<string | undefined, { message: string }> =>
+}): Effect.Effect<string | undefined, McpFailure, HttpClient.HttpClient> =>
 	Effect.gen(function* () {
-		const fetch = yield* FetchHttpClient.Fetch
-		const controller = new AbortController()
-		const timer = yield* Effect.sleep(input.timeoutMs).pipe(
-			Effect.andThen(Effect.sync(() => controller.abort())),
-			Effect.forkChild,
+		const request = yield* HttpClientRequest.post(input.url, {
+			headers: { accept: 'application/json, text/event-stream', ...input.headers },
+		}).pipe(
+			HttpClientRequest.schemaBodyJson(McpToolCall)({
+				jsonrpc: '2.0',
+				id: 1,
+				method: 'tools/call',
+				params: { name: input.tool, arguments: input.arguments },
+			}),
 		)
-
-		return yield* Effect.gen(function* () {
-			const response = yield* Effect.tryPromise({
-				try: () =>
-					fetch(input.url, {
-						method: 'POST',
-						signal: controller.signal,
-						headers: {
-							accept: 'application/json, text/event-stream',
-							'content-type': 'application/json',
-							...input.headers,
-						},
-						body: JSON.stringify({
-							jsonrpc: '2.0',
-							id: 1,
-							method: 'tools/call',
-							params: { name: input.tool, arguments: input.arguments },
-						}),
-					}),
-				catch: (error) => ({
-					message:
-						Predicate.isError(error) && error.name === 'AbortError'
-							? `${input.tool} request timed out`
-							: Predicate.isError(error)
-								? error.message
-								: String(error),
-				}),
+		const response = yield* HttpClient.execute(request)
+		if (response.status < 200 || response.status >= 300) {
+			return yield* new McpFailure({
+				message: `${input.tool} request failed with status code: ${response.status}`,
 			})
+		}
 
-			if (!response.ok) {
-				return yield* Effect.fail({
-					message: `${input.tool} request failed with status code: ${response.status}`,
-				})
-			}
-
-			const body = yield* Effect.tryPromise({
-				try: () => response.text(),
-				catch: (error) => ({
-					message: `Failed to read web search response: ${Predicate.isError(error) ? error.message : String(error)}`,
-				}),
-			})
-			return yield* parseMcpResponse(body)
-		}).pipe(Effect.ensuring(Fiber.interrupt(timer)))
-	})
+		return yield* parseMcpResponse(yield* response.text)
+	}).pipe(
+		Effect.catchTags({
+			HttpBodyError: (error) =>
+				Effect.fail(new McpFailure({ message: `Failed to encode web search request (${error.reason._tag})` })),
+			HttpClientError: (error) => Effect.fail(new McpFailure({ message: error.message })),
+		}),
+		Effect.timeoutOrElse({
+			duration: Duration.millis(input.timeoutMs),
+			orElse: () => Effect.fail(new McpFailure({ message: `${input.tool} request timed out` })),
+		}),
+	)
 
 export const webSearchTool = (options?: WebSearchToolOptions): FoldTool =>
 	defineTool({
@@ -198,5 +193,8 @@ export const webSearchTool = (options?: WebSearchToolOptions): FoldTool =>
 							})
 
 				return ToolResultText.make({ text: result ?? 'No search results found. Please try a different query.' })
-			}).pipe(Effect.mapError((error) => ToolResultFailure.make({ text: error.message }))),
+			}).pipe(
+				Effect.provide(FetchHttpClient.layer),
+				Effect.mapError((error) => ToolResultFailure.make({ text: error.message })),
+			),
 	})

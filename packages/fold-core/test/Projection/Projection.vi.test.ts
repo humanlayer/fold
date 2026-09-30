@@ -335,9 +335,12 @@ it.effect('compaction cutoff covers every reordered tool result in its discarded
 
 		const entries = yield* readEntries
 		const scripted = yield* makeScriptedLanguageModel([textTurn('tool batch summary')])
-		const plan = yield* makeCompactionService({ enabled: true, thresholdTokens: 1, keepRecentTokens: 1 })
-			.plan({ agentId: rootAgentId, entries, model, trigger: 'threshold' })
-			.pipe(Effect.provide(scripted.layer))
+		const compaction = yield* makeCompactionService({
+			enabled: true,
+			thresholdTokens: 1,
+			keepRecentTokens: 1,
+		}).pipe(Effect.provide(scripted.layer))
+		const plan = yield* compaction.plan({ agentId: rootAgentId, entries, model, trigger: 'threshold' })
 		if (plan === null) throw new Error('expected a compaction plan')
 
 		// Projection puts the second result last, but its smaller physical sequence must not become

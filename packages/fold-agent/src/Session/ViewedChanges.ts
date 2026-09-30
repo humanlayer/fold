@@ -12,7 +12,9 @@ const ViewedChangeRecord = Schema.Struct({
 	ts: Schema.Number,
 })
 
-const decodeViewedChangeRecord = Schema.decodeUnknownOption(ViewedChangeRecord)
+const ViewedChangeLine = Schema.fromJsonString(ViewedChangeRecord)
+const decodeViewedChangeLine = Schema.decodeUnknownOption(ViewedChangeLine)
+const encodeViewedChangeLine = Schema.encodeEffect(ViewedChangeLine)
 
 export type ViewedPatchHashes = Readonly<Record<string, string>>
 
@@ -30,13 +32,10 @@ export const loadViewedPatchHashes = (
 				const viewed: Record<string, string> = {}
 				for (const line of contents.split('\n')) {
 					if (line.trim().length === 0) continue
-					try {
-						const record = decodeViewedChangeRecord(JSON.parse(line))
-						if (Option.isSome(record) && record.value.sessionId === sessionId) {
-							viewed[record.value.changeKey] = record.value.patchHash
-						}
-					} catch {
-						// A partial record does not invalidate the rest of this derived UI index.
+					// A partial record does not invalidate the rest of this derived UI index.
+					const record = decodeViewedChangeLine(line)
+					if (Option.isSome(record) && record.value.sessionId === sessionId) {
+						viewed[record.value.changeKey] = record.value.patchHash
 					}
 				}
 				return viewed
@@ -55,9 +54,9 @@ export const saveViewedPatchHash = (
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
 		const ts = yield* Clock.currentTimeMillis
-		const record = { sessionId, changeKey, patchHash, ts }
+		const line = yield* encodeViewedChangeLine({ sessionId, changeKey, patchHash, ts })
 		yield* fs.makeDirectory(directory, { recursive: true })
-		yield* fs.writeFileString(viewedChangesPath(options), `${JSON.stringify(record)}\n`, { flag: 'a' })
+		yield* fs.writeFileString(viewedChangesPath(options), `${line}\n`, { flag: 'a' })
 	}).pipe(
 		Effect.catch((error) =>
 			Effect.logWarning(`could not save viewed change for session ${sessionId}: ${error.message}`),

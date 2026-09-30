@@ -44,7 +44,7 @@ it.effect('omits mode when the flag is absent', () =>
 	Effect.gen(function* () {
 		const options = yield* sessionOptionsFromFlags(baseFlags)
 
-		expect('mode' in options).toBe(false)
+		expect(options).not.toHaveProperty('mode')
 	}),
 )
 
@@ -69,7 +69,7 @@ it.effect('omits rpi when the flag is absent', () =>
 	Effect.gen(function* () {
 		const options = yield* sessionOptionsFromFlags(baseFlags)
 
-		expect('rpi' in options).toBe(false)
+		expect(options).not.toHaveProperty('rpi')
 	}),
 )
 
@@ -79,7 +79,7 @@ it.effect('lowers --profile into the session options and omits it when absent', 
 		const without = yield* sessionOptionsFromFlags(baseFlags)
 
 		expect(withProfile.profile).toBe('ultraclaude')
-		expect('profile' in without).toBe(false)
+		expect(without).not.toHaveProperty('profile')
 	}),
 )
 

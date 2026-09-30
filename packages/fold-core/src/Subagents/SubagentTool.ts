@@ -60,28 +60,30 @@ export const renderSubagentResult = (result: SubagentResult): string => {
 }
 
 /** The system-information note appended for non-completed outcomes; null for clean completions. */
-const outcomeNoteFor = (result: SubagentResult): string | null => {
-	switch (result.outcome) {
-		case 'completed':
-			return null
-		case 'error':
-			return (
+const outcomeNoteFor = (result: SubagentResult): string | null =>
+	Match.value(result.outcome).pipe(
+		Match.when('completed', () => null),
+		Match.when(
+			'error',
+			() =>
 				`<system-information>This subagent finished with an error: ${result.errorMessage ?? 'unknown error'}. ` +
 				`Its context is preserved; you may resume it with the agent_id above (it will see your new message), ` +
-				`or dispatch a fresh agent.</system-information>`
-			)
-		case 'stopped':
-			return (
+				`or dispatch a fresh agent.</system-information>`,
+		),
+		Match.when(
+			'stopped',
+			() =>
 				`<system-information>This subagent stopped early (a tool or hook requested a stop). ` +
-				`Its context is preserved; you may resume it with the agent_id above.</system-information>`
-			)
-		case 'interrupted':
-			return (
+				`Its context is preserved; you may resume it with the agent_id above.</system-information>`,
+		),
+		Match.when(
+			'interrupted',
+			() =>
 				`<system-information>This subagent was interrupted before completing. ` +
-				`Its context is preserved; you may resume it with the agent_id above.</system-information>`
-			)
-	}
-}
+				`Its context is preserved; you may resume it with the agent_id above.</system-information>`,
+		),
+		Match.exhaustive,
+	)
 
 // --- pure failure-payload formatters, invoked from catchTag/catchTags branches -----------------------
 

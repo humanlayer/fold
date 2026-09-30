@@ -9,10 +9,13 @@
 import { Array as Arr, Effect, Schema } from 'effect'
 
 /** One targeted replacement: exact old text and its replacement. */
-export type EditPair = {
-	readonly oldText: string
-	readonly newText: string
-}
+export const EditPair = Schema.Struct({
+	oldText: Schema.String,
+	newText: Schema.String,
+})
+export type EditPair = typeof EditPair.Type
+
+const decodeEditPairsJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Array(EditPair)))
 
 /** A model-visible edit failure. `message` strings are pi's, verbatim. */
 export class EditEngineError extends Schema.TaggedError<EditEngineError>()('EditEngineError', {
@@ -298,12 +301,6 @@ export const applyEdits = (input: {
 		}
 	})
 
-const isEditPair = (value: unknown): value is EditPair => {
-	if (typeof value !== 'object' || value === null) return false
-	if (!('oldText' in value) || !('newText' in value)) return false
-	return typeof value.oldText === 'string' && typeof value.newText === 'string'
-}
-
 /**
  * Normalize edit-tool input into an edit batch (pi's `prepareEditArguments` + `validateEditInput`):
  * accepts the batch form, a JSON-string edits array (some models stringify it), and the legacy
@@ -321,17 +318,7 @@ export const normalizeEditInput = (input: {
 		let edits: Array<EditPair> = []
 
 		if (typeof input.edits === 'string') {
-			const editsText = input.edits
-			const parsed = yield* Effect.try({
-				try: (): unknown => JSON.parse(editsText),
-				catch: () => invalidEdits,
-			})
-			if (!Array.isArray(parsed)) return yield* invalidEdits
-
-			for (const item of parsed) {
-				if (!isEditPair(item)) return yield* invalidEdits
-				edits.push({ oldText: item.oldText, newText: item.newText })
-			}
+			edits = [...(yield* decodeEditPairsJson(input.edits).pipe(Effect.mapError(() => invalidEdits)))]
 		} else if (input.edits !== undefined) {
 			edits = [...input.edits]
 		}

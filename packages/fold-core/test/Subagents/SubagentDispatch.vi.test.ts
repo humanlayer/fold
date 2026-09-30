@@ -15,7 +15,6 @@ import {
 	startSession,
 	subagentTool,
 	type AgentStartedLogEntry,
-	type LogEntry,
 	type ToolResultLogEntry,
 } from '../../src/index'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from '../Api/ApiTestHelpers'
@@ -92,10 +91,7 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 		expect(subagentStarted.parentAgentId).toBe(rootStarted.agentId)
 		expect(subagentStarted.toolCallId).not.toBeNull()
 
-		const subagentRows = entries.filter(
-			(entry): entry is LogEntry & { readonly agentId: string } =>
-				'agentId' in entry && entry.agentId === subagentStarted.agentId,
-		)
+		const subagentRows = entries.filter((entry) => entry.agentId === subagentStarted.agentId)
 		for (const row of subagentRows) {
 			expect(row.parentAgentId).toBe(rootStarted.agentId)
 			expect(row.toolCallId).toBe(subagentStarted.toolCallId)

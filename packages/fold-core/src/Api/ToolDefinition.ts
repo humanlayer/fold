@@ -182,21 +182,18 @@ export const defineTool = <
 		options.success === undefined
 			? (params: Params['Type']) => options.handler(params).pipe(Effect.asVoid)
 			: options.handler
-	// SAFETY: Effect AI supplies the services declared by `dependencies` before invoking this handler.
-	// The erased Fold dispatch table retains only Fold's per-call services because heterogeneous tools
-	// cannot preserve their individual dependency rows after collection.
-	// oxlint-disable-next-line typescript/consistent-type-assertions
+	// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table. Effect AI
+	// decodes model-supplied params against `parameters` before invoking it, so it only ever receives
+	// `Params['Type']`, and supplies the platform services declared by `dependencies`; the erased table
+	// retains only Fold's per-call services because collected tools cannot keep their own dependency rows.
+	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
 	const handler = handlerWithDependencies as ErasedToolHandler
 
 	return {
 		name: options.name,
 		init: Effect.succeed({
 			tool,
-			// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table.
-			// Effect AI decodes model-supplied params against `parameters` before invoking the handler,
-			// so it is only ever called with values of `Params['Type']`.
-			// oxlint-disable-next-line typescript/consistent-type-assertions
-			handler: handler,
+			handler,
 			promptBlock: null,
 		}),
 	}

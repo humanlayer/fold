@@ -25,37 +25,24 @@ supported; `prepare` patches oxlint with the Effect rules used by the `recommend
 These rules are vendored but off because Fold code still violates them. Counts exclude TUI code, which keeps
 its exemption in `.oxlintrc.jsonc`.
 
-| Rule                                                  | Production | Tests |
-| ----------------------------------------------------- | ---------- | ----- |
-| `automation/private-function-prefix`                  | 460        | 153   |
-| `automation/no-single-use-private-functions`          | 327        | 42    |
-| `automation/no-multiple-function-params`              | 294        | 54    |
-| `automation/no-optional-function-parameters`          | 100        | 21    |
-| `anti-slop/no-known-value-widening`                   | 95         | 10    |
-| `anti-slop/no-runtime-typeof`                         | 68         | 11    |
-| `automation/no-global-json`                           | 50         | 150   |
-| `anti-slop-effect/no-manual-tagged-construction`      | 46         | 295   |
-| `anti-slop/no-unknown-parameters`                     | 44         | 22    |
-| `anti-slop/no-conditional-spread`                     | 37         | 3     |
-| `anti-slop/no-unsafe-dictionary-type`                 | 33         | 4     |
-| `anti-slop/no-conditional-empty-array-spread`         | 26         | 3     |
-| `automation/no-try-catch`                             | 25         | 1     |
-| `anti-slop-effect/no-service-constructor-imports`     | 22         | 8     |
-| `automation/no-typeof-object`                         | 18         | 5     |
-| `automation/no-effect-asvoid`                         | 15         | 1     |
-| `anti-slop/no-reprovide-ambient-service`              | 13         | 0     |
-| `automation/no-in-operator`                           | 12         | 6     |
-| `automation/no-switch`                                | 12         | 0     |
-| `anti-slop/no-unknown-returns`                        | 9          | 1     |
-| `automation/no-reexport-only-modules`                 | 7          | 0     |
-| `automation/no-type-assertion`                        | 5          | 5     |
-| `automation/no-direct-fetch`                          | 5          | 0     |
-| `anti-slop/no-shape-in-symbol-names`                  | 5          | 0     |
-| `anti-slop/no-reflect-get`                            | 4          | 2     |
-| `automation/no-banned-type-assertions`                | 1          | 3     |
-| `anti-slop/no-chained-type-assertions`                | 1          | 1     |
-| `anti-slop/max-ternary-depth`                         | 1          | 0     |
-| `anti-slop/require-safety-comment-for-type-assertion` | 0          | 5     |
+| Rule                                              | Production | Tests |
+| ------------------------------------------------- | ---------- | ----- |
+| `automation/private-function-prefix`              | 460        | 153   |
+| `automation/no-single-use-private-functions`      | 327        | 42    |
+| `automation/no-multiple-function-params`          | 294        | 54    |
+| `automation/no-optional-function-parameters`      | 100        | 21    |
+| `anti-slop/no-known-value-widening`               | 95         | 10    |
+| `anti-slop/no-runtime-typeof`                     | 68         | 11    |
+| `anti-slop-effect/no-manual-tagged-construction`  | 46         | 295   |
+| `anti-slop/no-unknown-parameters`                 | 44         | 22    |
+| `anti-slop/no-conditional-spread`                 | 37         | 3     |
+| `anti-slop/no-unsafe-dictionary-type`             | 33         | 4     |
+| `anti-slop/no-conditional-empty-array-spread`     | 26         | 3     |
+| `automation/no-try-catch`                         | 25         | 1     |
+| `anti-slop-effect/no-service-constructor-imports` | 22         | 8     |
+| `automation/no-typeof-object`                     | 18         | 5     |
+| `automation/no-effect-asvoid`                     | 15         | 1     |
 
-`anti-slop/no-comments` and `automation/no-comments` are intentionally off. The React, XState, Tailwind, and
-API-layer `automation` rules do not apply to Fold.
+`anti-slop/no-comments`, `automation/no-comments`, and `automation/no-reexport-only-modules` (it only flags package
+entrypoints) are intentionally off. Tests are exempt from `automation/no-global-json` and the type-assertion rules.
+The React, XState, Tailwind, and API-layer `automation` rules do not apply to Fold.

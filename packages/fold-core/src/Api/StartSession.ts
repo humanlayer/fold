@@ -56,11 +56,10 @@ import {
 	noopCompactionArchiveAccess,
 	type CompactionArchiveAccessService,
 } from '../Compaction/CompactionArchiveAccess'
-import { compactionServiceFor } from '../Compaction/CompactionLayer'
-import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLogWithIds } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import {
+	ActiveModel,
 	LogEntryInputs,
 	type AgentFinishedLogEntry,
 	type AssistantMessageLogEntry,
@@ -296,7 +295,7 @@ const providedPlatformServices: Effect.Effect<Context.Context<PlatformServices>>
 		const platform = Context.pick(FileSystem.FileSystem, Path.Path, ChildProcessSpawner.ChildProcessSpawner)(caller)
 		// SAFETY: `pick` keeps only the keys present, so this may hold some of the platform services. That
 		// is the point: a descriptor that declares one the caller did not provide fails when it asks for it.
-		// oxlint-disable-next-line typescript/consistent-type-assertions
+		// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
 		return platform as Context.Context<PlatformServices>
 	},
 )
@@ -314,6 +313,9 @@ const eventLogLayerFor = (
 /** Fold a leading-prompt config value into an ordered block list. */
 const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
 	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
+
+const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
+const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
 
 /** Everything one assembled session shares between `startSession` and `resumeSession`. */
 type SessionGraph = {
@@ -497,10 +499,6 @@ const assembleSessionGraph = (options: {
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
 			Layer.succeed(Subagents, delegatingSubagents),
-			// Session-wide auto-compaction policy (D11): the live service when the agent enabled it, the
-			// no-op default otherwise. Every provisioned runtime - root and subagent - shares this one
-			// policy while checking against its own projection and summarizing with its own model.
-			Layer.succeed(Compaction, compactionServiceFor(agent.autoCompact)),
 			Layer.succeed(CompactionArchiveAccess, options.compactionArchiveAccess ?? noopCompactionArchiveAccess),
 			// Session-wide model catalog (D15): compaction resolves context windows through it. Omitted
 			// entries build the empty catalog, which behaves exactly like the Reference default.
@@ -531,7 +529,9 @@ const assembleSessionGraph = (options: {
 		// delegating runtime below lets the Session service survive swaps (interim AgentModels seam -
 		// D15). Root provisions target the session scope explicitly: switchModel runs later, from the
 		// caller's own scope, and the provisioned provider client must outlive that caller.
-		const provisioner = makeAgentProvisioner(sessionServicesLayer)
+		// Session-wide auto-compaction policy (D11): every provisioned runtime - root and subagent - shares
+		// this one policy while checking against its own projection and summarizing with its own model.
+		const provisioner = makeAgentProvisioner(sessionServicesLayer, agent.autoCompact)
 		const provisionRootRuntime = (
 			model: FoldModel,
 			tools: ReadonlyArray<FoldTool>,
@@ -1042,8 +1042,8 @@ export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<Fold
 				? loggedLeading.messages.map((message) => message.content)
 				: []
 
-		const modelDiffers = JSON.stringify(projected.activeModel) !== JSON.stringify(config.model.activeModel)
-		const blocksDiffer = JSON.stringify(composedBlocks) !== JSON.stringify(loggedBlocks)
+		const modelDiffers = !activeModelsEquivalent(projected.activeModel, config.model.activeModel)
+		const blocksDiffer = !promptBlocksEquivalent(composedBlocks, loggedBlocks)
 
 		if (modelDiffers || blocksDiffer) {
 			yield* graph.session

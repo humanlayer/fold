@@ -12,7 +12,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { Effect, FileSystem, Predicate, Schema } from 'effect'
+import { Effect, FileSystem, Schema } from 'effect'
 
 import { FoldConfig } from './ConfigSchema'
 
@@ -120,6 +120,7 @@ export const stripJsonc = (input: string): string => {
 	return out.join('')
 }
 
+const decodeJsonText = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
 const decodeConfig = Schema.decodeUnknownEffect(FoldConfig, { onExcessProperty: 'error' })
 
 /** Parse and decode JSONC text into a {@link FoldConfig}. Pure: no filesystem access. */
@@ -129,11 +130,9 @@ export const parseFoldConfig = (
 ): Effect.Effect<FoldConfig, ConfigParseError | ConfigDecodeError> =>
 	Effect.gen(function* () {
 		const path = options?.path ?? null
-		const parsed = yield* Effect.try({
-			try: (): unknown => JSON.parse(stripJsonc(text)),
-			catch: (cause) =>
-				new ConfigParseError({ path, message: Predicate.isError(cause) ? cause.message : String(cause) }),
-		})
+		const parsed = yield* decodeJsonText(stripJsonc(text)).pipe(
+			Effect.mapError((error) => new ConfigParseError({ path, message: error.message })),
+		)
 
 		return yield* decodeConfig(parsed).pipe(
 			Effect.mapError((error) => new ConfigDecodeError({ path, message: error.message })),

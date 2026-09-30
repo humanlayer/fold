@@ -13,8 +13,8 @@
  * memoized per process, keyed by foldHome + download mode, so the CLI's background ensure and any
  * later call share one resolution pass.
  *
- * Seams follow the fold-agent options convention (Catalog/LoadCatalog.ts): `fileSystem`, `env`,
- * `which`, `download`, and `exec` all carry real defaults and swap wholesale in tests. One known
+ * Seams follow the fold-agent options convention (Catalog/LoadCatalog.ts): `env`, `which`, and `exec`
+ * carry real defaults and swap wholesale in tests; downloads go through the ambient `HttpClient`. One known
  * tradeoff, inherited from pi: a system ALIAS hit (`fdfind`, `sg`) short-circuits the managed
  * install even though the canonical name stays absent from PATH.
  */
@@ -24,7 +24,8 @@ import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { Array as Arr, Cause, Effect, FileSystem, Schema } from 'effect'
+import { Array as Arr, Cause, Duration, Effect, FileSystem, Option, Schema } from 'effect'
+import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
 import { managedBinaryRegistry, type ManagedBinaryAsset, type ManagedBinaryDefinition } from './Registry'
 
@@ -74,9 +75,6 @@ export type ManagedBinaryStatus = {
 /** Locate one command on PATH: the absolute executable path, or null when absent. */
 export type WhichSeam = (name: string) => Effect.Effect<string | null>
 
-/** Fetch one release asset's bytes. */
-export type DownloadSeam = (url: string) => Effect.Effect<Uint8Array, BinaryDownloadError>
-
 /** Run one helper command to completion, failing on non-zero exit. */
 export type ExecSeam = (
 	command: string,
@@ -93,8 +91,6 @@ export type EnsureManagedBinariesOptions = {
 	readonly env?: (name: string) => string | undefined
 	/** PATH lookup seam. Defaults to scanning the env seam's PATH for an executable file. */
 	readonly which?: WhichSeam
-	/** Asset download seam. Defaults to global `fetch` with a 30s timeout. */
-	readonly download?: DownloadSeam
 	/** Helper-command seam (version checks, extraction). Defaults to `node:child_process` execFile. */
 	readonly exec?: ExecSeam
 	/** Platform override for asset selection and file naming. Defaults to `process.platform`. */
@@ -119,7 +115,6 @@ type ResolveContext = {
 	readonly fs: FileSystem.FileSystem
 	readonly env: (name: string) => string | undefined
 	readonly which: WhichSeam
-	readonly download: DownloadSeam
 	readonly exec: ExecSeam
 	readonly platform: string
 	readonly arch: string
@@ -128,31 +123,34 @@ type ResolveContext = {
 	readonly suppressWarnings: boolean
 }
 
-/** The ONE mapper from thrown download failures to the typed download error. */
-const downloadErrorFrom = (url: string, cause: unknown): BinaryDownloadError =>
-	new BinaryDownloadError({ message: `GET ${url}: ${cause instanceof Error ? cause.message : String(cause)}` })
-
-const defaultDownload: DownloadSeam = (url) =>
-	Effect.tryPromise({
-		try: async (signal): Promise<Uint8Array> => {
-			const response = await fetch(url, { signal })
-			if (!response.ok) throw new Error(`responded ${response.status}`)
-			return new Uint8Array(await response.arrayBuffer())
-		},
-		catch: (cause) => downloadErrorFrom(url, cause),
-	}).pipe(
-		Effect.timeout(downloadTimeoutMillis),
-		Effect.catchTag('TimeoutError', () =>
-			Effect.fail(new BinaryDownloadError({ message: `GET ${url} timed out after ${downloadTimeoutMillis}ms` })),
+/** Fetch one release asset's bytes through the ambient `HttpClient`, with a 30s timeout. */
+const downloadAsset = (url: string): Effect.Effect<Uint8Array, BinaryDownloadError, HttpClient.HttpClient> =>
+	HttpClient.get(url).pipe(
+		Effect.flatMap(HttpClientResponse.filterStatusOk),
+		Effect.flatMap((response) => response.arrayBuffer),
+		Effect.map((buffer) => new Uint8Array(buffer)),
+		Effect.catchTag('HttpClientError', (error) =>
+			Effect.fail(new BinaryDownloadError({ message: `GET ${url}: ${error.message}` })),
 		),
+		Effect.timeoutOrElse({
+			duration: Duration.millis(downloadTimeoutMillis),
+			orElse: () =>
+				Effect.fail(
+					new BinaryDownloadError({ message: `GET ${url} timed out after ${downloadTimeoutMillis}ms` }),
+				),
+		}),
 	)
+
+/** The part of an `execFile` rejection that carries the helper's stderr. */
+const ExecFailureOutput = Schema.Struct({ stderr: Schema.String })
+const decodeExecFailureOutput = Schema.decodeUnknownOption(ExecFailureOutput)
 
 /** The ONE mapper from execFile rejections to the typed exec error. */
 const execErrorFrom = (command: string, args: ReadonlyArray<string>, cause: unknown): BinaryExecError => {
-	const stderr =
-		typeof cause === 'object' && cause !== null && 'stderr' in cause && typeof cause.stderr === 'string'
-			? cause.stderr.trim()
-			: ''
+	const stderr = Option.match(decodeExecFailureOutput(cause), {
+		onSome: (output) => output.stderr.trim(),
+		onNone: () => '',
+	})
 	const reason = cause instanceof Error ? cause.message : String(cause)
 	return new BinaryExecError({
 		message: `${command} ${args.join(' ')}: ${reason}${stderr === '' ? '' : ` (${stderr.slice(0, 400)})`}`,
@@ -301,7 +299,7 @@ const installFromAsset = (
 	installPath: string,
 ) =>
 	Effect.gen(function* () {
-		const bytes = yield* context.download(asset.url)
+		const bytes = yield* downloadAsset(asset.url)
 
 		if (asset.sha256 !== null) {
 			const digest = sha256Hex(bytes)
@@ -408,17 +406,22 @@ const resolveOne = (context: ResolveContext, definition: ManagedBinaryDefinition
 		}
 	})
 
-/** Human-readable message for one squashed cause value (typed errors carry `message`; guard, never cast). */
+/** A squashed failure that carries a message: every typed error here, and any `Error` defect. */
+const FailureWithMessage = Schema.Struct({ message: Schema.String })
+const decodeFailureWithMessage = Schema.decodeUnknownOption(FailureWithMessage)
+
+/** Human-readable message for one squashed cause value. */
 const failureMessageOf = (value: unknown): string =>
-	typeof value === 'object' && value !== null && 'message' in value && typeof value.message === 'string'
-		? value.message
-		: String(value)
+	Option.match(decodeFailureWithMessage(value), {
+		onSome: ({ message }) => message,
+		onNone: () => String(value),
+	})
 
 /** One binary's resolution, degraded to `unavailable` on ANY failure or defect (capture, then keep going). */
 const resolveOneNeverFailing = (
 	context: ResolveContext,
 	definition: ManagedBinaryDefinition,
-): Effect.Effect<ManagedBinaryStatus> =>
+): Effect.Effect<ManagedBinaryStatus, never, HttpClient.HttpClient> =>
 	resolveOne(context, definition).pipe(
 		Effect.catchCause((cause) => {
 			const message = failureMessageOf(Cause.squash(cause))
@@ -439,7 +442,7 @@ const resolveOneNeverFailing = (
 
 const ensureOnce = (
 	options: EnsureManagedBinariesOptions,
-): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem> =>
+): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const env = options.env ?? ((name: string) => process.env[name])
@@ -450,7 +453,6 @@ const ensureOnce = (
 			fs,
 			env,
 			which: options.which ?? defaultWhich(env, platform),
-			download: options.download ?? defaultDownload,
 			exec: options.exec ?? defaultExec,
 			platform,
 			arch: options.arch ?? process.arch,
@@ -474,7 +476,7 @@ const memoizedResults = new Map<string, ReadonlyArray<ManagedBinaryStatus>>()
  */
 export const ensureManagedBinaries = (
 	options: EnsureManagedBinariesOptions,
-): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem> =>
+): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.suspend(() => {
 		if (options.memoize === false) return ensureOnce(options)
 

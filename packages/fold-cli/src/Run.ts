@@ -42,6 +42,7 @@ import {
 	Stream,
 	type Scope,
 } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
 
 import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type SessionHeader } from './Renderer'
 
@@ -102,7 +103,7 @@ const launchOptions = (options: CliSessionOptions) => {
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
 const openSessionFor = (
 	options: CliSessionOptions,
-): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> => {
+): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient> => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
 
 	return Match.valueTags(options.resume, {
@@ -113,7 +114,7 @@ const openSessionFor = (
 
 const openSession = (
 	options: CliSessionOptions,
-): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
+): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
 		const logOptions: Mutable<NonNullable<Parameters<typeof sessionLogPathFor>[1]>> = { cwd: options.cwd }
@@ -283,7 +284,9 @@ const withProcessSignals = <A, E, R>(
  * absent), and the regenerated `config.schema.json` + `FOLD_INFO.md`. Never fails a run - a broken
  * home surfaces as the launch's own config error moments later.
  */
-const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void, never, FileSystem.FileSystem> => {
+const bootstrapForRun = (
+	options: CliSessionOptions,
+): Effect.Effect<void, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
 	const bootstrapOptions: Mutable<NonNullable<Parameters<typeof bootstrapFoldHome>[0]>> = {}
 	if (options.foldHome !== undefined) bootstrapOptions.foldHome = options.foldHome
 	return bootstrapFoldHome(bootstrapOptions).pipe(
@@ -295,7 +298,7 @@ const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void, never,
 const forkStartupEnsures = (
 	options: CliSessionOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
+): Effect.Effect<void, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.forkDetach(
 		Effect.gen(function* () {
 			const statuses = yield* ensureManagedBinaries({
@@ -314,7 +317,11 @@ const forkStartupEnsures = (
 export const runPrompt = (
 	options: PromptRunOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
+): Effect.Effect<
+	AgentFinishedLogEntry,
+	OpenSessionError,
+	Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient
+> =>
 	Effect.gen(function* () {
 		yield* bootstrapForRun(options)
 		const opened = yield* openSession(options)

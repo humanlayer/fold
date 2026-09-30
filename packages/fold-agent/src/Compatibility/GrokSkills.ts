@@ -15,18 +15,23 @@ export type GrokSkillOptions = {
 	readonly ignoredPaths?: ReadonlyArray<string>
 }
 
-const exists = (path: string): Effect.Effect<boolean, never, FileSystem.FileSystem> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		return yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))
-	})
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean, never, Path.Path> =>
-	Effect.gen(function* () {
-		const path = yield* Path.Path
+/**
+ * Build the Grok-compatible skill source. FileSystem and Path are captured here, once; `list` and
+ * `load` rescan the skill roots on every call so newly added skills appear without a restart.
+ */
+export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill_source')(function* (
+	options: GrokSkillOptions,
+) {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+
+	const exists = (candidate: string): Effect.Effect<boolean> =>
+		fs.exists(candidate).pipe(Effect.orElseSucceed(() => false))
+
+	const isAncestor = (ancestor: string, candidate: string): boolean => {
 		let current = candidate
 		while (true) {
 			if (current === ancestor) return true
@@ -34,14 +39,9 @@ const isAncestor = (ancestor: string, candidate: string): Effect.Effect<boolean,
 			if (parent === current) return false
 			current = parent
 		}
-	})
+	}
 
-const ancestorSkillRoots = (
-	cwd: string,
-	boundary: string | null,
-): Effect.Effect<ReadonlyArray<string>, never, Path.Path> =>
-	Effect.gen(function* () {
-		const path = yield* Path.Path
+	const ancestorSkillRoots = (cwd: string, boundary: string | null): ReadonlyArray<string> => {
 		const roots: Array<string> = []
 		let current = cwd
 		while (true) {
@@ -53,16 +53,10 @@ const ancestorSkillRoots = (
 			current = parent
 		}
 		return roots
-	})
+	}
 
-const loadSkill = (
-	skillPath: string,
-	namespace?: string,
-): Effect.Effect<Skill | null, never, FileSystem.FileSystem | Path.Path> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		return yield* fs.readFileString(skillPath).pipe(
+	const loadSkill = (skillPath: string, namespace?: string): Effect.Effect<Skill | null> =>
+		fs.readFileString(skillPath).pipe(
 			Effect.flatMap((raw) =>
 				Effect.try(() => {
 					const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -94,56 +88,48 @@ const loadSkill = (
 			),
 			Effect.orElseSucceed(() => null),
 		)
-	})
 
-const scanRoot = (
-	root: string,
-	ignoredPaths: ReadonlyArray<string>,
-	namespace?: string,
-): Effect.Effect<ReadonlyArray<Skill>, never, FileSystem.FileSystem | Path.Path> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		if (!(yield* exists(root))) return []
-		const found: Array<Skill> = []
-		const scan = (directory: string): Effect.Effect<void, never, FileSystem.FileSystem | Path.Path> =>
-			Effect.gen(function* () {
-				const resolvedDirectory = path.resolve(directory)
-				for (const ignoredPath of ignoredPaths)
-					if (resolvedDirectory === ignoredPath || (yield* isAncestor(ignoredPath, resolvedDirectory))) return
-				const skillPath = path.join(directory, 'SKILL.md')
-				if (yield* exists(skillPath)) {
-					const skill = yield* loadSkill(skillPath, namespace)
-					if (skill !== null) found.push(skill)
-					return
-				}
-				const entries = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []))
-				for (const entry of [...entries].sort()) {
-					if (entry.startsWith('.') || entry === 'node_modules') continue
-					const child = path.join(directory, entry)
-					const info = yield* fs.stat(child).pipe(Effect.orElseSucceed(() => null))
-					if (info?.type === 'Directory') yield* scan(child)
-				}
-			})
-		yield* scan(root)
-		return found
-	})
+	const scanRoot = (
+		root: string,
+		ignoredPaths: ReadonlyArray<string>,
+		namespace?: string,
+	): Effect.Effect<ReadonlyArray<Skill>> =>
+		Effect.gen(function* () {
+			if (!(yield* exists(root))) return []
+			const found: Array<Skill> = []
+			const scan = (directory: string): Effect.Effect<void> =>
+				Effect.gen(function* () {
+					const resolvedDirectory = path.resolve(directory)
+					for (const ignoredPath of ignoredPaths)
+						if (resolvedDirectory === ignoredPath || isAncestor(ignoredPath, resolvedDirectory)) return
+					const skillPath = path.join(directory, 'SKILL.md')
+					if (yield* exists(skillPath)) {
+						const skill = yield* loadSkill(skillPath, namespace)
+						if (skill !== null) found.push(skill)
+						return
+					}
+					const entries = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []))
+					for (const entry of [...entries].sort()) {
+						if (entry.startsWith('.') || entry === 'node_modules') continue
+						const child = path.join(directory, entry)
+						const info = yield* fs.stat(child).pipe(Effect.orElseSucceed(() => null))
+						if (info?.type === 'Directory') yield* scan(child)
+					}
+				})
+			yield* scan(root)
+			return found
+		})
 
-export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill_source')(function* (
-	options: GrokSkillOptions,
-) {
-	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
 	const cwd = path.resolve(options.cwd)
 	const homeValue = options.home === undefined ? homedir() : options.home
 	const home = homeValue.length === 0 ? null : path.resolve(homeValue)
 	const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
 	const projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
-	const projectRootIsAncestor = projectRoot !== null && (yield* isAncestor(projectRoot, cwd))
-	const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
+	const projectRootIsAncestor = projectRoot !== null && isAncestor(projectRoot, cwd)
+	const homeIsAncestor = home !== null && isAncestor(home, cwd)
 	const boundary = projectRootIsAncestor ? projectRoot : homeIsAncestor ? home : null
 	const roots = [
-		...(yield* ancestorSkillRoots(cwd, boundary)),
+		...ancestorSkillRoots(cwd, boundary),
 		...(options.configuredPaths ?? []),
 		path.join(grokHome, 'skills'),
 		...(home === null
@@ -156,7 +142,8 @@ export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill
 		...(options.bundledPaths ?? []),
 	]
 	const ignoredPaths = (options.ignoredPaths ?? []).map((ignoredPath) => path.resolve(ignoredPath))
-	const scanSkillCatalog = Effect.fn('fold.grok_compatibility.scan_skill_catalog')(function* () {
+
+	const scanSkillCatalog: Effect.Effect<ReadonlyMap<string, Skill>> = Effect.gen(function* () {
 		const byName = new Map<string, Skill>()
 		for (const root of roots)
 			for (const skill of yield* scanRoot(path.resolve(root), ignoredPaths))
@@ -166,19 +153,15 @@ export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill
 				if (!byName.has(skill.name)) byName.set(skill.name, skill)
 		return byName
 	})
-	const scanSkillCatalogWithPlatformServices = () =>
-		scanSkillCatalog().pipe(
-			Effect.provideService(FileSystem.FileSystem, fs),
-			Effect.provideService(Path.Path, path),
-		)
-	return {
-		list: scanSkillCatalogWithPlatformServices().pipe(
+
+	const source: SkillSourceService = {
+		list: scanSkillCatalog.pipe(
 			Effect.map((skills) =>
 				[...skills.values()].map(({ name, description }): SkillMeta => ({ name, description })),
 			),
 		),
-		load: (name: string) =>
-			scanSkillCatalogWithPlatformServices().pipe(
+		load: (name) =>
+			scanSkillCatalog.pipe(
 				Effect.flatMap((skills) => {
 					const skill = skills.get(name)
 					return skill === undefined
@@ -186,5 +169,6 @@ export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill
 						: Effect.succeed(skill)
 				}),
 			),
-	} satisfies SkillSourceService
+	}
+	return source
 })

@@ -73,7 +73,7 @@ export const runTui = (
 				foldHome: options.foldHome ?? defaultFoldHome(),
 				requireManagedInstall: true,
 				suppressWarnings: true,
-			}).pipe(Effect.asVoid),
+			}).pipe(Effect.asVoid, Effect.provide(FetchHttpClient.layer)),
 		)
 		const initialConfig = bootstrapped.config
 		const initialConfiguration: ModelConfiguration =

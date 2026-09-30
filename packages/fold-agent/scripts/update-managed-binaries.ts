@@ -12,7 +12,8 @@ import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { Array as Arr, Effect, Predicate, Schema } from 'effect'
+import { Array as Arr, Duration, Effect, Schema } from 'effect'
+import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
 import { MANAGED_BINARY_PLATFORMS, managedBinaryRegistry } from '../src/Bin/Registry'
 
@@ -25,22 +26,19 @@ class ChecksumBakeError extends Schema.TaggedError<ChecksumBakeError>()('Checksu
 	message: Schema.String,
 }) {}
 
-const fetchBytes = (url: string): Effect.Effect<Uint8Array, ChecksumBakeError> =>
-	Effect.tryPromise({
-		try: async (signal): Promise<Uint8Array> => {
-			const response = await fetch(url, { signal })
-			if (!response.ok) throw new Error(`responded ${response.status}`)
-			return new Uint8Array(await response.arrayBuffer())
-		},
-		catch: (cause) =>
-			new ChecksumBakeError({
-				message: `GET ${url}: ${Predicate.isError(cause) ? cause.message : String(cause)}`,
-			}),
-	}).pipe(
-		Effect.timeout(downloadTimeoutMillis),
-		Effect.catchTag('TimeoutError', () =>
-			Effect.fail(new ChecksumBakeError({ message: `GET ${url} timed out after ${downloadTimeoutMillis}ms` })),
-		),
+const fetchBytes = (url: string): Effect.Effect<Uint8Array, ChecksumBakeError, HttpClient.HttpClient> =>
+	HttpClient.get(url).pipe(
+		Effect.flatMap(HttpClientResponse.filterStatusOk),
+		Effect.flatMap((response) => response.arrayBuffer),
+		Effect.map((buffer) => new Uint8Array(buffer)),
+		Effect.mapError((error) => new ChecksumBakeError({ message: `GET ${url}: ${error.message}` })),
+		Effect.timeoutOrElse({
+			duration: Duration.millis(downloadTimeoutMillis),
+			orElse: () =>
+				Effect.fail(
+					new ChecksumBakeError({ message: `GET ${url} timed out after ${downloadTimeoutMillis}ms` }),
+				),
+		}),
 	)
 
 /** Every pinned asset URL across the registry, in registry-then-platform order, deduplicated. */
@@ -113,7 +111,7 @@ const program = Effect.gen(function* () {
 	}
 })
 
-Effect.runPromise(program).catch((cause: unknown) => {
+Effect.runPromise(program.pipe(Effect.provide(FetchHttpClient.layer))).catch((cause: unknown) => {
 	console.error(cause)
 	process.exitCode = 1
 })

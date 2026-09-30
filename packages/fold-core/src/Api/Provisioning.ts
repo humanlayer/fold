@@ -27,6 +27,8 @@ import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
 import type { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
 import { AgentRuntime, type AgentRuntimeService } from '../AgentRuntime/AgentRuntimeService'
+import { compactionLayerFor } from '../Compaction/CompactionLayer'
+import type { AutoCompactConfig } from '../Compaction/CompactionService'
 import type { EventLog } from '../EventLog/EventLogService'
 import { makeHookRunner } from '../HookRunner/HookRunnerLayer'
 import type { HookConfig } from '../HookRunner/Types'
@@ -74,11 +76,11 @@ const relaxAnthropicResponseModel = (modelId: string): ((client: HttpClient.Http
 					Stream.encodeText,
 				)
 
-				// SAFETY: this preserves the HttpClientResponse instance and only overrides the streaming body
-				// getter. The Anthropic generated client only needs `stream` for createMessageStream.
-				// oxlint-disable-next-line typescript/consistent-type-assertions
+				// This preserves the HttpClientResponse instance and only overrides the streaming body getter.
+				// The Anthropic generated client only needs `stream` for createMessageStream.
 				return new Proxy(response, {
 					get: (target, property, receiver) =>
+						// oxlint-disable-next-line anti-slop/no-reflect-get -- a Proxy trap forwards every other property unchanged
 						property === 'stream' ? stream : Reflect.get(target, property, receiver),
 				})
 			}),
@@ -132,13 +134,9 @@ export const languageModelLayerFor = (model: FoldModel): Layer.Layer<LanguageMod
 /** Assemble realized tool descriptors into the installed Toolset layer for one provisioned runtime. */
 export const toolsetLayerFor = (tools: ReadonlyArray<RealizedFoldTool>) => {
 	const toolkit = Toolkit.make(...tools.map((foldTool) => foldTool.tool))
-	// SAFETY: the dispatch table is keyed by tool name over erased handlers; each handler is only ever
-	// invoked with params decoded by its own tool's parameters schema (see defineTool). This mirrors
-	// the sanctioned dynamic-dispatch assertion in ToolsetFactory.
-	// oxlint-disable-next-line typescript/consistent-type-assertions
-	const handlers = Object.fromEntries(
+	const handlers: Toolkit.HandlersFrom<Record<string, Tool.Any>> = Object.fromEntries(
 		tools.map((foldTool) => [foldTool.name, foldTool.handler]),
-	) as Toolkit.HandlersFrom<Record<string, Tool.Any>>
+	)
 
 	return toolsetLayerFromToolkit(toolkit).pipe(Layer.provide(toolkit.toLayer(handlers)))
 }
@@ -189,12 +187,17 @@ export class AgentProvisioner extends Context.Service<AgentProvisioner, AgentPro
  */
 export const makeAgentProvisioner = (
 	sessionServicesLayer: Layer.Layer<SessionProvisioningServices>,
+	autoCompact: AutoCompactConfig | undefined,
 ): AgentProvisionerService => ({
 	provisionAgentRuntime: (input: ProvisionAgentRuntimeInput) =>
 		Effect.gen(function* () {
 			const scope = yield* Effect.scope
 			const memoMap = yield* Layer.makeMemoMap
-			const toolsetLayer = toolsetLayerFor(input.tools)
+			// Tool handlers run with the context their toolkit was built in (Effect AI merges it under each
+			// call's per-call services), so building over the session services gives every handler the
+			// session's Subagents engine and platform services.
+			const toolsetLayer = toolsetLayerFor(input.tools).pipe(Layer.provide(sessionServicesLayer))
+			const languageModelLayer = languageModelLayerFor(input.model)
 			const epochServicesLayer = Layer.mergeAll(
 				toolsetLayer,
 				makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
@@ -203,9 +206,14 @@ export const makeAgentProvisioner = (
 			const toolRuntimeLayer = liveToolRuntimeLayer.pipe(
 				Layer.provideMerge(Layer.mergeAll(sessionServicesLayer, epochServicesLayer)),
 			)
+			// Compaction summarizes with this runtime's own model and resolves limits through the session
+			// ModelCatalog; both are captured when the layer is built.
+			const compactionLayer = compactionLayerFor(autoCompact).pipe(
+				Layer.provide(Layer.mergeAll(languageModelLayer, sessionServicesLayer)),
+			)
 			const context = yield* Layer.buildWithMemoMap(
 				liveAgentRuntimeLayer.pipe(
-					Layer.provide(Layer.mergeAll(toolRuntimeLayer, languageModelLayerFor(input.model))),
+					Layer.provide(Layer.mergeAll(toolRuntimeLayer, languageModelLayer, compactionLayer)),
 				),
 				memoMap,
 				scope,

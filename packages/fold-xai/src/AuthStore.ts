@@ -61,6 +61,8 @@ const AuthDocument = Schema.Record(Schema.String, Schema.Unknown)
 
 const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(AuthDocument))
 
+const encodeDocument = Schema.encodeEffect(Schema.fromJsonString(AuthDocument, { space: 2 }))
+
 const decodeToken = Schema.decodeUnknownOption(XaiTokenData)
 
 const encodeToken = (token: XaiTokenData): Record<string, unknown> => {
@@ -98,7 +100,8 @@ export const makeXaiAuthStore = (
 		const writeDocument = (document: Record<string, unknown>): Effect.Effect<void, XaiAuthStoreError> =>
 			Effect.gen(function* () {
 				yield* fs.makeDirectory(dirname(path), { recursive: true })
-				yield* fs.writeFileString(path, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 })
+				const text = yield* encodeDocument(document)
+				yield* fs.writeFileString(path, `${text}\n`, { mode: 0o600 })
 				// writeFileString's mode only applies on creation; force 0600 on pre-existing documents too.
 				yield* fs.chmod(path, 0o600)
 			}).pipe(

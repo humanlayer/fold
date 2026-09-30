@@ -107,17 +107,13 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 	): Effect.Effect<string, RoleResolutionError> => {
 		if (binding.model !== undefined) return Effect.succeed(binding.model)
 
-		switch (provider.kind) {
-			case 'codex':
-				return Effect.succeed(DEFAULT_CODEX_MODEL_ID)
-			case 'opencode':
-				return Effect.succeed(DEFAULT_OPENCODE_MODEL_ID)
-			case 'xai':
-				return Effect.succeed(DEFAULT_XAI_MODEL_ID)
-			case 'anthropic':
-				return Effect.succeed(DEFAULT_ANTHROPIC_MODEL_ID)
-			case 'openai-compat':
-				return Effect.fail(
+		return Match.value(provider.kind).pipe(
+			Match.when('codex', () => Effect.succeed(DEFAULT_CODEX_MODEL_ID)),
+			Match.when('opencode', () => Effect.succeed(DEFAULT_OPENCODE_MODEL_ID)),
+			Match.when('xai', () => Effect.succeed(DEFAULT_XAI_MODEL_ID)),
+			Match.when('anthropic', () => Effect.succeed(DEFAULT_ANTHROPIC_MODEL_ID)),
+			Match.when('openai-compat', () =>
+				Effect.fail(
 					new RoleResolutionError({
 						role,
 						message:
@@ -125,8 +121,10 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 							`models default per provider kind (codex → ${DEFAULT_CODEX_MODEL_ID}, anthropic → ` +
 							`${DEFAULT_ANTHROPIC_MODEL_ID}) but a model is required for openai-compat`,
 					}),
-				)
-		}
+				),
+			),
+			Match.exhaustive,
+		)
 	}
 
 	/** Resolve one role's binding to its provider-specific model descriptor. */

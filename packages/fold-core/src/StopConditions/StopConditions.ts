@@ -4,7 +4,7 @@
  * emits the same tool-call batch repeatedly, fold lets the current batch settle, then stops gracefully
  * before another model request.
  */
-import { Array as Arr, Context } from 'effect'
+import { Array as Arr, Context, Option, Schema } from 'effect'
 
 /** Doom-loop detector configuration. Omitted means disabled. */
 export type DoomLoopStopCondition =
@@ -41,8 +41,8 @@ export type DoomLoopObservation = {
 /** Empty per-run detector state. */
 export const initialDoomLoopState: DoomLoopState = { fingerprint: null, count: 0 }
 
-const normalizeForFingerprint = (value: unknown): unknown => {
-	if (Array.isArray(value)) return value.map(normalizeForFingerprint)
+const normalizeForFingerprint = (value: Schema.Json): Schema.Json => {
+	if (Arr.isArray<Schema.Json>(value)) return value.map(normalizeForFingerprint)
 	if (typeof value !== 'object' || value === null) return value
 
 	return Object.fromEntries(
@@ -52,13 +52,15 @@ const normalizeForFingerprint = (value: unknown): unknown => {
 	)
 }
 
-const safeStableStringify = (value: unknown): string => {
-	try {
-		return JSON.stringify(normalizeForFingerprint(value)) ?? String(value)
-	} catch {
-		return String(value)
-	}
-}
+const decodeJson = Schema.decodeUnknownOption(Schema.Json)
+const encodeJsonString = Schema.encodeOption(Schema.fromJsonString(Schema.Json))
+
+const safeStableStringify = (value: unknown): string =>
+	decodeJson(value).pipe(
+		Option.map(normalizeForFingerprint),
+		Option.flatMap(encodeJsonString),
+		Option.getOrElse(() => String(value)),
+	)
 
 const batchFingerprint = (toolCalls: ReadonlyArray<ToolCallFingerprintInput>): string =>
 	toolCalls.map((call) => `${call.name}:${safeStableStringify(call.params)}`).join('\n')

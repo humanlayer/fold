@@ -102,20 +102,14 @@ export const resolveAnthropicThinking = (level: ReasoningLevel, modelId: string)
  * thinking. The vendored provider `Config` currently exposes only `low | medium | high`, so
  * `minimal` maps to `low` and `xhigh`/`max` clamp to `high` until the SDK exposes the full scale.
  */
-export const anthropicEffortForLevel = (level: ReasoningLevel): 'low' | 'medium' | 'high' => {
-	switch (level) {
-		case 'off':
-		case 'minimal':
-		case 'low':
-			return 'low'
-		case 'medium':
-			return 'medium'
-		case 'high':
-		case 'xhigh':
-		case 'max':
-			return 'high'
-	}
-}
+export const anthropicEffortForLevel = (level: ReasoningLevel): 'low' | 'medium' | 'high' =>
+	Match.value(level).pipe(
+		Match.withReturnType<'low' | 'medium' | 'high'>(),
+		Match.when(Match.is('off', 'minimal', 'low'), () => 'low'),
+		Match.when('medium', () => 'medium'),
+		Match.when(Match.is('high', 'xhigh', 'max'), () => 'high'),
+		Match.exhaustive,
+	)
 
 /** Input for wrapping one model request: the projected active model and reasoning level. */
 export type WrapModelRequestInput = {
@@ -140,6 +134,8 @@ export class ModelRequestSettings extends Context.Service<ModelRequestSettings, 
 	'fold/ModelRequestSettings',
 ) {}
 
+type RequestWrapper = <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+
 const identity = <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> => self
 
 /**
@@ -155,77 +151,81 @@ export const liveModelRequestSettingsLayer: Layer.Layer<ModelRequestSettings> = 
 
 		const level = reasoningLevel ?? model.requestedReasoningLevel
 
-		switch (model.providerKind) {
-			case 'openai-compatible': {
-				let setting = model.reasoning
-				if (level !== model.requestedReasoningLevel) {
-					setting = resolveOpenAiReasoning(level)
-				}
-				const reasoning = Match.valueTags(setting, {
-					disabled: () => ({}),
-					effort: ({ effort }) => {
-						if (model.reasoningSummary === undefined) return { reasoning: { effort } }
-						return { reasoning: { effort, summary: model.reasoningSummary } }
-					},
-				})
+		return Match.value(model).pipe(
+			Match.withReturnType<RequestWrapper>(),
+			Match.discriminatorsExhaustive('providerKind')({
+				'openai-compatible': (model) => {
+					let setting = model.reasoning
+					if (level !== model.requestedReasoningLevel) {
+						setting = resolveOpenAiReasoning(level)
+					}
+					const reasoning = Match.valueTags(setting, {
+						disabled: () => ({}),
+						effort: ({ effort }) => {
+							if (model.reasoningSummary === undefined) return { reasoning: { effort } }
+							return { reasoning: { effort, summary: model.reasoningSummary } }
+						},
+					})
 
-				const config: OpenAiConfigBuilder = {
-					model: model.modelId,
-					...reasoning,
-				}
-				if (promptCacheKey !== null) {
-					config.prompt_cache_key = promptCacheKey
-				}
+					const config: OpenAiConfigBuilder = {
+						model: model.modelId,
+						...reasoning,
+					}
+					if (promptCacheKey !== null) {
+						config.prompt_cache_key = promptCacheKey
+					}
 
-				return <A, E, R>(self: Effect.Effect<A, E, R>) => OpenAiLanguageModel.withConfigOverride(self, config)
-			}
+					return <A, E, R>(self: Effect.Effect<A, E, R>) =>
+						OpenAiLanguageModel.withConfigOverride(self, config)
+				},
+				codex: (model) => {
+					const setting =
+						level === model.requestedReasoningLevel ? model.reasoning : resolveCodexReasoning(level)
+					const reasoning = Match.valueTags(setting, {
+						disabled: () => ({}),
+						effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
+					})
 
-			case 'codex': {
-				const setting = level === model.requestedReasoningLevel ? model.reasoning : resolveCodexReasoning(level)
-				const reasoning = Match.valueTags(setting, {
-					disabled: () => ({}),
-					effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
-				})
+					const config: OpenAiConfigBuilder = {
+						model: model.modelId,
+						...reasoning,
+					}
+					if (promptCacheKey !== null) {
+						config.prompt_cache_key = promptCacheKey
+					}
 
-				const config: OpenAiConfigBuilder = {
-					model: model.modelId,
-					...reasoning,
-				}
-				if (promptCacheKey !== null) {
-					config.prompt_cache_key = promptCacheKey
-				}
+					return <A, E, R>(self: Effect.Effect<A, E, R>) =>
+						OpenAiLanguageModel.withConfigOverride(self, config)
+				},
+				anthropic: (model) => {
+					const setting =
+						level === model.requestedReasoningLevel
+							? model.thinking
+							: resolveAnthropicThinking(level, model.modelId)
 
-				return <A, E, R>(self: Effect.Effect<A, E, R>) => OpenAiLanguageModel.withConfigOverride(self, config)
-			}
-
-			case 'anthropic': {
-				const setting =
-					level === model.requestedReasoningLevel
-						? model.thinking
-						: resolveAnthropicThinking(level, model.modelId)
-
-				// Unlike the OpenAI config, the anthropic generated schema types `model` as a strict literal
-				// union, so the projected model id cannot bind per-request; anthropic model selection stays at
-				// layer construction until the AgentModels layer seam lands (D15). Tools opt out of strict
-				// structured-output mode at definition time; do not pass the provider's `strictJsonSchema`
-				// config helper here, because this beta provider accidentally forwards it into the API payload.
-				return Match.valueTags(setting, {
-					disabled: () => identity,
-					adaptive:
-						() =>
-						<A, E, R>(self: Effect.Effect<A, E, R>) =>
-							AnthropicLanguageModel.withConfigOverride(self, {
-								thinking: { type: 'adaptive' },
-								output_config: { effort: anthropicEffortForLevel(level) },
-							}),
-					budget:
-						(budget) =>
-						<A, E, R>(self: Effect.Effect<A, E, R>) =>
-							AnthropicLanguageModel.withConfigOverride(self, {
-								thinking: { type: 'enabled', budget_tokens: budget.budgetTokens },
-							}),
-				})
-			}
-		}
+					// Unlike the OpenAI config, the anthropic generated schema types `model` as a strict literal
+					// union, so the projected model id cannot bind per-request; anthropic model selection stays at
+					// layer construction until the AgentModels layer seam lands (D15). Tools opt out of strict
+					// structured-output mode at definition time; do not pass the provider's `strictJsonSchema`
+					// config helper here, because this beta provider accidentally forwards it into the API payload.
+					return Match.valueTags(setting, {
+						disabled: () => identity,
+						adaptive:
+							() =>
+							<A, E, R>(self: Effect.Effect<A, E, R>) =>
+								AnthropicLanguageModel.withConfigOverride(self, {
+									thinking: { type: 'adaptive' },
+									output_config: { effort: anthropicEffortForLevel(level) },
+								}),
+						budget:
+							(budget) =>
+							<A, E, R>(self: Effect.Effect<A, E, R>) =>
+								AnthropicLanguageModel.withConfigOverride(self, {
+									thinking: { type: 'enabled', budget_tokens: budget.budgetTokens },
+								}),
+					})
+				},
+			}),
+		)
 	},
 })

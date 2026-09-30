@@ -2,6 +2,7 @@ import { decodeBashOutputDelta } from '@humanlayer/fold-agent'
 import {
 	lookupCatalogEntry,
 	shortAgentId,
+	ToolCallId,
 	usageCacheRead,
 	usageCacheWrite,
 	usageInputTotal,
@@ -9,15 +10,15 @@ import {
 	usageOutputTotal,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
-	type AgentId,
-	type LogEntry,
+	AgentId,
+	LogEntry,
 	type ModelCatalogEntry,
 	type ModelPricing,
 	type SessionId,
 	type UsageEncoded,
 	type FoldEvent,
 } from '@humanlayer/fold-core'
-import { Array as Arr, Data, Effect, Match } from 'effect'
+import { Array as Arr, Data, Effect, Match, Option, Schema } from 'effect'
 
 import { makeAnsiPalette, type AnsiPalette } from './Ansi'
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from './ContextWindow'
@@ -98,15 +99,30 @@ export type OutputRenderer = {
 const defaultStdout: Writer = (text) => Effect.sync(() => process.stdout.write(text))
 const defaultStderr: Writer = (text) => Effect.sync(() => process.stderr.write(text))
 
-const safeStringify = (value: unknown): string => {
-	try {
-		return JSON.stringify(value) ?? String(value)
-	} catch {
-		return String(value)
-	}
-}
+const encodeUnknownJson = Schema.encodeOption(Schema.fromJsonString(Schema.Unknown))
 
-const jsonLine = (value: unknown): string => `${JSON.stringify(value)}\n`
+const safeStringify = (value: unknown): string => Option.getOrElse(encodeUnknownJson(value), () => String(value))
+
+const DeltaPart = Schema.Union([
+	Schema.Struct({ type: Schema.Literal('text-delta'), id: Schema.String, delta: Schema.String }),
+	Schema.Struct({ type: Schema.Literal('reasoning-delta'), id: Schema.String, delta: Schema.String }),
+	Schema.Struct({ type: Schema.Literal('tool-progress'), toolName: Schema.String, payload: Schema.Json }),
+])
+
+const FoldEventJson = Schema.fromJsonString(
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal('log'), entry: LogEntry }),
+		Schema.Struct({
+			kind: Schema.Literal('delta'),
+			agentId: AgentId,
+			parentAgentId: Schema.NullOr(AgentId),
+			toolCallId: Schema.NullOr(ToolCallId),
+			part: DeltaPart,
+		}),
+	]),
+)
+
+const encodeFoldEventJson = Schema.encodeEffect(FoldEventJson)
 
 /** Create a JSONL renderer for programmatic/headless consumers. */
 export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRenderer => {
@@ -115,7 +131,11 @@ export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRen
 	const mode = options?.mode ?? 'json-concise'
 	const seenLogSeqs = new Set<number>()
 
-	const writeEvent = (event: FoldEvent): Effect.Effect<void> => stdout(jsonLine(event))
+	const writeEvent = (event: FoldEvent): Effect.Effect<void> =>
+		encodeFoldEventJson(event).pipe(
+			Effect.orDie,
+			Effect.flatMap((line) => stdout(`${line}\n`)),
+		)
 
 	return {
 		renderHeader: () => Effect.void,
@@ -512,70 +532,73 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const renderEvent = (event: FoldEvent): Effect.Effect<void> => {
 		if (event.kind === 'log') return renderLog(event.entry)
 
-		switch (event.part.type) {
-			case 'text-delta': {
-				const agentId = event.agentId
-				const delta = event.part.delta
-				return Effect.suspend(() => {
-					const tag = tagFor(agentId)
-					const transition = streamTransition(agentId, tag)
-					agentsWithText.add(agentId)
-					streamedAssistantText.add(agentId)
-					const prefix = assistantLabelOpen.has(agentId)
-						? Effect.void
-						: Effect.suspend(() =>
-								newlineIfOpen().pipe(
-									Effect.andThen(
-										writeStdout(`${tag === null ? '' : `${tag} `}${ansi.green('[assistant]')} `),
+		return Match.value(event.part).pipe(
+			Match.discriminatorsExhaustive('type')({
+				'text-delta': ({ delta }) => {
+					const agentId = event.agentId
+					return Effect.suspend(() => {
+						const tag = tagFor(agentId)
+						const transition = streamTransition(agentId, tag)
+						agentsWithText.add(agentId)
+						streamedAssistantText.add(agentId)
+						const prefix = assistantLabelOpen.has(agentId)
+							? Effect.void
+							: Effect.suspend(() =>
+									newlineIfOpen().pipe(
+										Effect.andThen(
+											writeStdout(
+												`${tag === null ? '' : `${tag} `}${ansi.green('[assistant]')} `,
+											),
+										),
 									),
-								),
-							)
-					assistantLabelOpen.add(agentId)
-					const body = tag === null ? writeStdout(delta) : writeTaggedDelta(tag, delta, (segment) => segment)
-					return transition.pipe(Effect.andThen(prefix), Effect.andThen(body))
-				})
-			}
+								)
+						assistantLabelOpen.add(agentId)
+						const body =
+							tag === null ? writeStdout(delta) : writeTaggedDelta(tag, delta, (segment) => segment)
+						return transition.pipe(Effect.andThen(prefix), Effect.andThen(body))
+					})
+				},
 
-			case 'reasoning-delta': {
-				const agentId = event.agentId
-				const delta = event.part.delta
-				return Effect.suspend(() => {
-					const tag = tagFor(agentId)
-					if (tag === null)
-						return streamTransition(agentId, null).pipe(Effect.andThen(writeStdout(ansi.dim(delta))))
-					return streamTransition(agentId, tag).pipe(Effect.andThen(writeTaggedDelta(tag, delta, ansi.dim)))
-				})
-			}
+				'reasoning-delta': ({ delta }) => {
+					const agentId = event.agentId
+					return Effect.suspend(() => {
+						const tag = tagFor(agentId)
+						if (tag === null)
+							return streamTransition(agentId, null).pipe(Effect.andThen(writeStdout(ansi.dim(delta))))
+						return streamTransition(agentId, tag).pipe(
+							Effect.andThen(writeTaggedDelta(tag, delta, ansi.dim)),
+						)
+					})
+				},
 
-			case 'tool-progress': {
-				const toolName = event.part.toolName
-				const payload = event.part.payload
-				const bash = decodeBashOutputDelta(payload)
-				if (bash !== null) {
-					if (verbose)
-						return Effect.suspend(() => {
-							const tag = tagFor(event.agentId)
-							const decorate = bash.stream === 'stderr' ? ansi.yellow : ansi.dim
-							return tag === null
-								? writeStdout(decorate(bash.text))
-								: writeTaggedDelta(tag, bash.text, decorate)
-						})
+				'tool-progress': ({ toolName, payload }) => {
+					const bash = decodeBashOutputDelta(payload)
+					if (bash !== null) {
+						if (verbose)
+							return Effect.suspend(() => {
+								const tag = tagFor(event.agentId)
+								const decorate = bash.stream === 'stderr' ? ansi.yellow : ansi.dim
+								return tag === null
+									? writeStdout(decorate(bash.text))
+									: writeTaggedDelta(tag, bash.text, decorate)
+							})
 
-					const noticeKey = `${event.toolCallId ?? 'unknown'}:${toolName}`
-					if (hiddenToolOutputNotices.has(noticeKey)) return Effect.void
-					hiddenToolOutputNotices.add(noticeKey)
+						const noticeKey = `${event.toolCallId ?? 'unknown'}:${toolName}`
+						if (hiddenToolOutputNotices.has(noticeKey)) return Effect.void
+						hiddenToolOutputNotices.add(noticeKey)
+						return renderAgentLine(
+							event.agentId,
+							`${label(ansi, 'tool')} ${ansi.cyan(toolName)} output hidden; pass --verbose to stream it`,
+						)
+					}
+
 					return renderAgentLine(
 						event.agentId,
-						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} output hidden; pass --verbose to stream it`,
+						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(safeStringify(payload), verbose ? 2000 : 300)}`,
 					)
-				}
-
-				return renderAgentLine(
-					event.agentId,
-					`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(safeStringify(payload), verbose ? 2000 : 300)}`,
-				)
-			}
-		}
+				},
+			}),
+		)
 	}
 
 	const renderFinish = (entry: AgentFinishedLogEntry): Effect.Effect<void> => {

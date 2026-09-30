@@ -8,7 +8,7 @@ import type {
 } from '@humanlayer/effect-ai-openai-compat/OpenAiClient'
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
-import { Context, Effect, Layer, Option, Predicate, Schema, Stream } from 'effect'
+import { Context, Effect, Layer, Match, Option, Predicate, Schema, Stream } from 'effect'
 import type { Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
@@ -48,7 +48,10 @@ const normalizeXaiResponse = <Response extends CreateResponse200 | ChatCompletio
 }
 
 const normalizeXaiStreamResponse = (response: CreateResponse200Sse): CreateResponse200Sse =>
-	typeof response === 'string' || '_tag' in response ? response : normalizeXaiResponse(response)
+	Match.value(response).pipe(
+		Match.when({ usage: Match.defined }, (chunk) => normalizeXaiResponse(chunk)),
+		Match.orElse((event) => event),
+	)
 
 /** Normalize xAI's token semantics before the stock OpenAI-compatible model derives usage details. */
 export const decorateXaiClient = (inner: OpenAiClient.Service): OpenAiClient.Service => ({

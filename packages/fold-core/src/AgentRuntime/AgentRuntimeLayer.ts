@@ -16,7 +16,7 @@ import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'e
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { CompactionArchiveAccess } from '../Compaction/CompactionArchiveAccess'
 import { isContextOverflowError } from '../Compaction/CompactionEngine'
-import { Compaction, type CompactionService, type CompactionTrigger } from '../Compaction/CompactionService'
+import { Compaction, type CompactionTrigger } from '../Compaction/CompactionService'
 import { EventLog } from '../EventLog/EventLogService'
 import {
 	LogEntryInputs,
@@ -30,7 +30,6 @@ import {
 import { usageFromResponseUsage } from '../EventLog/Usage'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
-import { ModelCatalog } from '../Model/ModelCatalog'
 import { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import { buildPrompt, providerToolCallIdKey, foldPartOptionsKey } from '../Model/RequestBuilder'
 import { messagesForAgent, runtimeForAgent } from '../Projection/Projection'
@@ -79,17 +78,6 @@ const TurnResult = Data.taggedEnum<TurnResult>()
 
 type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>
 
-/** Derive a short human-readable message from a model provider failure. */
-const describeModelError = (error: unknown): string => {
-	if (Predicate.isError(error)) return error.message
-
-	try {
-		return JSON.stringify(error)
-	} catch {
-		return String(error)
-	}
-}
-
 /** Concatenate the text parts of an assistant message, or null when it produced no text. */
 const assistantResultText = (message: Prompt.AssistantMessage): string | null => {
 	const text = message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
@@ -126,21 +114,11 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const languageModel = yield* LanguageModel.LanguageModel
 		const agentEvents = yield* AgentEvents
 		const sessionControls = yield* SessionControls
-		// Defaulted reference (D11): resolves the session-installed live policy, or the disabled no-op.
-		const installedCompaction = yield* Compaction
+		// Defaulted reference (D11): resolves the provisioned live policy, or the disabled no-op. The
+		// provisioner builds it over this runtime's own LanguageModel and the session ModelCatalog.
+		const compaction = yield* Compaction
 		// Defaulted reference: host-specific post-compaction archive/log access guidance.
 		const compactionArchiveAccess = yield* CompactionArchiveAccess
-		// Defaulted reference (D15): the session catalog is captured HERE, at layer construction under
-		// the session services, and re-provided around every compaction call - run effects execute on
-		// caller fibers whose context lacks session services, so the compaction checks would otherwise
-		// resolve the Reference's empty default instead of the installed catalog.
-		const modelCatalog = yield* ModelCatalog
-		const compaction: CompactionService = {
-			enabled: installedCompaction.enabled,
-			shouldCompact: (input) =>
-				installedCompaction.shouldCompact(input).pipe(Effect.provideService(ModelCatalog, modelCatalog)),
-			plan: (input) => installedCompaction.plan(input).pipe(Effect.provideService(ModelCatalog, modelCatalog)),
-		}
 		const stopConditions = yield* StopConditions
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
@@ -242,7 +220,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						trigger,
 						additionalInstructions,
 					})
-					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
+					.pipe(Effect.result)
 
 				if (Result.isFailure(planned)) {
 					yield* appendToEventLog(
@@ -421,7 +399,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				)
 
 				if (Result.isFailure(modelParts)) {
-					const message = describeModelError(modelParts.failure)
+					const message = modelParts.failure.message
 
 					// Reactive overflow path (D11): when the provider says the request exceeded the context
 					// window, compact and restart the turn - once per run. A recovered attempt writes no

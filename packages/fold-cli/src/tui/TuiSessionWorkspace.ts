@@ -14,7 +14,8 @@ import {
 	type FoldConfig,
 } from '@humanlayer/fold-agent'
 import { layerLiveIdFactory, lookupCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import { Cause, Duration, Effect, type FileSystem, Match, Option, Scope } from 'effect'
+import { Cause, Duration, Effect, type FileSystem, Layer, Match, Option, Scope } from 'effect'
+import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 import { createSignal, type Accessor } from 'solid-js'
 
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from '../ContextWindow'
@@ -149,12 +150,12 @@ export const makeTuiSessionWorkspace = (options: {
 		}))
 		yield* Effect.addFinalizer(() => host.closeAll)
 		const acquire = <E>(
-			session: Effect.Effect<FoldSession, E, Scope.Scope | FileSystem.FileSystem>,
+			session: Effect.Effect<FoldSession, E, Scope.Scope | FileSystem.FileSystem | HttpClient.HttpClient>,
 			metadata: HostedTuiSessionMetadata,
 			focused: boolean,
 		) =>
 			session.pipe(
-				Effect.provide(NodeFileSystem.layer),
+				Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
 				Effect.flatMap((value) => {
 					const hostedOptions: Mutable<Parameters<typeof makeHostedTuiSession>[1]> = {
 						metadata,
