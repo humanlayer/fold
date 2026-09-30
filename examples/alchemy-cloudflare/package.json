@@ -1,0 +1,28 @@
+{
+	"name": "@humanlayer/example-alchemy-cloudflare",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"dev": "alchemy dev",
+		"deploy": "alchemy deploy",
+		"destroy": "alchemy destroy",
+		"typecheck": "tsc --noEmit",
+		"test": "bun vitest run",
+		"test:watch": "bun vitest"
+	},
+	"dependencies": {
+		"@humanlayer/fold-core": "workspace:*",
+		"@effect/platform-bun": "catalog:",
+		"@effect/platform-node": "catalog:",
+		"alchemy": "catalog:",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:",
+		"@humanlayer/fold-vitest-config": "workspace:*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}
