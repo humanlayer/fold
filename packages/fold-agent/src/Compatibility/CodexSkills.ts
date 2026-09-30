@@ -1,6 +1,13 @@
 import { homedir } from 'node:os'
 
-import { SkillNotFoundError, type Skill, type SkillMeta, type SkillSourceService } from '@humanlayer/fold-core'
+import {
+	skillSource,
+	SkillNotFoundError,
+	type FoldSkills,
+	type Skill,
+	type SkillMeta,
+	type SkillSourceService,
+} from '@humanlayer/fold-core'
 import { Effect, FileSystem, Path } from 'effect'
 
 import { parseSkillFile, skillNameOr } from '../Skills/SkillFrontmatter'
@@ -132,3 +139,7 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 	}
 	return source
 })
+
+/** Configure an agent's skills from Codex's skill directories (see {@link makeCodexSkillSource}). */
+export const codexSkills = (options: CodexSkillOptions): FoldSkills<FileSystem.FileSystem | Path.Path> =>
+	skillSource(makeCodexSkillSource(options))

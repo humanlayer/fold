@@ -7,7 +7,7 @@ import {
 	EventLogInvalidEntryError,
 	Ids,
 	layerInMemoryEventLogWithIds,
-	makeStoredLogEntry,
+	storedLogEntry,
 	type LogEntryInput,
 } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
@@ -38,12 +38,10 @@ it.effect('the ID service creates branded event IDs', () =>
 	}).pipe(Effect.provide(testLayer)),
 )
 
-it.effect('stored entries use the supplied event ID service', () =>
+it.effect('stored entries carry the supplied event ID', () =>
 	Effect.gen(function* () {
 		const eventId = EventId.make('event_aaaaaaaaaaaaaaaaaaaaaaaa')
-		const entry = yield* makeStoredLogEntry(yield* makeSessionStarted('/tmp/one'), 0, {
-			makeEventId: Effect.succeed(eventId),
-		})
+		const entry = yield* storedLogEntry(yield* makeSessionStarted('/tmp/one'), 0, eventId)
 
 		expect(entry.eventId).toBe(eventId)
 	}).pipe(Effect.provide(testLayer)),

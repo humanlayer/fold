@@ -1,6 +1,13 @@
 import { homedir } from 'node:os'
 
-import { SkillNotFoundError, type Skill, type SkillMeta, type SkillSourceService } from '@humanlayer/fold-core'
+import {
+	skillSource,
+	SkillNotFoundError,
+	type FoldSkills,
+	type Skill,
+	type SkillMeta,
+	type SkillSourceService,
+} from '@humanlayer/fold-core'
 import { Effect, FileSystem, Option, Path } from 'effect'
 
 import {
@@ -188,3 +195,7 @@ export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill
 	}
 	return source
 })
+
+/** Configure an agent's skills from Grok's skill directories (see {@link makeGrokSkillSource}). */
+export const grokSkills = (options: GrokSkillOptions): FoldSkills<FileSystem.FileSystem | Path.Path> =>
+	skillSource(makeGrokSkillSource(options))

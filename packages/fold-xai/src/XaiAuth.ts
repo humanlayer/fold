@@ -5,13 +5,7 @@ import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/
 
 import { makeXaiAuthStore, type XaiAuthStore, type XaiAuthStoreError, type XaiTokenData } from './AuthStore'
 import type { XaiBrowserFlowOptions, XaiDevicePrompt } from './OAuthFlows'
-import {
-	makeXaiIssuerClient,
-	refreshXaiAccessToken,
-	runXaiBrowserFlow,
-	runXaiDeviceFlow,
-	XaiAuthError,
-} from './OAuthFlows'
+import { xaiIssuerClient, refreshXaiAccessToken, runXaiBrowserFlow, runXaiDeviceFlow, XaiAuthError } from './OAuthFlows'
 
 export type XaiAuthService = {
 	readonly get: Effect.Effect<XaiTokenData, XaiAuthError>
@@ -36,7 +30,7 @@ const browserPrompt = (url: string) => Effect.log(`Open this URL to authenticate
 /** Construct xAI auth over the ambient HttpClient. Interactive flows are explicit methods. */
 export const makeXaiAuth = Effect.fnUntraced(function* (options?: MakeXaiAuthOptions) {
 	const store = options?.store ?? (yield* makeXaiAuthStore())
-	const client = makeXaiIssuerClient(yield* HttpClient.HttpClient)
+	const client = xaiIssuerClient(yield* HttpClient.HttpClient)
 	const semaphore = Semaphore.makeUnsafe(1)
 	let current = yield* store.load
 	const storeError = (cause: XaiAuthStoreError) =>

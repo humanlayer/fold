@@ -23,7 +23,7 @@ import {
 } from './ToolContextServices'
 import { ToolRuntime, type ToolRuntimeService, type ToolSettlement } from './ToolRuntimeService'
 import { Toolset, type ToolHandlerOutput } from './ToolsetService'
-import { makeToolStateServiceForHandler } from './ToolStateFactory'
+import { toolStateServiceBuilder } from './ToolStateFactory'
 import { ToolState } from './ToolStateService'
 
 type ToolCallPart = Prompt.ToolCallPart
@@ -178,7 +178,7 @@ export const liveToolRuntimeLayer: Layer.Layer<
 		const hooks = yield* HookRunner
 		const toolset = yield* Toolset
 		const sink = yield* ToolEventSink
-		const toolStateServiceForHandler = yield* makeToolStateServiceForHandler
+		const toolStateServiceForHandler = yield* toolStateServiceBuilder
 
 		/** Append one tool-result entry through EventLog with a fresh message id. */
 		const appendToolResultToEventLog = Effect.fn('fold.tool_runtime.append_tool_result')(function* (input: {

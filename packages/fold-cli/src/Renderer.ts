@@ -25,7 +25,7 @@ import {
 } from '@humanlayer/fold-core'
 import { Array as Arr, Data, Effect, Match, Schema } from 'effect'
 
-import { makeAnsiPalette, type AnsiPalette } from './Ansi'
+import { ansiPalette, type AnsiPalette } from './Ansi'
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from './ContextWindow'
 
 type Writer = (text: string) => Effect.Effect<void>
@@ -117,7 +117,7 @@ const FoldEventJson = Schema.fromJsonString(
 const encodeFoldEventJson = Schema.encodeEffect(FoldEventJson)
 
 /** Create a JSONL renderer for programmatic/headless consumers. */
-export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRenderer => {
+export const jsonOutputRenderer = (options?: JsonRendererOptions): OutputRenderer => {
 	const stdout = options?.stdout ?? defaultStdout
 	const stderr = options?.stderr ?? defaultStderr
 	const mode = options?.mode ?? 'json-concise'
@@ -152,10 +152,10 @@ export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRen
 }
 
 /** Keep one-shot human stdout extraction-safe while retaining normal human diagnostics on stderr. */
-export const makePromptOutputRenderer = (options?: RendererOptions): OutputRenderer => {
+export const promptOutputRenderer = (options?: RendererOptions): OutputRenderer => {
 	const stdout = options?.stdout ?? defaultStdout
 	const stderr = options?.stderr ?? defaultStderr
-	const human = makeOutputRenderer({ ...options, stdout: stderr, stderr })
+	const human = humanOutputRenderer({ ...options, stdout: stderr, stderr })
 	let framed = false
 
 	return {
@@ -305,10 +305,10 @@ const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome
 	)
 
 /** Create the CLI's colored renderer for durable log rows plus live deltas. */
-export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer => {
+export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer => {
 	const stdout = options?.stdout ?? defaultStdout
 	const stderr = options?.stderr ?? defaultStderr
-	const ansi = makeAnsiPalette(options?.colors ?? true)
+	const ansi = ansiPalette(options?.colors ?? true)
 	const verbose = options?.verbose ?? false
 	const catalog = options?.catalog ?? []
 	const agentsWithText = new Set<string>()

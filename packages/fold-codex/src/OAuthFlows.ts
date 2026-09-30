@@ -171,7 +171,7 @@ export const preserveAccountId = (token: CodexTokenData, fallback: string | unde
  * The HttpClient every auth request goes through: issuer-relative URLs, non-2xx as errors, transient
  * failures retried (clanka's schedule - exponential from 150ms capped at 5s, 5 retries / 6 attempts).
  */
-export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
+export const issuerHttpClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
 	client.pipe(
 		HttpClient.mapRequest(HttpClientRequest.prependUrl(CODEX_ISSUER)),
 		HttpClient.filterStatusOk,
@@ -196,7 +196,7 @@ const deviceFlowError = (message: string, cause?: unknown) => authError('DeviceF
 
 const browserFlowError = (message: string, cause?: unknown) => authError('BrowserFlowFailed', message, cause)
 
-/** Refresh an access token through the issuer. The client must come from {@link makeIssuerHttpClient}. */
+/** Refresh an access token through the issuer. The client must come from {@link issuerHttpClient}. */
 export const refreshAccessToken = Effect.fn('fold.codexAuth.refreshAccessToken')(function* (
 	client: HttpClient.HttpClient,
 	refresh: string,
@@ -253,7 +253,7 @@ export type DeviceCodePrompt = {
 
 /** Options for {@link runDeviceFlow}. */
 export type DeviceFlowOptions = {
-	/** Issuer-scoped client from {@link makeIssuerHttpClient}. */
+	/** Issuer-scoped client from {@link issuerHttpClient}. */
 	readonly client: HttpClient.HttpClient
 	/** Presents the verification URL + user code (CLI prints it, a TUI renders it, ...). */
 	readonly onCode: (prompt: DeviceCodePrompt) => Effect.Effect<void>
@@ -377,7 +377,7 @@ const errorHtml = (error: string): string => `<!doctype html>
 
 /** Options for {@link runBrowserFlow}. */
 export type BrowserFlowOptions = {
-	/** Issuer-scoped client from {@link makeIssuerHttpClient}. */
+	/** Issuer-scoped client from {@link issuerHttpClient}. */
 	readonly client: HttpClient.HttpClient
 	/** Given the authorization URL to present/open (fold never launches a browser itself). */
 	readonly onUrl: (url: string) => Effect.Effect<void>

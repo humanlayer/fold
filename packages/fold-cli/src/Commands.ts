@@ -33,7 +33,7 @@ import { Array as Arr, Clock, Console, Effect, Match, Option, Schema } from 'eff
 import { type CliError, Command, Flag } from 'effect/unstable/cli'
 import { FetchHttpClient } from 'effect/unstable/http'
 
-import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode } from './Renderer'
+import { jsonOutputRenderer, promptOutputRenderer, type JsonOutputMode } from './Renderer'
 import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
 
 declare const FOLD_VERSION: string
@@ -376,8 +376,8 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 			}
 			const renderer =
 				outputMode === 'human'
-					? makePromptOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
-					: makeJsonOutputRenderer({ mode: outputMode })
+					? promptOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
+					: jsonOutputRenderer({ mode: outputMode })
 
 			const finished = yield* runPrompt({ ...sessionOptions, prompt }, renderer)
 			if (finished.outcome === 'completed') return

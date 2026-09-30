@@ -14,7 +14,7 @@ const wrap =
 		enabled ? `${open}${text}${close}` : text
 
 /** ANSI color helpers used by the headless renderer. */
-export const makeAnsiPalette = (enabled: boolean): AnsiPalette => ({
+export const ansiPalette = (enabled: boolean): AnsiPalette => ({
 	bold: wrap(enabled, '\u001b[1m', '\u001b[22m'),
 	dim: wrap(enabled, '\u001b[2m', '\u001b[22m'),
 	cyan: wrap(enabled, '\u001b[36m', '\u001b[39m'),

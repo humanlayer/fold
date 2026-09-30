@@ -1,8 +1,13 @@
 import { expect, it } from '@effect/vitest'
+import type { FoldSkills } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Path } from 'effect'
 
 import { loadCodexCompatibility, loadCodexInstructions, makeCodexSkillSource } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
+
+/** Build a loader's skill source over the test's in-memory filesystem. */
+const skillsIn = (skills: FoldSkills<FileSystem.FileSystem | Path.Path>, fs: FileSystem.FileSystem) =>
+	skills.make.pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 const skill = (name: string, description: string, marker = name): string =>
 	['---', `name: ${name}`, `description: ${description}`, '---', '', marker].join('\n')
@@ -100,7 +105,7 @@ it.effect('loads enabled plugin skills from local or the newest cached version',
 			home: '/home/user',
 			codexHome: '/codex',
 		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
-		const names = (yield* compatibility.skills.list).map(({ name }) => name)
+		const names = (yield* (yield* skillsIn(compatibility.skills, fs)).list).map(({ name }) => name)
 		expect(names).toEqual(['alpha:right', 'semver:new'])
 		expect(compatibility.diagnostics).toEqual([])
 	}),

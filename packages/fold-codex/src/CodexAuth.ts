@@ -19,7 +19,7 @@ import { type CodexAuthStore, type CodexAuthStoreError, type CodexTokenData, mak
 import type { BrowserFlowOptions, DeviceCodePrompt } from './OAuthFlows'
 import {
 	CodexAuthError,
-	makeIssuerHttpClient,
+	issuerHttpClient,
 	preserveAccountId,
 	refreshAccessToken,
 	runBrowserFlow,
@@ -71,7 +71,7 @@ const defaultOnBrowserUrl = (url: string): Effect.Effect<void> =>
 /** Build a CodexAuth service over the ambient HttpClient. */
 export const makeCodexAuth = Effect.fnUntraced(function* (options?: MakeCodexAuthOptions) {
 	const store = options?.store ?? (yield* makeCodexAuthStore())
-	const issuerClient = makeIssuerHttpClient(yield* HttpClient.HttpClient)
+	const issuerClient = issuerHttpClient(yield* HttpClient.HttpClient)
 	const semaphore = Semaphore.makeUnsafe(1)
 
 	let currentToken = yield* store.load

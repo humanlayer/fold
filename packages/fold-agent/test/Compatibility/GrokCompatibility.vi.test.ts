@@ -1,10 +1,15 @@
 import { homedir } from 'node:os'
 
 import { expect, it } from '@effect/vitest'
+import type { FoldSkills } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Path } from 'effect'
 
 import { loadGrokCompatibility, loadGrokInstructions } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
+
+/** Build a loader's skill source over the test's in-memory filesystem. */
+const skillsIn = (skills: FoldSkills<FileSystem.FileSystem | Path.Path>, fs: FileSystem.FileSystem) =>
+	skills.make.pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 const skill = (name: string, description: string, marker = name): string =>
 	['---', `name: ${name}`, `description: ${description}`, '---', '', marker].join('\n')
@@ -65,10 +70,10 @@ it.effect('loads Grok, Agents, Claude, configured, and plugin skills with provid
 			home: '/home/user',
 			configuredPaths: ['/configured'],
 		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
-		const names = (yield* compatibility.skills.list).map(({ name }) => name)
+		const names = (yield* (yield* skillsIn(compatibility.skills, fs)).list).map(({ name }) => name)
 
 		expect(names).toEqual(['claude', 'shared', 'agents', 'configured', 'global', 'acme:deploy'])
-		expect((yield* compatibility.skills.load('shared')).content).toBe('repo grok')
+		expect((yield* (yield* skillsIn(compatibility.skills, fs)).load('shared')).content).toBe('repo grok')
 		expect(compatibility.diagnostics).toEqual([])
 	}),
 )
@@ -87,7 +92,7 @@ it.effect('keeps Codex-only roots out of Grok compatibility', () =>
 		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 		expect(compatibility.instructionBlock).toBeNull()
-		expect(yield* compatibility.skills.list).toEqual([])
+		expect(yield* (yield* skillsIn(compatibility.skills, fs)).list).toEqual([])
 	}),
 )
 
@@ -103,7 +108,7 @@ it.effect('reports malformed plugin metadata without failing compatibility loadi
 			home: '/home/user',
 		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
-		expect(yield* compatibility.skills.list).toEqual([])
+		expect(yield* (yield* skillsIn(compatibility.skills, fs)).list).toEqual([])
 		expect(compatibility.diagnostics).toEqual([
 			{
 				stage: 'manifest',
@@ -132,7 +137,9 @@ it.effect('uses the operating-system home for default Grok plugin discovery', ()
 			Effect.provide(Path.layer),
 		)
 
-		expect((yield* compatibility.skills.list).map(({ name }) => name)).toContain('default-home:proof')
+		expect((yield* (yield* skillsIn(compatibility.skills, fs)).list).map(({ name }) => name)).toContain(
+			'default-home:proof',
+		)
 	}),
 )
 
@@ -152,7 +159,7 @@ it.effect('skips malformed skill frontmatter and rejects backslash plugin roots 
 			home: '/home/user',
 		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
-		expect(yield* compatibility.skills.list).toEqual([])
+		expect(yield* (yield* skillsIn(compatibility.skills, fs)).list).toEqual([])
 		expect(compatibility.diagnostics).toContainEqual({
 			stage: 'manifest',
 			code: 'invalid_skill_root',
@@ -175,11 +182,13 @@ it.effect('falls back to the directory name and first paragraph without usable f
 			home: '',
 		}).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
-		expect(yield* compatibility.skills.list).toEqual([
+		expect(yield* (yield* skillsIn(compatibility.skills, fs)).list).toEqual([
 			{ name: 'renamed', description: 'First paragraph' },
 			{ name: 'plain', description: 'Plain skill' },
 			{ name: 'typed', description: 'Typed skill' },
 		])
-		expect((yield* compatibility.skills.load('plain')).content).toBe('# Plain skill\n\nMore detail.')
+		expect((yield* (yield* skillsIn(compatibility.skills, fs)).load('plain')).content).toBe(
+			'# Plain skill\n\nMore detail.',
+		)
 	}),
 )

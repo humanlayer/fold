@@ -10,7 +10,7 @@ import {
 	LogEntry as LogEntrySchema,
 	decodeStoredLogEntry,
 	layerLiveIdFactory,
-	makeStoredLogEntry,
+	storedLogEntry,
 	type EventLogError,
 	type EventLogService,
 	type EventLogUnsupportedVersionError,
@@ -201,7 +201,7 @@ export const layerJsonlWithIds = (
 				appendLock.withPermit(
 					Effect.gen(function* () {
 						const current = yield* Ref.get(entriesRef)
-						const stored = yield* makeStoredLogEntry(input, current.length, ids)
+						const stored = yield* storedLogEntry(input, current.length, yield* ids.makeEventId)
 						const line = yield* encodeJsonlLine(stored)
 
 						yield* appendJsonlLine(fs, filePath, line)

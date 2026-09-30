@@ -73,7 +73,7 @@ const tokenData = (payload: typeof TokenResponse.Type, fallbackRefresh?: string)
 	)
 
 /** Scope and harden an HttpClient for xAI's OAuth issuer. */
-export const makeXaiIssuerClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
+export const xaiIssuerClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
 	client.pipe(
 		HttpClient.mapRequest(HttpClientRequest.prependUrl(XAI_ISSUER)),
 		HttpClient.filterStatusOk,

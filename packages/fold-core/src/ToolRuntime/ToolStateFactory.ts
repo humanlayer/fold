@@ -114,7 +114,7 @@ type ToolStateForHandlerInput = {
  * still appended to the EventLog immediately - they are durable facts even if this call is later
  * interrupted.
  */
-export const makeToolStateServiceForHandler: Effect.Effect<
+export const toolStateServiceBuilder: Effect.Effect<
 	(input: ToolStateForHandlerInput) => Effect.Effect<ToolStateService>,
 	never,
 	EventLog | Ids
@@ -164,8 +164,8 @@ export const makeToolStateServiceForHandler: Effect.Effect<
 		})
 })
 
-/** Build the snapshot ToolState service for one tool handler (see {@link makeToolStateServiceForHandler}). */
+/** Build the snapshot ToolState service for one tool handler (see {@link toolStateServiceBuilder}). */
 export const toolStateServiceForHandler = (
 	input: ToolStateForHandlerInput,
 ): Effect.Effect<ToolStateService, never, EventLog | Ids> =>
-	makeToolStateServiceForHandler.pipe(Effect.flatMap((forHandler) => forHandler(input)))
+	toolStateServiceBuilder.pipe(Effect.flatMap((forHandler) => forHandler(input)))
