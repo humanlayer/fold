@@ -155,7 +155,7 @@ it.effect('adds OAuth profiles without an API key and supplies their default mod
 			expect(updated.providers['work-codex']).toEqual({
 				kind: 'codex',
 				baseUrl: 'https://example.test',
-				configuredModels: ['gpt-6-astra'],
+				configuredModels: ['gpt-6.1-sol'],
 			})
 		}),
 	).pipe(Effect.provide(NodeFileSystem.layer)),

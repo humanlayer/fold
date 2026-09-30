@@ -281,6 +281,35 @@ it.effect('switchModel preserves exact GPT-6 Sol and Luna ids in the durable tra
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
+it.effect('switchModel preserves the exact GPT-6.1 Sol id in the durable transition and requests', () =>
+	Effect.gen(function* () {
+		const astra: ActiveModel = {
+			...gptActiveModel,
+			providerId: 'codex',
+			providerKind: 'codex',
+			modelId: 'gpt-6-astra',
+			requestedReasoningLevel: 'max',
+			reasoning: { _tag: 'effort', effort: 'max', summary: 'auto' },
+		}
+		const sol61: ActiveModel = { ...astra, modelId: 'gpt-6.1-sol' }
+		const first = yield* scriptedModel(astra, [textTurn('from astra')])
+		const second = yield* scriptedModel(sol61, [textTurn('from gpt-6.1-sol')])
+		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+
+		yield* session.send('first turn')
+		yield* session.switchModel(second.model, { reason: 'switch to the new default' })
+		yield* session.send('second turn')
+
+		const entries = yield* session.entries
+		const modelChanges = entries.filter((entry): entry is ModelChangeLogEntry =>
+			Predicate.isTagged(entry, 'model-change'),
+		)
+		expect(modelChanges).toHaveLength(1)
+		expect(modelChanges[0]?.model.modelId).toBe('gpt-6.1-sol')
+		expect((yield* second.scripted.requests)[0]?.openAiConfig?.model).toBe('gpt-6.1-sol')
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
 it.effect('switchModel rejects duplicate tool names in the replacement toolset as a defect', () =>
 	Effect.gen(function* () {
 		const first = yield* scriptedModel(gptActiveModel, [textTurn('one')])

@@ -39,6 +39,7 @@ it('classifies openai-compatible models by model id patterns', () => {
 	expect(modelFamilyFor(openAiCompatible('o3-mini'))).toBe('gpt')
 	expect(modelFamilyFor(openAiCompatible('gpt-5.1-codex-max'))).toBe('codex')
 	expect(modelFamilyFor(openAiCompatible('gpt-6-sol'))).toBe('gpt')
+	expect(modelFamilyFor(openAiCompatible('gpt-6.1-sol'))).toBe('gpt')
 	expect(modelFamilyFor(openAiCompatible('gpt-6-luna'))).toBe('gpt')
 	expect(modelFamilyFor(openAiCompatible('anthropic/claude-opus-4-8'))).toBe('claude')
 	expect(modelFamilyFor(openAiCompatible('llama-3.3-70b'))).toBe('unknown')
