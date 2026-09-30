@@ -27,22 +27,19 @@ its exemption in `.oxlintrc.jsonc`.
 
 | Rule                                              | Production | Tests |
 | ------------------------------------------------- | ---------- | ----- |
-| `automation/private-function-prefix`              | 460        | 153   |
-| `automation/no-single-use-private-functions`      | 327        | 42    |
-| `automation/no-multiple-function-params`          | 294        | 54    |
+| `automation/private-function-prefix`              | 384        | 161   |
+| `automation/no-multiple-function-params`          | 286        | 56    |
+| `automation/no-single-use-private-functions`      | 277        | 40    |
 | `automation/no-optional-function-parameters`      | 100        | 21    |
-| `anti-slop/no-known-value-widening`               | 95         | 10    |
-| `anti-slop/no-runtime-typeof`                     | 68         | 11    |
-| `anti-slop-effect/no-manual-tagged-construction`  | 46         | 295   |
-| `anti-slop/no-unknown-parameters`                 | 44         | 22    |
-| `anti-slop/no-conditional-spread`                 | 37         | 3     |
-| `anti-slop/no-unsafe-dictionary-type`             | 33         | 4     |
-| `anti-slop/no-conditional-empty-array-spread`     | 26         | 3     |
-| `automation/no-try-catch`                         | 25         | 1     |
-| `anti-slop-effect/no-service-constructor-imports` | 22         | 8     |
-| `automation/no-typeof-object`                     | 18         | 5     |
+| `anti-slop/no-known-value-widening`               | 82         | 10    |
+| `anti-slop-effect/no-manual-tagged-construction`  | 50         | 323   |
+| `anti-slop/no-conditional-spread`                 | 36         | 7     |
+| `anti-slop/no-conditional-empty-array-spread`     | 24         | 5     |
+| `anti-slop-effect/no-service-constructor-imports` | 23         | 14    |
 | `automation/no-effect-asvoid`                     | 15         | 1     |
 
 `anti-slop/no-comments`, `automation/no-comments`, and `automation/no-reexport-only-modules` (it only flags package
-entrypoints) are intentionally off. Tests are exempt from `automation/no-global-json` and the type-assertion rules.
+entrypoints) are intentionally off. Tests are exempt from `automation/no-global-json`, the type-assertion rules,
+`no-try-catch`, `no-typeof-object`, `no-runtime-typeof`, `no-unknown-parameters`, and `no-unsafe-dictionary-type`.
+`scripts/` and `packages/fold/postinstall.mjs` are not linted.
 The React, XState, Tailwind, and API-layer `automation` rules do not apply to Fold.

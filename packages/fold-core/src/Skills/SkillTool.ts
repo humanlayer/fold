@@ -11,7 +11,7 @@ import { defineTool, type SessionToolContribution, type FoldTool } from '../Api/
 import { skillToolContract } from '../Tools/Contracts'
 import { ToolResultFailure, ToolResultText } from '../Tools/ToolResultContent'
 import type { SkillMeta } from './Schemas'
-import { skillSourceFor, type SkillSourceService, type FoldSkills } from './SkillSource'
+import type { SkillSourceService, FoldSkills } from './SkillSource'
 
 /** Escape text destined for the XML-ish skills listing (pi parity). */
 const escapeXml = (text: string): string =>
@@ -76,10 +76,10 @@ export type MakeSkillToolInput = {
  * loses its baseline - D20). Listing the same value on several agents shares that one scan; a fresh
  * `skillTool(...)` call gives an agent its own independent setup.
  */
-export const skillTool = (source: FoldSkills): FoldTool => ({
+export const skillTool = <R>(source: FoldSkills<R>): FoldTool<R> => ({
 	name: skillToolContract.name,
 	init: Effect.gen(function* () {
-		const resolved = yield* skillSourceFor(source)
+		const resolved = yield* source.make
 		const snapshot = yield* resolved.list.pipe(Effect.orDie)
 		const realized = yield* makeSkillTool({ source: resolved, snapshot }).init
 

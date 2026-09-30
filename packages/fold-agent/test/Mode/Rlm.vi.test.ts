@@ -51,9 +51,9 @@ const models: ModeModels = {
 	orchestrator: namedModel('orchestrator-model'),
 }
 
-const rlmTools = (): ReadonlyArray<FoldTool> => rlmMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
+const rlmTools = (): ReadonlyArray<FoldTool<unknown>> => rlmMode.buildTools({ cwd: '/tmp/project', models, rpi: false })
 
-const toolNames = (tools: ReadonlyArray<FoldTool>): ReadonlyArray<string> => tools.map((tool) => tool.name)
+const toolNames = (tools: ReadonlyArray<FoldTool<unknown>>): ReadonlyArray<string> => tools.map((tool) => tool.name)
 
 it('is named rlm and runs on the orchestrator role', () => {
 	expect(rlmMode.name).toBe('rlm')

@@ -142,7 +142,7 @@ export const toolsetLayerFor = (tools: ReadonlyArray<RealizedFoldTool>) => {
 }
 
 /** Fail fast (as a defect) when two tool descriptors claim the same name. */
-export const validateToolNames = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> => {
+export const validateToolNames = (tools: ReadonlyArray<FoldTool<unknown>>): Effect.Effect<void> => {
 	const duplicates = [
 		...new Set(tools.map((tool) => tool.name).filter((name, index, names) => names.indexOf(name) !== index)),
 	]

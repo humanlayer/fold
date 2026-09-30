@@ -62,16 +62,16 @@ const models: ModeModels = {
 	orchestrator: namedModel('orchestrator-model'),
 }
 
-const byNameIn = (definitions: ReadonlyArray<SubagentDefinition>, name: string): SubagentDefinition => {
+const byNameIn = <R>(definitions: ReadonlyArray<SubagentDefinition<R>>, name: string): SubagentDefinition<R> => {
 	const found = definitions.find((definition) => definition.name === name)
 	if (found === undefined) throw new Error(`no subagent named ${name}`)
 	return found
 }
 
-const toolNames = (tools: ReadonlyArray<FoldTool>): ReadonlyArray<string> => tools.map((tool) => tool.name)
+const toolNames = (tools: ReadonlyArray<FoldTool<unknown>>): ReadonlyArray<string> => tools.map((tool) => tool.name)
 
 /** The roster a definition may dispatch: the union of its subagentTool values' rosters. */
-const dispatchableFrom = (definition: SubagentDefinition): ReadonlyArray<string> =>
+const dispatchableFrom = (definition: SubagentDefinition<unknown>): ReadonlyArray<string> =>
 	(definition.tools ?? []).flatMap((tool) => (subagentRosterOf(tool) ?? []).map((agent) => agent.name))
 
 // Built ONCE at module scope: the identity assertions compare against these exact delegate instances.

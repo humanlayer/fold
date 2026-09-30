@@ -46,18 +46,18 @@ const models: ModeModels = {
 	orchestrator: namedModel('orchestrator-model'),
 }
 
-const roster = (): ReadonlyArray<SubagentDefinition> => defaultSubagents({ cwd: '/tmp/project' })
+const roster = (): ReadonlyArray<SubagentDefinition<unknown>> => defaultSubagents({ cwd: '/tmp/project' })
 
-const byName = (name: string): SubagentDefinition => {
+const byName = (name: string): SubagentDefinition<unknown> => {
 	const found = roster().find((definition) => definition.name === name)
 	if (found === undefined) throw new Error(`no subagent named ${name}`)
 	return found
 }
 
-const toolNames = (tools: ReadonlyArray<FoldTool>): ReadonlyArray<string> => tools.map((tool) => tool.name)
+const toolNames = (tools: ReadonlyArray<FoldTool<unknown>>): ReadonlyArray<string> => tools.map((tool) => tool.name)
 
 /** The roster a definition may dispatch: the union of its subagentTool values' rosters. */
-const dispatchableFrom = (definition: SubagentDefinition): ReadonlyArray<string> =>
+const dispatchableFrom = (definition: SubagentDefinition<unknown>): ReadonlyArray<string> =>
 	(definition.tools ?? []).flatMap((tool) => (subagentRosterOf(tool) ?? []).map((agent) => agent.name))
 
 it('registers general-purpose, bash, researcher, and web-search-researcher', () => {

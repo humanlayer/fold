@@ -3,37 +3,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
 
-import * as NodeServices from '@effect/platform-node/NodeServices'
 import {
 	AgentId,
 	buildPrompt,
-	CurrentAgent,
-	CurrentToolCall,
 	EventLog,
 	foldPartOptionsKey,
-	InterruptNote,
 	layerInMemoryEventLog,
 	LogEntryInputs,
 	MessageId,
 	messagesForAgent,
 	providerToolCallIdKey,
-	StopController,
-	Subagents,
 	ToolCallId,
-	ToolEvents,
-	ToolState,
 	type FoldTool,
-	type PlatformServices,
-	type ToolHandlerServices,
-	type ToolResultFailure,
 	type ToolResultLogEntry,
-	type ToolResultSuccess,
 } from '@humanlayer/fold-core'
-import { Effect, Layer, Predicate, Schema, Stream } from 'effect'
+import { Effect, Predicate, Schema, Stream } from 'effect'
 import { type LanguageModel, type Prompt, Toolkit } from 'effect/unstable/ai'
 
 import { readTool } from '../../src/index'
-import { callTool } from '../TestHelpers'
+import { callTool, runHandler } from '../TestHelpers'
 
 export const imageIdentificationPrompt =
 	'Inspect the image returned by read. Name its three vertical color bands from left to right. ' +
@@ -127,25 +115,6 @@ export const makeDeterministicColorBandsPng = (): Uint8Array => {
 	])
 }
 
-const toolHandlerTestLayer: Layer.Layer<ToolHandlerServices | PlatformServices> = Layer.mergeAll(
-	NodeServices.layer,
-	Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
-	Layer.succeed(ToolEvents, { emit: () => Effect.void }),
-	Layer.succeed(StopController, { requestStop: () => Effect.void, isStopRequested: Effect.succeed(false) }),
-	Layer.succeed(CurrentAgent, {
-		agentId: fixtureAgentId,
-		parentAgentId: null,
-	}),
-	Layer.succeed(CurrentToolCall, { toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa') }),
-	Layer.succeed(InterruptNote, { set: () => Effect.void }),
-	Layer.succeed(Subagents, {
-		dispatch: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-		fork: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-		resume: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-		continueSubagent: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-	}),
-)
-
 const decodeJson = Schema.decodeUnknownEffect(Schema.Json)
 
 const toolCallIdAt = (index: number): ToolCallId =>
@@ -168,11 +137,7 @@ export type SessionPromptFixture = {
 }
 
 /** Execute one production Fold tool handler under the same platform and per-call services as runtime. */
-export const executeToolHandler = (
-	tool: FoldTool,
-	params: unknown,
-): Effect.Effect<ToolResultSuccess, ToolResultFailure> =>
-	callTool(tool, params).pipe(Effect.provide(toolHandlerTestLayer), Effect.scoped)
+export const executeToolHandler = <R>(tool: FoldTool<R>, params: unknown) => runHandler(callTool(tool, params))
 
 /** Decode a real handler result/failure into the JSON shape accepted by the durable EventLog. */
 export const decodeToolResultJson = (result: unknown) => decodeJson(result)

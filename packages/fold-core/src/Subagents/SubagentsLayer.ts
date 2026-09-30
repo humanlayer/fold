@@ -78,7 +78,7 @@ export type RootAgentSnapshot = {
 	readonly model: FoldModel
 	readonly promptCacheKey: string | null
 	/** The root's tools as configured (system-tool values included). */
-	readonly tools: ReadonlyArray<FoldTool>
+	readonly tools: ReadonlyArray<FoldTool<unknown>>
 	readonly hooks: HookConfig
 	/** The root's own leading blocks, WITHOUT tool-contributed blocks (those come from realization). */
 	readonly systemPrompt: ReadonlyArray<string>
@@ -88,7 +88,7 @@ export type RootAgentSnapshot = {
 export type SubagentsConfig = {
 	readonly registry: AgentRegistry
 	/** Realize one agent's configured tools via the session-start contribution map (§2.5). */
-	readonly realizeAgentTools: (tools: ReadonlyArray<FoldTool>) => RealizedAgentTools
+	readonly realizeAgentTools: (tools: ReadonlyArray<FoldTool<unknown>>) => RealizedAgentTools
 	readonly currentRootAgent: Effect.Effect<RootAgentSnapshot>
 }
 
@@ -99,7 +99,7 @@ const OriginatingConfig = Data.taggedEnum<OriginatingConfig>()
 type AgentConfigurationSnapshot = {
 	readonly model: FoldModel
 	readonly promptCacheKey: string | null
-	readonly tools: ReadonlyArray<FoldTool>
+	readonly tools: ReadonlyArray<FoldTool<unknown>>
 	readonly hooks: HookConfig
 	readonly systemPrompt: ReadonlyArray<string>
 }

@@ -39,8 +39,20 @@ import {
 	type Ids,
 	type LogSeq,
 } from '@humanlayer/fold-core'
-import { Array as Arr, Predicate, Effect, FileSystem, Layer, Match, Schema, Semaphore, type Scope } from 'effect'
+import {
+	Array as Arr,
+	Predicate,
+	Effect,
+	FileSystem,
+	Layer,
+	Match,
+	Schema,
+	Semaphore,
+	type Scope,
+	type Path,
+} from 'effect'
 import type { HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { loadModelCatalog, type LoadModelCatalogOptions } from '../Catalog/LoadCatalog'
 import {
@@ -61,7 +73,12 @@ import {
 import { rolesForDirectProviderSelection } from '../Config/ModelSelections'
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { memoryPromptBlock, type AgentFilesOptions } from '../Memory/AgentFiles'
-import { makeOutputStore, type MakeOutputStoreOptions, type OutputStoreService } from '../OutputStore/OutputStore'
+import {
+	layerOutputStore,
+	sweepToolOutput,
+	toolOutputSessionDirFor,
+	type OutputStore,
+} from '../OutputStore/OutputStore'
 import {
 	latestSessionLog,
 	prepareSessionLog,
@@ -71,6 +88,7 @@ import {
 	type SessionLayoutOptions,
 } from '../Session/SessionLayout'
 import { generateSessionTitle } from '../Session/TitleGenerator'
+import type { Photon } from '../Tools/Image/Photon'
 import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
 import { defaultCodingMode, type FoldMode } from './Mode'
 import { modeForName } from './ModeName'
@@ -173,7 +191,16 @@ export type LaunchSessionOptions = {
 	/** Steering drain mode (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
 	/** Extra tools appended after the mode's roster (e.g. subagents). */
-	readonly extraTools?: ReadonlyArray<FoldTool>
+	readonly extraTools?: ReadonlyArray<
+		FoldTool<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+			| HttpClient.HttpClient
+		>
+	>
 	/** Agent display name recorded in `session_started`. Defaults to the mode name. */
 	readonly name?: string
 }
@@ -371,15 +398,25 @@ const buildAgentDefinition = (
 	models: ModeModels,
 	cwd: string,
 	config: FoldConfig | null,
-	outputStore: OutputStoreService,
-): Effect.Effect<AgentDefinition, never, FileSystem.FileSystem> =>
+): Effect.Effect<
+	AgentDefinition<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
+	never,
+	FileSystem.FileSystem
+> =>
 	Effect.gen(function* () {
 		const memoryOptions: Mutable<AgentFilesOptions> = { cwd }
 		if (options.home !== undefined) memoryOptions.home = options.home
 		const memoryBlock = yield* memoryPromptBlock(memoryOptions)
 		// Effective RPI: the flag, or the mode's own default (RLM always carries the specialists).
 		const rpi = options.rpi === true || mode.rpiByDefault === true
-		const tools = [...mode.buildTools({ cwd, models, rpi, outputStore }), ...(options.extraTools ?? [])]
+		const tools = [...mode.buildTools({ cwd, models, rpi }), ...(options.extraTools ?? [])]
 		const blocks = [
 			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
 			modelStyleBlock,
@@ -388,7 +425,16 @@ const buildAgentDefinition = (
 			foldInfoBlock(options.foldHome ?? defaultFoldHome()),
 		]
 		const autoCompact = options.autoCompact ?? config?.compaction ?? defaultAutoCompact
-		const agentOptions: Mutable<AgentDefinition> = {
+		const agentOptions: Mutable<
+			AgentDefinition<
+				| FileSystem.FileSystem
+				| Path.Path
+				| ChildProcessSpawner.ChildProcessSpawner
+				| OutputStore
+				| Photon
+				| HttpClient.HttpClient
+			>
+		> = {
 			name: options.name ?? mode.name,
 			model: models.primary,
 			tools,
@@ -397,6 +443,14 @@ const buildAgentDefinition = (
 		}
 		if (Arr.isArrayNonEmpty(blocks)) agentOptions.systemPrompt = blocks
 		return defineAgent(agentOptions)
+	})
+
+/** The session's own output store, under `<foldHome>/tool-output/<sessionId>`. */
+const outputStoreFor = (sessionId: SessionId, options: LaunchSessionOptions) =>
+	layerOutputStore({
+		directory: toolOutputSessionDirFor(
+			options.foldHome === undefined ? { sessionId } : { sessionId, foldHome: options.foldHome },
+		),
 	})
 
 /**
@@ -418,7 +472,14 @@ const sessionProfilesFor = (models: ModeModels): SessionProfiles => ({
  * epoch switch so newly introduced role-bound subagent types are covered at the switch boundary.
  */
 export const switchSessionMode = (
-	session: FoldSession,
+	session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	options: SwitchSessionModeOptions,
 ): Effect.Effect<void, LaunchModelError, FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.gen(function* () {
@@ -428,13 +489,18 @@ export const switchSessionMode = (
 		const catalog = yield* catalogFor(profiled)
 		const models = yield* resolveModeModels(profiled, mode, catalog)
 		const config = yield* runtimeConfigFor(profiled)
-		const outputStoreOptions: Mutable<MakeOutputStoreOptions> = { sessionId: session.sessionId }
-		if (profiled.foldHome !== undefined) outputStoreOptions.foldHome = profiled.foldHome
-		const outputStore = yield* makeOutputStore(outputStoreOptions)
-		yield* outputStore.sweep
-		const agent = yield* buildAgentDefinition(profiled, mode, models, cwd, config, outputStore)
+		const agent = yield* buildAgentDefinition(profiled, mode, models, cwd, config)
 
-		const switchOptions: Mutable<SwitchModelOptions> = {
+		const switchOptions: Mutable<
+			SwitchModelOptions<
+				| FileSystem.FileSystem
+				| Path.Path
+				| ChildProcessSpawner.ChildProcessSpawner
+				| OutputStore
+				| Photon
+				| HttpClient.HttpClient
+			>
+		> = {
 			reason: options.reason ?? `switch mode to ${mode.name}`,
 			profiles: sessionProfilesFor(models),
 		}
@@ -443,18 +509,18 @@ export const switchSessionMode = (
 		yield* session.switchModel(models.primary, switchOptions)
 	})
 
-const withGeneratedTitles = (
-	session: FoldSession,
+const withGeneratedTitles = <R>(
+	session: FoldSession<R>,
 	model: FoldModel,
 	options: { readonly cwd: string; readonly foldHome?: string },
-): Effect.Effect<FoldSession, never, FileSystem.FileSystem> =>
+): Effect.Effect<FoldSession<R>, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const fsLayer = Layer.succeed(FileSystem.FileSystem, fs)
 		return yield* Semaphore.make(1).pipe(
 			Effect.map((titleLock) => ({
 				...session,
-				send: (text: string, target?: Parameters<FoldSession['send']>[1]) =>
+				send: (text: string, target?: Parameters<FoldSession<R>['send']>[1]) =>
 					session.send(text, target).pipe(
 						Effect.tap(() => {
 							if (target?.agentId !== undefined && target.agentId !== session.rootAgentId)
@@ -530,7 +596,24 @@ const catalogFor = (
  */
 export const launchSession = (
 	options?: LaunchSessionOptions,
-): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient> =>
+): Effect.Effect<
+	FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
+	LaunchModelError,
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+> =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
 		const mode = modeFor(opts, profileMode)
@@ -543,13 +626,20 @@ export const launchSession = (
 		const prepareOptions: Mutable<SessionLayoutOptions> = { cwd }
 		if (opts.foldHome !== undefined) prepareOptions.foldHome = opts.foldHome
 		const prepared = yield* prepareSessionLog(prepareOptions)
-		const outputStoreOptions: Mutable<MakeOutputStoreOptions> = { sessionId: prepared.sessionId }
-		if (opts.foldHome !== undefined) outputStoreOptions.foldHome = opts.foldHome
-		const outputStore = yield* makeOutputStore(outputStoreOptions)
-		yield* outputStore.sweep
-		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config, outputStore)
+		yield* sweepToolOutput(opts.foldHome === undefined ? {} : { foldHome: opts.foldHome })
+		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
 
-		const startOptions: Mutable<StartSessionOptions> = {
+		const startOptions: Mutable<
+			StartSessionOptions<
+				| FileSystem.FileSystem
+				| Path.Path
+				| ChildProcessSpawner.ChildProcessSpawner
+				| OutputStore
+				| Photon
+				| HttpClient.HttpClient,
+				FileSystem.FileSystem
+			>
+		> = {
 			agent,
 			log: prepared.log,
 			cwd,
@@ -564,7 +654,7 @@ export const launchSession = (
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
 		}
 		if (opts.steering !== undefined) startOptions.steering = opts.steering
-		const session = yield* startSession(startOptions)
+		const session = yield* startSession(startOptions).pipe(Effect.provide(outputStoreFor(prepared.sessionId, opts)))
 		const titleOptions: { cwd: string; foldHome?: string } = { cwd }
 		if (opts.foldHome !== undefined) titleOptions.foldHome = opts.foldHome
 		return yield* withGeneratedTitles(session, models.fast, titleOptions)
@@ -575,19 +665,42 @@ const resumeFromLog = (
 	options: LaunchSessionOptions,
 	mode: FoldMode,
 	cwd: string,
-): Effect.Effect<FoldSession, LaunchModelError, Scope.Scope | FileSystem.FileSystem | HttpClient.HttpClient> =>
+): Effect.Effect<
+	FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
+	LaunchModelError,
+	| Scope.Scope
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+> =>
 	Effect.gen(function* () {
 		// Same order as launchSession: the catalog loads before model resolution (D23 validation).
 		const catalog = yield* catalogFor(options)
 		const models = yield* resolveModeModels(options, mode, catalog)
 		const config = yield* runtimeConfigFor(options)
-		const outputStoreOptions: Mutable<MakeOutputStoreOptions> = { sessionId: log.sessionId }
-		if (options.foldHome !== undefined) outputStoreOptions.foldHome = options.foldHome
-		const outputStore = yield* makeOutputStore(outputStoreOptions)
-		yield* outputStore.sweep
-		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config, outputStore)
+		yield* sweepToolOutput(options.foldHome === undefined ? {} : { foldHome: options.foldHome })
+		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
 
-		const resumeOptions: Mutable<ResumeSessionOptions> = {
+		const resumeOptions: Mutable<
+			ResumeSessionOptions<
+				| FileSystem.FileSystem
+				| Path.Path
+				| ChildProcessSpawner.ChildProcessSpawner
+				| OutputStore
+				| Photon
+				| HttpClient.HttpClient,
+				FileSystem.FileSystem
+			>
+		> = {
 			agent,
 			log: jsonlEventLog(log.path),
 			profiles: sessionProfilesFor(models),
@@ -595,7 +708,7 @@ const resumeFromLog = (
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
 		}
 		if (options.steering !== undefined) resumeOptions.steering = options.steering
-		const session = yield* resumeSession(resumeOptions)
+		const session = yield* resumeSession(resumeOptions).pipe(Effect.provide(outputStoreFor(log.sessionId, options)))
 		const sessionLayoutOptions: { cwd: string; foldHome?: string } = { cwd }
 		if (options.foldHome !== undefined) sessionLayoutOptions.foldHome = options.foldHome
 		return yield* withGeneratedTitles(session, models.fast, sessionLayoutOptions)
@@ -609,9 +722,21 @@ const resumeFromLog = (
 export const resumeLatestSession = (
 	options?: LaunchSessionOptions,
 ): Effect.Effect<
-	FoldSession,
+	FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	LaunchModelError | NoSessionToResumeError,
-	Scope.Scope | FileSystem.FileSystem | HttpClient.HttpClient
+	| Scope.Scope
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
 > =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})
@@ -635,9 +760,21 @@ export const resumeSessionById = (
 	sessionId: SessionId,
 	options?: LaunchSessionOptions,
 ): Effect.Effect<
-	FoldSession,
+	FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	LaunchModelError | SessionToResumeNotFoundError,
-	Scope.Scope | FileSystem.FileSystem | HttpClient.HttpClient
+	| Scope.Scope
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
 > =>
 	Effect.gen(function* () {
 		const { options: opts, profileMode } = yield* resolveProfileSelection(options ?? {})

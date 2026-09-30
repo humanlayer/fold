@@ -11,7 +11,7 @@
  * degrade to inline notes, never crash the run. Non-zero exit and timeout are typed model-visible
  * failures carrying the accumulated output; signal-killed commands are successes (pi semantics).
  */
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 
 import {
 	defaultMaxBytes,
@@ -19,7 +19,6 @@ import {
 	formatSize,
 	CurrentToolCall,
 	InterruptNote,
-	platformToolDependencies,
 	ToolEvents,
 	ToolResultFailure,
 	ToolResultText,
@@ -27,11 +26,11 @@ import {
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Data, Duration, Effect, Fiber, FileSystem, Option, Path, Random, Ref, Schema, Semaphore, Stream } from 'effect'
+import { Data, Duration, Effect, Fiber, FileSystem, Option, Path, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { resolveToCwd } from '../Fs/PathResolve'
-import type { OutputStoreService } from '../OutputStore/OutputStore'
+import { OutputStore } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
 
 /**
@@ -93,10 +92,6 @@ const omittedNonTextOutputMessage = (stream: 'stdout' | 'stderr') =>
 export type BashToolOptions = {
 	/** Working directory for resolving relative paths. Defaults to `process.cwd()` at call time. */
 	readonly cwd?: string
-	/** Base directory for spill files holding full untruncated output. Defaults to `os.tmpdir()`. */
-	readonly spillDir?: string
-	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
-	readonly outputStore?: OutputStoreService
 	/** Environment entries inherited by every Bash subprocess created by this tool. */
 	readonly processEnvironment?: Readonly<Record<string, string>>
 }
@@ -247,7 +242,9 @@ const validateTimeout = (timeoutMilliseconds: number): Effect.Effect<number, { r
 }
 
 /** Build the bash tool. Runs real processes; only spill-file IO goes through the FileSystem seam. */
-export const bashTool = (options?: BashToolOptions): FoldTool =>
+export const bashTool = (
+	options?: BashToolOptions,
+): FoldTool<FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner | OutputStore> =>
 	defineTool({
 		name: 'bash',
 		description:
@@ -264,7 +261,6 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		parameters: BashParameters,
 		success: BashSuccess,
 		failure: BashFailure,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
@@ -284,33 +280,19 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const events = yield* ToolEvents
 				const interruptNote = yield* InterruptNote
 				const currentToolCall = yield* CurrentToolCall
-				const outputStore = options?.outputStore
-				const spillRef = outputStore?.refFor(currentToolCall.toolCallId)
-				const spillToken = `${(yield* Random.next).toString(36).slice(2)}${(yield* Random.next).toString(36).slice(2)}`
-				const spillPath =
-					spillRef?.path ?? pathService.join(options?.spillDir ?? tmpdir(), `fold-bash-${spillToken}.log`)
+				// The full, untruncated output streams into the host's output store, one file per tool call.
+				const outputStore = yield* OutputStore
+				const spillPath = outputStore.refFor(currentToolCall.toolCallId).path
 				const accumulator = yield* makeAccumulator({
 					spillPath,
 					writeSpill: (path, chunk) =>
-						outputStore === undefined
-							? fs
-									.writeFileString(path, chunk, { flag: 'a' })
-									.pipe(
-										Effect.catch((error) =>
-											Effect.logWarning(
-												`could not persist bash output at ${path}: ${error.message}`,
-											),
-										),
-									)
-							: outputStore
-									.append(currentToolCall.toolCallId, chunk)
-									.pipe(
-										Effect.catch((error) =>
-											Effect.logWarning(
-												`could not persist bash output at ${path}: ${error.message}`,
-											),
-										),
-									),
+						outputStore
+							.append(currentToolCall.toolCallId, chunk)
+							.pipe(
+								Effect.catch((error) =>
+									Effect.logWarning(`could not persist bash output at ${path}: ${error.message}`),
+								),
+							),
 				})
 
 				// If this call is interrupted, the synthetic tool result points the model at the partial

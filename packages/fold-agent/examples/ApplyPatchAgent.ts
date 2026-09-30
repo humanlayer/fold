@@ -14,7 +14,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
-import { codingTools } from '../src/index'
+import { codingTools, layerCodingToolServices } from '../src/index'
 
 const modelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
 const apiKey = process.env.OPENAI_API_KEY
@@ -35,7 +35,7 @@ const makeProgram = (apiKey: string) =>
 				tools: codingTools({ cwd: workspace }),
 			}),
 			cwd: workspace,
-		})
+		}).pipe(Effect.provide(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })))
 
 		const finished = yield* session.send(
 			'Read config.json, then use apply_patch to set "retries" to 3 and read it back to confirm.',

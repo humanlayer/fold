@@ -7,7 +7,7 @@ import {
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Data, Duration, Effect, Option, Schema } from 'effect'
-import { FetchHttpClient, HttpClient, HttpClientRequest } from 'effect/unstable/http'
+import { HttpClient, HttpClientRequest } from 'effect/unstable/http'
 
 const defaultTimeoutMs = 25_000
 const maxNumResults = 20
@@ -155,10 +155,9 @@ const callMcp = (input: {
 		}),
 	)
 
-export const webSearchTool = (options?: WebSearchToolOptions): FoldTool =>
+export const webSearchTool = (options?: WebSearchToolOptions): FoldTool<HttpClient.HttpClient> =>
 	defineTool({
 		...webSearchToolContract,
-		layer: FetchHttpClient.layer,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const currentAgent = yield* CurrentAgent

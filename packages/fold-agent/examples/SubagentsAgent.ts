@@ -15,7 +15,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, defineSubagent, startSession, subagentTool } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
-import { bashTool, jsonlEventLog, readTool } from '../src/index'
+import { bashTool, jsonlEventLog, layerCodingToolServices, readTool } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 const apiKey = process.env.ANTHROPIC_API_KEY
@@ -59,7 +59,7 @@ const makeProgram = (apiKey: string) =>
 			}),
 			log: jsonlEventLog(logPath),
 			cwd: workspace,
-		})
+		}).pipe(Effect.provide(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })))
 
 		const first = yield* session.send(
 			'Dispatch the researcher to list what is in this workspace and summarize each file in one line.',

@@ -3,6 +3,7 @@
  * roster IS the factory argument: the returned value's description advertises exactly those types, its
  * closure carries their names as the dispatch authority (`allowedAgents`), and the composition root
  * discovers dispatchable definitions by walking tools arrays for these values (`subagentRosterOf`).
+ * The roster rides on the tool value itself, so the tool's type carries its roster's host services.
  * The handler is a thin adapter: it parses the flat wire parameters into one `SubagentCommand` at the
  * boundary, delegates to the ambient `Subagents` service, and narrows each typed engine failure into
  * the tool's instructive failure payload with `catchTag`/`catchTags` - all choreography lives in the
@@ -18,31 +19,27 @@ import { shortAgentId } from './AgentIdRef'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { ForkAgentDefinition } from './ForkAgentDefinition'
 import { parseSubagentCommand, type SubagentResult } from './Schemas'
-import type { SubagentDefinition } from './SubagentDefinition'
+import { subagentsNeedingAll, type SubagentDefinition, type SubagentDefinitionServices } from './SubagentDefinition'
 import { Subagents } from './SubagentsService'
 
 /** Runtime capabilities attached to a model-visible delegation tool. */
-export type SubagentToolCapabilities = {
-	readonly agents: ReadonlyArray<SubagentDefinition>
-	readonly forkAgent?: ForkAgentDefinition
+export type SubagentToolCapabilities<R = never> = {
+	readonly agents: ReadonlyArray<SubagentDefinition<R>>
+	readonly forkAgent?: ForkAgentDefinition<R>
 }
-
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
-const capabilitiesBySubagentTool = new WeakMap<FoldTool, SubagentToolCapabilities>()
 
 /** Attach Fold's roster and fork behavior to any host-defined model-visible tool. */
-export const withSubagentCapabilities = (tool: FoldTool, capabilities: SubagentToolCapabilities): FoldTool => {
-	capabilitiesBySubagentTool.set(tool, capabilities)
-	return tool
-}
+export const withSubagentCapabilities = <R, RC>(
+	tool: FoldTool<R>,
+	capabilities: SubagentToolCapabilities<RC>,
+): FoldTool<R | RC> => ({ ...tool, subagents: capabilities })
 
 /** Read the capabilities attached to a delegation tool; null for every other tool. */
-export const subagentCapabilitiesOf = (tool: FoldTool): SubagentToolCapabilities | null =>
-	capabilitiesBySubagentTool.get(tool) ?? null
+export const subagentCapabilitiesOf = <R>(tool: FoldTool<R>): SubagentToolCapabilities<R> | null =>
+	tool.subagents ?? null
 
 /** Read the roster off a subagentTool value; null for every other tool. */
-export const subagentRosterOf = (tool: FoldTool): ReadonlyArray<SubagentDefinition> | null =>
+export const subagentRosterOf = <R>(tool: FoldTool<R>): ReadonlyArray<SubagentDefinition<R>> | null =>
 	subagentCapabilitiesOf(tool)?.agents ?? null
 
 /** Model-facing failure payload of the subagent tool (schema: message + availableAgents). */
@@ -126,7 +123,7 @@ const busyFailure = (error: SubagentBusyError, allowedAgents: ReadonlyArray<stri
 	})
 
 /** Render the roster + usage guidance appended to the contract description for one factory value. */
-const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition>): string => {
+const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition<unknown>>): string => {
 	const listing = agents.map((agent) => `- ${agent.name}: ${agent.description}`).join('\n')
 
 	return (
@@ -143,10 +140,10 @@ const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition>): str
  * the value (`subagentRosterOf`) to build the session registry. Each call creates an independent value;
  * agents sharing one roster should share one value.
  */
-export const subagentTool = (
-	agents: ReadonlyArray<SubagentDefinition>,
-	options?: { readonly forkAgent?: ForkAgentDefinition },
-): FoldTool => {
+export const subagentTool = <D extends SubagentDefinition<unknown>, RF = never>(
+	agents: ReadonlyArray<D>,
+	options?: { readonly forkAgent?: ForkAgentDefinition<RF> },
+): FoldTool<SubagentDefinitionServices<D> | RF> => {
 	const allowedAgents = agents.map((agent) => agent.name)
 
 	const tool = defineTool({
@@ -218,10 +215,8 @@ export const subagentTool = (
 			}),
 	})
 
-	const capabilities: Mutable<SubagentToolCapabilities> = { agents }
-	if (options?.forkAgent !== undefined) {
-		capabilities.forkAgent = options.forkAgent
-	}
-
+	const roster = subagentsNeedingAll(agents)
+	const capabilities: SubagentToolCapabilities<SubagentDefinitionServices<D> | RF> =
+		options?.forkAgent === undefined ? { agents: roster } : { agents: roster, forkAgent: options.forkAgent }
 	return withSubagentCapabilities(tool, capabilities)
 }

@@ -9,13 +9,13 @@ import {
 	type FoldTool,
 	type ToolResultSuccess,
 } from '@humanlayer/fold-core'
-import { Duration, Effect, Layer, Option, Schema, Stream } from 'effect'
-import { FetchHttpClient, Headers, HttpClient } from 'effect/unstable/http'
+import { Duration, Effect, Option, Schema, Stream } from 'effect'
+import { Headers, HttpClient } from 'effect/unstable/http'
 import type { HttpClientResponse } from 'effect/unstable/http'
 import TurndownService from 'turndown'
 
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
-import { Photon } from './Image/Photon'
+import type { Photon } from './Image/Photon'
 import { imageOmittedNote, processImage } from './Image/Process'
 
 const maxResponseSize = 5 * 1024 * 1024
@@ -205,7 +205,7 @@ const renderDocument = (
 
 // --- tool ---------------------------------------------------------------------------------------------
 
-export const webFetchTool = (): FoldTool => {
+export const webFetchTool = (): FoldTool<HttpClient.HttpClient | Photon> => {
 	const turndown = makeTurndown()
 
 	const runWebFetch = (
@@ -223,7 +223,6 @@ export const webFetchTool = (): FoldTool => {
 
 	return defineTool({
 		...webFetchToolContract,
-		layer: Layer.merge(Photon.layer, FetchHttpClient.layer),
 		handler: runWebFetch,
 	})
 }

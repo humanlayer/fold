@@ -11,12 +11,12 @@
  * scan into its description and contributes the skills prompt block - do real work in theirs. Sharing
  * the same value across several agents' `tools` arrays shares one init (one scan, one snapshot).
  */
-import { type Context, Effect, FileSystem, Layer, Path, Schema, type Scope } from 'effect'
+import { Effect, Schema, type Scope } from 'effect'
 import { Tool } from 'effect/unstable/ai'
-import { ChildProcessSpawner } from 'effect/unstable/process'
 
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { Subagents } from '../Subagents/SubagentsService'
+import type { SubagentToolCapabilities } from '../Subagents/SubagentTool'
 import {
 	CurrentAgent,
 	CurrentToolCall,
@@ -32,7 +32,8 @@ import { ToolState } from '../ToolRuntime/ToolStateService'
  * the executing call's identity (`CurrentAgent`/`CurrentToolCall` - D12), the `InterruptNote` enriching
  * this call's synthetic result if it is interrupted, and the `Subagents` engine (the subagent tool's
  * handler delegates to it). The runtime provides all of them around each call; handlers needing none of
- * them simply have a smaller `R`. Platform services are not among them: see {@link PlatformServices}.
+ * them simply have a smaller `R`. Anything else a handler needs (a filesystem, an HTTP client, a host
+ * service) becomes part of the tool's own type, {@link FoldTool}, and the host provides it at the top.
  */
 export type ToolHandlerServices =
 	| ToolState
@@ -43,13 +44,6 @@ export type ToolHandlerServices =
 	| InterruptNote
 	| Subagents
 
-/**
- * Host services that disk- and process-backed descriptors (coding tools, a JSONL log, a disk skill
- * source) may declare. A session never requires them: it passes along whichever ones its caller
- * provides, so a host without a filesystem can run any session whose descriptors don't declare one.
- */
-export type PlatformServices = FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
-
 type ToolDependency =
 	| typeof ToolState
 	| typeof ToolEvents
@@ -58,9 +52,6 @@ type ToolDependency =
 	| typeof CurrentToolCall
 	| typeof InterruptNote
 	| typeof Subagents
-	| typeof FileSystem.FileSystem
-	| typeof Path.Path
-	| typeof ChildProcessSpawner.ChildProcessSpawner
 
 type ToolOptionsBuilder<Params extends Schema.Top, Success extends Schema.Top, Failure extends Schema.Top> = {
 	description: string
@@ -70,13 +61,6 @@ type ToolOptionsBuilder<Params extends Schema.Top, Success extends Schema.Top, F
 	failureMode: 'return'
 	dependencies: Array<ToolDependency>
 }
-
-/** Neutral platform services used by filesystem and process-backed tools. */
-export const platformToolDependencies = [
-	FileSystem.FileSystem,
-	Path.Path,
-	ChildProcessSpawner.ChildProcessSpawner,
-] as const
 
 /** Handler stored on a tool descriptor, erased to the runtime dispatch shape (Effect AI's erased tool params). */
 export type ErasedToolHandler = (
@@ -103,16 +87,38 @@ export type SessionToolContribution = {
 /**
  * One tool as configured on an agent, ready for the composition root to initialize. Built with
  * {@link defineTool} or a system-tool factory (`skillTool`, `subagentTool`); consumed by `startSession`
- * and by subagent definitions.
+ * and by subagent definitions. `R` is every service the tool needs from the host - its handler's and its
+ * init's - so an agent's type, and `startSession`'s, carry what the host must provide.
  */
-export type FoldTool = {
+export type FoldTool<R = never> = {
 	readonly name: string
 	/**
 	 * Run ONCE per distinct value per session by the composition root; contributions are reused. Resources
-	 * it acquires (such as a tool's own services) live for the session's scope.
+	 * it acquires live for the session's scope. Its handler runs with the same host services.
 	 */
-	readonly init: Effect.Effect<SessionToolContribution, never, PlatformServices | Scope.Scope>
+	readonly init: Effect.Effect<SessionToolContribution, never, R | Scope.Scope>
+	/** The subagent roster, on delegation tools built by `subagentTool` or `withSubagentCapabilities`. */
+	readonly subagents?: SubagentToolCapabilities<R>
 }
+
+/** The host services a tool, or a union of tools, needs (the session always supplies `Scope` itself). */
+export type FoldToolServices<T> = T extends { readonly init: Effect.Effect<infer _A, infer _E, infer R> }
+	? Exclude<R, Scope.Scope>
+	: never
+
+/**
+ * View a list of tools as tools needing the union of their services. TypeScript infers a mixed array's
+ * element type as a union of tools, but cannot infer one service union across the elements, so the
+ * public constructors take the tools' own type and convert once here.
+ */
+export const toolsNeedingAll = <T extends FoldTool<unknown>>(
+	tools: ReadonlyArray<T>,
+): ReadonlyArray<FoldTool<FoldToolServices<T>>> =>
+	// SAFETY: each element is a FoldTool<R> whose R is one member of FoldToolServices<T>, and FoldTool is
+	// covariant in R, so each is a FoldTool<FoldToolServices<T>>. TypeScript cannot see through the
+	// conditional type for a generic T.
+	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
+	tools as ReadonlyArray<FoldTool<FoldToolServices<T>>>
 
 /** One realized tool ready to install into a Toolset: the composition-internal, post-init stage. */
 export type RealizedFoldTool = {
@@ -136,15 +142,11 @@ export type DefineToolOptions<
 	readonly success?: Success
 	/** Failure schema for expected, model-visible failures. Defaults to never (handler cannot fail). */
 	readonly failure?: Failure
-	readonly dependencies?: typeof platformToolDependencies
 	/**
-	 * Services this tool's handler needs beyond the per-call and platform services. The session builds the
-	 * layer once, when the tool is initialized, and every call of this tool uses the same services.
+	 * The handler may use the per-call {@link ToolHandlerServices} plus any host service; the host ones
+	 * become the tool's `R` and the host provides them where it starts the session.
 	 */
-	readonly layer?: Layer.Layer<Services, never, PlatformServices>
-	readonly handler: (
-		params: Params['Type'],
-	) => Effect.Effect<Success['Type'], Failure['Type'], ToolHandlerServices | PlatformServices | Services>
+	readonly handler: (params: Params['Type']) => Effect.Effect<Success['Type'], Failure['Type'], Services>
 }
 
 /**
@@ -167,23 +169,14 @@ export const defineTool = <
 	Services = never,
 >(
 	options: DefineToolOptions<Params, Success, Failure, Services>,
-): FoldTool => {
+): FoldTool<Exclude<Services, ToolHandlerServices>> => {
 	const toolOptions: ToolOptionsBuilder<Params, Success, Failure> = {
 		description: options.description,
 		success: options.success ?? Schema.Undefined,
 		failureMode: 'return',
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all of them around each execution.
-		dependencies: [
-			ToolState,
-			ToolEvents,
-			StopController,
-			CurrentAgent,
-			CurrentToolCall,
-			InterruptNote,
-			Subagents,
-			...(options.dependencies ?? []),
-		],
+		dependencies: [ToolState, ToolEvents, StopController, CurrentAgent, CurrentToolCall, InterruptNote, Subagents],
 	}
 	if (options.parameters !== undefined) {
 		toolOptions.parameters = options.parameters
@@ -194,35 +187,23 @@ export const defineTool = <
 	const tool = Tool.make(options.name, toolOptions).annotate(Tool.Strict, false)
 
 	// asVoid yields the undefined value at runtime, which is exactly what Schema.Undefined encodes.
-	const handlerWithDependencies =
+	const handler =
 		options.success === undefined
 			? (params: Params['Type']) => options.handler(params).pipe(Effect.asVoid)
 			: options.handler
-	const withToolServices =
-		(context: Context.Context<Services>) =>
-		(params: Params['Type']): Effect.Effect<unknown, unknown, ToolHandlerServices | PlatformServices> =>
-			handlerWithDependencies(params).pipe(Effect.provideContext(context))
-	const contributionFor = (
-		handlerWithServices: (
-			params: Params['Type'],
-		) => Effect.Effect<unknown, unknown, ToolHandlerServices | PlatformServices | Services>,
-	): SessionToolContribution => ({
-		tool,
-		// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table. Effect AI
-		// decodes model-supplied params against `parameters` before invoking it, so it only ever receives
-		// `Params['Type']`, and supplies the platform services declared by `dependencies`; the erased table
-		// retains only Fold's per-call services because collected tools cannot keep their own dependency rows.
-		// `Services` is already provided when `layer` is set, and is `never` when it is omitted.
-		// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
-		handler: handlerWithServices as ErasedToolHandler,
-		promptBlock: null,
-	})
 
 	return {
 		name: options.name,
-		init:
-			options.layer === undefined
-				? Effect.succeed(contributionFor(handlerWithDependencies))
-				: Layer.build(options.layer).pipe(Effect.map((context) => contributionFor(withToolServices(context)))),
+		init: Effect.succeed({
+			tool,
+			// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table. Effect
+			// AI decodes model-supplied params against `parameters` before invoking it, so it only ever receives
+			// `Params['Type']`. The runtime provides the per-call services around each call, and the host
+			// services in `Services` come from the session's services, which `startSession` requires from its
+			// caller because this tool's type carries them.
+			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
+			handler: handler as ErasedToolHandler,
+			promptBlock: null,
+		}),
 	}
 }

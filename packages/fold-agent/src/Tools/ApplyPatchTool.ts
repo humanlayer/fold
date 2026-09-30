@@ -10,7 +10,6 @@ import {
 	computePatch,
 	defineTool,
 	parsePatch,
-	platformToolDependencies,
 	ToolResultFailure,
 	ToolResultText,
 	type PatchOp,
@@ -31,10 +30,9 @@ const opPaths = (op: PatchOp): ReadonlyArray<string> =>
 	Predicate.isTagged(op, 'update') && op.movePath !== null ? [op.path, op.movePath] : [op.path]
 
 /** Build the apply_patch tool over the ambient FileSystem service. */
-export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
+export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool<FileSystem.FileSystem | Path.Path> =>
 	defineTool({
 		...applyPatchToolContract,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem

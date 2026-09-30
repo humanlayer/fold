@@ -160,7 +160,7 @@ const loadSessionIndex = (
 export const prepareSessionLog = (
 	options?: SessionLayoutOptions,
 ): Effect.Effect<
-	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog },
+	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog<FileSystem.FileSystem> },
 	never,
 	Ids | FileSystem.FileSystem
 > =>

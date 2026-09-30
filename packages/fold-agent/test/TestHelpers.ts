@@ -1,6 +1,7 @@
 /**
  * Shared fixtures for fold-agent tool tests: ambient tool services (recorded ToolEvents, no-op
- * ToolState/StopController), scoped temp directories on the real filesystem, and an in-memory
+ * ToolState/StopController, the platform, photon, and an output store in a scoped temp directory), scoped temp
+ * directories on the real filesystem, and an in-memory
  * FileSystem built on `FileSystem.makeNoop` for tests that must not touch the user's disk (skill scan
  * paths reach the home directory).
  */
@@ -23,21 +24,45 @@ import {
 	ToolResultSuccess,
 	ToolState,
 	type FoldTool,
-	type PlatformServices,
 	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, PlatformError, Ref, Schema, type Scope } from 'effect'
+import { Effect, FileSystem, Layer, type Path, PlatformError, Ref, Schema, type Scope } from 'effect'
 import { HttpClient, HttpClientError } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
+
+import { layerOutputStore, type OutputStore } from '../src/OutputStore/OutputStore'
+import { Photon } from '../src/Tools/Image/Photon'
+
+/** A scoped temp directory on the real filesystem, removed when the scope closes. */
+export const tempDir = Effect.acquireRelease(
+	Effect.sync(() => mkdtempSync(join(tmpdir(), 'fold-agent-test-'))),
+	(directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
+)
 
 /** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
-export const makeAmbientServices: Effect.Effect<{
-	readonly layer: Layer.Layer<ToolHandlerServices | PlatformServices>
-	readonly emitted: Effect.Effect<ReadonlyArray<Schema.Json>>
-	/** The most recent InterruptNote the handler recorded, or null. */
-	readonly interruptNote: Effect.Effect<string | null>
-}> = Effect.gen(function* () {
+export const makeAmbientServices: Effect.Effect<
+	{
+		/** The per-call services, the platform, an output store, and the real photon image library. */
+		readonly layer: Layer.Layer<
+			| ToolHandlerServices
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+		>
+		readonly emitted: Effect.Effect<ReadonlyArray<Schema.Json>>
+		/** The most recent InterruptNote the handler recorded, or null. */
+		readonly interruptNote: Effect.Effect<string | null>
+		/** Where the output store writes, removed when the scope closes. */
+		readonly outputDirectory: string
+	},
+	never,
+	Scope.Scope
+> = Effect.gen(function* () {
 	const events = yield* Ref.make<ReadonlyArray<Schema.Json>>([])
 	const note = yield* Ref.make<string | null>(null)
+	const outputDirectory = yield* tempDir
 
 	return {
 		layer: Layer.mergeAll(
@@ -64,27 +89,30 @@ export const makeAmbientServices: Effect.Effect<{
 				resume: () => Effect.die(new Error('Subagents not available in this test')),
 				continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
 			}),
-			NodeFileSystem.layer,
+			layerOutputStore({ directory: outputDirectory }).pipe(Layer.provide(NodeFileSystem.layer)),
+			Photon.layer,
 		),
 		emitted: Ref.get(events),
 		interruptNote: Ref.get(note),
+		outputDirectory,
 	}
 })
 
-type ToolCall = Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | PlatformServices>
+/** One realized tool call: it needs the per-call services plus the tool's own host services `R`. */
+type ToolCall<R> = Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | R>
 
 /**
  * Initialize a tool the way the session does and return its handler. A realized handler's success and
  * failure are erased; every built-in tool succeeds with `ToolResultSuccess` and fails with
  * `ToolResultFailure`, so both are decoded back at this test boundary. Anything else is a defect.
  */
-export const realizeTool = (
-	tool: FoldTool,
-): Effect.Effect<(params: unknown) => ToolCall, never, PlatformServices | Scope.Scope> =>
+export const realizeTool = <R>(
+	tool: FoldTool<R>,
+): Effect.Effect<(params: unknown) => ToolCall<R>, never, R | Scope.Scope> =>
 	Effect.map(
 		tool.init,
 		(contribution) =>
-			(params): ToolCall =>
+			(params): ToolCall<R> =>
 				// oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- the erased handler is decoded here
 				contribution.handler(params).pipe(
 					Effect.catch((error) =>
@@ -100,33 +128,40 @@ export const realizeTool = (
 	)
 
 /** Call a tool through its init, the way the runtime does. */
-export const callTool = (
-	tool: FoldTool,
+export const callTool = <R>(
+	tool: FoldTool<R>,
 	params: unknown,
-): Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | PlatformServices | Scope.Scope> =>
+): Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | R | Scope.Scope> =>
 	Effect.flatMap(realizeTool(tool), (handler) => handler(params))
 
 export const handlerOf =
-	(tool: FoldTool) =>
-	(
-		params: unknown,
-	): Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | PlatformServices | Scope.Scope> =>
+	<R>(tool: FoldTool<R>) =>
+	(params: unknown): Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | R | Scope.Scope> =>
 		callTool(tool, params)
 
-/** Run one handler with throwaway ambient services. */
-export const runHandler = <A, E>(
-	effect: Effect.Effect<A, E, ToolHandlerServices | PlatformServices | Scope.Scope>,
-): Effect.Effect<A, E> =>
+/** Run one handler with throwaway ambient services; anything else it needs, the caller provides. */
+export const runHandler = <A, E, R>(
+	effect: Effect.Effect<A, E, R>,
+): Effect.Effect<
+	A,
+	E,
+	Exclude<
+		Exclude<
+			R,
+			| ToolHandlerServices
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+		>,
+		Scope.Scope
+	>
+> =>
 	Effect.gen(function* () {
 		const ambient = yield* makeAmbientServices
-		return yield* effect.pipe(Effect.provide(ambient.layer), Effect.scoped)
-	})
-
-/** A scoped temp directory on the real filesystem, removed when the scope closes. */
-export const tempDir = Effect.acquireRelease(
-	Effect.sync(() => mkdtempSync(join(tmpdir(), 'fold-agent-test-'))),
-	(directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
-)
+		return yield* effect.pipe(Effect.provide(ambient.layer))
+	}).pipe(Effect.scoped)
 
 const notFound = (method: string, path: string) =>
 	PlatformError.systemError({

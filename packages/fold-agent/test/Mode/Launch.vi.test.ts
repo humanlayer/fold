@@ -7,7 +7,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import * as NodeServices from '@effect/platform-node/NodeServices'
 import { expect, it } from '@effect/vitest'
 import { customModel, layerLiveIdFactory, type ActiveModel, type FoldModel } from '@humanlayer/fold-core'
 import { Effect, Layer, Predicate, Stream } from 'effect'
@@ -25,7 +25,11 @@ import {
 	rlmMode,
 	switchSessionMode,
 } from '../../src/index'
+import { Photon } from '../../src/Tools/Image/Photon'
 import { offlineHttpClient, tempDir } from '../TestHelpers'
+
+/** What a launch needs from its host: the platform, image processing, and an offline HTTP client. */
+const launchTestServices = Layer.mergeAll(NodeServices.layer, offlineHttpClient, Photon.layer)
 
 // The Ids service is provided by the runtime in production (see cli.ts). Tests supply the same live
 // factory so `launchSession` mints real ids; swap in `layerDeterministicIds` where determinism matters.
@@ -125,7 +129,7 @@ it.effect('launchSession composes the model, agentfiles, and mode tools over sta
 				expect(tools).toContain('subagent')
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('launchSession with rpi appends the hint block after the mode prompt', () =>
@@ -155,7 +159,7 @@ it.effect('launchSession with rpi appends the hint block after the mode prompt',
 				expect(leadingJson.indexOf(RPI_HINT_PROMPT)).toBeGreaterThan(leadingJson.indexOf(DEFAULT_CODING_PROMPT))
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('switchSessionMode preserves identity and writes one recomposed mode epoch', () =>
@@ -187,7 +191,7 @@ it.effect('switchSessionMode preserves identity and writes one recomposed mode e
 				expect(JSON.stringify(switchedPrompt)).toContain(RPI_HINT_PROMPT)
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('resumeLatestSession adopts the newest log for the working directory', () =>
@@ -222,7 +226,7 @@ it.effect('resumeLatestSession adopts the newest log for the working directory',
 				expect(JSON.stringify(entries)).toContain('first message')
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('resumeSessionById adopts an exact session id from the current project directory', () =>
@@ -251,7 +255,7 @@ it.effect('resumeSessionById adopts an exact session id from the current project
 				expect(JSON.stringify(yield* resumed.entries)).toContain('remember this by id')
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('resumeSessionById is scoped to the selected cwd project slug', () =>
@@ -275,7 +279,7 @@ it.effect('resumeSessionById is scoped to the selected cwd project slug', () =>
 		}).pipe(Effect.scoped, Effect.flip)
 
 		expect(error._tag).toBe('SessionToResumeNotFoundError')
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('launchSession resolves CLI-style model selection overrides through fold-agent config', () =>
@@ -313,7 +317,7 @@ it.effect('launchSession resolves CLI-style model selection overrides through fo
 				}
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('a direct Codex launch replaces the complete mixed-provider role map', () =>
@@ -354,7 +358,7 @@ it.effect('a direct Codex launch replaces the complete mixed-provider role map',
 				}
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('launchSession wires session profiles end to end: role-bound roster starts and setProfile works', () =>
@@ -383,7 +387,7 @@ it.effect('launchSession wires session profiles end to end: role-bound roster st
 				yield* session.setProfile('fast', alwaysTextModel('rebound'))
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 const namedProfileConfigText = `{
@@ -437,7 +441,7 @@ it.effect('--profile substitutes the profile roles and applies its pinned rlm mo
 				expect(JSON.stringify(leading)).toContain(RPI_HINT_PROMPT)
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('an explicit mode option beats the profile pinned mode', () =>
@@ -465,7 +469,7 @@ it.effect('an explicit mode option beats the profile pinned mode', () =>
 				expect(started.tools).toContain('bash')
 			}),
 		)
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('an unknown --profile fails with UnknownProfileError naming what exists', () =>
@@ -483,7 +487,7 @@ it.effect('an unknown --profile fails with UnknownProfileError naming what exist
 		if (!Predicate.isTagged(error, 'UnknownProfileError')) return
 		expect(error.profile).toBe('nope')
 		expect(error.available).toEqual(['ultratest'])
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 it.effect('resumeLatestSession fails with NoSessionToResumeError when none exist for the cwd', () =>
@@ -496,7 +500,7 @@ it.effect('resumeLatestSession fails with NoSessionToResumeError when none exist
 			Effect.flip,
 		)
 		expect(error._tag).toBe('NoSessionToResumeError')
-	}).pipe(Effect.provide(Layer.merge(NodeFileSystem.layer, offlineHttpClient))),
+	}).pipe(Effect.provide(launchTestServices)),
 )
 
 // --- mergeModelSelection: the CLI --provider/--model/--reasoning merge over a config binding ----------

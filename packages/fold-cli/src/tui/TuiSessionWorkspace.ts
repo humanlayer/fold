@@ -1,4 +1,5 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import * as NodeServices from '@effect/platform-node/NodeServices'
 import {
 	deleteSession,
 	launchSession,
@@ -12,10 +13,13 @@ import {
 	type ProfileModeName,
 	type SessionToResumeNotFoundError,
 	type FoldConfig,
+	type OutputStore,
+	Photon,
 } from '@humanlayer/fold-agent'
-import { layerLiveIdFactory, lookupCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import { Cause, Duration, Effect, type FileSystem, Layer, Match, Option, Scope } from 'effect'
+import { layerLiveIdFactory, lookupCatalogEntry, type FoldSession, type SessionId } from '@humanlayer/fold-core'
+import { Cause, Duration, Effect, type FileSystem, Layer, Match, Option, type Path, Scope } from 'effect'
 import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 import { createSignal, type Accessor } from 'solid-js'
 
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from '../ContextWindow'
@@ -152,12 +156,28 @@ export const makeTuiSessionWorkspace = (options: {
 		}))
 		yield* Effect.addFinalizer(() => host.closeAll)
 		const acquire = <E>(
-			session: Effect.Effect<FoldSession, E, Scope.Scope | FileSystem.FileSystem | HttpClient.HttpClient>,
+			session: Effect.Effect<
+				FoldSession<
+					| FileSystem.FileSystem
+					| Path.Path
+					| ChildProcessSpawner.ChildProcessSpawner
+					| OutputStore
+					| Photon
+					| HttpClient.HttpClient
+				>,
+				E,
+				| Scope.Scope
+				| FileSystem.FileSystem
+				| Path.Path
+				| ChildProcessSpawner.ChildProcessSpawner
+				| Photon
+				| HttpClient.HttpClient
+			>,
 			metadata: HostedTuiSessionMetadata,
 			focused: boolean,
 		) =>
 			session.pipe(
-				Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
+				Effect.provide(Layer.mergeAll(NodeServices.layer, FetchHttpClient.layer, Photon.layer)),
 				Effect.flatMap((value) => {
 					const hostedOptions: Mutable<Parameters<typeof makeHostedTuiSession>[1]> = {
 						metadata,

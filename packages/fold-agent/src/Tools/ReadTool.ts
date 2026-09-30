@@ -9,7 +9,6 @@ import {
 	defineTool,
 	formatSize,
 	defaultMaxBytes,
-	platformToolDependencies,
 	readToolContract,
 	ToolResultFailure,
 	ToolResultImagePart,
@@ -19,11 +18,11 @@ import {
 	truncateHead,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Match, Option, Schema, type PlatformError } from 'effect'
+import { Effect, FileSystem, Match, Option, Schema, type Path, type PlatformError } from 'effect'
 
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
-import { Photon } from './Image/Photon'
+import type { Photon } from './Image/Photon'
 import { imageOmittedNote, processImage } from './Image/Process'
 
 const binaryFileExtensions = new Set([
@@ -115,11 +114,9 @@ export const errnoCode = (error: PlatformError.PlatformError): string => {
 }
 
 /** Build the read tool over the ambient FileSystem service. */
-export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
+export const readTool = (options?: { readonly cwd?: string }): FoldTool<FileSystem.FileSystem | Path.Path | Photon> =>
 	defineTool({
 		...readToolContract,
-		dependencies: platformToolDependencies,
-		layer: Photon.layer,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem

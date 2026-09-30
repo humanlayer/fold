@@ -7,12 +7,11 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
-import { SessionId, ToolCallId } from '@humanlayer/fold-core'
 import { Duration, Effect, Fiber } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
-import { bashTool, codingTools, decodeBashOutputDelta, makeOutputStore, toolOutputPathFor } from '../../src/index'
+import { bashTool, codingTools, decodeBashOutputDelta } from '../../src/index'
 import { handlerOf, makeAmbientServices, messageOf, outputOf, runHandler, tempDir } from '../TestHelpers'
 
 it.live('captures stdout and reports success on exit 0', () =>
@@ -78,7 +77,9 @@ it.live('forwards host-provided session environment through codingTools', () =>
 		}).find((tool) => tool.name === 'bash')
 		if (bash === undefined) throw new Error('expected codingTools to include Bash')
 
-		const result = yield* runHandler(handlerOf(bash)({ command: 'printf "%s" "$HUMANLAYER_SESSION_ID"' }))
+		const result = yield* runHandler(handlerOf(bash)({ command: 'printf "%s" "$HUMANLAYER_SESSION_ID"' })).pipe(
+			Effect.provide(FetchHttpClient.layer),
+		)
 
 		expect(outputOf(result)).toBe('coding-tools-session')
 	}),
@@ -211,7 +212,11 @@ it.live('emits schema-typed stdout/stderr deltas while running', () =>
 it.live('tail-truncates long output and spills the full output to a file', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const result = yield* runHandler(handlerOf(bashTool({ cwd: dir, spillDir: dir }))({ command: 'seq 1 3000' }))
+		// Keep the ambient output store open while the spill file is read back.
+		const ambient = yield* makeAmbientServices
+		const result = yield* handlerOf(bashTool({ cwd: dir }))({ command: 'seq 1 3000' }).pipe(
+			Effect.provide(ambient.layer),
+		)
 		const output = outputOf(result)
 
 		// Tail direction: the last lines survive, the head is cut. pi's line accounting: the trailing
@@ -229,23 +234,21 @@ it.live('tail-truncates long output and spills the full output to a file', () =>
 	}),
 )
 
-it.live('uses OutputStore for deterministic bash spill paths when provided', () =>
+it.live('spills to the output store at a deterministic per-tool-call path', () =>
 	Effect.gen(function* () {
 		const dir = yield* tempDir
-		const sessionId = SessionId.make('sess_eeeeeeeeeeeeeeeeeeeeeeee')
-		const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
-		const outputStore = yield* makeOutputStore({ sessionId, foldHome: dir })
 		const ambient = yield* makeAmbientServices
 
-		const result = yield* handlerOf(bashTool({ cwd: dir, outputStore }))({ command: 'seq 1 3000' }).pipe(
+		const result = yield* handlerOf(bashTool({ cwd: dir }))({ command: 'seq 1 3000' }).pipe(
 			Effect.provide(ambient.layer),
 		)
-		const expectedPath = toolOutputPathFor({ sessionId, toolCallId, foldHome: dir })
+		// The ambient CurrentToolCall id names the file inside the provided store's directory.
+		const expectedPath = join(ambient.outputDirectory, 'tool_call_aaaaaaaaaaaaaaaaaaaaaaaa.txt')
 
 		expect(outputOf(result)).toContain(`Full output: ${expectedPath}`)
 		expect(readFileSync(expectedPath, 'utf-8')).toContain('1\n2\n3\n')
 		expect(readFileSync(expectedPath, 'utf-8')).toContain('2999\n3000\n')
-	}).pipe(Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped),
 )
 
 it.live('byte-limit truncation reports the size-limited notice with the spill path', () =>
@@ -253,7 +256,7 @@ it.live('byte-limit truncation reports the size-limited notice with the spill pa
 		const dir = yield* tempDir
 		// ~100KB of output in few lines: byte limit binds before the line limit.
 		const result = yield* runHandler(
-			handlerOf(bashTool({ cwd: dir, spillDir: dir }))({
+			handlerOf(bashTool({ cwd: dir }))({
 				command: `for i in $(seq 1 100); do printf 'x%.0s' $(seq 1 1024); printf '\\n'; done`,
 			}),
 		)
@@ -325,7 +328,7 @@ it.live('streams output to the spill file as it is written; interruption notes t
 	Effect.gen(function* () {
 		const dir = yield* tempDir
 		const ambient = yield* makeAmbientServices
-		const tool = bashTool({ cwd: dir, spillDir: dir })
+		const tool = bashTool({ cwd: dir })
 
 		const commandFiber = yield* Effect.forkChild(
 			handlerOf(tool)({ command: 'echo early-output; sleep 30' }).pipe(
@@ -337,9 +340,9 @@ it.live('streams output to the spill file as it is written; interruption notes t
 		// The streamed chunk lands on disk long before the command could finish (stream-as-written).
 		const spill = yield* Effect.gen(function* () {
 			while (true) {
-				const file = readdirSync(dir).find((name) => name.startsWith('fold-bash-'))
+				const file = readdirSync(ambient.outputDirectory).find((name) => name.endsWith('.txt'))
 				if (file !== undefined) {
-					const path = join(dir, file)
+					const path = join(ambient.outputDirectory, file)
 					const content = readFileSync(path, 'utf8')
 					if (content.includes('early-output')) return { path, content }
 				}

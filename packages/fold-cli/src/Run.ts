@@ -17,6 +17,8 @@ import {
 	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
 	type FoldModeName,
+	type OutputStore,
+	type Photon,
 } from '@humanlayer/fold-agent'
 import { makeCodexAuthStore } from '@humanlayer/fold-codex'
 import type {
@@ -40,10 +42,12 @@ import {
 	Fiber,
 	type FileSystem,
 	Option,
+	type Path,
 	Stream,
 	type Scope,
 } from 'effect'
 import type { HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type SessionHeader } from './Renderer'
 
@@ -80,7 +84,14 @@ export type PromptRunOptions = CliSessionOptions & {
 }
 
 type OpenedSession = {
-	readonly session: FoldSession
+	readonly session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>
 	readonly mode: 'new' | 'resumed'
 	readonly logPath: string
 }
@@ -104,7 +115,24 @@ const launchOptions = (options: CliSessionOptions) => {
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
 const openSessionFor = (
 	options: CliSessionOptions,
-): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient> => {
+): Effect.Effect<
+	FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
+	OpenSessionError,
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+> => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
 
 	return Match.valueTags(options.resume, {
@@ -115,7 +143,17 @@ const openSessionFor = (
 
 const openSession = (
 	options: CliSessionOptions,
-): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient> =>
+): Effect.Effect<
+	OpenedSession,
+	OpenSessionError,
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
 		const logOptions: Mutable<NonNullable<Parameters<typeof sessionLogPathFor>[1]>> = { cwd: options.cwd }
@@ -232,7 +270,14 @@ const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effec
 	})
 
 const renderLiveEvents = (
-	session: FoldSession,
+	session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	renderer: OutputRenderer,
 ): Effect.Effect<Fiber.Fiber<void>, never, Scope.Scope> =>
 	Effect.gen(function* () {
@@ -248,7 +293,14 @@ const renderLiveEvents = (
 	})
 
 const withProcessSignals = <A, E, R>(
-	session: FoldSession,
+	session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	renderer: OutputRenderer,
 	effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
@@ -319,7 +371,14 @@ export const runPrompt = (
 ): Effect.Effect<
 	AgentFinishedLogEntry,
 	OpenSessionError,
-	Scope.Scope | Ids | FileSystem.FileSystem | HttpClient.HttpClient | ManagedBinaries
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+	| ManagedBinaries
 > =>
 	Effect.gen(function* () {
 		yield* bootstrapForRun(options)

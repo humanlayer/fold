@@ -16,7 +16,7 @@ import { codexModel } from '@humanlayer/fold-codex'
 import { defineAgent, startSession } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
-import { codingTools, jsonlEventLog } from '../src/index'
+import { codingTools, jsonlEventLog, layerCodingToolServices } from '../src/index'
 
 const modelId = process.env.FOLD_CODEX_MODEL ?? 'gpt-5.5'
 
@@ -36,7 +36,7 @@ const program = Effect.gen(function* () {
 		}),
 		log: jsonlEventLog(logPath),
 		cwd: workspace,
-	})
+	}).pipe(Effect.provide(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })))
 
 	const finished = yield* session.send(
 		'Create a file called greet.ts exporting `greet(name: string): string` returning "hello, {name}". ' +

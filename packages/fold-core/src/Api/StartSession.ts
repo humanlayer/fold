@@ -35,10 +35,8 @@ import {
 	Effect,
 	Exit,
 	Fiber,
-	FileSystem,
 	Layer,
 	Match,
-	Path,
 	Ref,
 	Schema,
 	Scope,
@@ -46,7 +44,6 @@ import {
 	Stream,
 } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
-import { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
@@ -107,15 +104,18 @@ import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from
 import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
-import type { PlatformServices, RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
+import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
-/** Options for {@link startSession}. */
-export type StartSessionOptions = {
-	readonly agent: AgentDefinition
+/**
+ * Options for {@link startSession}. `RA` is the host services the agent's tools need and `RL` the ones
+ * the log backend needs; the session requires both from its caller.
+ */
+export type StartSessionOptions<RA = never, RL = never> = {
+	readonly agent: AgentDefinition<RA>
 	/** Event log backend for the session. Defaults to in-memory. */
-	readonly log?: FoldEventLog
+	readonly log?: FoldEventLog<RL>
 	/** Host working directory recorded on `session_started`; omit on hosts without a filesystem. */
 	readonly cwd?: string
 	readonly meta?: Readonly<Record<string, Schema.Json>>
@@ -143,10 +143,10 @@ export type StartSessionOptions = {
 }
 
 /** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
-export type ResumeSessionOptions = {
-	readonly agent: AgentDefinition
+export type ResumeSessionOptions<RA = never, RL = never> = {
+	readonly agent: AgentDefinition<RA>
 	/** The existing event log to adopt; the session continues exactly where the log left off. */
-	readonly log: FoldEventLog
+	readonly log: FoldEventLog<RL>
 	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
 	/**
@@ -166,12 +166,12 @@ export type ResumeSessionOptions = {
 }
 
 /** Options for {@link FoldSession.switchModel}. Omitted fields keep the session's current configuration. */
-export type SwitchModelOptions = {
+export type SwitchModelOptions<R = never> = {
 	readonly reason?: string
 	/** Replace the agent's own leading prompt blocks from this epoch on. */
 	readonly systemPrompt?: SystemPromptInput
-	/** Replace the installed tools from this epoch on. */
-	readonly tools?: ReadonlyArray<FoldTool>
+	/** Replace the installed tools from this epoch on. They may need only services the session already has. */
+	readonly tools?: ReadonlyArray<FoldTool<R>>
 	/**
 	 * Atomically replace the complete role-to-model map in the same commit as this root epoch switch.
 	 * Candidate subagent types are validated against this map; it is published only after the durable
@@ -202,9 +202,10 @@ export type InjectedSkillEntries = {
 /**
  * A running fold session: one durable log, one root agent, already started (or adopted). Every method
  * is safe to call without further wiring; root runs and `switchModel` are serialized against each
- * other so a switch cannot interleave with an in-flight root run.
+ * other so a switch cannot interleave with an in-flight root run. `R` is the host services the session
+ * was started with; tools installed by a later switch may use them.
  */
-export type FoldSession = {
+export type FoldSession<R = never> = {
 	readonly sessionId: SessionId
 	readonly rootAgentId: AgentId
 	/**
@@ -252,7 +253,7 @@ export type FoldSession = {
 	 * `thinking-change` when the reasoning level changed - and provisions the new configuration for every
 	 * subsequent send. The same log continues across the switch.
 	 */
-	readonly switchModel: (model: FoldModel, options?: SwitchModelOptions) => Effect.Effect<void>
+	readonly switchModel: (model: FoldModel, options?: SwitchModelOptions<R>) => Effect.Effect<void>
 	/** Force a root-agent compaction now. Returns null when there is nothing safe to summarize. */
 	readonly compact: (options?: CompactOptions) => Effect.Effect<CompactionLogEntry | null>
 	/**
@@ -277,47 +278,27 @@ export type FoldSession = {
 }
 
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
-type SessionAgentConfig = {
+type SessionAgentConfig<R> = {
 	readonly model: FoldModel
 	readonly promptCacheKey: string | null
 	/** The agent's own leading blocks, normalized from its descriptor. */
 	readonly systemPrompt: ReadonlyArray<string>
-	readonly tools: ReadonlyArray<FoldTool>
+	readonly tools: ReadonlyArray<FoldTool<R>>
 }
 
-/**
- * Pass along whichever platform services the caller provided, the way Effect AI's Toolkit passes its
- * build context to handlers. A session never requires them; descriptors that declare them (disk tools,
- * a JSONL log, a disk skill source) read them from here, and die with a missing-service defect when the
- * caller left one out.
- */
-const providedPlatformServices: Effect.Effect<Context.Context<PlatformServices>> = Effect.map(
-	Effect.context<never>(),
-	(caller) => {
-		const platform = Context.pick(FileSystem.FileSystem, Path.Path, ChildProcessSpawner.ChildProcessSpawner)(caller)
-		// SAFETY: `pick` keeps only the keys present, so this may hold some of the platform services. That
-		// is the point: a descriptor that declares one the caller did not provide fails when it asks for it.
-		// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
-		return platform as Context.Context<PlatformServices>
-	},
-)
-
-/** Lower the event log descriptor to its EventLog layer. */
-const eventLogLayerFor = (
-	log: FoldEventLog,
-	platformServices: Context.Context<PlatformServices>,
-): Layer.Layer<EventLog, never, Ids> =>
+/** Lower the event log descriptor to its EventLog layer; the backend's own needs stay in the layer's `R`. */
+const eventLogLayerFor = <R>(log: FoldEventLog<R>): Layer.Layer<EventLog, never, Ids | R> =>
 	Match.valueTags(log, {
 		memory: () => layerInMemoryEventLogWithIds,
-		source: ({ make }) => Layer.effect(EventLog, make.pipe(Effect.provideContext(platformServices))),
+		source: ({ make }) => Layer.effect(EventLog, make),
 	})
 
 const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
 const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
 
 /** Everything one assembled session shares between `startSession` and `resumeSession`. */
-type SessionGraph = {
-	readonly agent: AgentDefinition
+type SessionGraph<R> = {
+	readonly agent: AgentDefinition<R>
 	readonly session: SessionService
 	readonly eventLog: EventLogService
 	readonly ids: IdsService
@@ -325,23 +306,25 @@ type SessionGraph = {
 	readonly systemPromptService: SystemPromptService
 	readonly subagentsEngine: SubagentsService
 	readonly profiles: ProfilesService
-	readonly configRef: Ref.Ref<SessionAgentConfig>
+	readonly configRef: Ref.Ref<SessionAgentConfig<R>>
 	readonly validateSubagentRegistry: (
-		definitions: CollectedAgentDefinitions,
+		definitions: CollectedAgentDefinitions<R>,
 		profiles: SessionProfiles,
 	) => Effect.Effect<void>
-	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
-	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
-	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
+	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions<R>) => void
+	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool<R>>) => Effect.Effect<void>
+	readonly collectNewSubagentDefinitions: (
+		tools: ReadonlyArray<FoldTool<R>>,
+	) => Effect.Effect<CollectedAgentDefinitions<R>>
 	readonly provisionRootRuntime: (
 		model: FoldModel,
-		tools: ReadonlyArray<FoldTool>,
+		tools: ReadonlyArray<FoldTool<R>>,
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
 	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
 	readonly leadingPromptFor: (
 		systemPrompt: ReadonlyArray<string>,
-		tools: ReadonlyArray<FoldTool>,
+		tools: ReadonlyArray<FoldTool<unknown>>,
 	) => ReadonlyArray<string> | null
 }
 
@@ -350,17 +333,20 @@ type SessionGraph = {
  * provisioner, Subagents engine, controls, and the delegating root runtime - without writing anything
  * durable. `startSession` follows with `session.start`; `resumeSession` follows with adoption.
  */
-const assembleSessionGraph = (options: {
-	readonly agent: AgentDefinition
-	readonly log?: FoldEventLog
+const assembleSessionGraph = <R>(options: {
+	readonly agent: AgentDefinition<R>
+	readonly log?: FoldEventLog<R>
 	readonly steering?: SteeringMode
 	readonly profiles?: SessionProfiles
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}): Effect.Effect<SessionGraph, never, Scope.Scope> =>
+}): Effect.Effect<SessionGraph<R>, never, Scope.Scope | R> =>
 	Effect.gen(function* () {
 		const agent = options.agent
-		const platformServices = yield* providedPlatformServices
+		// The host services every tool and the log backend need, taken once from the caller - the way Effect
+		// AI's Toolkit hands its build context to handlers. Tools run later on the session's own fibers
+		// (including tools installed by a later switch), so the session carries these for them.
+		const hostServices = yield* Effect.context<R>()
 		const rootTools = agent.tools ?? []
 		const rootHooks = agent.hooks ?? {}
 
@@ -405,13 +391,13 @@ const assembleSessionGraph = (options: {
 		// Tool inits may acquire services (a tool's own layer); they live as long as the session, including
 		// tools first introduced by a later agent switch.
 		const sessionScope = yield* Effect.scope
-		const toolContributions = new Map<FoldTool, SessionToolContribution>()
-		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
+		const toolContributions = new Map<FoldTool<unknown>, SessionToolContribution>()
+		const ensureToolContributions = (tools: ReadonlyArray<FoldTool<R>>): Effect.Effect<void> =>
 			Effect.forEach(
 				tools.filter((tool) => !toolContributions.has(tool)),
 				(tool) =>
 					tool.init.pipe(
-						Effect.provideContext(platformServices),
+						Effect.provideContext(hostServices),
 						Scope.provide(sessionScope),
 						Effect.map((contribution) => toolContributions.set(tool, contribution)),
 					),
@@ -427,7 +413,7 @@ const assembleSessionGraph = (options: {
 		})
 
 		/** Realize one agent's configured tools against the session-start contributions (§2.5). */
-		const realizeAgentTools = (tools: ReadonlyArray<FoldTool>): RealizedAgentTools => {
+		const realizeAgentTools = (tools: ReadonlyArray<FoldTool<unknown>>): RealizedAgentTools => {
 			const realized: Array<RealizedFoldTool> = []
 			const promptBlocks: Array<string> = []
 			let skillSource: SkillSourceService | null = null
@@ -452,13 +438,13 @@ const assembleSessionGraph = (options: {
 		/** One agent's leading blocks: its own, then its tools' contributed blocks (skills block, D20). */
 		const leadingPromptFor = (
 			systemPrompt: ReadonlyArray<string>,
-			tools: ReadonlyArray<FoldTool>,
+			tools: ReadonlyArray<FoldTool<unknown>>,
 		): ReadonlyArray<string> | null => {
 			const blocks = [...systemPrompt, ...realizeAgentTools(tools).promptBlocks]
 			return Arr.isArrayEmpty(blocks) ? null : blocks
 		}
 
-		const initialConfig: SessionAgentConfig = {
+		const initialConfig: SessionAgentConfig<R> = {
 			model: agent.model,
 			promptCacheKey: agent.promptCacheKey ?? null,
 			systemPrompt: systemPromptBlocks(agent.systemPrompt),
@@ -490,13 +476,13 @@ const assembleSessionGraph = (options: {
 		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
 		const idsLayer = layerLiveIdFactory
 		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? memoryEventLog(), platformServices).pipe(Layer.provide(idsLayer)),
+			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(idsLayer)),
 			idsLayer,
 			liveAgentEventsLayer,
 		)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
-			Layer.succeedContext(platformServices),
+			Layer.succeedContext(hostServices),
 			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
@@ -535,7 +521,7 @@ const assembleSessionGraph = (options: {
 		const provisioner = makeAgentProvisioner(sessionServicesLayer, agent.autoCompact)
 		const provisionRootRuntime = (
 			model: FoldModel,
-			tools: ReadonlyArray<FoldTool>,
+			tools: ReadonlyArray<FoldTool<R>>,
 		): Effect.Effect<AgentRuntimeService> =>
 			provisioner
 				.provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks })
@@ -612,7 +598,7 @@ const assembleSessionGraph = (options: {
 	})
 
 /** Build the public handle over one assembled, started-or-adopted session. */
-const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldSession => {
+const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession): FoldSession<R> => {
 	const { session, eventLog, ids, controls, subagentsEngine, configRef, profiles } = graph
 	const rootAgentId = identity.rootAgentId
 
@@ -866,13 +852,13 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 					Effect.asVoid,
 				)
 
-	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
+	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions<R>): Effect.Effect<void> =>
 		gate.withPermit(
 			Effect.gen(function* () {
 				const current = yield* Ref.get(configRef)
 				const currentProfiles = yield* profiles.snapshot
 				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
-				const next: SessionAgentConfig = {
+				const next: SessionAgentConfig<R> = {
 					model,
 					promptCacheKey: current.promptCacheKey,
 					systemPrompt:
@@ -971,9 +957,11 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const startSession = <RA = never, RL = never>(
+	options: StartSessionOptions<RA, RL>,
+): Effect.Effect<FoldSession<RA | RL>, never, Scope.Scope | RA | RL> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph(options)
+		const graph = yield* assembleSessionGraph<RA | RL>(options)
 		const config = yield* Ref.get(graph.configRef)
 		const meta: Mutable<NonNullable<StartSessionInput['meta']>> = { ...options.meta }
 		if (options.agent.name !== undefined) {
@@ -1004,9 +992,11 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSe
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const resumeSession = <RA = never, RL = never>(
+	options: ResumeSessionOptions<RA, RL>,
+): Effect.Effect<FoldSession<RA | RL>, never, Scope.Scope | RA | RL> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph(options)
+		const graph = yield* assembleSessionGraph<RA | RL>(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(
 			Effect.orDie,
 			Effect.map((collected): ReadonlyArray<LogEntry> => collected),

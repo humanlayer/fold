@@ -1,4 +1,4 @@
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import * as NodeServices from '@effect/platform-node/NodeServices'
 /**
  * Config-driven coding agent (D25/D27): the batteries-included launch path the CLI/OpenTUI will use.
  * Loads `~/.fold/config.jsonc` (writing a commented starter on first run), resolves the mode's `smart`
@@ -13,7 +13,7 @@ import { layerLiveIdFactory } from '@humanlayer/fold-core'
 import { Console, Effect, Layer } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 
-import { configInit, launchSession, loadFoldConfigOrNull } from '../src/index'
+import { configInit, launchSession, loadFoldConfigOrNull, Photon } from '../src/index'
 
 const prompt = process.argv[2] ?? 'List the files in the current directory and briefly summarize this project.'
 
@@ -31,7 +31,10 @@ const program = Effect.gen(function* () {
 
 	const finished = yield* session.send(prompt)
 	yield* Console.log(`\n[${finished.outcome}] ${finished.resultText ?? '(no text)'}`)
-}).pipe(Effect.provide(Layer.mergeAll(layerLiveIdFactory, NodeFileSystem.layer, FetchHttpClient.layer)), Effect.scoped)
+}).pipe(
+	Effect.provide(Layer.mergeAll(layerLiveIdFactory, NodeServices.layer, FetchHttpClient.layer, Photon.layer)),
+	Effect.scoped,
+)
 
 Effect.runPromise(program).catch((error) => {
 	console.error(error)

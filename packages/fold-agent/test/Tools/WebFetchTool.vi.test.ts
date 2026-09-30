@@ -11,6 +11,7 @@ import { it } from '@effect/vitest'
 import { ToolResultMultipart, ToolResultText } from '@humanlayer/fold-core'
 import { Effect, Schema } from 'effect'
 import { constVoid } from 'effect/Function'
+import { FetchHttpClient } from 'effect/unstable/http'
 import { afterAll, beforeAll, expect } from 'vitest'
 
 import { webFetchTool } from '../../src/index'
@@ -53,7 +54,7 @@ const firstText = (result: unknown): string => {
 const fetchResult = (
 	url: string,
 	options?: { readonly format?: 'markdown' | 'text' | 'html'; readonly timeout_seconds?: number },
-) => runHandler(handlerOf(webFetchTool())({ url, ...options }))
+) => runHandler(handlerOf(webFetchTool())({ url, ...options })).pipe(Effect.provide(FetchHttpClient.layer))
 
 let server: Server
 let baseUrl = ''

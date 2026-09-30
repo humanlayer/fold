@@ -209,4 +209,5 @@ export const makeDiskSkillSource = (
 	})
 
 /** Configure an agent's skills from disk (the standard chain + optional extra roots). */
-export const skillsFromDisk = (options?: DiskSkillsOptions): FoldSkills => skillSource(makeDiskSkillSource(options))
+export const skillsFromDisk = (options?: DiskSkillsOptions): FoldSkills<FileSystem.FileSystem> =>
+	skillSource(makeDiskSkillSource(options))

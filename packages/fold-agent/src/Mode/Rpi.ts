@@ -24,10 +24,14 @@
  * in v1 (deliberate).
  */
 import { defineSubagent, subagentTool, type SubagentDefinition } from '@humanlayer/fold-core'
+import type { FileSystem, Path } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
-import type { OutputStoreService } from '../OutputStore/OutputStore'
+import type { OutputStore } from '../OutputStore/OutputStore'
 import { bashTool } from '../Tools/BashTool'
 import { codingTools } from '../Tools/CodingTools'
+import type { Photon } from '../Tools/Image/Photon'
 import { readTool } from '../Tools/ReadTool'
 import { AST_GREP_OUTLINE_GUIDANCE, defaultSubagents } from './Subagents'
 
@@ -638,15 +642,28 @@ export const OUTLINE_IMPLEMENTER_AGENT_PROMPT: string =
 /** Inputs for building the RPI roster against one working directory. */
 export type RpiSubagentOptions = {
 	readonly cwd: string
-	readonly outputStore?: OutputStoreService
 	/**
 	 * The default roster's own `bash` and `general-purpose` definitions, threaded in BY REFERENCE: the
 	 * implementer types dispatch these exact instances, so the session registry's identity dedup sees
 	 * one definition per name instead of dying on a same-name duplicate at session start.
 	 */
 	readonly delegates: {
-		readonly bash: SubagentDefinition
-		readonly generalPurpose: SubagentDefinition
+		readonly bash: SubagentDefinition<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+			| HttpClient.HttpClient
+		>
+		readonly generalPurpose: SubagentDefinition<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+			| HttpClient.HttpClient
+		>
 	}
 }
 
@@ -658,15 +675,21 @@ export type RpiSubagentOptions = {
  */
 export const rpiSubagents = ({
 	cwd,
-	outputStore,
 	delegates,
-}: RpiSubagentOptions): ReadonlyArray<SubagentDefinition> => {
+}: RpiSubagentOptions): ReadonlyArray<
+	SubagentDefinition<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>
+> => {
 	const read = readTool({ cwd })
-	const toolOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
-	if (outputStore !== undefined) toolOptions.outputStore = outputStore
-	const bash = bashTool(toolOptions)
+	const bash = bashTool({ cwd })
 	const readAndBash = [read, bash]
-	const coding = codingTools(toolOptions)
+	const coding = codingTools({ cwd })
 	const implementerDelegates = subagentTool([delegates.bash, delegates.generalPurpose])
 
 	const codebaseLocator = defineSubagent({
@@ -746,14 +769,32 @@ export const rpiSubagents = ({
 /** Inputs for assembling a mode's dispatchable roster. */
 export type ModeSubagentOptions = {
 	readonly cwd: string
-	readonly outputStore?: OutputStoreService
 	/** When true, the six RPI specialist types are appended to the default roster. */
 	readonly rpi: boolean
 }
 
 // The default roster registers this name by construction; a miss is a programming defect, not a
 // recoverable state, so it dies (the throw becomes an Effect defect at the composition root).
-const delegateByName = (roster: ReadonlyArray<SubagentDefinition>, name: string): SubagentDefinition => {
+const delegateByName = (
+	roster: ReadonlyArray<
+		SubagentDefinition<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+			| HttpClient.HttpClient
+		>
+	>,
+	name: string,
+): SubagentDefinition<
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| OutputStore
+	| Photon
+	| HttpClient.HttpClient
+> => {
 	const found = roster.find((definition) => definition.name === name)
 	if (found === undefined) throw new Error(`default subagent roster is missing the "${name}" delegate`)
 	return found
@@ -764,21 +805,25 @@ const delegateByName = (roster: ReadonlyArray<SubagentDefinition>, name: string)
  * the six specialists wired to delegate to the default roster's own bash/general-purpose instances.
  * Shared by `defaultCodingMode` and `rlmMode` so the roster composition never diverges between modes.
  */
-export const modeSubagents = ({ cwd, outputStore, rpi }: ModeSubagentOptions): ReadonlyArray<SubagentDefinition> => {
-	const rosterOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
-	if (outputStore !== undefined) rosterOptions.outputStore = outputStore
-	const roster = defaultSubagents(rosterOptions)
+export const modeSubagents = ({
+	cwd,
+	rpi,
+}: ModeSubagentOptions): ReadonlyArray<
+	SubagentDefinition<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>
+> => {
+	const roster = defaultSubagents({ cwd })
 	if (!rpi) return roster
 
 	const delegates = {
 		bash: delegateByName(roster, 'bash'),
 		generalPurpose: delegateByName(roster, 'general-purpose'),
 	}
-	const specialistOptions: {
-		cwd: string
-		outputStore?: OutputStoreService
-		delegates: RpiSubagentOptions['delegates']
-	} = { cwd, delegates }
-	if (outputStore !== undefined) specialistOptions.outputStore = outputStore
-	return [...roster, ...rpiSubagents(specialistOptions)]
+	return [...roster, ...rpiSubagents({ cwd, delegates })]
 }

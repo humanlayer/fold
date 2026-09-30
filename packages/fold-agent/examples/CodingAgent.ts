@@ -14,7 +14,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, startSession } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect } from 'effect'
 
-import { codingTools, jsonlEventLog } from '../src/index'
+import { codingTools, jsonlEventLog, layerCodingToolServices } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 const apiKey = process.env.ANTHROPIC_API_KEY
@@ -36,7 +36,7 @@ const makeProgram = (apiKey: string) =>
 			}),
 			log: jsonlEventLog(logPath),
 			cwd: workspace,
-		})
+		}).pipe(Effect.provide(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })))
 
 		const finished = yield* session.send(
 			'Create a file called greet.ts exporting `greet(name: string): string` returning "hello, {name}". ' +

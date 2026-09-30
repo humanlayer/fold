@@ -75,10 +75,10 @@ const makeActualBuiltInToolResults = Effect.gen(function* () {
 	writeFileSync(join(directory, 'editable.txt'), 'before edit\nkeep\n')
 
 	const readResult = yield* executeToolHandler(readTool({ cwd: directory }), { path: 'read-source.txt' })
-	const bashSuccessResult = yield* executeToolHandler(bashTool({ cwd: directory, spillDir: directory }), {
+	const bashSuccessResult = yield* executeToolHandler(bashTool({ cwd: directory }), {
 		command: "printf 'bash success\\n'",
 	})
-	const bashFailureResult = yield* executeToolHandler(bashTool({ cwd: directory, spillDir: directory }), {
+	const bashFailureResult = yield* executeToolHandler(bashTool({ cwd: directory }), {
 		command: "printf 'bash failure\\n'; exit 7",
 	}).pipe(Effect.flip)
 	const writeResult = yield* executeToolHandler(writeTool({ cwd: directory }), {

@@ -10,7 +10,6 @@
  */
 import { skillTool, subagentTool } from '@humanlayer/fold-core'
 
-import type { OutputStoreService } from '../OutputStore/OutputStore'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { applyPatchTool } from '../Tools/ApplyPatchTool'
 import { editTool } from '../Tools/EditTool'
@@ -58,16 +57,12 @@ export const rlmMode: FoldMode = {
 	// RLM always carries the RPI specialists (user ruling 2026-07-09): an orchestrator with no bash
 	// lives and dies by the quality of its delegates, so the full specialist roster is the default.
 	rpiByDefault: true,
-	buildTools: ({ cwd, rpi, outputStore }) => {
-		const subagentOptions: { cwd: string; rpi: boolean; outputStore?: OutputStoreService } = { cwd, rpi }
-		if (outputStore !== undefined) subagentOptions.outputStore = outputStore
-		return [
-			readTool({ cwd }),
-			writeTool({ cwd }),
-			editTool({ cwd }),
-			applyPatchTool({ cwd }),
-			skillTool(skillsFromDisk({ cwd })),
-			subagentTool(modeSubagents(subagentOptions)),
-		]
-	},
+	buildTools: ({ cwd, rpi }) => [
+		readTool({ cwd }),
+		writeTool({ cwd }),
+		editTool({ cwd }),
+		applyPatchTool({ cwd }),
+		skillTool(skillsFromDisk({ cwd })),
+		subagentTool(modeSubagents({ cwd, rpi })),
+	],
 }

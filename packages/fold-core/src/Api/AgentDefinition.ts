@@ -11,7 +11,7 @@ import type { HookConfig } from '../HookRunner/Types'
 import type { ModelFamily } from '../Model/ModelFamily'
 import type { StopConditionConfig } from '../StopConditions/StopConditions'
 import type { FoldModel } from './ModelDescriptor'
-import type { FoldTool } from './ToolDefinition'
+import { toolsNeedingAll, type FoldTool, type FoldToolServices } from './ToolDefinition'
 
 /** A leading system prompt as a host writes it: one block or an ordered set of blocks. */
 export type SystemPromptInput = string | ReadonlyArray<string>
@@ -27,8 +27,11 @@ export const systemPromptBlocks = (systemPrompt: SystemPromptInput | undefined):
 		Match.orElse((blocks) => blocks),
 	)
 
-/** Configuration for one agent, as plain data. Built with {@link defineAgent}. */
-export type AgentDefinition = {
+/**
+ * Configuration for one agent, as plain data. Built with {@link defineAgent}. `R` is every host service
+ * its tools need; `startSession` requires them from its caller.
+ */
+export type AgentDefinition<R = never> = {
 	/** Optional display name, recorded in `session_started` meta. */
 	readonly name?: string
 	/** The model the agent starts on. Sessions can switch later with `FoldSession.switchModel`. */
@@ -43,7 +46,7 @@ export type AgentDefinition = {
 	 * ordinary members of this array (round-five ruling; the former `skills` field is removed -
 	 * migrate `skills: src` to `tools: [..., skillTool(src)]`).
 	 */
-	readonly tools?: ReadonlyArray<FoldTool>
+	readonly tools?: ReadonlyArray<FoldTool<R>>
 	/** Hook configuration, run by this agent's HookRunner (D16). */
 	readonly hooks?: HookConfig
 	/**
@@ -62,5 +65,18 @@ export type AgentDefinition = {
 	readonly stopConditions?: StopConditionConfig
 }
 
-/** Define one agent. Identity today; the single place agent-config validation lands later. */
-export const defineAgent = (definition: AgentDefinition): AgentDefinition => definition
+/** {@link AgentDefinition} as written by a caller: its tools keep their own types. */
+export type AgentDefinitionInput<T extends FoldTool<unknown>> = Omit<AgentDefinition, 'tools'> & {
+	readonly tools?: ReadonlyArray<T>
+}
+
+/**
+ * Define one agent. The agent needs the union of its tools' services. The single place agent-config
+ * validation lands later.
+ */
+export const defineAgent = <T extends FoldTool<unknown> = FoldTool>(
+	definition: AgentDefinitionInput<T>,
+): AgentDefinition<FoldToolServices<T>> => {
+	const { tools, ...rest } = definition
+	return tools === undefined ? rest : { ...rest, tools: toolsNeedingAll(tools) }
+}

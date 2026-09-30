@@ -12,11 +12,15 @@
  * roster to ANY mode's subagents (Mode/Rpi).
  */
 import { skillTool, subagentTool, type FoldTool } from '@humanlayer/fold-core'
+import type { FileSystem, Path } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import type { ConfigRole } from '../Config/ConfigSchema'
-import type { OutputStoreService } from '../OutputStore/OutputStore'
+import type { OutputStore } from '../OutputStore/OutputStore'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { codingTools } from '../Tools/CodingTools'
+import type { Photon } from '../Tools/Image/Photon'
 import { modeSubagents } from './Rpi'
 import type { ModeModels } from './Subagents'
 
@@ -32,8 +36,6 @@ export type ModeToolContext = {
 	readonly models: ModeModels
 	/** Install the RPI specialist subagents alongside the default roster (composable with any mode). */
 	readonly rpi: boolean
-	/** Deterministic full-output store scoped to the current session. */
-	readonly outputStore?: OutputStoreService
 }
 
 /** A pre-baked agent composition: primary model role, mode prompt, and tool roster. */
@@ -50,7 +52,18 @@ export type FoldMode = {
 	 */
 	readonly rpiByDefault?: boolean
 	/** Build the mode's tool roster for a working directory. */
-	readonly buildTools: (context: ModeToolContext) => ReadonlyArray<FoldTool>
+	readonly buildTools: (
+		context: ModeToolContext,
+	) => ReadonlyArray<
+		FoldTool<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+			| HttpClient.HttpClient
+		>
+	>
 }
 
 /** The default coding-agent system prompt. */
@@ -68,15 +81,9 @@ export const defaultCodingMode: FoldMode = {
 	name: 'coding',
 	role: 'smart',
 	systemPrompt: DEFAULT_CODING_PROMPT,
-	buildTools: ({ cwd, rpi, outputStore }) => {
-		const codingOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
-		if (outputStore !== undefined) codingOptions.outputStore = outputStore
-		const subagentOptions: { cwd: string; rpi: boolean; outputStore?: OutputStoreService } = { cwd, rpi }
-		if (outputStore !== undefined) subagentOptions.outputStore = outputStore
-		return [
-			...codingTools(codingOptions),
-			skillTool(skillsFromDisk({ cwd })),
-			subagentTool(modeSubagents(subagentOptions)),
-		]
-	},
+	buildTools: ({ cwd, rpi }) => [
+		...codingTools({ cwd }),
+		skillTool(skillsFromDisk({ cwd })),
+		subagentTool(modeSubagents({ cwd, rpi })),
+	],
 }
