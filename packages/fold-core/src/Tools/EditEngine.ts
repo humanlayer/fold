@@ -6,7 +6,7 @@
  * byte-identical even when a normalized match was needed; BOM and CRLF endings are preserved. Error
  * strings are pi's, verbatim. Pure and isomorphic: platform handlers do the file IO around it.
  */
-import { Array as Arr, Effect, Schema } from 'effect'
+import { Array as Arr, Effect, Option, Schema } from 'effect'
 
 /** One targeted replacement: exact old text and its replacement. */
 export const EditPair = Schema.Struct({
@@ -311,13 +311,15 @@ export const normalizeEditInput = (input: {
 	readonly newText?: string | undefined
 }): Effect.Effect<ReadonlyArray<EditPair>, EditEngineError> =>
 	Effect.gen(function* () {
-		const edits: Array<EditPair> = [...(input.edits ?? [])]
+		const { edits: batch = [] } = input
+		// The legacy single-edit form counts only when both halves are present.
+		const single = Option.all({
+			oldText: Option.fromUndefinedOr(input.oldText),
+			newText: Option.fromUndefinedOr(input.newText),
+		})
+		const edits: ReadonlyArray<EditPair> = [...batch, ...Option.toArray(single)]
 
-		if (input.oldText !== undefined && input.newText !== undefined) {
-			edits.push({ oldText: input.oldText, newText: input.newText })
-		}
-
-		if (Arr.isArrayEmpty(edits)) {
+		if (Arr.isReadonlyArrayEmpty(edits)) {
 			return yield* new EditEngineError({
 				message: 'Edit tool input is invalid. edits must contain at least one replacement.',
 			})

@@ -144,35 +144,37 @@ export const makeGrokSkillSource = Effect.fn('fold.grok_compatibility.make_skill
 		})
 
 	const cwd = path.resolve(options.cwd)
-	const homeValue = options.home === undefined ? homedir() : options.home
-	const home = homeValue.length === 0 ? null : path.resolve(homeValue)
-	const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
-	const projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
-	const projectRootIsAncestor = projectRoot !== null && isAncestor(projectRoot, cwd)
-	const homeIsAncestor = home !== null && isAncestor(home, cwd)
-	const boundary = projectRootIsAncestor ? projectRoot : homeIsAncestor ? home : null
+	const { configuredPaths = [], bundledPaths = [], pluginPaths = [], ignoredPaths = [] } = options
+	// An empty home disables every home-relative root.
+	const home = Option.liftPredicate(options.home ?? homedir(), (value) => value.length > 0).pipe(
+		Option.map((value) => path.resolve(value)),
+	)
+	const grokHome = path.resolve(options.grokHome ?? path.join(Option.getOrElse(home, homedir), '.grok'))
+	const projectRoot = Option.map(Option.fromUndefinedOr(options.projectRoot), (value) => path.resolve(value))
+	// The ancestor walk stops at the project root when it contains cwd, otherwise at home.
+	const boundary = Option.filter(projectRoot, (root) => isAncestor(root, cwd)).pipe(
+		Option.orElse(() => Option.filter(home, (value) => isAncestor(value, cwd))),
+		Option.getOrNull,
+	)
+	const homeSkillRoots = Option.toArray(home).flatMap((value) =>
+		['.agents', '.claude', '.cursor'].map((vendor) => path.join(value, vendor, 'skills')),
+	)
 	const roots = [
 		...ancestorSkillRoots(cwd, boundary),
-		...(options.configuredPaths ?? []),
+		...configuredPaths,
 		path.join(grokHome, 'skills'),
-		...(home === null
-			? []
-			: [
-					path.join(home, '.agents', 'skills'),
-					path.join(home, '.claude', 'skills'),
-					path.join(home, '.cursor', 'skills'),
-				]),
-		...(options.bundledPaths ?? []),
+		...homeSkillRoots,
+		...bundledPaths,
 	]
-	const ignoredPaths = (options.ignoredPaths ?? []).map((ignoredPath) => path.resolve(ignoredPath))
+	const resolvedIgnoredPaths = ignoredPaths.map((ignoredPath) => path.resolve(ignoredPath))
 
 	const scanSkillCatalog: Effect.Effect<ReadonlyMap<string, Skill>> = Effect.gen(function* () {
 		const byName = new Map<string, Skill>()
 		for (const root of roots)
-			for (const skill of yield* scanRoot(path.resolve(root), ignoredPaths))
+			for (const skill of yield* scanRoot(path.resolve(root), resolvedIgnoredPaths))
 				if (!byName.has(skill.name)) byName.set(skill.name, skill)
-		for (const plugin of options.pluginPaths ?? [])
-			for (const skill of yield* scanRoot(path.resolve(plugin.path), ignoredPaths, plugin.name))
+		for (const plugin of pluginPaths)
+			for (const skill of yield* scanRoot(path.resolve(plugin.path), resolvedIgnoredPaths, plugin.name))
 				if (!byName.has(skill.name)) byName.set(skill.name, skill)
 		return byName
 	})

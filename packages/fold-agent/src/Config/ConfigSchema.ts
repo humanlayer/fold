@@ -14,7 +14,7 @@
  */
 import { ReasoningLevel } from '@humanlayer/fold-core'
 import type { AutoCompactConfig as CoreAutoCompactConfig, StopConditionConfig } from '@humanlayer/fold-core'
-import { Array as Arr, Schema } from 'effect'
+import { Array as Arr, Predicate, Schema } from 'effect'
 
 /** How a configured provider profile is reached. */
 export const ProviderKind = Schema.Literals(['anthropic', 'openai-compat', 'codex', 'opencode', 'xai']).annotate({
@@ -173,11 +173,8 @@ type ConfigCrossReferences = {
 	readonly profiles?: Record<string, RolesRef>
 }
 
-const bindingsOf = (roles: RolesRef): ReadonlyArray<RoleBindingRef> => [
-	roles.smart,
-	roles.fast,
-	...(roles.orchestrator === undefined ? [] : [roles.orchestrator]),
-]
+const bindingsOf = (roles: RolesRef): ReadonlyArray<RoleBindingRef> =>
+	[roles.smart, roles.fast, roles.orchestrator].filter(Predicate.isNotUndefined)
 
 /**
  * Every provider a role binds to - in the default `roles` map AND in every named profile - must be

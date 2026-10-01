@@ -221,41 +221,39 @@ const agentModeLabel = (options: CliSessionOptions): string | undefined => {
 	return mode === 'default' ? undefined : mode
 }
 
+/** A `--name value` resume flag, present only when the value is. */
+const valueFlag = (name: string, value: string | undefined): Option.Option<ResumeCommandFlag> =>
+	Option.map(Option.fromUndefinedOr(value), (present) => ({ name, value: present }))
+
+/** A bare `--name` resume flag, present only when switched on. */
+const switchFlag = (name: string, on: boolean): Option.Option<ResumeCommandFlag> =>
+	Option.liftPredicate({ name }, () => on)
+
 const compactResumeFlags = (autoCompact: AutoCompactConfig | undefined): ReadonlyArray<ResumeCommandFlag> => {
 	if (autoCompact === undefined) return []
 	if (!autoCompact.enabled) return [{ name: 'disable-auto-compact' }]
 
-	return [
-		{ name: 'auto-compact' },
-		...(autoCompact.thresholdTokens === undefined
-			? []
-			: [{ name: 'compaction-threshold', value: String(autoCompact.thresholdTokens) }]),
-		...(autoCompact.reserveTokens === undefined
-			? []
-			: [{ name: 'compaction-reserve-tokens', value: String(autoCompact.reserveTokens) }]),
-		...(autoCompact.keepRecentTokens === undefined
-			? []
-			: [{ name: 'compaction-keep-recent-tokens', value: String(autoCompact.keepRecentTokens) }]),
-		...(autoCompact.compactionPrompt === undefined
-			? []
-			: [{ name: 'compaction-prompt', value: autoCompact.compactionPrompt }]),
-	]
+	return Arr.getSomes([
+		switchFlag('auto-compact', true),
+		valueFlag('compaction-threshold', autoCompact.thresholdTokens?.toString()),
+		valueFlag('compaction-reserve-tokens', autoCompact.reserveTokens?.toString()),
+		valueFlag('compaction-keep-recent-tokens', autoCompact.keepRecentTokens?.toString()),
+		valueFlag('compaction-prompt', autoCompact.compactionPrompt),
+	])
 }
 
 export const resumeFlagsFor = (options: CliSessionOptions): ReadonlyArray<ResumeCommandFlag> => [
-	...(options.cwd === process.cwd() ? [] : [{ name: 'cwd', value: options.cwd }]),
-	...(options.foldHome === undefined ? [] : [{ name: 'fold-home', value: options.foldHome }]),
-	...(options.mode === undefined ? [] : [{ name: 'mode', value: options.mode }]),
-	...(options.rpi === true ? [{ name: 'rpi' }] : []),
-	...(options.profile === undefined ? [] : [{ name: 'profile', value: options.profile }]),
-	...(options.modelSelection?.role === undefined ? [] : [{ name: 'role', value: options.modelSelection.role }]),
-	...(options.modelSelection?.provider === undefined
-		? []
-		: [{ name: 'provider', value: options.modelSelection.provider }]),
-	...(options.modelSelection?.model === undefined ? [] : [{ name: 'model', value: options.modelSelection.model }]),
-	...(options.modelSelection?.reasoning === undefined
-		? []
-		: [{ name: 'reasoning', value: options.modelSelection.reasoning }]),
+	...Arr.getSomes([
+		valueFlag('cwd', options.cwd === process.cwd() ? undefined : options.cwd),
+		valueFlag('fold-home', options.foldHome),
+		valueFlag('mode', options.mode),
+		switchFlag('rpi', options.rpi === true),
+		valueFlag('profile', options.profile),
+		valueFlag('role', options.modelSelection?.role),
+		valueFlag('provider', options.modelSelection?.provider),
+		valueFlag('model', options.modelSelection?.model),
+		valueFlag('reasoning', options.modelSelection?.reasoning),
+	]),
 	...compactResumeFlags(options.autoCompact),
 ]
 

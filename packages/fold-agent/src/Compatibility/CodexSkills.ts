@@ -8,7 +8,7 @@ import {
 	type SkillMeta,
 	type SkillSourceService,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Path } from 'effect'
+import { Effect, FileSystem, Option, Path } from 'effect'
 
 import { parseSkillFile, skillNameOr } from '../Skills/SkillFrontmatter'
 
@@ -44,9 +44,9 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 		}
 	}
 
-	const ancestorSkillRoots = (cwd: string, home: string | null): ReadonlyArray<string> => {
+	const ancestorSkillRoots = (cwd: string, home: Option.Option<string>): ReadonlyArray<string> => {
 		const roots: Array<string> = []
-		const boundary = home !== null && isAncestor(home, cwd) ? home : null
+		const boundary = Option.getOrNull(Option.filter(home, (value) => isAncestor(value, cwd)))
 		let current = cwd
 		while (true) {
 			roots.push(path.join(current, '.agents', 'skills'))
@@ -98,15 +98,19 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 		})
 
 	const cwd = path.resolve(options.cwd)
-	const homeValue = options.home === undefined ? homedir() : options.home
-	const home = homeValue.length === 0 ? null : path.resolve(homeValue)
-	const codexHome = path.resolve(options.codexHome ?? path.join(home ?? homedir(), '.codex'))
+	const { configuredPaths = [], bundledPaths = [], pluginPaths = [] } = options
+	// An empty home disables every home-relative root.
+	const home = Option.liftPredicate(options.home ?? homedir(), (value) => value.length > 0).pipe(
+		Option.map((value) => path.resolve(value)),
+	)
+	const codexHome = path.resolve(options.codexHome ?? path.join(Option.getOrElse(home, homedir), '.codex'))
+	const agentsSkillRoot = Option.map(home, (value) => path.join(value, '.agents', 'skills'))
 	const roots = [
 		...ancestorSkillRoots(cwd, home),
-		...(options.configuredPaths ?? []),
+		...configuredPaths,
 		path.join(codexHome, 'skills'),
-		...(home === null ? [] : [path.join(home, '.agents', 'skills')]),
-		...(options.bundledPaths ?? []),
+		...Option.toArray(agentsSkillRoot),
+		...bundledPaths,
 	]
 
 	const scanSkillCatalog: Effect.Effect<ReadonlyMap<string, Skill>> = Effect.gen(function* () {
@@ -114,7 +118,7 @@ export const makeCodexSkillSource = Effect.fn('fold.codex_compatibility.make_ski
 		for (const root of roots) {
 			for (const skill of yield* scanRoot(root)) if (!byName.has(skill.name)) byName.set(skill.name, skill)
 		}
-		for (const plugin of options.pluginPaths ?? []) {
+		for (const plugin of pluginPaths) {
 			for (const skill of yield* scanRoot(plugin.path, plugin.name))
 				if (!byName.has(skill.name)) byName.set(skill.name, skill)
 		}

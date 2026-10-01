@@ -46,6 +46,7 @@ import {
 	type FileSystem,
 	Layer,
 	Match,
+	Option,
 	Schema,
 	Semaphore,
 	type Scope,
@@ -418,14 +419,15 @@ const buildAgentDefinition = (
 		const memoryBlock = yield* memoryPromptBlock(memoryOptions)
 		// Effective RPI: the flag, or the mode's own default (RLM always carries the specialists).
 		const rpi = options.rpi === true || mode.rpiByDefault === true
-		const tools = [...mode.buildTools({ cwd, models, rpi }), ...(options.extraTools ?? [])]
-		const blocks = [
-			...(mode.systemPrompt === undefined ? [] : [mode.systemPrompt]),
-			modelStyleBlock,
-			...(rpi ? [RPI_HINT_PROMPT] : []),
-			...(memoryBlock === null ? [] : [memoryBlock]),
-			foldInfoBlock(options.foldHome ?? defaultFoldHome()),
-		]
+		const { extraTools = [] } = options
+		const tools = [...mode.buildTools({ cwd, models, rpi }), ...extraTools]
+		const blocks = Arr.getSomes([
+			Option.fromUndefinedOr(mode.systemPrompt),
+			Option.some(modelStyleBlock),
+			Option.liftPredicate(RPI_HINT_PROMPT, () => rpi),
+			Option.fromNullOr(memoryBlock),
+			Option.some(foldInfoBlock(options.foldHome ?? defaultFoldHome())),
+		])
 		const autoCompact = options.autoCompact ?? config?.compaction ?? defaultAutoCompact
 		const agentOptions: Mutable<
 			AgentDefinition<

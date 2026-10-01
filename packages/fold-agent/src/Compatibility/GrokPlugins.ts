@@ -89,21 +89,25 @@ const resolvePluginParents = (options: GrokPluginOptions): Effect.Effect<Readonl
 	Effect.gen(function* () {
 		const path = yield* Path.Path
 		const cwd = path.resolve(options.cwd)
-		const homeValue = options.home === undefined ? homedir() : options.home
-		const home = homeValue.length === 0 ? null : path.resolve(homeValue)
-		const grokHome = path.resolve(options.grokHome ?? path.join(home ?? homedir(), '.grok'))
+		const { configuredPaths = [] } = options
+		// An empty home disables every home-relative root.
+		const home = Option.liftPredicate(options.home ?? homedir(), (value) => value.length > 0).pipe(
+			Option.map((value) => path.resolve(value)),
+		)
+		const grokHome = path.resolve(options.grokHome ?? path.join(Option.getOrElse(home, homedir), '.grok'))
 		const projectRoot = options.projectRoot === undefined ? null : path.resolve(options.projectRoot)
 		const projectRootIsAncestor = projectRoot !== null && (yield* isAncestor(projectRoot, cwd))
-		const homeIsAncestor = home !== null && (yield* isAncestor(home, cwd))
-		const boundary = projectRootIsAncestor ? projectRoot : homeIsAncestor ? home : null
+		const homeIsAncestor = Option.isSome(home) && (yield* isAncestor(home.value, cwd))
+		const boundary = projectRootIsAncestor ? projectRoot : homeIsAncestor ? Option.getOrNull(home) : null
+		const homePluginRoot = Option.map(home, (value) => path.join(value, '.claude', 'plugins'))
 		return [
-			...(options.configuredPaths ?? []).map((configuredPath) => path.resolve(configuredPath)),
+			...configuredPaths.map((configuredPath) => path.resolve(configuredPath)),
 			...(yield* ancestorDirectories(cwd, boundary)).flatMap((directory) => [
 				path.join(directory, '.grok', 'plugins'),
 				path.join(directory, '.claude', 'plugins'),
 			]),
 			path.join(grokHome, 'plugins'),
-			...(home === null ? [] : [path.join(home, '.claude', 'plugins')]),
+			...Option.toArray(homePluginRoot),
 		]
 	})
 

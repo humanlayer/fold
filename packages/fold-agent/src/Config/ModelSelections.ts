@@ -49,15 +49,12 @@ export type FoldModels = {
 	readonly orchestrator: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 }
 
+const roleBindings = (roles: FoldConfig['roles']): ReadonlyArray<RoleBinding> =>
+	[roles.smart, roles.fast, roles.orchestrator].filter(Predicate.isNotUndefined)
+
 const bindings = (config: FoldConfig): ReadonlyArray<RoleBinding> => [
-	config.roles.smart,
-	config.roles.fast,
-	...(config.roles.orchestrator === undefined ? [] : [config.roles.orchestrator]),
-	...Object.values(config.profiles ?? {}).flatMap((profile) => [
-		profile.smart,
-		profile.fast,
-		...(profile.orchestrator === undefined ? [] : [profile.orchestrator]),
-	]),
+	...roleBindings(config.roles),
+	...Object.values(config.profiles ?? {}).flatMap(roleBindings),
 ]
 
 /** A secret-free view of selectable config. This is the shared CLI/TUI configuration boundary. */
@@ -92,9 +89,8 @@ export const describeModelConfiguration = (
 			Match.when('xai', () => XAI_FRONTIER_MODELS.map(({ modelId }) => modelId)),
 			Match.orElse((): ReadonlyArray<string> => []),
 		)
-		const models = [
-			...new Set([...defaultModels, ...(provider.configuredModels ?? []), ...configured, ...catalogModels]),
-		].sort()
+		const { configuredModels = [] } = provider
+		const models = [...new Set([...defaultModels, ...configuredModels, ...configured, ...catalogModels])].sort()
 		return {
 			name,
 			kind: provider.kind,

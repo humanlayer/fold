@@ -34,10 +34,8 @@ export const loadGrokCompatibility = Effect.fn('fold.grok_compatibility.load')(f
 	if (options.configuredPluginPaths !== undefined) pluginOptions.configuredPaths = options.configuredPluginPaths
 	const plugins = yield* discoverGrokPluginSkillRoots(pluginOptions)
 	const instructions = yield* loadGrokInstructions(options)
-	const skills = grokSkills({
-		...options,
-		pluginPaths: [...(options.pluginPaths ?? []), ...plugins.roots],
-	})
+	const { pluginPaths = [] } = options
+	const skills = grokSkills({ ...options, pluginPaths: [...pluginPaths, ...plugins.roots] })
 	return {
 		instructions,
 		instructionBlock: renderGrokInstructions(instructions),

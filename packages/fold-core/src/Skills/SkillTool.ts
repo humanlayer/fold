@@ -5,7 +5,7 @@
  * New skills become discoverable through the tool's `refresh` flag, which diffs the live list against
  * the session-start snapshot and reports changes inside the tool result (cache-neutral).
  */
-import { Array as Arr, Effect } from 'effect'
+import { Array as Arr, Effect, Option } from 'effect'
 
 import { defineTool, type SessionToolContribution, type FoldTool } from '../Api/ToolDefinition'
 import { skillToolContract } from '../Tools/Contracts'
@@ -166,12 +166,14 @@ const refreshedRoster = (input: MakeSkillToolInput) =>
 
 		const addedLines = added.map((meta) => `- ${meta.name}: ${meta.description}`)
 		const removedLines = removed.map((meta) => `- ${meta.name}`)
-		const sections = [
-			...(Arr.isArrayEmpty(addedLines) ? [] : [`Skills added since session start:\n${addedLines.join('\n')}`]),
-			...(Arr.isArrayEmpty(removedLines)
-				? []
-				: [`Skills removed since session start:\n${removedLines.join('\n')}`]),
-		]
+		const section = (heading: string, lines: ReadonlyArray<string>) =>
+			Option.liftPredicate(lines, Arr.isReadonlyArrayNonEmpty).pipe(
+				Option.map((present) => `${heading}:\n${present.join('\n')}`),
+			)
+		const sections = Arr.getSomes([
+			section('Skills added since session start', addedLines),
+			section('Skills removed since session start', removedLines),
+		])
 
 		return `<system-information>\n${sections.join('\n\n')}\n</system-information>`
 	})

@@ -33,8 +33,6 @@ its exemption in `.oxlintrc.jsonc`.
 | `automation/no-optional-function-parameters`     | 104        | 22    |
 | `anti-slop/no-known-value-widening`              | 64         | 9     |
 | `anti-slop-effect/no-manual-tagged-construction` | 46         | 295   |
-| `anti-slop/no-conditional-spread`                | 35         | 3     |
-| `anti-slop/no-conditional-empty-array-spread`    | 24         | 3     |
 | `automation/no-effect-asvoid`                    | 15         | 1     |
 
 `anti-slop/no-comments`, `automation/no-comments`, and `automation/no-reexport-only-modules` (it only flags package

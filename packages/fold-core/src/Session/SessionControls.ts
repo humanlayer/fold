@@ -172,9 +172,10 @@ export const layerSessionControls = (options?: {
 			const steer = (agentId: AgentId, text: string): Effect.Effect<void, AgentNotRunningError> =>
 				Effect.gen(function* () {
 					if (!(yield* isRunning(agentId))) return yield* notRunning(agentId)
-					yield* Ref.update(steering, (current) =>
-						new Map(current).set(agentId, [...(current.get(agentId) ?? []), text]),
-					)
+					yield* Ref.update(steering, (current) => {
+						const queued = current.get(agentId) ?? []
+						return new Map(current).set(agentId, [...queued, text])
+					})
 				})
 
 			const drainSteering = (agentId: AgentId): Effect.Effect<ReadonlyArray<string>> =>
@@ -197,9 +198,10 @@ export const layerSessionControls = (options?: {
 				Effect.gen(function* () {
 					if (!(yield* isRunning(agentId))) return yield* notRunning(agentId)
 					const consumed = yield* Deferred.make<boolean>()
-					yield* Ref.update(followUps, (current) =>
-						new Map(current).set(agentId, [...(current.get(agentId) ?? []), { text, consumed }]),
-					)
+					yield* Ref.update(followUps, (current) => {
+						const queued = current.get(agentId) ?? []
+						return new Map(current).set(agentId, [...queued, { text, consumed }])
+					})
 					return { consumed: Deferred.await(consumed) }
 				})
 

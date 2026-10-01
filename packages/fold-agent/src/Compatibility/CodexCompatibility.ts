@@ -23,10 +23,8 @@ export const loadCodexCompatibility = (options: CodexCompatibilityOptions) =>
 		const codexHome = path.resolve(options.codexHome ?? path.join(homeValue, '.codex'))
 		const plugins = yield* discoverCodexPluginSkillRoots({ codexHome })
 		const instructions = yield* loadCodexInstructions(options)
-		const skills = codexSkills({
-			...options,
-			pluginPaths: [...(options.pluginPaths ?? []), ...plugins.roots],
-		})
+		const { pluginPaths = [] } = options
+		const skills = codexSkills({ ...options, pluginPaths: [...pluginPaths, ...plugins.roots] })
 		return {
 			instructions,
 			instructionBlock: renderCodexInstructions(instructions),
