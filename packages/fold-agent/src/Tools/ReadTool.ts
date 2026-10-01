@@ -82,7 +82,7 @@ const decodeTextFile = (path: string, bytes: Uint8Array): Effect.Effect<string, 
 	}
 
 	return Effect.try({
-		try: () => new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+		try: () => new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes),
 		catch: () => ToolResultFailure.make({ text: `Cannot read file because it is not valid UTF-8: ${path}` }),
 	})
 }

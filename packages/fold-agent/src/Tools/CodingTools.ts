@@ -6,12 +6,9 @@
  */
 import type { FoldTool } from '@humanlayer/fold-core'
 
-import { applyPatchTool } from './ApplyPatchTool'
 import { bashTool, type BashToolOptions } from './BashTool'
-import { editTool } from './EditTool'
-import { readTool } from './ReadTool'
+import { fileTools } from './FileTools'
 import { webTools, type WebToolsOptions } from './WebTools'
-import { writeTool } from './WriteTool'
 
 /** Options for {@link codingTools}: the shared cwd plus bash output-spill configuration. */
 export type CodingToolsOptions = Pick<BashToolOptions, 'cwd' | 'spillDir' | 'outputStore' | 'processEnvironment'> &
@@ -22,10 +19,7 @@ export type CodingToolsOptions = Pick<BashToolOptions, 'cwd' | 'spillDir' | 'out
  * which editing tools are advertised per request; installing the union is the intended setup.
  */
 export const codingTools = (options?: CodingToolsOptions): ReadonlyArray<FoldTool> => [
-	readTool(options),
-	writeTool(options),
-	editTool(options),
-	applyPatchTool(options),
+	...fileTools(options),
 	bashTool(options),
 	...webTools(options),
 ]
