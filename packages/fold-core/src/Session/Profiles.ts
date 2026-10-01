@@ -25,19 +25,22 @@ export const isProfileRole = Schema.is(ProfileRole)
  * A session's role->model bindings, as passed to `startSession`/`resumeSession`. A plain type, not a
  * schema: the values are full model descriptors carrying Redacted keys and provider Effects (the same
  * status as `FoldModel` itself); nothing durable is written from this map - role bindings resolve to
- * concrete models before any log row exists.
+ * concrete models before any log row exists. `R` is the host services the bound models need.
  */
-export type SessionProfiles = {
-	readonly smart?: FoldModel
-	readonly fast?: FoldModel
-	readonly orchestrator?: FoldModel
+export type SessionProfiles<R = never> = {
+	readonly smart?: FoldModel<R>
+	readonly fast?: FoldModel<R>
+	readonly orchestrator?: FoldModel<R>
 }
 
 /** The model covering one role in a profiles map; `orchestrator` falls back to `smart` (D25). */
-export const profileModelFor = (profiles: SessionProfiles, role: ProfileRole): FoldModel | undefined =>
+export const profileModelFor = <R>(profiles: SessionProfiles<R>, role: ProfileRole): FoldModel<R> | undefined =>
 	role === 'orchestrator' ? (profiles.orchestrator ?? profiles.smart) : profiles[role]
 
-/** Session-wide mutable role->model bindings; role-bound agents resolve per dispatch/resume. */
+/**
+ * Session-wide mutable role->model bindings; role-bound agents resolve per dispatch/resume. Models are
+ * held as `FoldModel<unknown>`: the session's public API only accepts models whose services it has.
+ */
 export type ProfilesService = {
 	/**
 	 * The model currently bound to a role (`orchestrator` falls back to `smart`, D25). Dies when the
@@ -45,26 +48,26 @@ export type ProfilesService = {
 	 * against the initial bindings, and `set` can only add or replace bindings - so an unbound role
 	 * here is an engine invariant violation, never a caller error.
 	 */
-	readonly resolve: (role: ProfileRole) => Effect.Effect<FoldModel>
+	readonly resolve: (role: ProfileRole) => Effect.Effect<FoldModel<unknown>>
 	/** Rebind one role; every subsequent dispatch/resume of a role-bound type sees the new model. */
-	readonly set: (role: ProfileRole, model: FoldModel) => Effect.Effect<void>
+	readonly set: (role: ProfileRole, model: FoldModel<unknown>) => Effect.Effect<void>
 	/** Atomically replace the complete role map at a session configuration commit boundary. */
-	readonly replace: (profiles: SessionProfiles) => Effect.Effect<void>
+	readonly replace: (profiles: SessionProfiles<unknown>) => Effect.Effect<void>
 	/** The current bindings, as plain data. */
-	readonly snapshot: Effect.Effect<SessionProfiles>
+	readonly snapshot: Effect.Effect<SessionProfiles<unknown>>
 }
 
 /** Profiles service tag; one instance per session, shared by the facade and the Subagents engine. */
 export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles') {}
 
 /** One session's profiles over the initial bindings from `startSession`/`resumeSession`. */
-export const layerProfiles = (initial: SessionProfiles): Layer.Layer<Profiles> =>
+export const layerProfiles = (initial: SessionProfiles<unknown>): Layer.Layer<Profiles> =>
 	Layer.effect(
 		Profiles,
 		Effect.gen(function* () {
-			const state = yield* Ref.make<SessionProfiles>(initial)
+			const state = yield* Ref.make<SessionProfiles<unknown>>(initial)
 
-			const resolve = (role: ProfileRole): Effect.Effect<FoldModel> =>
+			const resolve = (role: ProfileRole): Effect.Effect<FoldModel<unknown>> =>
 				Ref.get(state).pipe(
 					Effect.flatMap((profiles) => {
 						const model = profileModelFor(profiles, role)
@@ -78,7 +81,7 @@ export const layerProfiles = (initial: SessionProfiles): Layer.Layer<Profiles> =
 					}),
 				)
 
-			const set = (role: ProfileRole, model: FoldModel): Effect.Effect<void> =>
+			const set = (role: ProfileRole, model: FoldModel<unknown>): Effect.Effect<void> =>
 				Ref.update(state, (profiles) =>
 					Match.value(role).pipe(
 						Match.when('smart', () => ({ ...profiles, smart: model })),

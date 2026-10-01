@@ -5,17 +5,17 @@
  * interactive flow (fold-codex is an SDK; the device/browser flows are the explicit `authenticate*`
  * calls a CLI wires up). Unlike clanka, a failed refresh keeps the stored credential: refresh failures
  * are often transient, and silently discarding a refresh token would force a re-login. The exported
- * {@link withCodexAuth} wraps an HttpClient so every model request carries `Authorization` and
+ * {@link codexAuthenticatedClient} wraps an HttpClient so every model request carries `Authorization` and
  * `ChatGPT-Account-Id` plus the agentlayer-mined `originator`/`User-Agent`/`session_id` identity
  * headers; auth failures surface as transport errors on the client's normal error channel.
  */
 import { arch, platform, release } from 'node:os'
 
 import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
-import { Clock, Context, Effect, Option, Semaphore } from 'effect'
+import { Clock, Context, Effect, Layer, Option, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
 
-import { type CodexAuthStore, type CodexAuthStoreError, type CodexTokenData, makeCodexAuthStore } from './AuthStore'
+import { CodexAuthStore, type CodexAuthStoreError, type CodexTokenData } from './AuthStore'
 import type { BrowserFlowOptions, DeviceCodePrompt } from './OAuthFlows'
 import {
 	CodexAuthError,
@@ -50,10 +50,8 @@ export type CodexAuthService = {
 /** CodexAuth service tag. */
 export class CodexAuth extends Context.Service<CodexAuth, CodexAuthService>()('fold/CodexAuth') {}
 
-/** Options for {@link makeCodexAuth}. */
-export type MakeCodexAuthOptions = {
-	/** Credential store. Defaults to the `codex` entry of `~/.fold/auth.json`. */
-	readonly store?: CodexAuthStore
+/** Options for {@link layerCodexAuth}. */
+export type CodexAuthOptions = {
 	/** Presents the device-flow prompt. Defaults to logging the URL + code. */
 	readonly onDeviceCode?: (prompt: DeviceCodePrompt) => Effect.Effect<void>
 	/** Presents the browser-flow authorization URL. Defaults to logging it. */
@@ -68,87 +66,100 @@ const defaultOnDeviceCode = (prompt: DeviceCodePrompt): Effect.Effect<void> =>
 const defaultOnBrowserUrl = (url: string): Effect.Effect<void> =>
 	Effect.log(`To authenticate Codex, open this URL in your browser:\n${url}`)
 
-/** Build a CodexAuth service over the ambient HttpClient. */
-export const makeCodexAuth = Effect.fnUntraced(function* (options?: MakeCodexAuthOptions) {
-	const store = options?.store ?? (yield* makeCodexAuthStore())
-	const issuerClient = issuerHttpClient(yield* HttpClient.HttpClient)
-	const semaphore = Semaphore.makeUnsafe(1)
+/** CodexAuth over the provided credential store and HttpClient. */
+export const layerCodexAuth = (
+	options?: CodexAuthOptions,
+): Layer.Layer<CodexAuth, never, CodexAuthStore | HttpClient.HttpClient> =>
+	Layer.effect(
+		CodexAuth,
+		Effect.gen(function* () {
+			const store = yield* CodexAuthStore
+			const issuerClient = issuerHttpClient(yield* HttpClient.HttpClient)
+			const semaphore = Semaphore.makeUnsafe(1)
 
-	let currentToken = yield* store.load
+			let currentToken = yield* store.load
 
-	const storeFailed = (cause: CodexAuthStoreError) =>
-		new CodexAuthError({
-			reason: 'StoreFailed',
-			message: `Failed to persist Codex credentials to ${store.path}`,
-			cause,
-		})
-
-	const saveToken = (token: CodexTokenData): Effect.Effect<CodexTokenData, CodexAuthError> =>
-		store.save(token).pipe(
-			Effect.mapError(storeFailed),
-			Effect.tap(() =>
-				Effect.sync(() => {
-					currentToken = Option.some(token)
-				}),
-			),
-		)
-
-	const clearToken = store.clear.pipe(
-		Effect.mapError(storeFailed),
-		Effect.tap(() =>
-			Effect.sync(() => {
-				currentToken = Option.none()
-			}),
-		),
-	)
-
-	const getNoLock = Effect.uninterruptibleMask(
-		Effect.fnUntraced(function* (restore) {
-			const now = yield* Clock.currentTimeMillis
-			if (Option.isSome(currentToken) && !currentToken.value.isExpired(now)) {
-				return currentToken.value
-			}
-
-			if (Option.isNone(currentToken)) {
-				return yield* new CodexAuthError({
-					reason: 'NotAuthenticated',
-					message:
-						`No Codex credentials found in ${store.path}. ` +
-						'Authenticate with the device or browser flow, or copy an existing "codex" entry into the store.',
+			const storeFailed = (cause: CodexAuthStoreError) =>
+				new CodexAuthError({
+					reason: 'StoreFailed',
+					message: `Failed to persist Codex credentials to ${store.path}`,
+					cause,
 				})
-			}
 
-			const refreshed = yield* restore(refreshAccessToken(issuerClient, currentToken.value.refresh))
-			return yield* saveToken(preserveAccountId(refreshed, currentToken.value.accountId))
-		}),
-	)
+			const saveToken = (token: CodexTokenData): Effect.Effect<CodexTokenData, CodexAuthError> =>
+				store.save(token).pipe(
+					Effect.mapError(storeFailed),
+					Effect.tap(() =>
+						Effect.sync(() => {
+							currentToken = Option.some(token)
+						}),
+					),
+				)
 
-	const runFlow = (flow: Effect.Effect<CodexTokenData, CodexAuthError>) =>
-		Effect.uninterruptibleMask((restore) => restore(flow).pipe(Effect.flatMap(saveToken)))
-
-	const service: CodexAuthService = {
-		get: semaphore.withPermit(getNoLock).pipe(Effect.withSpan('fold.codexAuth.get')),
-		authenticateDevice: semaphore
-			.withPermit(
-				runFlow(runDeviceFlow({ client: issuerClient, onCode: options?.onDeviceCode ?? defaultOnDeviceCode })),
-			)
-			.pipe(Effect.withSpan('fold.codexAuth.authenticateDevice')),
-		authenticateBrowser: semaphore
-			.withPermit(
-				runFlow(
-					runBrowserFlow({
-						client: issuerClient,
-						onUrl: options?.onBrowserUrl ?? defaultOnBrowserUrl,
-						...options?.browser,
-					}).pipe(Effect.provide(NodeCrypto.layer)),
+			const clearToken = store.clear.pipe(
+				Effect.mapError(storeFailed),
+				Effect.tap(() =>
+					Effect.sync(() => {
+						currentToken = Option.none()
+					}),
 				),
 			)
-			.pipe(Effect.withSpan('fold.codexAuth.authenticateBrowser')),
-		logout: semaphore.withPermit(Effect.uninterruptible(clearToken)).pipe(Effect.withSpan('fold.codexAuth.logout')),
-	}
 
-	return service
-})
+			const getNoLock = Effect.uninterruptibleMask(
+				Effect.fnUntraced(function* (restore) {
+					const now = yield* Clock.currentTimeMillis
+					if (Option.isSome(currentToken) && !currentToken.value.isExpired(now)) {
+						return currentToken.value
+					}
+
+					if (Option.isNone(currentToken)) {
+						return yield* new CodexAuthError({
+							reason: 'NotAuthenticated',
+							message:
+								`No Codex credentials found in ${store.path}. ` +
+								'Authenticate with the device or browser flow, or copy an existing "codex" entry into the store.',
+						})
+					}
+
+					const refreshed = yield* restore(refreshAccessToken(issuerClient, currentToken.value.refresh))
+					return yield* saveToken(preserveAccountId(refreshed, currentToken.value.accountId))
+				}),
+			)
+
+			const runFlow = (flow: Effect.Effect<CodexTokenData, CodexAuthError>) =>
+				Effect.uninterruptibleMask((restore) => restore(flow).pipe(Effect.flatMap(saveToken)))
+
+			const service: CodexAuthService = {
+				get: semaphore.withPermit(getNoLock).pipe(Effect.withSpan('fold.codexAuth.get')),
+				authenticateDevice: semaphore
+					.withPermit(
+						runFlow(
+							runDeviceFlow({
+								client: issuerClient,
+								onCode: options?.onDeviceCode ?? defaultOnDeviceCode,
+							}),
+						),
+					)
+					.pipe(Effect.withSpan('fold.codexAuth.authenticateDevice')),
+				authenticateBrowser: semaphore
+					.withPermit(
+						runFlow(
+							runBrowserFlow({
+								client: issuerClient,
+								onUrl: options?.onBrowserUrl ?? defaultOnBrowserUrl,
+								...options?.browser,
+							}).pipe(Effect.provide(NodeCrypto.layer)),
+						),
+					)
+					.pipe(Effect.withSpan('fold.codexAuth.authenticateBrowser')),
+				logout: semaphore
+					.withPermit(Effect.uninterruptible(clearToken))
+					.pipe(Effect.withSpan('fold.codexAuth.logout')),
+			}
+
+			return service
+		}),
+	)
 
 /** Identity headers attached to every Codex model request. */
 export type CodexIdentityOptions = {
@@ -186,24 +197,25 @@ const applyTokenHeaders = (
  * needed) and carries the Codex identity headers. Auth failures surface as `TransportError`s on the
  * client's normal error channel, so downstream provider error mapping stays uniform.
  */
-export const withCodexAuth = (
+export const codexAuthenticatedClient = (
 	client: HttpClient.HttpClient,
-	auth: CodexAuthService,
 	identity?: CodexIdentityOptions,
-): HttpClient.HttpClient =>
-	client.pipe(
-		HttpClient.mapRequestEffect((request) =>
-			auth.get.pipe(
-				Effect.map((token) => applyTokenHeaders(request, token, identity)),
-				Effect.mapError(
-					(cause) =>
-						new HttpClientError.HttpClientError({
-							reason: new HttpClientError.TransportError({
-								request,
-								cause,
-								description: `Codex authentication failed: ${cause.message}`,
+): Effect.Effect<HttpClient.HttpClient, never, CodexAuth> =>
+	Effect.map(CodexAuth, (auth) =>
+		client.pipe(
+			HttpClient.mapRequestEffect((request) =>
+				auth.get.pipe(
+					Effect.map((token) => applyTokenHeaders(request, token, identity)),
+					Effect.mapError(
+						(cause) =>
+							new HttpClientError.HttpClientError({
+								reason: new HttpClientError.TransportError({
+									request,
+									cause,
+									description: `Codex authentication failed: ${cause.message}`,
+								}),
 							}),
-						}),
+					),
 				),
 			),
 		),

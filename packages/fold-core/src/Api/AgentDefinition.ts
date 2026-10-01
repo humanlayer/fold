@@ -35,7 +35,7 @@ export type AgentDefinition<R = never> = {
 	/** Optional display name, recorded in `session_started` meta. */
 	readonly name?: string
 	/** The model the agent starts on. Sessions can switch later with `FoldSession.switchModel`. */
-	readonly model: FoldModel
+	readonly model: FoldModel<R>
 	/** Stable provider cache-affinity key. Forked children derive and persist their own key from this one. */
 	readonly promptCacheKey?: string
 	/** The agent's own leading system prompt: one block or an ordered set of blocks. */
@@ -66,17 +66,18 @@ export type AgentDefinition<R = never> = {
 }
 
 /** {@link AgentDefinition} as written by a caller: its tools keep their own types. */
-export type AgentDefinitionInput<T extends FoldTool<unknown>> = Omit<AgentDefinition, 'tools'> & {
+export type AgentDefinitionInput<T extends FoldTool<unknown>, RM> = Omit<AgentDefinition, 'tools' | 'model'> & {
+	readonly model: FoldModel<RM>
 	readonly tools?: ReadonlyArray<T>
 }
 
 /**
- * Define one agent. The agent needs the union of its tools' services. The single place agent-config
- * validation lands later.
+ * Define one agent. The agent needs its model's services plus the union of its tools'. The single place
+ * agent-config validation lands later.
  */
-export const defineAgent = <T extends FoldTool<unknown> = FoldTool>(
-	definition: AgentDefinitionInput<T>,
-): AgentDefinition<FoldToolServices<T>> => {
+export const defineAgent = <T extends FoldTool<unknown> = FoldTool, RM = never>(
+	definition: AgentDefinitionInput<T, RM>,
+): AgentDefinition<FoldToolServices<T> | RM> => {
 	const { tools, ...rest } = definition
 	return tools === undefined ? rest : { ...rest, tools: toolsNeedingAll(tools) }
 }

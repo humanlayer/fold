@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { codexModel } from '@humanlayer/fold-codex'
 import { defineAgent, startSession } from '@humanlayer/fold-core'
-import { Predicate, Console, Effect } from 'effect'
+import { Predicate, Console, Effect, Layer } from 'effect'
 
 import { codingTools, jsonlEventLog, layerCodingToolServices } from '../src/index'
 
@@ -25,6 +25,10 @@ const program = Effect.gen(function* () {
 	const logPath = join(workspace, 'session.jsonl')
 	yield* Console.log(`workspace: ${workspace}`)
 
+	// The coding tools' services live as long as the session, in this program's scope.
+	const toolServices = yield* Layer.build(
+		layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
+	)
 	const session = yield* startSession({
 		agent: defineAgent({
 			name: 'codex-demo',
@@ -36,7 +40,7 @@ const program = Effect.gen(function* () {
 		}),
 		log: jsonlEventLog(logPath),
 		cwd: workspace,
-	}).pipe(Effect.provide(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })))
+	}).pipe(Effect.provideContext(toolServices))
 
 	const finished = yield* session.send(
 		'Create a file called greet.ts exporting `greet(name: string): string` returning "hello, {name}". ' +

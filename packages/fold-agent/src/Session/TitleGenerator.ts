@@ -1,6 +1,6 @@
 import type { LogEntry, FoldModel } from '@humanlayer/fold-core'
 import { encodedContentText, languageModelLayerFor } from '@humanlayer/fold-core'
-import { Predicate, Effect, Schema } from 'effect'
+import { Predicate, Effect, Schema, type Scope } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
 const TitleResult = Schema.Struct({ title: Schema.String })
@@ -43,11 +43,11 @@ export const titleTranscript = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 		.slice(0, MAX_TRANSCRIPT_CHARS)
 
 /** One unlogged structured generation call. Callers persist only the resulting session_title event. */
-export const generateSessionTitle = (
+export const generateSessionTitle = <R>(
 	entries: ReadonlyArray<LogEntry>,
 	rootAgentId: string,
-	model: FoldModel,
-): Effect.Effect<string> => {
+	model: FoldModel<R>,
+): Effect.Effect<string, never, Exclude<R, Scope.Scope>> => {
 	const fallback = fallbackSessionTitle(entries, rootAgentId)
 	const transcript = titleTranscript(entries, rootAgentId)
 	if (transcript.length === 0) return Effect.succeed(fallback)

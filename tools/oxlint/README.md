@@ -27,15 +27,15 @@ its exemption in `.oxlintrc.jsonc`.
 
 | Rule                                              | Production | Tests |
 | ------------------------------------------------- | ---------- | ----- |
-| `automation/private-function-prefix`              | 384        | 161   |
-| `automation/no-multiple-function-params`          | 286        | 56    |
-| `automation/no-single-use-private-functions`      | 277        | 40    |
-| `automation/no-optional-function-parameters`      | 100        | 21    |
-| `anti-slop/no-known-value-widening`               | 82         | 10    |
-| `anti-slop-effect/no-manual-tagged-construction`  | 50         | 323   |
-| `anti-slop/no-conditional-spread`                 | 36         | 7     |
-| `anti-slop/no-conditional-empty-array-spread`     | 24         | 5     |
-| `anti-slop-effect/no-service-constructor-imports` | 23         | 14    |
+| `automation/private-function-prefix`              | 393        | 161   |
+| `automation/no-multiple-function-params`          | 286        | 59    |
+| `automation/no-single-use-private-functions`      | 284        | 41    |
+| `automation/no-optional-function-parameters`      | 104        | 22    |
+| `anti-slop/no-known-value-widening`               | 65         | 9     |
+| `anti-slop-effect/no-manual-tagged-construction`  | 46         | 295   |
+| `anti-slop/no-conditional-spread`                 | 35         | 3     |
+| `anti-slop/no-conditional-empty-array-spread`     | 24         | 3     |
+| `anti-slop-effect/no-service-constructor-imports` | 2          | 1     |
 | `automation/no-effect-asvoid`                     | 15         | 1     |
 
 `anti-slop/no-comments`, `automation/no-comments`, and `automation/no-reexport-only-modules` (it only flags package

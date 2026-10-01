@@ -7,6 +7,7 @@
  * Run: ANTHROPIC_API_KEY=... bun packages/fold-core/examples/AnthropicAgent.ts
  */
 import { Console, Effect, Schema } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
 import { anthropicModel, defineAgent, defineTool, startSession } from '../src/index'
 
@@ -41,7 +42,7 @@ const makeProgram = (apiKey: string) =>
 		yield* Console.log(`finished: ${finished.outcome}`)
 		yield* Console.log(`result: ${finished.resultText ?? '(no text)'}`)
 		yield* Console.log(`log: ${entries.map((entry) => entry._tag).join(' -> ')}`)
-	}).pipe(Effect.scoped)
+	}).pipe(Effect.scoped, Effect.provide(FetchHttpClient.layer))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set ANTHROPIC_API_KEY to run this example.')

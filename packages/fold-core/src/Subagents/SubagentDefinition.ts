@@ -1,3 +1,5 @@
+import type { Effect, Scope } from 'effect'
+
 /**
  * This file defines the subagent type descriptor for the public API (D21, round-five shape). A subagent
  * definition is the full agent configuration minus the log: its own model/provider, hooks, prompt, and
@@ -19,7 +21,7 @@ import type { ProfileRole } from '../Session/Profiles'
  * must receive a `profiles` map covering every role the roster names (`orchestrator` falls back to
  * `smart`, D25).
  */
-export type SubagentModelBinding = FoldModel | ProfileRole
+export type SubagentModelBinding<R = never> = FoldModel<R> | ProfileRole
 
 /**
  * Configuration for one subagent type, as plain data. Built with {@link defineSubagent}. `R` is every
@@ -49,26 +51,35 @@ export type SubagentDefinition<R = never> = {
 	 * (`'smart' | 'fast' | 'orchestrator'`) resolved through the session's profiles map at each
 	 * dispatch/resume, so one `setProfile` swap moves every role-bound type together.
 	 */
-	readonly model: SubagentModelBinding
+	readonly model: SubagentModelBinding<R>
 }
 
 /** {@link SubagentDefinition} as written by a caller: its tools keep their own types. */
-export type SubagentDefinitionInput<T extends FoldTool<unknown>> = Omit<SubagentDefinition, 'tools'> & {
+export type SubagentDefinitionInput<T extends FoldTool<unknown>, RM> = Omit<SubagentDefinition, 'tools' | 'model'> & {
+	readonly model: SubagentModelBinding<RM>
 	readonly tools?: ReadonlyArray<T>
 }
 
-/** The host services a subagent definition, or a union of them, needs. */
-export type SubagentDefinitionServices<D> = D extends { readonly tools?: ReadonlyArray<infer T> }
-	? FoldToolServices<T>
+/** The host services a model binding needs; a profile role needs none of its own. */
+type ModelBindingServices<B> = B extends { readonly make: Effect.Effect<infer _A, infer _E, infer R> }
+	? Exclude<R, Scope.Scope>
+	: never
+
+/** The host services a subagent definition, or a union of them, needs: its tools' and its model's. */
+export type SubagentDefinitionServices<D> = D extends {
+	readonly tools?: ReadonlyArray<infer T>
+	readonly model: infer B
+}
+	? FoldToolServices<T> | ModelBindingServices<B>
 	: never
 
 /**
  * Define one subagent type; it needs the union of its tools' services. The single place type-config
  * validation lands later.
  */
-export const defineSubagent = <T extends FoldTool<unknown> = FoldTool>(
-	definition: SubagentDefinitionInput<T>,
-): SubagentDefinition<FoldToolServices<T>> => {
+export const defineSubagent = <T extends FoldTool<unknown> = FoldTool, RM = never>(
+	definition: SubagentDefinitionInput<T, RM>,
+): SubagentDefinition<FoldToolServices<T> | RM> => {
 	const { tools, ...rest } = definition
 	return tools === undefined ? rest : { ...rest, tools: toolsNeedingAll(tools) }
 }

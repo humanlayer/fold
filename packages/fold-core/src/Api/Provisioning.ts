@@ -16,13 +16,10 @@
  *   provider HTTP client releases when its dispatch returns instead of leaking for the session's
  *   lifetime.
  */
-import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
-import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
-import { Array as Arr, Context, Effect, Layer, Match, Stream } from 'effect'
+import { Array as Arr, Context, Effect, Layer } from 'effect'
 import type { Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/unstable/ai'
 import type { Tool } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
 
 import type { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
@@ -44,50 +41,6 @@ import { layerToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
 import type { FoldModel } from './ModelDescriptor'
 import type { RealizedFoldTool, FoldTool } from './ToolDefinition'
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
-const anthropicDecoderModelFor = (modelId: string): string | null => {
-	const id = modelId.toLowerCase()
-	if (id.includes('opus')) return id === 'claude-opus-4-6' ? null : 'claude-opus-4-6'
-	if (id.includes('sonnet')) return id === 'claude-sonnet-4-6' ? null : 'claude-sonnet-4-6'
-	if (id.includes('haiku')) return id === 'claude-haiku-4-5' ? null : 'claude-haiku-4-5'
-	if (id.includes('fable') || id.includes('mythos')) return 'claude-opus-4-6'
-	return null
-}
-
-/**
- * The beta Anthropic SDK decodes streamed `message.model` against a generated literal union that can
- * lag behind real model ids accepted by the API. Rewrite only that metadata field in the raw SSE bytes
- * to a decoder-known sibling; the actual request still uses the configured model id.
- */
-const relaxAnthropicResponseModel = (modelId: string): ((client: HttpClient.HttpClient) => HttpClient.HttpClient) => {
-	const decoderModel = anthropicDecoderModelFor(modelId)
-	if (decoderModel === null) return (client) => client
-
-	const needle = `"model":"${modelId}"`
-	const replacement = `"model":"${decoderModel}"`
-
-	return (client) =>
-		HttpClient.transformResponse(client, (responseEffect) =>
-			Effect.map(responseEffect, (response) => {
-				const stream = response.stream.pipe(
-					Stream.decodeText,
-					Stream.map((chunk) => chunk.replaceAll(needle, replacement)),
-					Stream.encodeText,
-				)
-
-				// This preserves the HttpClientResponse instance and only overrides the streaming body getter.
-				// The Anthropic generated client only needs `stream` for createMessageStream.
-				return new Proxy(response, {
-					get: (target, property, receiver) =>
-						// oxlint-disable-next-line anti-slop/no-reflect-get -- a Proxy trap forwards every other property unchanged
-						property === 'stream' ? stream : Reflect.get(target, property, receiver),
-				})
-			}),
-		)
-}
-
-/** The session-fixed services every provisioned runtime closes over (one instance each per session). */
 export type SessionProvisioningServices =
 	| EventLog
 	| Ids
@@ -98,38 +51,11 @@ export type SessionProvisioningServices =
 	| Subagents
 	| SessionControls
 
-/** Lower a model descriptor to the LanguageModel layer for its provider connection. */
-export const languageModelLayerFor = (model: FoldModel): Layer.Layer<LanguageModel.LanguageModel> => {
-	const provider = model.provider
-
-	return Match.valueTags(provider, {
-		'openai-compatible': (connection) => {
-			const clientOptions: Mutable<Parameters<typeof OpenAiClient.layer>[0]> = { apiKey: connection.apiKey }
-			if (connection.apiKeyHeader !== null) {
-				clientOptions.apiKeyHeader = connection.apiKeyHeader
-			}
-			if (connection.baseUrl !== null) {
-				clientOptions.apiUrl = connection.baseUrl
-			}
-			const clientLayer = OpenAiClient.layer(clientOptions).pipe(Layer.provide(FetchHttpClient.layer))
-
-			return OpenAiLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
-		},
-		anthropic: (connection) => {
-			const clientOptions: Mutable<Parameters<typeof AnthropicClient.layer>[0]> = {
-				apiKey: connection.apiKey,
-				transformClient: relaxAnthropicResponseModel(model.activeModel.modelId),
-			}
-			if (connection.baseUrl !== null) {
-				clientOptions.apiUrl = connection.baseUrl
-			}
-			const clientLayer = AnthropicClient.layer(clientOptions).pipe(Layer.provide(FetchHttpClient.layer))
-
-			return AnthropicLanguageModel.layer({ model: model.activeModel.modelId }).pipe(Layer.provide(clientLayer))
-		},
-		custom: (connection) => Layer.effect(LanguageModel.LanguageModel, connection.make),
-	})
-}
+/** The LanguageModel layer for a model: its `make`, run in the layer's scope. */
+export const languageModelLayerFor = <R>(
+	model: FoldModel<R>,
+): Layer.Layer<LanguageModel.LanguageModel, never, Exclude<R, Scope.Scope>> =>
+	Layer.effect(LanguageModel.LanguageModel, model.make)
 
 /** Assemble realized tool descriptors into the installed Toolset layer for one provisioned runtime. */
 export const toolsetLayerFor = (tools: ReadonlyArray<RealizedFoldTool>) => {
@@ -154,7 +80,7 @@ export const validateToolNames = (tools: ReadonlyArray<FoldTool<unknown>>): Effe
 
 /** One agent's runtime configuration: which provider to talk to, with which tools and hooks. */
 export type ProvisionAgentRuntimeInput = {
-	readonly model: FoldModel
+	readonly model: FoldModel<unknown>
 	/**
 	 * The tools installed for this agent, already realized (session-initialized values resolved to
 	 * their contributions); the family resolver picks the advertised subset per turn.
@@ -197,7 +123,13 @@ export const makeAgentProvisioner = (
 			// call's per-call services), so building over the session services gives every handler the
 			// session's Subagents engine and platform services.
 			const toolsetLayer = toolsetLayerFor(input.tools).pipe(Layer.provide(sessionServicesLayer))
-			const languageModelLayer = languageModelLayerFor(input.model)
+			// SAFETY: every model reaching a session came through startSession, resumeSession, switchModel, or
+			// setProfile, whose types require the model's services to be among the session's host services -
+			// and the session services layer below provides those host services.
+			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
+			const model = input.model as FoldModel
+			// The model builds over the session's host services, like the tool handlers do.
+			const languageModelLayer = languageModelLayerFor(model).pipe(Layer.provide(sessionServicesLayer))
 			const epochServicesLayer = Layer.mergeAll(
 				toolsetLayer,
 				layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),

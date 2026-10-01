@@ -1,9 +1,9 @@
 import { join } from 'node:path'
 
 import { defaultFoldHome, type ConfigureProviderInput } from '@humanlayer/fold-agent'
-import type { MakeCodexAuthStoreOptions } from '@humanlayer/fold-codex'
-import type { MakeOpenCodeAuthStoreOptions } from '@humanlayer/fold-opencode'
-import type { MakeXaiAuthStoreOptions } from '@humanlayer/fold-xai'
+import type { CodexAuthStoreOptions } from '@humanlayer/fold-codex'
+import type { OpenCodeAuthStoreOptions } from '@humanlayer/fold-opencode'
+import type { XaiAuthStoreOptions } from '@humanlayer/fold-xai'
 
 export type OAuthProviderKind = 'codex' | 'opencode' | 'xai'
 
@@ -26,17 +26,17 @@ export type ProviderAuthUpdate =
 	  }
 	| { readonly _tag: 'failure'; readonly message: string }
 
-export const codexAuthStoreOptions = (providerId: string, foldHome?: string): MakeCodexAuthStoreOptions => ({
+export const codexAuthStoreOptions = (providerId: string, foldHome?: string): CodexAuthStoreOptions => ({
 	providerId,
 	path: join(foldHome ?? defaultFoldHome(), 'auth.json'),
 })
 
-export const openCodeAuthStoreOptions = (providerId: string, foldHome?: string): MakeOpenCodeAuthStoreOptions => ({
+export const openCodeAuthStoreOptions = (providerId: string, foldHome?: string): OpenCodeAuthStoreOptions => ({
 	providerId,
 	path: join(foldHome ?? defaultFoldHome(), 'auth.json'),
 })
 
-export const xaiAuthStoreOptions = (providerId: string, foldHome?: string): MakeXaiAuthStoreOptions => ({
+export const xaiAuthStoreOptions = (providerId: string, foldHome?: string): XaiAuthStoreOptions => ({
 	providerId,
 	path: join(foldHome ?? defaultFoldHome(), 'auth.json'),
 })

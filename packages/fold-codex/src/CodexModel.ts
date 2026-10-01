@@ -1,4 +1,3 @@
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * The fold-codex model descriptor: clanka's shape over the official `@humanlayer/effect-ai-openai` provider
  * pointed at the ChatGPT Codex backend (D23). The stock OpenAiLanguageModel runs unchanged; all Codex
@@ -19,15 +18,14 @@ import type * as OpenAiSchema from '@humanlayer/effect-ai-openai/OpenAiSchema'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { Array as Arr, Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
-import type { Scope } from 'effect'
-import { AiError } from 'effect/unstable/ai'
-import type { LanguageModel } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
+import type { FileSystem, Scope } from 'effect'
+import { AiError, LanguageModel } from 'effect/unstable/ai'
+import { HttpClient } from 'effect/unstable/http'
 import type { HttpClientResponse } from 'effect/unstable/http'
 
-import type { CodexAuthStore } from './AuthStore'
+import { layerCodexAuthStore, type CodexAuthStoreOptions } from './AuthStore'
 import type { CodexIdentityOptions } from './CodexAuth'
-import { makeCodexAuth, withCodexAuth } from './CodexAuth'
+import { codexAuthenticatedClient, layerCodexAuth } from './CodexAuth'
 import type { CodexHardeningOptions, CodexRetryOptions, CodexStreamError, StreamRetryInfo } from './Hardening'
 import {
 	CODEX_ERROR_MODULE,
@@ -241,8 +239,11 @@ export type CodexModelOptions = {
 	readonly providerId?: string
 	/** Override the backend base URL (testing/proxies). Defaults to the ChatGPT Codex backend. */
 	readonly apiUrl?: string
-	/** Credential store override. Defaults to the `codex` entry of `~/.fold/auth.json`. */
-	readonly store?: CodexAuthStore
+	/**
+	 * The auth document holding this provider's credential, under the `providerId` entry. Defaults to
+	 * `~/.fold/auth.json`.
+	 */
+	readonly authStorePath?: string
 	/** Identity headers (`originator`/`User-Agent`/`session_id`) sent on model requests. */
 	readonly identity?: CodexIdentityOptions
 	/** Maximum transport retry attempts. Provider response retries use {@link CodexHardeningOptions.firstEventTimeoutRetries}. */
@@ -253,67 +254,76 @@ export type CodexModelOptions = {
 	readonly onStreamRetry?: (info: StreamRetryInfo) => Effect.Effect<void>
 }
 
+/** The credential store for this model: its provider's entry in its auth document. */
+const authStoreOptionsFor = (options: CodexModelOptions): CodexAuthStoreOptions =>
+	options.authStorePath === undefined
+		? { providerId: options.providerId ?? 'codex' }
+		: { providerId: options.providerId ?? 'codex', path: options.authStorePath }
+
+/** This model's CodexAuth over its provider's credential store, on the host's HttpClient and FileSystem. */
+const authLayerFor = (options: CodexModelOptions) =>
+	layerCodexAuth().pipe(Layer.provide(layerCodexAuthStore(authStoreOptionsFor(options))))
+
 /**
- * Build the hardened Codex LanguageModel service. Self-contained: constructs its own fetch-backed
- * HttpClient, CodexAuth over the credential store, and the decorated OpenAiClient against the Codex
- * backend; the LanguageModel on top is the stock OpenAI provider.
+ * Build the hardened Codex LanguageModel service. Self-contained: provides its own fetch-backed
+ * HttpClient, CodexAuth over this provider's credential store, and the decorated OpenAiClient against
+ * the Codex backend; the LanguageModel on top is the stock OpenAI provider.
  */
 export const makeCodexLanguageModel = (
 	options: CodexModelOptions,
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope> =>
-	Effect.gen(function* () {
-		const httpContext = yield* Layer.build(FetchHttpClient.layer)
-		const baseClient = Context.get(httpContext, HttpClient.HttpClient)
+): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+	Layer.build(
+		Layer.effect(
+			LanguageModel.LanguageModel,
+			Effect.gen(function* () {
+				const baseClient = yield* HttpClient.HttpClient
 
-		const authOptions: { store?: CodexAuthStore } = {}
-		if (options.store !== undefined) authOptions.store = options.store
-		const auth = yield* makeCodexAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, baseClient))
+				// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
+				// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
+				// where the first-event retry can honor a provider Retry-After rather than retrying a 429 immediately.
+				const modelClient = yield* codexAuthenticatedClient(
+					baseClient.pipe(
+						HttpClient.retryTransient({
+							retryOn: 'errors-only',
+							times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
+						}),
+					),
+					options.identity,
+				)
 
-		// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
-		// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
-		// where the first-event retry can honor a provider Retry-After rather than retrying a 429 immediately.
-		const modelClient = withCodexAuth(
-			baseClient.pipe(
-				HttpClient.retryTransient({
-					retryOn: 'errors-only',
-					times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
-				}),
-			),
-			auth,
-			options.identity,
-		)
+				const clientContext = yield* Layer.build(
+					OpenAiClient.layer({ apiUrl: options.apiUrl ?? CODEX_API_URL }),
+				).pipe(Effect.provideService(HttpClient.HttpClient, modelClient))
+				const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
 
-		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl: options.apiUrl ?? CODEX_API_URL })).pipe(
-			Effect.provideService(HttpClient.HttpClient, modelClient),
-		)
-		const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
+				const hardening: MutableCodexRetryOptions = { ...defaultCodexHardening, ...options.hardening }
+				if (options.onStreamRetry !== undefined) hardening.onStreamRetry = options.onStreamRetry
+				const codexClient = decorateCodexClient(stockClient, hardening)
 
-		const hardening: MutableCodexRetryOptions = { ...defaultCodexHardening, ...options.hardening }
-		if (options.onStreamRetry !== undefined) hardening.onStreamRetry = options.onStreamRetry
-		const codexClient = decorateCodexClient(stockClient, hardening)
+				const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
+				const reasoningConfig = Match.valueTags(reasoning, {
+					disabled: () => ({}),
+					effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
+				})
 
-		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
-		const reasoningConfig = Match.valueTags(reasoning, {
-			disabled: () => ({}),
-			effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
-		})
-
-		return yield* OpenAiLanguageModel.make({
-			model: options.model ?? DEFAULT_CODEX_MODEL_ID,
-			config: {
-				// The ChatGPT backend does no server-side response storage (clanka parity).
-				store: false,
-				...reasoningConfig,
-			},
-		}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
-	}).pipe(Effect.provide(NodeFileSystem.layer))
+				return yield* OpenAiLanguageModel.make({
+					model: options.model ?? DEFAULT_CODEX_MODEL_ID,
+					config: {
+						// The ChatGPT backend does no server-side response storage (clanka parity).
+						store: false,
+						...reasoningConfig,
+					},
+				}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
+			}),
+		).pipe(Layer.provide(authLayerFor(options))),
+	).pipe(Effect.map((context) => Context.get(context, LanguageModel.LanguageModel)))
 
 /**
  * Describe a model served by the ChatGPT Codex backend using stored Codex OAuth credentials. Plugs
  * into `startSession`/`switchModel` like any other model descriptor; the loop's per-request reasoning
  * and model-id binding work unchanged because the provider on top is the stock OpenAI one.
  */
-export const codexModel = (options: CodexModelOptions): FoldModel => {
+export const codexModel = (options: CodexModelOptions): FoldModel<HttpClient.HttpClient | FileSystem.FileSystem> => {
 	const level = options.reasoning ?? 'off'
 
 	return customModel({

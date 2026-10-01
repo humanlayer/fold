@@ -43,7 +43,7 @@ import {
 	Array as Arr,
 	Predicate,
 	Effect,
-	FileSystem,
+	type FileSystem,
 	Layer,
 	Match,
 	Schema,
@@ -167,7 +167,7 @@ export type LaunchSessionOptions = {
 	/** An already-decoded config. When omitted, the config is loaded from `<foldHome>/config.jsonc`. */
 	readonly config?: FoldConfig
 	/** An explicit model, bypassing config/role resolution entirely (no config file needed). */
-	readonly model?: FoldModel
+	readonly model?: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 	/** Config-backed model selection/override used when `model` is omitted. */
 	readonly modelSelection?: ModelSelection
 	/** The project working directory. Defaults to `process.cwd()`. */
@@ -367,6 +367,8 @@ const resolveModeModels = (
 		}
 		const modelOptions: Mutable<AgentModelsOptions> = { catalog }
 		if (options.env !== undefined) modelOptions.env = options.env
+		// OAuth providers read their credentials from the same fold home the CLI's login commands write to.
+		if (options.foldHome !== undefined) modelOptions.authStorePath = join(options.foldHome, 'auth.json')
 		const models = agentModelsFromConfig(selectedConfig, modelOptions)
 
 		return {
@@ -459,7 +461,7 @@ const outputStoreFor = (sessionId: SessionId, options: LaunchSessionOptions) =>
  * `agentModelsFromConfig` stamped each model's `activeModel.role`, so role provenance flows into the
  * durable `agent_started.model` of every role-bound child for free.
  */
-const sessionProfilesFor = (models: ModeModels): SessionProfiles => ({
+const sessionProfilesFor = (models: ModeModels): SessionProfiles<HttpClient.HttpClient | FileSystem.FileSystem> => ({
 	smart: models.smart,
 	fast: models.fast,
 	orchestrator: models.orchestrator,
@@ -511,12 +513,12 @@ export const switchSessionMode = (
 
 const withGeneratedTitles = <R>(
 	session: FoldSession<R>,
-	model: FoldModel,
+	model: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>,
 	options: { readonly cwd: string; readonly foldHome?: string },
-): Effect.Effect<FoldSession<R>, never, FileSystem.FileSystem> =>
+): Effect.Effect<FoldSession<R>, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
 	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const fsLayer = Layer.succeed(FileSystem.FileSystem, fs)
+		// Titles are generated after later sends, which run without these services, so take them now.
+		const titleServices = yield* Effect.context<FileSystem.FileSystem | HttpClient.HttpClient>()
 		return yield* Semaphore.make(1).pipe(
 			Effect.map((titleLock) => ({
 				...session,
@@ -540,6 +542,7 @@ const withGeneratedTitles = <R>(
 											const generatedTurns = lastTitle?.rootUserTurns ?? 0
 											if (rootUsers.length <= generatedTurns) return Effect.void
 											return generateSessionTitle(entries, session.rootAgentId, model).pipe(
+												Effect.provideContext(titleServices),
 												Effect.flatMap((title) => {
 													const generatedThroughSeq = entries.at(-1)?.seq
 													const provenance: {
@@ -552,7 +555,7 @@ const withGeneratedTitles = <R>(
 													return setTitle.pipe(
 														Effect.andThen(
 															refreshSessionSummaryIndex(session.sessionId, options).pipe(
-																Effect.provide(fsLayer),
+																Effect.provideContext(titleServices),
 															),
 														),
 													)
@@ -637,7 +640,8 @@ export const launchSession = (
 				| OutputStore
 				| Photon
 				| HttpClient.HttpClient,
-				FileSystem.FileSystem
+				FileSystem.FileSystem,
+				HttpClient.HttpClient | FileSystem.FileSystem
 			>
 		> = {
 			agent,
@@ -654,7 +658,9 @@ export const launchSession = (
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
 		}
 		if (opts.steering !== undefined) startOptions.steering = opts.steering
-		const session = yield* startSession(startOptions).pipe(Effect.provide(outputStoreFor(prepared.sessionId, opts)))
+		// The output store lives as long as the session, in the caller's scope.
+		const outputStore = yield* Layer.build(outputStoreFor(prepared.sessionId, opts))
+		const session = yield* startSession(startOptions).pipe(Effect.provideContext(outputStore))
 		const titleOptions: { cwd: string; foldHome?: string } = { cwd }
 		if (opts.foldHome !== undefined) titleOptions.foldHome = opts.foldHome
 		return yield* withGeneratedTitles(session, models.fast, titleOptions)
@@ -698,7 +704,8 @@ const resumeFromLog = (
 				| OutputStore
 				| Photon
 				| HttpClient.HttpClient,
-				FileSystem.FileSystem
+				FileSystem.FileSystem,
+				HttpClient.HttpClient | FileSystem.FileSystem
 			>
 		> = {
 			agent,
@@ -708,7 +715,9 @@ const resumeFromLog = (
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
 		}
 		if (options.steering !== undefined) resumeOptions.steering = options.steering
-		const session = yield* resumeSession(resumeOptions).pipe(Effect.provide(outputStoreFor(log.sessionId, options)))
+		// The output store lives as long as the session, in the caller's scope.
+		const outputStore = yield* Layer.build(outputStoreFor(log.sessionId, options))
+		const session = yield* resumeSession(resumeOptions).pipe(Effect.provideContext(outputStore))
 		const sessionLayoutOptions: { cwd: string; foldHome?: string } = { cwd }
 		if (options.foldHome !== undefined) sessionLayoutOptions.foldHome = options.foldHome
 		return yield* withGeneratedTitles(session, models.fast, sessionLayoutOptions)

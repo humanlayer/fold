@@ -43,11 +43,11 @@ import { webTools } from '../Tools/WebTools'
 /** The models a mode binds its agents to, resolved from config roles (or a single explicit override). */
 export type ModeModels = {
 	/** The root agent's model: the mode's role, or whatever the caller selected/overrode. */
-	readonly primary: FoldModel
-	readonly smart: FoldModel
-	readonly fast: FoldModel
+	readonly primary: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly smart: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly fast: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 	/** Falls back to `smart` when the config declares no orchestrator role (D25). */
-	readonly orchestrator: FoldModel
+	readonly orchestrator: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 }
 
 /** Inputs for building a subagent roster against one working directory. */

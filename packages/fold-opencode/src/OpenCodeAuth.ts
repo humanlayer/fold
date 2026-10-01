@@ -2,11 +2,10 @@
  * OpenCode Console OAuth client. Device endpoints and polling semantics are adapted from OpenCode's
  * MIT-licensed client implementation; see ../NOTICE and ../LICENSE.opencode.
  */
-import { Clock, Context, Duration, Effect, Match, Option, Schema, Semaphore } from 'effect'
+import { Clock, Context, Duration, Effect, Layer, Match, Option, Schema, Semaphore } from 'effect'
 import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
-import type { OpenCodeAuthStore } from './AuthStore'
-import { makeOpenCodeAuthStore, OpenCodeTokenData } from './AuthStore'
+import { OpenCodeAuthStore, OpenCodeTokenData } from './AuthStore'
 
 export const OPENCODE_CONSOLE_URL = 'https://console.opencode.ai'
 export const OPENCODE_CLIENT_ID = 'opencode-cli'
@@ -47,8 +46,8 @@ export type OpenCodeAuthService = {
 	readonly logout: Effect.Effect<void, OpenCodeAuthError>
 }
 export class OpenCodeAuth extends Context.Service<OpenCodeAuth, OpenCodeAuthService>()('fold/OpenCodeAuth') {}
-export type MakeOpenCodeAuthOptions = {
-	readonly store?: OpenCodeAuthStore
+/** Options for {@link layerOpenCodeAuth}. */
+export type OpenCodeAuthOptions = {
 	readonly server?: string
 	readonly onDeviceCode?: (prompt: OpenCodeDevicePrompt) => Effect.Effect<void>
 }
@@ -160,115 +159,136 @@ const poll = (
 		),
 	)
 
-/** Build an auth service over the ambient HttpClient. */
-export const makeOpenCodeAuth = Effect.fnUntraced(function* (options?: MakeOpenCodeAuthOptions) {
-	const client = yield* HttpClient.HttpClient
-	const store = options?.store ?? makeOpenCodeAuthStore()
-	const server = options?.server ?? OPENCODE_CONSOLE_URL
-	const lock = Semaphore.makeUnsafe(1)
-	let current = yield* store.load
-	const save = (token: OpenCodeTokenData) =>
-		store.save(token).pipe(
-			Effect.mapError((cause) => new OpenCodeAuthError({ reason: 'StoreFailed', message: cause.message, cause })),
-			Effect.tap((saved) =>
-				Effect.sync(() => {
-					current = Option.some(saved)
-				}),
-			),
-		)
-	const refresh = (token: OpenCodeTokenData) =>
-		post(
-			client,
-			`${token.metadata?.server ?? server}/auth/device/token`,
-			{ grant_type: 'refresh_token', refresh_token: token.refresh, client_id: OPENCODE_CLIENT_ID },
-			Token,
-		).pipe(
-			Effect.flatMap((next) => credential(client, token.metadata?.server ?? server, next)),
-			Effect.mapError(
-				(cause) =>
-					new OpenCodeAuthError({
-						reason: 'RefreshFailed',
-						message: 'Failed to refresh OpenCode credentials',
-						cause,
-					}),
-			),
-			Effect.flatMap(save),
-		)
-	const getToken = Effect.gen(function* () {
-		const now = yield* Clock.currentTimeMillis
-		if (Option.isNone(current))
-			return yield* new OpenCodeAuthError({
-				reason: 'NotAuthenticated',
-				message: `No OpenCode credentials found in ${store.path}; run the device login first.`,
-			})
-		return current.value.isExpired(now) ? yield* refresh(current.value) : current.value
-	})
-	return {
-		get: lock.withPermit(getToken).pipe(Effect.withSpan('fold.opencode_auth.get')),
-		authenticateDevice: lock
-			.withPermit(
-				Effect.gen(function* () {
-					const device = yield* post(
-						client,
-						`${server}/auth/device/code`,
-						{ client_id: OPENCODE_CLIENT_ID },
-						Device,
-					)
-					yield* (options?.onDeviceCode ?? ((p) => Effect.log(`Open ${p.url} and enter code ${p.userCode}`)))(
-						{ url: `${server}${device.verification_uri_complete}`, userCode: device.user_code },
-					)
-					return yield* poll(client, server, device.device_code, Duration.seconds(device.interval)).pipe(
-						Effect.flatMap(save),
-					)
-				}).pipe(
-					Effect.mapError((cause) =>
-						Schema.is(OpenCodeAuthError)(cause)
-							? cause
-							: new OpenCodeAuthError({
-									reason: 'AuthorizationFailed',
-									message: 'Unable to start OpenCode device authorization',
-									cause,
-								}),
-					),
-				),
-			)
-			.pipe(Effect.withSpan('fold.opencode_auth.authenticate_device')),
-		logout: lock
-			.withPermit(
-				store.clear.pipe(
+/** OpenCode auth over the provided credential store and HttpClient. */
+export const layerOpenCodeAuth = (
+	options?: OpenCodeAuthOptions,
+): Layer.Layer<OpenCodeAuth, never, OpenCodeAuthStore | HttpClient.HttpClient> =>
+	Layer.effect(
+		OpenCodeAuth,
+		Effect.gen(function* () {
+			const client = yield* HttpClient.HttpClient
+			const store = yield* OpenCodeAuthStore
+			const server = options?.server ?? OPENCODE_CONSOLE_URL
+			const lock = Semaphore.makeUnsafe(1)
+			let current = yield* store.load
+			const save = (token: OpenCodeTokenData) =>
+				store.save(token).pipe(
 					Effect.mapError(
 						(cause) => new OpenCodeAuthError({ reason: 'StoreFailed', message: cause.message, cause }),
 					),
-					Effect.tap(() =>
+					Effect.tap((saved) =>
 						Effect.sync(() => {
-							current = Option.none()
+							current = Option.some(saved)
 						}),
 					),
-				),
-			)
-			.pipe(Effect.withSpan('fold.opencode_auth.logout')),
-	} satisfies OpenCodeAuthService
-})
+				)
+			const refresh = (token: OpenCodeTokenData) =>
+				post(
+					client,
+					`${token.metadata?.server ?? server}/auth/device/token`,
+					{ grant_type: 'refresh_token', refresh_token: token.refresh, client_id: OPENCODE_CLIENT_ID },
+					Token,
+				).pipe(
+					Effect.flatMap((next) => credential(client, token.metadata?.server ?? server, next)),
+					Effect.mapError(
+						(cause) =>
+							new OpenCodeAuthError({
+								reason: 'RefreshFailed',
+								message: 'Failed to refresh OpenCode credentials',
+								cause,
+							}),
+					),
+					Effect.flatMap(save),
+				)
+			const getToken = Effect.gen(function* () {
+				const now = yield* Clock.currentTimeMillis
+				if (Option.isNone(current))
+					return yield* new OpenCodeAuthError({
+						reason: 'NotAuthenticated',
+						message: `No OpenCode credentials found in ${store.path}; run the device login first.`,
+					})
+				return current.value.isExpired(now) ? yield* refresh(current.value) : current.value
+			})
+			return {
+				get: lock.withPermit(getToken).pipe(Effect.withSpan('fold.opencode_auth.get')),
+				authenticateDevice: lock
+					.withPermit(
+						Effect.gen(function* () {
+							const device = yield* post(
+								client,
+								`${server}/auth/device/code`,
+								{ client_id: OPENCODE_CLIENT_ID },
+								Device,
+							)
+							yield* (
+								options?.onDeviceCode ??
+								((p) => Effect.log(`Open ${p.url} and enter code ${p.userCode}`))
+							)({ url: `${server}${device.verification_uri_complete}`, userCode: device.user_code })
+							return yield* poll(
+								client,
+								server,
+								device.device_code,
+								Duration.seconds(device.interval),
+							).pipe(Effect.flatMap(save))
+						}).pipe(
+							Effect.mapError((cause) =>
+								Schema.is(OpenCodeAuthError)(cause)
+									? cause
+									: new OpenCodeAuthError({
+											reason: 'AuthorizationFailed',
+											message: 'Unable to start OpenCode device authorization',
+											cause,
+										}),
+							),
+						),
+					)
+					.pipe(Effect.withSpan('fold.opencode_auth.authenticate_device')),
+				logout: lock
+					.withPermit(
+						store.clear.pipe(
+							Effect.mapError(
+								(cause) =>
+									new OpenCodeAuthError({ reason: 'StoreFailed', message: cause.message, cause }),
+							),
+							Effect.tap(() =>
+								Effect.sync(() => {
+									current = Option.none()
+								}),
+							),
+						),
+					)
+					.pipe(Effect.withSpan('fold.opencode_auth.logout')),
+			} satisfies OpenCodeAuthService
+		}),
+	)
 
 /** Authenticate inference requests with the current user token and organization. */
-export const withOpenCodeAuth = (client: HttpClient.HttpClient, auth: OpenCodeAuthService): HttpClient.HttpClient =>
-	client.pipe(
-		HttpClient.mapRequestEffect((request) =>
-			auth.get.pipe(
-				Effect.map((token) => {
-					const headers: Record<string, string> = {}
-					const orgId = token.metadata?.orgID
-					if (orgId !== undefined) headers['x-org-id'] = orgId
-					return request.pipe(
-						HttpClientRequest.bearerToken(token.access),
-						HttpClientRequest.setHeaders(headers),
-					)
-				}),
-				Effect.mapError(
-					(cause) =>
-						new HttpClientError.HttpClientError({
-							reason: new HttpClientError.TransportError({ request, cause, description: cause.message }),
-						}),
+export const openCodeAuthenticatedClient = (
+	client: HttpClient.HttpClient,
+): Effect.Effect<HttpClient.HttpClient, never, OpenCodeAuth> =>
+	Effect.map(OpenCodeAuth, (auth) =>
+		client.pipe(
+			HttpClient.mapRequestEffect((request) =>
+				auth.get.pipe(
+					Effect.map((token) => {
+						const headers: Record<string, string> = {}
+						const orgId = token.metadata?.orgID
+						if (orgId !== undefined) headers['x-org-id'] = orgId
+						return request.pipe(
+							HttpClientRequest.bearerToken(token.access),
+							HttpClientRequest.setHeaders(headers),
+						)
+					}),
+					Effect.mapError(
+						(cause) =>
+							new HttpClientError.HttpClientError({
+								reason: new HttpClientError.TransportError({
+									request,
+									cause,
+									description: cause.message,
+								}),
+							}),
+					),
 				),
 			),
 		),

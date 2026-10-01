@@ -13,7 +13,7 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, defineSubagent, startSession, subagentTool } from '@humanlayer/fold-core'
-import { Predicate, Console, Effect } from 'effect'
+import { Predicate, Console, Effect, Layer } from 'effect'
 
 import { bashTool, jsonlEventLog, layerCodingToolServices, readTool } from '../src/index'
 
@@ -48,6 +48,10 @@ const makeProgram = (apiKey: string) =>
 		})
 
 		// The root is a pure orchestrator: its ONLY tool is the subagent tool over its roster.
+		// The coding tools' services live as long as the session, in this program's scope.
+		const toolServices = yield* Layer.build(
+			layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
+		)
 		const session = yield* startSession({
 			agent: defineAgent({
 				name: 'subagents-demo',
@@ -59,7 +63,7 @@ const makeProgram = (apiKey: string) =>
 			}),
 			log: jsonlEventLog(logPath),
 			cwd: workspace,
-		}).pipe(Effect.provide(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })))
+		}).pipe(Effect.provideContext(toolServices))
 
 		const first = yield* session.send(
 			'Dispatch the researcher to list what is in this workspace and summarize each file in one line.',

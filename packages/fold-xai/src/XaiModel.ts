@@ -1,4 +1,3 @@
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /** FoldModel factory for xAI's OpenAI-compatible inference API authenticated with OAuth. */
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai-compat'
 import type {
@@ -9,12 +8,12 @@ import type {
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Context, Effect, Layer, Match, Option, Predicate, Schema, Stream } from 'effect'
-import type { Scope } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
+import type { FileSystem, Scope } from 'effect'
+import { LanguageModel } from 'effect/unstable/ai'
+import { HttpClient } from 'effect/unstable/http'
 
-import type { XaiAuthStore } from './AuthStore'
-import { makeXaiAuth, withXaiAuth } from './XaiAuth'
+import { layerXaiAuthStore, type XaiAuthStoreOptions } from './AuthStore'
+import { layerXaiAuth, xaiAuthenticatedClient } from './XaiAuth'
 import { DEFAULT_XAI_MODEL_ID } from './XaiModelCatalog'
 
 export const XAI_API_URL = 'https://api.x.ai/v1'
@@ -69,30 +68,42 @@ export type XaiModelOptions = {
 	readonly reasoning?: ReasoningLevel
 	readonly providerId?: string
 	readonly apiUrl?: string
-	readonly store?: XaiAuthStore
+	/** The auth document holding this provider's credential, under the `providerId` entry. Defaults to `~/.fold/auth.json`. */
+	readonly authStorePath?: string
 }
+
+/** The credential store for this model: its provider's entry in its auth document. */
+const authStoreOptionsFor = (options: XaiModelOptions): XaiAuthStoreOptions =>
+	options.authStorePath === undefined
+		? { providerId: options.providerId ?? 'xai' }
+		: { providerId: options.providerId ?? 'xai', path: options.authStorePath }
+
+/** This model's XaiAuth over its provider's credential store, on the host's HttpClient and FileSystem. */
+const authLayerFor = (options: XaiModelOptions) =>
+	layerXaiAuth().pipe(Layer.provide(layerXaiAuthStore(authStoreOptionsFor(options))))
 
 /** Build xAI's stock OpenAI-compatible LanguageModel over the OAuth transport. */
 export const makeXaiLanguageModel = (
 	options: XaiModelOptions,
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope> =>
-	Effect.gen(function* () {
-		const httpContext = yield* Layer.build(FetchHttpClient.layer)
-		const base = Context.get(httpContext, HttpClient.HttpClient)
-		const authOptions: { store?: XaiAuthStore } = {}
-		if (options.store !== undefined) authOptions.store = options.store
-		const auth = yield* makeXaiAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, base))
-		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl: options.apiUrl ?? XAI_API_URL })).pipe(
-			Effect.provideService(HttpClient.HttpClient, withXaiAuth(base, auth)),
-		)
-		const client = decorateXaiClient(Context.get(clientContext, OpenAiClient.OpenAiClient))
-		return yield* OpenAiLanguageModel.make({ model: options.model ?? DEFAULT_XAI_MODEL_ID }).pipe(
-			Effect.provideService(OpenAiClient.OpenAiClient, client),
-		)
-	}).pipe(Effect.provide(NodeFileSystem.layer))
+): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+	Layer.build(
+		Layer.effect(
+			LanguageModel.LanguageModel,
+			Effect.gen(function* () {
+				const authenticated = yield* xaiAuthenticatedClient(yield* HttpClient.HttpClient)
+				const clientContext = yield* Layer.build(
+					OpenAiClient.layer({ apiUrl: options.apiUrl ?? XAI_API_URL }),
+				).pipe(Effect.provideService(HttpClient.HttpClient, authenticated))
+				const client = decorateXaiClient(Context.get(clientContext, OpenAiClient.OpenAiClient))
+				return yield* OpenAiLanguageModel.make({ model: options.model ?? DEFAULT_XAI_MODEL_ID }).pipe(
+					Effect.provideService(OpenAiClient.OpenAiClient, client),
+				)
+			}),
+		).pipe(Layer.provide(authLayerFor(options))),
+	).pipe(Effect.map((context) => Context.get(context, LanguageModel.LanguageModel)))
 
 /** Describe an xAI OAuth-backed model compatible with Fold sessions and switching. */
-export const xaiModel = (options: XaiModelOptions = {}): FoldModel => {
+export const xaiModel = (options: XaiModelOptions = {}): FoldModel<HttpClient.HttpClient | FileSystem.FileSystem> => {
 	const level = options.reasoning ?? 'off'
 	return customModel({
 		activeModel: {

@@ -10,7 +10,7 @@
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { Effect, FileSystem, Option, Schema } from 'effect'
+import { Context, Effect, FileSystem, Layer, Option, Schema } from 'effect'
 
 /** Milliseconds before nominal expiry a token is already treated as expired (clanka parity). */
 export const TOKEN_EXPIRY_BUFFER_MS = 30_000
@@ -40,7 +40,7 @@ export class XaiAuthStoreError extends Schema.TaggedError<XaiAuthStoreError>()('
 }) {}
 
 /** The credential store one XaiAuth instance persists through. */
-export type XaiAuthStore = {
+export type XaiAuthStoreService = {
 	/** Absolute path of the backing JSON document (used in error messages and guidance). */
 	readonly path: string
 	readonly load: Effect.Effect<Option.Option<XaiTokenData>>
@@ -48,8 +48,11 @@ export type XaiAuthStore = {
 	readonly clear: Effect.Effect<void, XaiAuthStoreError>
 }
 
-/** Options for {@link makeXaiAuthStore}. */
-export type MakeXaiAuthStoreOptions = {
+/** The credential store XaiAuth persists through; {@link layerXaiAuthStore} provides the file-backed one. */
+export class XaiAuthStore extends Context.Service<XaiAuthStore, XaiAuthStoreService>()('fold/XaiAuthStore') {}
+
+/** Options for {@link layerXaiAuthStore}. */
+export type XaiAuthStoreOptions = {
 	/** Path of the auth document. Defaults to `~/.fold/auth.json`. */
 	readonly path?: string
 	/** Key of this provider's entry in the document. Defaults to `xai`. */
@@ -73,104 +76,107 @@ const decodeTokenEntry = Schema.decodeOption(XaiTokenEntry)
 
 const encodeTokenEntry = Schema.encodeEffect(XaiTokenEntry)
 
-/** Build a file-backed Xai credential store. */
-export const makeXaiAuthStore = (
-	options?: MakeXaiAuthStoreOptions,
-): Effect.Effect<XaiAuthStore, never, FileSystem.FileSystem> =>
-	Effect.map(FileSystem.FileSystem, (fs) => {
-		const path = options?.path ?? defaultAuthStorePath()
-		const providerId = options?.providerId ?? 'xai'
+/** A file-backed xAI credential store. */
+export const layerXaiAuthStore = (
+	options?: XaiAuthStoreOptions,
+): Layer.Layer<XaiAuthStore, never, FileSystem.FileSystem> =>
+	Layer.effect(
+		XaiAuthStore,
+		Effect.map(FileSystem.FileSystem, (fs): XaiAuthStoreService => {
+			const path = options?.path ?? defaultAuthStorePath()
+			const providerId = options?.providerId ?? 'xai'
 
-		// A missing document is simply "no credentials stored yet"; any other read failure is real.
-		const readDocument: Effect.Effect<XaiAuthDocument, XaiAuthStoreError> = fs.readFileString(path).pipe(
-			Effect.asSome,
-			Effect.catchReason('PlatformError', 'NotFound', () => Effect.succeed(Option.none<string>())),
-			Effect.mapError(
-				(cause) =>
-					new XaiAuthStoreError({
-						reason: 'ReadFailed',
-						message: `Failed to read the auth store at ${path}`,
-						cause,
-					}),
-			),
-			Effect.flatMap(
-				Option.match({
-					onNone: () => Effect.succeed(emptyDocument),
-					onSome: (text) =>
-						decodeDocument(text).pipe(
-							Effect.mapError(
-								(cause) =>
-									new XaiAuthStoreError({
-										reason: 'InvalidDocument',
-										message: `Auth store ${path} is not a JSON object of provider entries`,
-										cause,
-									}),
+			// A missing document is simply "no credentials stored yet"; any other read failure is real.
+			const readDocument: Effect.Effect<XaiAuthDocument, XaiAuthStoreError> = fs.readFileString(path).pipe(
+				Effect.asSome,
+				Effect.catchReason('PlatformError', 'NotFound', () => Effect.succeed(Option.none<string>())),
+				Effect.mapError(
+					(cause) =>
+						new XaiAuthStoreError({
+							reason: 'ReadFailed',
+							message: `Failed to read the auth store at ${path}`,
+							cause,
+						}),
+				),
+				Effect.flatMap(
+					Option.match({
+						onNone: () => Effect.succeed(emptyDocument),
+						onSome: (text) =>
+							decodeDocument(text).pipe(
+								Effect.mapError(
+									(cause) =>
+										new XaiAuthStoreError({
+											reason: 'InvalidDocument',
+											message: `Auth store ${path} is not a JSON object of provider entries`,
+											cause,
+										}),
+								),
 							),
-						),
-				}),
-			),
-		)
+					}),
+				),
+			)
 
-		const writeDocument = (document: XaiAuthDocument): Effect.Effect<void, XaiAuthStoreError> =>
-			Effect.gen(function* () {
-				yield* fs.makeDirectory(dirname(path), { recursive: true })
-				const text = yield* encodeDocument(document)
-				yield* fs.writeFileString(path, `${text}\n`, { mode: 0o600 })
-				// writeFileString's mode only applies on creation; force 0600 on pre-existing documents too.
-				yield* fs.chmod(path, 0o600)
+			const writeDocument = (document: XaiAuthDocument): Effect.Effect<void, XaiAuthStoreError> =>
+				Effect.gen(function* () {
+					yield* fs.makeDirectory(dirname(path), { recursive: true })
+					const text = yield* encodeDocument(document)
+					yield* fs.writeFileString(path, `${text}\n`, { mode: 0o600 })
+					// writeFileString's mode only applies on creation; force 0600 on pre-existing documents too.
+					yield* fs.chmod(path, 0o600)
+				}).pipe(
+					Effect.mapError(
+						(cause) =>
+							new XaiAuthStoreError({
+								reason: 'WriteFailed',
+								message: `Failed to write the auth store at ${path}`,
+								cause,
+							}),
+					),
+				)
+
+			const load = Effect.gen(function* () {
+				const document = yield* readDocument
+				const entry = document[providerId]
+				if (entry === undefined) return Option.none<XaiTokenData>()
+
+				const token = decodeTokenEntry(entry)
+				if (Option.isNone(token)) {
+					yield* Effect.logWarning(`Ignoring invalid "${providerId}" entry in ${path}`)
+				}
+
+				return token
 			}).pipe(
-				Effect.mapError(
-					(cause) =>
-						new XaiAuthStoreError({
-							reason: 'WriteFailed',
-							message: `Failed to write the auth store at ${path}`,
-							cause,
-						}),
+				Effect.catchTag('XaiAuthStoreError', (error) =>
+					Effect.logWarning(`${error.message}; treating it as holding no credentials`, error.cause).pipe(
+						Effect.as(Option.none<XaiTokenData>()),
+					),
 				),
+				Effect.withSpan('fold.xaiAuthStore.load'),
 			)
 
-		const load = Effect.gen(function* () {
-			const document = yield* readDocument
-			const entry = document[providerId]
-			if (entry === undefined) return Option.none<XaiTokenData>()
+			const save = Effect.fn('fold.xaiAuthStore.save')(function* (token: XaiTokenData) {
+				const document = yield* readDocument
+				const entry = yield* encodeTokenEntry(token).pipe(
+					Effect.mapError(
+						(cause) =>
+							new XaiAuthStoreError({
+								reason: 'WriteFailed',
+								message: `Failed to encode the "${providerId}" entry for ${path}`,
+								cause,
+							}),
+					),
+				)
+				yield* writeDocument({ ...document, [providerId]: entry })
+				return token
+			})
 
-			const token = decodeTokenEntry(entry)
-			if (Option.isNone(token)) {
-				yield* Effect.logWarning(`Ignoring invalid "${providerId}" entry in ${path}`)
-			}
+			const clear = Effect.gen(function* () {
+				const document = yield* readDocument
+				if (document[providerId] === undefined) return
+				const { [providerId]: _removed, ...rest } = document
+				yield* writeDocument(rest)
+			}).pipe(Effect.withSpan('fold.xaiAuthStore.clear'))
 
-			return token
-		}).pipe(
-			Effect.catchTag('XaiAuthStoreError', (error) =>
-				Effect.logWarning(`${error.message}; treating it as holding no credentials`, error.cause).pipe(
-					Effect.as(Option.none<XaiTokenData>()),
-				),
-			),
-			Effect.withSpan('fold.xaiAuthStore.load'),
-		)
-
-		const save = Effect.fn('fold.xaiAuthStore.save')(function* (token: XaiTokenData) {
-			const document = yield* readDocument
-			const entry = yield* encodeTokenEntry(token).pipe(
-				Effect.mapError(
-					(cause) =>
-						new XaiAuthStoreError({
-							reason: 'WriteFailed',
-							message: `Failed to encode the "${providerId}" entry for ${path}`,
-							cause,
-						}),
-				),
-			)
-			yield* writeDocument({ ...document, [providerId]: entry })
-			return token
-		})
-
-		const clear = Effect.gen(function* () {
-			const document = yield* readDocument
-			if (document[providerId] === undefined) return
-			const { [providerId]: _removed, ...rest } = document
-			yield* writeDocument(rest)
-		}).pipe(Effect.withSpan('fold.xaiAuthStore.clear'))
-
-		return { path, load, save, clear }
-	})
+			return { path, load, save, clear }
+		}),
+	)

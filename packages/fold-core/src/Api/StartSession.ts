@@ -109,10 +109,11 @@ import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './Tool
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 /**
- * Options for {@link startSession}. `RA` is the host services the agent's tools need and `RL` the ones
- * the log backend needs; the session requires both from its caller.
+ * Options for {@link startSession}. `RA` is the host services the agent (its model and tools) needs, `RL`
+ * the ones the log backend needs, and `RP` the ones the profile models need; the session requires all
+ * of them from its caller.
  */
-export type StartSessionOptions<RA = never, RL = never> = {
+export type StartSessionOptions<RA = never, RL = never, RP = never> = {
 	readonly agent: AgentDefinition<RA>
 	/** Event log backend for the session. Defaults to in-memory. */
 	readonly log?: FoldEventLog<RL>
@@ -131,7 +132,7 @@ export type StartSessionOptions<RA = never, RL = never> = {
 	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
 	 * binds a concrete model. Rebind mid-session with {@link FoldSession.setProfile}.
 	 */
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<RP>
 	/**
 	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
 	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
@@ -143,7 +144,7 @@ export type StartSessionOptions<RA = never, RL = never> = {
 }
 
 /** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
-export type ResumeSessionOptions<RA = never, RL = never> = {
+export type ResumeSessionOptions<RA = never, RL = never, RP = never> = {
 	readonly agent: AgentDefinition<RA>
 	/** The existing event log to adopt; the session continues exactly where the log left off. */
 	readonly log: FoldEventLog<RL>
@@ -154,7 +155,7 @@ export type ResumeSessionOptions<RA = never, RL = never> = {
 	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
 	 * binds a concrete model. Rebind mid-session with {@link FoldSession.setProfile}.
 	 */
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<RP>
 	/**
 	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
 	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
@@ -177,7 +178,7 @@ export type SwitchModelOptions<R = never> = {
 	 * Candidate subagent types are validated against this map; it is published only after the durable
 	 * transition succeeds. Omitted means preserve the current bindings.
 	 */
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<R>
 }
 
 /**
@@ -253,7 +254,7 @@ export type FoldSession<R = never> = {
 	 * `thinking-change` when the reasoning level changed - and provisions the new configuration for every
 	 * subsequent send. The same log continues across the switch.
 	 */
-	readonly switchModel: (model: FoldModel, options?: SwitchModelOptions<R>) => Effect.Effect<void>
+	readonly switchModel: (model: FoldModel<R>, options?: SwitchModelOptions<R>) => Effect.Effect<void>
 	/** Force a root-agent compaction now. Returns null when there is nothing safe to summarize. */
 	readonly compact: (options?: CompactOptions) => Effect.Effect<CompactionLogEntry | null>
 	/**
@@ -265,7 +266,7 @@ export type FoldSession<R = never> = {
 	 * `model-change` transition. The ROOT agent's model is never profile-bound; switch it with
 	 * {@link switchModel}.
 	 */
-	readonly setProfile: (role: ProfileRole, model: FoldModel) => Effect.Effect<void>
+	readonly setProfile: (role: ProfileRole, model: FoldModel<R>) => Effect.Effect<void>
 	/** Merged stream of durable log rows and ephemeral streaming deltas. */
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<FoldEvent>
 	/** Snapshot of all durable log entries appended so far. */
@@ -279,7 +280,7 @@ export type FoldSession<R = never> = {
 
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
 type SessionAgentConfig<R> = {
-	readonly model: FoldModel
+	readonly model: FoldModel<R>
 	readonly promptCacheKey: string | null
 	/** The agent's own leading blocks, normalized from its descriptor. */
 	readonly systemPrompt: ReadonlyArray<string>
@@ -309,7 +310,7 @@ type SessionGraph<R> = {
 	readonly configRef: Ref.Ref<SessionAgentConfig<R>>
 	readonly validateSubagentRegistry: (
 		definitions: CollectedAgentDefinitions<R>,
-		profiles: SessionProfiles,
+		profiles: SessionProfiles<unknown>,
 	) => Effect.Effect<void>
 	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions<R>) => void
 	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool<R>>) => Effect.Effect<void>
@@ -317,7 +318,7 @@ type SessionGraph<R> = {
 		tools: ReadonlyArray<FoldTool<R>>,
 	) => Effect.Effect<CollectedAgentDefinitions<R>>
 	readonly provisionRootRuntime: (
-		model: FoldModel,
+		model: FoldModel<R>,
 		tools: ReadonlyArray<FoldTool<R>>,
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
@@ -337,7 +338,7 @@ const assembleSessionGraph = <R>(options: {
 	readonly agent: AgentDefinition<R>
 	readonly log?: FoldEventLog<R>
 	readonly steering?: SteeringMode
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<R>
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
 }): Effect.Effect<SessionGraph<R>, never, Scope.Scope | R> =>
@@ -517,7 +518,7 @@ const assembleSessionGraph = <R>(options: {
 		// this one policy while checking against its own projection and summarizing with its own model.
 		const provisioner = makeAgentProvisioner(sessionServicesLayer, agent.autoCompact)
 		const provisionRootRuntime = (
-			model: FoldModel,
+			model: FoldModel<R>,
 			tools: ReadonlyArray<FoldTool<R>>,
 		): Effect.Effect<AgentRuntimeService> =>
 			provisioner
@@ -849,7 +850,7 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 					Effect.asVoid,
 				)
 
-	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions<R>): Effect.Effect<void> =>
+	const switchModel = (model: FoldModel<R>, switchOptions?: SwitchModelOptions<R>): Effect.Effect<void> =>
 		gate.withPermit(
 			Effect.gen(function* () {
 				const current = yield* Ref.get(configRef)
@@ -918,7 +919,7 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 
 	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
 	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.
-	const setProfile = (role: ProfileRole, model: FoldModel): Effect.Effect<void> => profiles.set(role, model)
+	const setProfile = (role: ProfileRole, model: FoldModel<R>): Effect.Effect<void> => profiles.set(role, model)
 	const setTitle: FoldSession['setTitle'] = (title, provenance) =>
 		graph.eventLog
 			.append(
@@ -954,11 +955,11 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = <RA = never, RL = never>(
-	options: StartSessionOptions<RA, RL>,
-): Effect.Effect<FoldSession<RA | RL>, never, Scope.Scope | RA | RL> =>
+export const startSession = <RA = never, RL = never, RP = never>(
+	options: StartSessionOptions<RA, RL, RP>,
+): Effect.Effect<FoldSession<RA | RL | RP>, never, Scope.Scope | RA | RL | RP> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph<RA | RL>(options)
+		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
 		const config = yield* Ref.get(graph.configRef)
 		const meta: Mutable<NonNullable<StartSessionInput['meta']>> = { ...options.meta }
 		if (options.agent.name !== undefined) {
@@ -989,11 +990,11 @@ export const startSession = <RA = never, RL = never>(
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = <RA = never, RL = never>(
-	options: ResumeSessionOptions<RA, RL>,
-): Effect.Effect<FoldSession<RA | RL>, never, Scope.Scope | RA | RL> =>
+export const resumeSession = <RA = never, RL = never, RP = never>(
+	options: ResumeSessionOptions<RA, RL, RP>,
+): Effect.Effect<FoldSession<RA | RL | RP>, never, Scope.Scope | RA | RL | RP> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph<RA | RL>(options)
+		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(
 			Effect.orDie,
 			Effect.map((collected): ReadonlyArray<LogEntry> => collected),

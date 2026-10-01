@@ -75,7 +75,7 @@ export type RealizedAgentTools = {
 
 /** The root agent's current configuration; model switches move it (read fresh per dispatch). */
 export type RootAgentSnapshot = {
-	readonly model: FoldModel
+	readonly model: FoldModel<unknown>
 	readonly promptCacheKey: string | null
 	/** The root's tools as configured (system-tool values included). */
 	readonly tools: ReadonlyArray<FoldTool<unknown>>
@@ -97,7 +97,7 @@ type OriginatingConfig = { readonly _tag: 'entry'; readonly entry: RegisteredAge
 const OriginatingConfig = Data.taggedEnum<OriginatingConfig>()
 
 type AgentConfigurationSnapshot = {
-	readonly model: FoldModel
+	readonly model: FoldModel<unknown>
 	readonly promptCacheKey: string | null
 	readonly tools: ReadonlyArray<FoldTool<unknown>>
 	readonly hooks: HookConfig
@@ -115,7 +115,7 @@ type LaunchSubagentParams = {
 	readonly toolCallId: ToolCallId
 	readonly mode: AgentLaunchMode
 	readonly fork: AgentFork | null
-	readonly model: FoldModel
+	readonly model: FoldModel<unknown>
 	readonly promptCacheKey: string | null
 	readonly tools: ReadonlyArray<RealizedFoldTool>
 	readonly hooks: HookConfig
@@ -232,7 +232,7 @@ export const makeSubagents = (
 		const profiles = yield* Profiles
 
 		/** Resolve one registry entry's model binding: a role name reads the current profiles map. */
-		const resolveModelBinding = (binding: SubagentModelBinding): Effect.Effect<FoldModel> =>
+		const resolveModelBinding = (binding: SubagentModelBinding<unknown>): Effect.Effect<FoldModel<unknown>> =>
 			isProfileRole(binding) ? profiles.resolve(binding) : Effect.succeed(binding)
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>

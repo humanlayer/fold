@@ -7,13 +7,14 @@ import { Effect, Option, Schema } from 'effect'
 import {
 	buildXaiAuthorizeUrl,
 	DEFAULT_XAI_MODEL_ID,
-	makeXaiAuthStore,
+	layerXaiAuthStore,
 	normalizeXaiChatCompletionUsage,
 	XAI_FRONTIER_MODELS,
 	XAI_BROWSER_REDIRECT_URI,
 	XAI_CLIENT_ID,
 	xaiModel,
 	XaiFrontierModelId,
+	XaiAuthStore,
 	XaiTokenData,
 } from '../src/index'
 
@@ -31,13 +32,15 @@ describe('xAI OAuth', () => {
 	it.effect('persists xAI tokens under its provider key and clears without losing peers', () =>
 		Effect.gen(function* () {
 			const path = `${process.cwd()}/.tmp-xai-auth-${crypto.randomUUID()}.json`
-			const store = yield* makeXaiAuthStore({ path })
-			const token = new XaiTokenData({ type: 'oauth', access: 'access', refresh: 'refresh', expires: 42 })
-			yield* store.save(token)
-			const loaded = yield* store.load
-			expect(Option.getOrUndefined(loaded)?.access).toBe('access')
-			yield* store.clear
-			expect(Option.isNone(yield* store.load)).toBe(true)
+			yield* Effect.gen(function* () {
+				const store = yield* XaiAuthStore
+				const token = new XaiTokenData({ type: 'oauth', access: 'access', refresh: 'refresh', expires: 42 })
+				yield* store.save(token)
+				const loaded = yield* store.load
+				expect(Option.getOrUndefined(loaded)?.access).toBe('access')
+				yield* store.clear
+				expect(Option.isNone(yield* store.load)).toBe(true)
+			}).pipe(Effect.provide(layerXaiAuthStore({ path })))
 		}).pipe(
 			Effect.ensuring(
 				Effect.promise(async () => {

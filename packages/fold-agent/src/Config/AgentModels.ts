@@ -18,7 +18,8 @@ import { anthropicModel, DEFAULT_ANTHROPIC_MODEL_ID, lookupCatalogEntry, openaiM
 import type { ActiveModel, ModelCatalogEntry, ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, openCodeModel } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID, xaiModel } from '@humanlayer/fold-xai'
-import { Effect, Match, Redacted, Schema } from 'effect'
+import { Effect, type FileSystem, Match, Redacted, Schema } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
 
 import { ConfigRole, type ProviderConnection, type RoleBinding, type FoldConfig } from './ConfigSchema'
 
@@ -41,17 +42,24 @@ export type AgentModelsOptions = {
 	 * not know pass through permissively. Omitted means no validation.
 	 */
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
+	/**
+	 * The auth document OAuth providers (codex, opencode, xai) read their credentials from, each under
+	 * its own provider name. Defaults to `~/.fold/auth.json`.
+	 */
+	readonly authStorePath?: string
 }
 
 /** Resolves config roles to runnable model descriptors (D25). */
 export type AgentModels = {
-	readonly resolve: (role: ConfigRole) => Effect.Effect<FoldModel, RoleResolutionError>
+	readonly resolve: (
+		role: ConfigRole,
+	) => Effect.Effect<FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>, RoleResolutionError>
 }
 
 const defaultEnv: EnvLookup = (name) => process.env[name]
 
 /** Stamp the requested role onto the resolved model's snapshot (provenance in the durable log). */
-const withRole = (model: FoldModel, role: ConfigRole): FoldModel => {
+const withRole = <R>(model: FoldModel<R>, role: ConfigRole): FoldModel<R> => {
 	const activeModel: ActiveModel = { ...model.activeModel, role }
 	return { ...model, activeModel }
 }
@@ -128,7 +136,10 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 	}
 
 	/** Resolve one role's binding to its provider-specific model descriptor. */
-	const resolveBinding = (role: ConfigRole, binding: RoleBinding): Effect.Effect<FoldModel, RoleResolutionError> =>
+	const resolveBinding = (
+		role: ConfigRole,
+		binding: RoleBinding,
+	): Effect.Effect<FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>, RoleResolutionError> =>
 		Effect.gen(function* () {
 			const providerName = binding.provider
 			const provider = config.providers[providerName]
@@ -144,25 +155,44 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 			const reasoning: ReasoningLevel | undefined = binding.reasoning
 			const reasoningOption = reasoning === undefined ? {} : { reasoning }
 			const baseUrlOption = provider.baseUrl === undefined ? {} : { baseUrl: provider.baseUrl }
+			const authStoreOption = options?.authStorePath === undefined ? {} : { authStorePath: options.authStorePath }
 
 			if (provider.kind === 'codex') {
 				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
 				return withRole(
-					codexModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
+					codexModel({
+						model,
+						providerId: providerName,
+						...reasoningOption,
+						...apiUrlOption,
+						...authStoreOption,
+					}),
 					role,
 				)
 			}
 			if (provider.kind === 'opencode') {
 				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
 				return withRole(
-					openCodeModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
+					openCodeModel({
+						model,
+						providerId: providerName,
+						...reasoningOption,
+						...apiUrlOption,
+						...authStoreOption,
+					}),
 					role,
 				)
 			}
 			if (provider.kind === 'xai') {
 				const apiUrlOption = provider.baseUrl === undefined ? {} : { apiUrl: provider.baseUrl }
 				return withRole(
-					xaiModel({ model, providerId: providerName, ...reasoningOption, ...apiUrlOption }),
+					xaiModel({
+						model,
+						providerId: providerName,
+						...reasoningOption,
+						...apiUrlOption,
+						...authStoreOption,
+					}),
 					role,
 				)
 			}
@@ -192,7 +222,7 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 	const validateReasoningSupport = (
 		role: ConfigRole,
 		binding: RoleBinding,
-		model: FoldModel,
+		model: FoldModel<unknown>,
 	): Effect.Effect<void, RoleResolutionError> => {
 		const requested = binding.reasoning
 		if (catalog === undefined || requested === undefined || requested === 'off') return Effect.void
@@ -224,7 +254,9 @@ export const agentModelsFromConfig = (config: FoldConfig, options?: AgentModelsO
 		return Effect.void
 	}
 
-	const resolve = (role: ConfigRole): Effect.Effect<FoldModel, RoleResolutionError> =>
+	const resolve = (
+		role: ConfigRole,
+	): Effect.Effect<FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>, RoleResolutionError> =>
 		Effect.gen(function* () {
 			const binding = bindingFor(role)
 			const model = yield* resolveBinding(role, binding)

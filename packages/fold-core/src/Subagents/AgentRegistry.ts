@@ -36,7 +36,7 @@ export type RegisteredAgentType = {
 	 */
 	readonly tools: ReadonlyArray<FoldTool<unknown>>
 	/** Concrete model or profile role name; the Subagents engine resolves roles per dispatch/resume. */
-	readonly model: SubagentModelBinding
+	readonly model: SubagentModelBinding<unknown>
 	readonly hooks: HookConfig
 }
 

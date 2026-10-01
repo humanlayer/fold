@@ -1,6 +1,5 @@
 import { join } from 'node:path'
 
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import {
 	bootstrapFoldHome,
 	defaultFoldHome,
@@ -20,7 +19,7 @@ import {
 	type OutputStore,
 	type Photon,
 } from '@humanlayer/fold-agent'
-import { makeCodexAuthStore } from '@humanlayer/fold-codex'
+import { CodexAuthStore, layerCodexAuthStore, type CodexAuthStoreOptions } from '@humanlayer/fold-codex'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -177,26 +176,38 @@ const activeModelFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 	return null
 }
 
-const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions): Effect.Effect<CredentialSummary> =>
+/** Summarize a stored Codex credential: its provider's entry in the fold home's auth document. */
+const codexCredentialSummary = (providerId: string): Effect.Effect<CredentialSummary, never, CodexAuthStore> =>
 	Effect.gen(function* () {
-		if (model === null) return CredentialSummary.unknown({ detail: 'no active model row found in the session log' })
-
-		if (model.providerKind === 'codex') {
-			const authStoreOptions: Mutable<Parameters<typeof makeCodexAuthStore>[0]> = { providerId: model.providerId }
-			if (options.foldHome !== undefined) authStoreOptions.path = join(options.foldHome, 'auth.json')
-			const store = yield* makeCodexAuthStore(authStoreOptions).pipe(Effect.provide(NodeFileSystem.layer))
-			const token = yield* store.load
-			if (Option.isNone(token)) {
-				return CredentialSummary.missing({ detail: `entry "${model.providerId}" in ${store.path}` })
-			}
-
-			const now = yield* Clock.currentTimeMillis
-			const expiry = token.value.isExpired(now) ? 'expired; will refresh on first request' : 'valid'
-			return CredentialSummary.found({ detail: `${expiry} entry "${model.providerId}" in ${store.path}` })
+		const store = yield* CodexAuthStore
+		const token = yield* store.load
+		if (Option.isNone(token)) {
+			return CredentialSummary.missing({ detail: `entry "${providerId}" in ${store.path}` })
 		}
 
-		return CredentialSummary.found({ detail: `API key resolved for provider "${model.providerId}"` })
+		const now = yield* Clock.currentTimeMillis
+		const expiry = token.value.isExpired(now) ? 'expired; will refresh on first request' : 'valid'
+		return CredentialSummary.found({ detail: `${expiry} entry "${providerId}" in ${store.path}` })
 	})
+
+const credentialSummary = (
+	model: ActiveModel | null,
+	options: CliSessionOptions,
+): Effect.Effect<CredentialSummary, never, FileSystem.FileSystem> => {
+	if (model === null)
+		return Effect.succeed(CredentialSummary.unknown({ detail: 'no active model row found in the session log' }))
+	if (model.providerKind !== 'codex') {
+		return Effect.succeed(
+			CredentialSummary.found({ detail: `API key resolved for provider "${model.providerId}"` }),
+		)
+	}
+
+	const authStoreOptions: CodexAuthStoreOptions =
+		options.foldHome === undefined
+			? { providerId: model.providerId }
+			: { providerId: model.providerId, path: join(options.foldHome, 'auth.json') }
+	return codexCredentialSummary(model.providerId).pipe(Effect.provide(layerCodexAuthStore(authStoreOptions)))
+}
 
 /**
  * The header's agent-mode label: non-default modes print their name, and an enabled RPI roster is
@@ -248,7 +259,10 @@ export const resumeFlagsFor = (options: CliSessionOptions): ReadonlyArray<Resume
 	...compactResumeFlags(options.autoCompact),
 ]
 
-const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effect.Effect<SessionHeader> =>
+const sessionHeader = (
+	opened: OpenedSession,
+	options: CliSessionOptions,
+): Effect.Effect<SessionHeader, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const entries = yield* opened.session.entries
 		const model = activeModelFromEntries(entries, opened.session.rootAgentId)

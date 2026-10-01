@@ -13,7 +13,8 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/fold-core'
-import { Console, Effect } from 'effect'
+import { Console, Effect, Layer } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
 import { skillsFromDisk } from '../src/index'
 
@@ -74,7 +75,7 @@ const makeProgram = (apiKey: string) =>
 
 		yield* Console.log(`finished: ${finished.outcome}`)
 		yield* Console.log(`result:\n${finished.resultText ?? '(no text)'}`)
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
+	}).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set ANTHROPIC_API_KEY to run this example.')
