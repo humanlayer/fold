@@ -5,10 +5,12 @@ A minimal fold chat host on Cloudflare, deployed with [Alchemy v2](https://alche
 - `src/ChatSession.ts` — the Durable Object. It opens the fold log in its SQLite on activation; the first message clones its repos and starts the session, later activations resume it.
 - `src/DurableObjectEventLog.ts` — the service that opens fold's `EventLogService` over the object's SQLite.
 - `src/Keepalive.ts` — a 30s alarm heartbeat that keeps the object alive while a turn runs.
+- `src/SessionExpiry.ts` — deletes an idle session and its workspace; see below.
 - `src/ChatSessions.ts` — the service the routes require; its `layer` reaches each session's Durable Object.
 - `src/Workspace.ts` — the service ChatSession clones repos and reaches files through; its `layer` reaches the session's Computer.
+- `src/BashTool.ts` — the agent's `bash` tool, running commands in the workspace's shell.
 - `src/WorkspaceFileSystem.ts` — Effect's `FileSystem` over the Computer's file methods, so fold-agent's file tools and skill loader run on the workspace unchanged.
-- `src/computer/` — the Computer Worker: a plain Durable Object holding a [`@cloudflare/computer`](https://github.com/cloudflare/computer) workspace (a filesystem in its SQLite, with git) per session. A separate Worker, because `@cloudflare/computer` needs the plain `cloudflare:workers` class, and an Effect Worker's bundle keeps only its own exports.
+- `src/computer/` — the Computer Worker: a plain Durable Object holding a [`@cloudflare/computer`](https://github.com/cloudflare/computer) workspace (a filesystem in its SQLite, with git and a shell) per session. The shell is just-bash in a Worker that a Worker Loader starts, reading and writing the same filesystem. A separate Worker, because `@cloudflare/computer` needs the plain `cloudflare:workers` class, and an Effect Worker's bundle keeps only its own exports.
 - `src/Api.ts` — the `HttpRouter` routes, encoding responses with fold's log schemas.
 - `src/Worker.ts` — serves the routes, with `ChatSessions` as RPC to the Durable Objects.
 - `alchemy.run.ts` — the stack: the Computer Worker, then the chat Worker, which binds it by script name.
@@ -30,11 +32,13 @@ curl -X POST "$URL/sessions/$ID/messages" -d '{"text":"stop","whenRunning":"inte
 curl "$URL/sessions/$ID/log"                                                              # the fold event log
 ```
 
-`bun alchemy tail` streams both Workers' logs. Each clone logs `workspace.prepare`, and each file call from the agent's tools logs `workspace.file` with its method, path and result.
+A session with no messages for 14 days (`IDLE_TIME` in `src/SessionExpiry.ts`) deletes its workspace and its log; its id then starts a new session. The workspace also has its own deadline a day later, so it gets deleted even if its session never does it.
+
+`bun alchemy tail` streams both Workers' logs. Each clone logs `workspace.prepare`, each file call from the agent's tools logs `workspace.file` with its method, path and result, and each shell command logs `workspace.exec` with its exit code.
 
 Each repo is `{ "url": "https://...", "name"?: string, "ref"?: string }`: it clones into `/workspace/<name>` (`name` defaults to the URL's last path segment) at `ref` (the default branch when absent), shallow. A repo that fails to clone makes the first message a 422 and starts nothing; the next message clones again from scratch. The log's `session_started` entry records each repo's commit.
 
-The agent gets fold-agent's file tools on the workspace: `read`, plus `write` and `edit` for Claude models or `apply_patch` for GPT models (fold picks by model). Relative paths resolve against `/workspace`. Skills load from each repo's `.claude/skills` and `.agents/skills` when the session opens. The system prompt lists the repos.
+The agent gets fold-agent's file tools on the workspace: `read`, plus `write` and `edit` for Claude models or `apply_patch` for GPT models (fold picks by model). Relative paths resolve against `/workspace`. It also gets `bash`, which runs in a lightweight shell: the common text commands (`ls`, `cat`, `grep`, `find`, `sed`, `awk`, `jq`, ...), pipes and redirects, and git. The shell and the file tools see the same files. Skills load from each repo's `.claude/skills` and `.agents/skills` when the session opens. The system prompt lists the repos.
 
 `bun run test` checks the routes against an in-memory `ChatSessions` built on fold's in-memory log.
 
@@ -42,7 +46,7 @@ The agent gets fold-agent's file tools on the workspace: `read`, plus `write` an
 
 - A turn cut off by a crash or deploy continues when the object next wakes, through a synthetic "continue" user message (at most 3 per cut-off turn). A subagent cut off with it is left for the root model to resume by id.
 
-- The agent can't run commands, list directories, or search yet, so it must know or guess file paths.
+- The shell is not a full Linux machine: no package managers, no node or python, no compilers, and no network. It can't install, build, or run tests.
 
 - The file tools read and write the workspace, not the repos' remotes: changes stay in the session's workspace. `read` can't process images in a Worker (its image library needs Node), so an image comes back as a short note, not the picture.
 

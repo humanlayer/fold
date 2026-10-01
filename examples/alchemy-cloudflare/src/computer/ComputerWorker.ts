@@ -11,5 +11,9 @@ export const ComputerWorker = Cloudflare.Worker('ComputerWorker', {
 	name: COMPUTER_WORKER_NAME,
 	main: './src/computer/Computer.ts',
 	compatibility: { flags: ['nodejs_compat'], date: '2026-08-31' },
-	env: { Computer: Cloudflare.DurableObject<Computer>('Computer') },
+	env: {
+		// Named COMPUTER_BINDING: the shell calls back into the Computer through this binding.
+		Computer: Cloudflare.DurableObject<Computer>('Computer'),
+		LOADER: Cloudflare.WorkerLoader(),
+	},
 })

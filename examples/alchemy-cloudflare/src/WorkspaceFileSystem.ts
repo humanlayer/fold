@@ -9,16 +9,16 @@
 import type { RpcCallError } from 'alchemy'
 import { Effect, FileSystem, Option, PlatformError } from 'effect'
 
-import type { FileInfo, FileResult } from './computer/Contract'
+import type { FileInfo, ComputerResult } from './computer/Contract'
 
 /** The Computer's file methods, as its RPC stub returns them. */
 export type ComputerFiles = {
-	readonly readFile: (path: string) => Effect.Effect<FileResult<Uint8Array>, RpcCallError>
-	readonly writeFile: (path: string, content: string) => Effect.Effect<FileResult<null>, RpcCallError>
-	readonly mkdir: (path: string, recursive: boolean) => Effect.Effect<FileResult<null>, RpcCallError>
-	readonly rm: (path: string, recursive: boolean, force: boolean) => Effect.Effect<FileResult<null>, RpcCallError>
-	readonly stat: (path: string) => Effect.Effect<FileResult<FileInfo>, RpcCallError>
-	readonly readdir: (path: string) => Effect.Effect<FileResult<ReadonlyArray<string>>, RpcCallError>
+	readonly readFile: (path: string) => Effect.Effect<ComputerResult<Uint8Array>, RpcCallError>
+	readonly writeFile: (path: string, content: string) => Effect.Effect<ComputerResult<null>, RpcCallError>
+	readonly mkdir: (path: string, recursive: boolean) => Effect.Effect<ComputerResult<null>, RpcCallError>
+	readonly rm: (path: string, recursive: boolean, force: boolean) => Effect.Effect<ComputerResult<null>, RpcCallError>
+	readonly stat: (path: string) => Effect.Effect<ComputerResult<FileInfo>, RpcCallError>
+	readonly readdir: (path: string) => Effect.Effect<ComputerResult<ReadonlyArray<string>>, RpcCallError>
 }
 
 const SYSTEM_ERROR_TAGS = new Map<string, PlatformError.SystemErrorTag>([
@@ -38,7 +38,7 @@ const SYSTEM_ERROR_TAGS = new Map<string, PlatformError.SystemErrorTag>([
 const run = <A>(
 	method: string,
 	path: string,
-	call: Effect.Effect<FileResult<A>, RpcCallError>,
+	call: Effect.Effect<ComputerResult<A>, RpcCallError>,
 ): Effect.Effect<A, PlatformError.PlatformError> =>
 	call.pipe(
 		Effect.mapError((cause) =>

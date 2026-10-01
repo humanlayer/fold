@@ -2,27 +2,16 @@
  * The workspace FileSystem against an in-memory Computer that fails the way the real one does: with a
  * code such as `ENOENT` in a result value. fold's disk skill loader then runs over it unchanged.
  */
-import * as NodeServices from '@effect/platform-node/NodeServices'
 import { it } from '@effect/vitest'
 import { makeDiskSkillSource } from '@humanlayer/fold-agent/skills'
 import { fileTools } from '@humanlayer/fold-agent/tools/files'
-import {
-	AgentId,
-	CurrentAgent,
-	CurrentToolCall,
-	InterruptNote,
-	StopController,
-	Subagents,
-	ToolCallId,
-	ToolEvents,
-	ToolState,
-	type FoldTool,
-} from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, type PlatformError } from 'effect'
+import type { FoldTool } from '@humanlayer/fold-core'
+import { Effect, FileSystem, Path, type PlatformError } from 'effect'
 import { expect } from 'vitest'
 
-import type { FileInfo, FileResult } from '../src/computer/Contract'
+import type { FileInfo, ComputerResult } from '../src/computer/Contract'
 import { type ComputerFiles, workspaceFileSystem } from '../src/WorkspaceFileSystem'
+import { callTool } from './ToolCalls'
 
 type Node = { readonly type: 'Directory' } | { readonly type: 'File'; readonly content: Uint8Array }
 
@@ -30,8 +19,8 @@ const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/')) || '/'
 
 const fakeComputer = (): ComputerFiles => {
 	const nodes = new Map<string, Node>([['/', { type: 'Directory' }]])
-	const ok = <A>(value: A): Effect.Effect<FileResult<A>> => Effect.succeed({ ok: true, value })
-	const fail = (code: string, path: string): Effect.Effect<FileResult<never>> =>
+	const ok = <A>(value: A): Effect.Effect<ComputerResult<A>> => Effect.succeed({ ok: true, value })
+	const fail = (code: string, path: string): Effect.Effect<ComputerResult<never>> =>
 		Effect.succeed({ ok: false, code, message: `${code}: ${path}` })
 	const children = (path: string) =>
 		[...nodes.keys()]
@@ -81,33 +70,9 @@ const fakeComputer = (): ComputerFiles => {
 	}
 }
 
-/** The services fold provides around every tool call, stubbed; the platform ones come from Node. */
-const toolCallServices = Layer.mergeAll(
-	NodeServices.layer,
-	Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
-	Layer.succeed(ToolEvents, { emit: () => Effect.void }),
-	Layer.succeed(StopController, { requestStop: () => Effect.void, isStopRequested: Effect.succeed(false) }),
-	Layer.succeed(CurrentAgent, { agentId: AgentId.create(), parentAgentId: null }),
-	Layer.succeed(CurrentToolCall, { toolCallId: ToolCallId.create() }),
-	Layer.succeed(InterruptNote, { set: () => Effect.void }),
-	Layer.succeed(Subagents, {
-		dispatch: () => Effect.die('no subagents'),
-		fork: () => Effect.die('no subagents'),
-		resume: () => Effect.die('no subagents'),
-		continueSubagent: () => Effect.die('no subagents'),
-	}),
-)
-
 /** Call one of fold's tools with the workspace as its FileSystem. */
-const call = (fs: FileSystem.FileSystem, tools: ReadonlyArray<FoldTool>, name: string, params: unknown) => {
-	const tool = tools.find((candidate) => candidate.name === name)
-	if (tool === undefined) return Effect.die(`no ${name} tool`)
-	return tool.init.pipe(
-		Effect.flatMap((contribution) => contribution.handler(params)),
-		Effect.provideService(FileSystem.FileSystem, fs),
-		Effect.provide(toolCallServices),
-	)
-}
+const call = (fs: FileSystem.FileSystem, tools: ReadonlyArray<FoldTool>, name: string, params: unknown) =>
+	callTool(tools, name, params).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
 
 const reasonTag = (error: PlatformError.PlatformError) => error.reason._tag
 

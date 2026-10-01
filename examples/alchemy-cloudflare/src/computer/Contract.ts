@@ -12,6 +12,9 @@ export const COMPUTER_WORKER_NAME = 'fold-alchemy-cloudflare-computer'
 /** Every repo clones into `${WORKSPACE_ROOT}/<name>`. */
 export const WORKSPACE_ROOT = '/workspace'
 
+/** The Computer's binding name on its own Worker, which the shell uses to call back into it. */
+export const COMPUTER_BINDING = 'Computer'
+
 export type RepoSpec = {
 	readonly name: string
 	readonly url: string
@@ -26,10 +29,10 @@ export type ClonedRepo = RepoSpec & {
 }
 
 /**
- * A file method's outcome. Failures come back as values, not thrown: an error thrown across RPC keeps its
- * message but loses its `code` (`ENOENT`, `EISDIR`, ...), which the file tools need.
+ * A file or command method's outcome. Failures come back as values, not thrown: an error thrown across RPC
+ * keeps its message but loses its `code` (`ENOENT`, `EISDIR`, ...), which the file tools need.
  */
-export type FileResult<A> =
+export type ComputerResult<A> =
 	| { readonly ok: true; readonly value: A }
 	| { readonly ok: false; readonly code: string; readonly message: string }
 
@@ -40,4 +43,19 @@ export type FileInfo = {
 	readonly mtime: number
 	readonly mode: number
 	readonly inode: number
+}
+
+/** One shell command, run in `cwd` and stopped after `timeoutMs`. */
+export type CommandInput = {
+	readonly command: string
+	readonly cwd: string
+	readonly timeoutMs: number
+}
+
+export type CommandOutput = {
+	/** `cancelled` when the command hit its timeout. */
+	readonly status: 'completed' | 'failed' | 'cancelled'
+	readonly exitCode: number
+	readonly stdout: string
+	readonly stderr: string
 }

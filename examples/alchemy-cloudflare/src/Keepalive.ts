@@ -14,8 +14,11 @@ export class Keepalive extends Context.Service<
 	{
 		/** Run `effect` under a lease: the first lease arms the heartbeat. */
 		readonly whileRunning: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
-		/** The object's alarm handler: re-arm while any lease is held; once none are, let the alarm lapse. */
-		readonly alarm: Effect.Effect<void>
+		/**
+		 * The object's alarm handler: re-arm while any lease is held. Returns whether it did; once no lease is
+		 * held, the alarm is the caller's.
+		 */
+		readonly alarm: Effect.Effect<boolean>
 	}
 >()('alchemy-cloudflare/Keepalive') {
 	static readonly layer = Layer.effect(
@@ -37,7 +40,9 @@ export class Keepalive extends Context.Service<
 						() => effect,
 						() => Ref.update(leases, (held) => held - 1),
 					),
-				alarm: Effect.flatMap(Ref.get(leases), (held) => (held > 0 ? armHeartbeat : Effect.void)),
+				alarm: Effect.flatMap(Ref.get(leases), (held) =>
+					held > 0 ? Effect.as(armHeartbeat, true) : Effect.succeed(false),
+				),
 			})
 		}),
 	)

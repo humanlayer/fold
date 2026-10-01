@@ -60,7 +60,7 @@ export class ChatSessions extends Context.Service<
 						.pipe(
 							Effect.catch((error) =>
 								Schema.decodeUnknownEffect(RepoCloneError)(error).pipe(
-									Effect.orDie,
+									Effect.catch(() => Effect.die(error)),
 									Effect.flatMap(Effect.fail),
 								),
 							),

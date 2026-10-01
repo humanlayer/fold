@@ -1,14 +1,39 @@
 /// <reference types="@cloudflare/workers-types/experimental" />
 /**
  * The Computer Durable Object: one `@cloudflare/computer` Workspace per fold session, named by its
- * SessionId. The Workspace is a virtual filesystem in the object's SQLite, with git. A plain Durable Object
+ * SessionId. The Workspace is a virtual filesystem in the object's SQLite, with git, and a shell: just-bash
+ * in a Worker the Worker Loader starts, which reads and writes this same filesystem. A plain Durable Object
  * rather than an Effect one, because `withWorkspace` must wrap the `cloudflare:workers` class.
  */
 import { type DurableObjectStorageLike, getWorkspace, withWorkspace } from '@cloudflare/computer'
+import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient, type GitClient, type GitCloneOptions } from '@cloudflare/computer/git'
+import jq from '@cloudflare/computer/shell/jq'
 import { DurableObject } from 'cloudflare:workers'
 
-import { type ClonedRepo, type FileInfo, type FileResult, type RepoSpec, WORKSPACE_ROOT } from './Contract'
+import {
+	type ClonedRepo,
+	type CommandInput,
+	type CommandOutput,
+	COMPUTER_BINDING,
+	type ComputerResult,
+	type FileInfo,
+	type RepoSpec,
+	WORKSPACE_ROOT,
+} from './Contract'
+
+// The shell reaches back into this object's workspace through this entrypoint, via `ctx.exports`.
+export { WorkspaceServiceProxy } from '@cloudflare/computer'
+
+type Env = {
+	/** Starts the shell's Worker. */
+	readonly LOADER: WorkerLoader
+}
+
+const SHELL_BACKEND = 'shell'
+
+/** How long `destroy` waits after answering before the object restarts. */
+const RESTART_DELAY_MILLIS = 1_000
 
 /**
  * The object's storage as `@cloudflare/computer` types it. Its `exec` promises whatever row type the caller
@@ -27,7 +52,7 @@ const workspaceStorage = (storage: DurableObjectStorage): DurableObjectStorageLi
 }
 
 /** Run one file operation, returning a thrown workspace error as its code and message. */
-const attempt = async <A>(operation: () => Promise<A>): Promise<FileResult<A>> => {
+const attempt = async <A>(operation: () => Promise<A>): Promise<ComputerResult<A>> => {
 	try {
 		return { ok: true, value: await operation() }
 	} catch (cause) {
@@ -37,14 +62,23 @@ const attempt = async <A>(operation: () => Promise<A>): Promise<FileResult<A>> =
 	}
 }
 
-class ComputerBase extends DurableObject {
-	/** For withWorkspace's options, which see the instance but not `ctx`: DurableObject keeps it protected. */
+class ComputerBase extends DurableObject<Env> {
+	// For withWorkspace's options, which see the instance but not `ctx` or `env`: DurableObject keeps them
+	// protected.
 	readonly storage = workspaceStorage(this.ctx.storage)
+	readonly shell = new WorkerShellBackend({
+		id: SHELL_BACKEND,
+		loader: this.env.LOADER,
+		workspace: { binding: COMPUTER_BINDING, id: this.ctx.id.toString() },
+		ctx: this.ctx,
+		commands: [jq],
+	})
 }
 
 export class Computer extends withWorkspace(ComputerBase, (self) => ({
 	storage: self.storage,
 	git: createGitClient(),
+	backends: [self.shell],
 })) {
 	/**
 	 * Clone each repo into `/workspace/<name>`, one at a time, replacing whatever a cut-off earlier attempt
@@ -74,12 +108,12 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 	// The file methods fold's read, write, edit and apply_patch tools and its skill loader need. Paths are
 	// absolute.
 
-	async readFile(path: string): Promise<FileResult<Uint8Array>> {
+	async readFile(path: string): Promise<ComputerResult<Uint8Array>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => new Response(await workspace.fs.readFile(path)).bytes())
 	}
 
-	async writeFile(path: string, content: string): Promise<FileResult<null>> {
+	async writeFile(path: string, content: string): Promise<ComputerResult<null>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => {
 			await workspace.fs.writeFile(path, content)
@@ -87,7 +121,7 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		})
 	}
 
-	async mkdir(path: string, recursive: boolean): Promise<FileResult<null>> {
+	async mkdir(path: string, recursive: boolean): Promise<ComputerResult<null>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => {
 			await workspace.fs.mkdir(path, { recursive })
@@ -95,7 +129,7 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		})
 	}
 
-	async rm(path: string, recursive: boolean, force: boolean): Promise<FileResult<null>> {
+	async rm(path: string, recursive: boolean, force: boolean): Promise<ComputerResult<null>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => {
 			await workspace.fs.rm(path, { recursive, force })
@@ -104,7 +138,7 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 	}
 
 	/** Follows symlinks. */
-	async stat(path: string): Promise<FileResult<FileInfo>> {
+	async stat(path: string): Promise<ComputerResult<FileInfo>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => {
 			const stat = await workspace.fs.stat(path)
@@ -113,8 +147,51 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		})
 	}
 
+	/**
+	 * Delete this workspace at `deleteAt` (epoch milliseconds) unless moved again before then. Its session
+	 * normally deletes it first; this is the backup for one that never does, such as a failed first clone.
+	 */
+	async expireAt(deleteAt: number): Promise<void> {
+		await this.ctx.storage.setAlarm(deleteAt)
+	}
+
+	/** Delete the workspace: files, git data, and the backup alarm. The object then restarts empty. */
+	async destroy(): Promise<void> {
+		await this.ctx.storage.deleteAlarm()
+		await this.ctx.storage.deleteAll()
+		// The in-memory workspace must go: its tables are gone. Wait until this call has answered: Cloudflare
+		// holds the answer until the delete is saved, and an abort before then fails the call.
+		setTimeout(() => {
+			try {
+				this.ctx.abort('workspace deleted')
+			} catch {
+				// abort throws to unwind; the object resets either way.
+			}
+		}, RESTART_DELAY_MILLIS)
+	}
+
+	/** Only `expireAt` sets the alarm, and each call replaces it, so it fires at the latest deadline. */
+	override async alarm(): Promise<void> {
+		await this.destroy()
+	}
+
+	/** Run one command in the shell. A command that fails still succeeds here, with its exit code. */
+	async exec(input: CommandInput): Promise<ComputerResult<CommandOutput>> {
+		using workspace = await getWorkspace(this)
+		return await attempt(async () => {
+			using handle = await workspace.runtime.exec(input.command, {
+				backend: SHELL_BACKEND,
+				cwd: input.cwd,
+				encoding: 'utf8',
+				timeoutMs: input.timeoutMs,
+			})
+			const { status, exitCode, stdout, stderr } = await handle.result()
+			return { status, exitCode, stdout, stderr }
+		})
+	}
+
 	/** The directory's entry names. */
-	async readdir(path: string): Promise<FileResult<ReadonlyArray<string>>> {
+	async readdir(path: string): Promise<ComputerResult<ReadonlyArray<string>>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => (await workspace.fs.readdir(path)).map((entry) => entry.name))
 	}

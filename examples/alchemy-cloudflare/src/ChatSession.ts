@@ -4,14 +4,17 @@
  * into the session's {@link Workspace} and starts the session under that id; a written log resumes on
  * activation. Callers never create a session explicitly.
  *
- * The agent reads and changes the repos' files through fold's file tools, and loads skills from each repo's
- * `.claude/skills` and `.agents/skills`, all on the workspace.
+ * The agent reads and changes the repos' files through fold's file tools, runs commands in the workspace's
+ * shell through {@link bashTool}, and loads skills from each repo's `.claude/skills` and `.agents/skills`.
  *
  * Every turn runs under a {@link Keepalive} lease so the object is not evicted mid-run. A turn can still
  * be cut off - a crash, a deploy - leaving the root's user message with no finished run after it. When a
  * written log activates in that state, the object nudges the root to continue.
  * Fold fills any tool call the cut left without a result, and the model can resume a cut-off subagent
  * by id itself. A turn that keeps getting cut off stops being nudged after {@link MAX_RESTART_NUDGES}.
+ *
+ * A session idle for 14 days deletes its workspace and itself; see
+ * {@link SessionExpiry}. Its id then starts a new session.
  */
 import { skillsFromDisk } from '@humanlayer/fold-agent/skills'
 import { fileTools } from '@humanlayer/fold-agent/tools/files'
@@ -44,10 +47,12 @@ import {
 	SynchronizedRef,
 } from 'effect'
 
+import { bashTool } from './BashTool'
 import type { Message, WhenRunning } from './ChatSessions'
 import { WORKSPACE_ROOT } from './computer/Contract'
 import { DurableObjectEventLog } from './DurableObjectEventLog'
 import { Keepalive } from './Keepalive'
+import { SessionExpiry } from './SessionExpiry'
 import { type Repo, Workspace } from './Workspace'
 
 const MODEL = 'gpt-5.6-terra'
@@ -61,7 +66,8 @@ const systemPrompt = (repoNames: ReadonlyArray<string>) =>
 		repoNames.length === 0
 			? 'No repos are cloned for this session.'
 			: `This session's repos are cloned under ${WORKSPACE_ROOT}:\n${repoNames.map((name) => `- ${WORKSPACE_ROOT}/${name}`).join('\n')}`,
-		'You can read and change their files. You cannot run commands yet.',
+		'Use bash to list, search and inspect them, and the file tools to read and change files. The shell is ' +
+			'lightweight: it cannot install packages, build, or run tests.',
 	].join('\n\n')
 
 /** Skills from each repo's `.claude/skills` and `.agents/skills`, scanned once when the session opens. */
@@ -80,6 +86,9 @@ const repoSkills = (repoNames: ReadonlyArray<string>) =>
 const RESTART_NUDGE =
 	'<system-information>A restart cut you off before you finished. Continue where you left off.</system-information>'
 const MAX_RESTART_NUDGES = 3
+
+/** The workspace's backup deadline trails the session's by this much, so the session normally deletes both. */
+const WORKSPACE_GRACE_MILLIS = 24 * 60 * 60 * 1000
 
 /** The root's user messages since its last finished run: any means a restart cut that run off. */
 const openRootMessages = (entries: ReadonlyArray<LogEntry>, rootAgentId: AgentId) => {
@@ -139,6 +148,7 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 		const apiKey = yield* Config.redacted('OPENAI_API_KEY').pipe(Effect.orDie)
 		const eventLogs = yield* DurableObjectEventLog
 		const keepalive = yield* Keepalive
+		const expiry = yield* SessionExpiry
 		const workspace = yield* Workspace
 
 		return Effect.gen(function* () {
@@ -154,7 +164,11 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 					name: 'alchemy-cloudflare-chat',
 					systemPrompt: systemPrompt(repoNames.toSorted()),
 					model,
-					tools: [...fileTools({ cwd: WORKSPACE_ROOT }), repoSkills(repoNames)],
+					tools: [
+						...fileTools({ cwd: WORKSPACE_ROOT }),
+						bashTool((input) => workspace.exec(sessionId, input)),
+						repoSkills(repoNames),
+					],
 				})
 
 			// Never closed: the session lives as long as the object stays in memory, past every call's own
@@ -177,7 +191,13 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 
 			// A written log's repos are the workspace's top-level directories.
 			const resume = Effect.gen(function* () {
-				const repoNames = yield* fileSystem.readDirectory(WORKSPACE_ROOT).pipe(Effect.orDie)
+				const entries = yield* fileSystem.readDirectory(WORKSPACE_ROOT).pipe(Effect.orDie)
+				const repoNames = yield* Effect.filter(entries, (name) =>
+					fileSystem.stat(`${WORKSPACE_ROOT}/${name}`).pipe(
+						Effect.map((info) => info.type === 'Directory'),
+						Effect.orDie,
+					),
+				)
 				return yield* resumeSession({ agent: agentFor(repoNames), log })
 			})
 
@@ -201,7 +221,10 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 			// A written log may hold a turn a restart cut off: nudge the root to continue it, in the background
 			// under a lease so the heartbeat keeps the object alive until it lands - even when that heartbeat's
 			// alarm is the only thing that woke the object.
-			if (!isEmpty) {
+			// An expired session skips this and waits for its alarm: resuming would reach into the workspace
+			// while it is being deleted, and could bring it back empty after.
+			if (!isEmpty && !(yield* expiry.expired)) {
+				yield* expiry.ensureScheduled
 				yield* Effect.forkIn(
 					Effect.gen(function* () {
 						const session = yield* open([])
@@ -216,11 +239,19 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 			return {
 				send: ({ text, whenRunning, repos }: Message) =>
 					keepalive.whileRunning(
-						Effect.flatMap(open(repos ?? []), (session) => deliver(session, text, whenRunning)),
+						Effect.gen(function* () {
+							const deadline = yield* expiry.touch
+							yield* workspace.expireAt(sessionId, deadline + WORKSPACE_GRACE_MILLIS)
+							return yield* deliver(yield* open(repos ?? []), text, whenRunning)
+						}),
 					),
 				entries: () => Stream.runCollect(eventLog.entries()).pipe(Effect.orDie),
-				alarm: () => keepalive.alarm,
+				// The heartbeat while a turn runs; after that, the idle deadline.
+				alarm: () =>
+					Effect.flatMap(keepalive.alarm, (running) =>
+						running ? Effect.void : expiry.alarm(workspace.destroy(sessionId)),
+					),
 			}
 		}).pipe(Effect.orDie)
-	}).pipe(Effect.provide([DurableObjectEventLog.layer, Keepalive.layer, Workspace.layer])),
+	}).pipe(Effect.provide([DurableObjectEventLog.layer, Keepalive.layer, SessionExpiry.layer, Workspace.layer])),
 ) {}
