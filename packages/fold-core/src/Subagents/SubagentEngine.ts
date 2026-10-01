@@ -93,7 +93,7 @@ export type ContinueSubagentInput = {
 }
 
 /** Where an agent's configuration comes from: a registered type, or the root agent. */
-type OriginatingConfig = { readonly _tag: 'entry'; readonly entry: RegisteredAgentType } | { readonly _tag: 'root' }
+type OriginatingConfig = Data.TaggedEnum<{ entry: { readonly entry: RegisteredAgentType }; root: {} }>
 const OriginatingConfig = Data.taggedEnum<OriginatingConfig>()
 
 type AgentConfigurationSnapshot = {
@@ -124,17 +124,16 @@ type LaunchSubagentParams = {
 	/** The preloaded skill name recorded on agent_started (fresh starts only). */
 	readonly skillParam: string | null
 	readonly messages: Arr.NonEmptyReadonlyArray<string>
-	/** Fresh dispatch/fork writes agent_started; resume re-enters, optionally after a model transition. */
-	readonly launch:
-		| { readonly _tag: 'start' }
-		| {
-				readonly _tag: 'resume'
-				readonly modelTransition: { readonly systemPrompt: ReadonlyArray<string> | null } | null
-		  }
+	readonly launch: SubagentLaunch
 	readonly interruptNote: InterruptNoteService
 }
 
-const SubagentLaunch = Data.taggedEnum<LaunchSubagentParams['launch']>()
+/** Fresh dispatch/fork writes agent_started; resume re-enters, optionally after a model transition. */
+type SubagentLaunch = Data.TaggedEnum<{
+	start: {}
+	resume: { readonly modelTransition: { readonly systemPrompt: ReadonlyArray<string> | null } | null }
+}>
+const SubagentLaunch = Data.taggedEnum<SubagentLaunch>()
 
 /** Leading blocks for one agent: its own blocks, then its tools' contributed blocks. */
 const leadingBlocksFor = (

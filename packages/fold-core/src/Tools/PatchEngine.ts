@@ -37,15 +37,15 @@ export type PatchChunk = {
 }
 
 /** One parsed file operation. Move is an update carrying `movePath` (opencode/clanka shape). */
-export type PatchOp =
-	| { readonly _tag: 'add'; readonly path: string; readonly content: string }
-	| { readonly _tag: 'delete'; readonly path: string }
-	| {
-			readonly _tag: 'update'
-			readonly path: string
-			readonly movePath: string | null
-			readonly chunks: ReadonlyArray<PatchChunk>
-	  }
+export type PatchOp = Data.TaggedEnum<{
+	add: { readonly path: string; readonly content: string }
+	delete: { readonly path: string }
+	update: {
+		readonly path: string
+		readonly movePath: string | null
+		readonly chunks: ReadonlyArray<PatchChunk>
+	}
+}>
 
 const PatchOp = Data.taggedEnum<PatchOp>()
 
@@ -538,10 +538,11 @@ export const applyChunks = (input: {
 	})
 
 /** One concrete filesystem step the handler performs after a successful dry run. */
-export type PatchStep =
-	| { readonly _tag: 'write'; readonly path: string; readonly content: string }
-	| { readonly _tag: 'delete'; readonly path: string }
-	| { readonly _tag: 'move'; readonly fromPath: string; readonly toPath: string; readonly content: string }
+export type PatchStep = Data.TaggedEnum<{
+	write: { readonly path: string; readonly content: string }
+	delete: { readonly path: string }
+	move: { readonly fromPath: string; readonly toPath: string; readonly content: string }
+}>
 
 const PatchStep = Data.taggedEnum<PatchStep>()
 

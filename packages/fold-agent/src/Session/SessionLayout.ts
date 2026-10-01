@@ -11,7 +11,19 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
-import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
+import type {
+	ActiveModel,
+	AgentFinishedLogEntry,
+	AgentStartedLogEntry,
+	AssistantMessageLogEntry,
+	LogEntry,
+	FoldEventLog,
+	Ids,
+	ModelChangeLogEntry,
+	SessionStartedLogEntry,
+	SessionTitleLogEntry,
+	UserMessageLogEntry,
+} from '@humanlayer/fold-core'
 import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
@@ -206,24 +218,21 @@ export const listSessionLogs = (
 	})
 
 // Type-safe entry predicates that narrow the LogEntry union.
-const isSessionStarted = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_started' }> =>
+const isSessionStarted = (entry: LogEntry): entry is SessionStartedLogEntry =>
 	Predicate.isTagged(entry, 'session_started')
 
-const isSessionTitle = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_title' }> =>
-	Predicate.isTagged(entry, 'session_title')
+const isSessionTitle = (entry: LogEntry): entry is SessionTitleLogEntry => Predicate.isTagged(entry, 'session_title')
 
-const isUserMessage = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'user-message' }> =>
-	Predicate.isTagged(entry, 'user-message')
+const isUserMessage = (entry: LogEntry): entry is UserMessageLogEntry => Predicate.isTagged(entry, 'user-message')
 
-const isAgentFinished = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'agent-finished' }> =>
-	Predicate.isTagged(entry, 'agent-finished')
+const isAgentFinished = (entry: LogEntry): entry is AgentFinishedLogEntry => Predicate.isTagged(entry, 'agent-finished')
 
-type ModelCarrier = Extract<LogEntry, { readonly _tag: 'agent_started' | 'model-change' }>
+type ModelCarrier = AgentStartedLogEntry | ModelChangeLogEntry
 const carriesModel = (entry: LogEntry): entry is ModelCarrier =>
 	Predicate.isTagged(entry, 'agent_started') || Predicate.isTagged(entry, 'model-change')
 
-type FinishedAssistantMessage = Extract<LogEntry, { readonly _tag: 'assistant-message' }> & {
-	readonly finish: NonNullable<Extract<LogEntry, { readonly _tag: 'assistant-message' }>['finish']>
+type FinishedAssistantMessage = AssistantMessageLogEntry & {
+	readonly finish: NonNullable<AssistantMessageLogEntry['finish']>
 }
 const isFinishedAssistantMessage = (entry: LogEntry): entry is FinishedAssistantMessage =>
 	Predicate.isTagged(entry, 'assistant-message') && entry.finish !== null
@@ -240,11 +249,11 @@ const FoldSessionMeta = Schema.Struct({
 type FoldSessionMeta = typeof FoldSessionMeta.Type
 const decodeFoldSessionMeta = Schema.decodeUnknownOption(FoldSessionMeta)
 
-const sessionMeta = (started: Extract<LogEntry, { readonly _tag: 'session_started' }> | undefined): FoldSessionMeta =>
+const sessionMeta = (started: SessionStartedLogEntry | undefined): FoldSessionMeta =>
 	started === undefined ? {} : Option.getOrElse(decodeFoldSessionMeta(started.meta), () => ({}))
 
 const computeStatus = (
-	lastFinished: Extract<LogEntry, { readonly _tag: 'agent-finished' }> | undefined,
+	lastFinished: AgentFinishedLogEntry | undefined,
 	latestRootEntry: LogEntry | undefined,
 ): SessionSummary['status'] => {
 	// No finish yet, or activity after the last finish → derive from latest activity

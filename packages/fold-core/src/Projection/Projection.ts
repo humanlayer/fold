@@ -57,12 +57,12 @@ export type ProjectedAssistantMessage = ProjectedLogEntry<AssistantMessageLogEnt
 export type ProjectedToolResult = ProjectedLogEntry<ToolResultLogEntry, 'toolCallId' | 'messageId' | 'message'>
 
 /** Projection-only stand-in for history replaced by a compaction entry. */
-export type ProjectedCompactionSummary = ProjectedLogEntryFields<
-	CompactionLogEntry,
-	'compactionId' | 'replacesThroughSeq' | 'summary' | 'tokensBefore' | 'postCompactionInstructions'
-> & {
-	readonly _tag: `${CompactionLogEntry['_tag']}-summary`
-}
+export type ProjectedCompactionSummary = Data.TaggedEnum<{
+	'compaction-summary': ProjectedLogEntryFields<
+		CompactionLogEntry,
+		'compactionId' | 'replacesThroughSeq' | 'summary' | 'tokensBefore' | 'postCompactionInstructions'
+	>
+}>
 
 /** Ordered read model of the messages an agent should send to the language model. */
 export type ProjectedMessage =

@@ -28,18 +28,17 @@ import { ToolState } from './ToolStateService'
 
 type ToolCallPart = Prompt.ToolCallPart
 
-type PreparedToolCall =
-	| {
-			readonly _tag: 'execute'
-			readonly original: ToolCallPart
-			readonly params: unknown
-	  }
-	| {
-			readonly _tag: 'replaceResult'
-			readonly original: ToolCallPart
-			readonly result: unknown
-			readonly isFailure: boolean
-	  }
+type PreparedToolCall = Data.TaggedEnum<{
+	execute: {
+		readonly original: ToolCallPart
+		readonly params: unknown
+	}
+	replaceResult: {
+		readonly original: ToolCallPart
+		readonly result: unknown
+		readonly isFailure: boolean
+	}
+}>
 
 const PreparedToolCall = Data.taggedEnum<PreparedToolCall>()
 

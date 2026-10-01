@@ -143,6 +143,7 @@
 		"anti-slop-effect/no-service-constructor-imports": "error",
 		"anti-slop/no-conditional-spread": "error",
 		"anti-slop/no-conditional-empty-array-spread": "error",
+		"anti-slop-effect/no-manual-tagged-construction": "error",
 		"import-extensions/no-relative-source-extensions": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
@@ -245,6 +246,7 @@
 				"anti-slop-effect/no-service-constructor-imports": "off",
 				"anti-slop/no-conditional-spread": "off",
 				"anti-slop/no-conditional-empty-array-spread": "off",
+				"anti-slop-effect/no-manual-tagged-construction": "off",
 			},
 		},
 		{
@@ -261,6 +263,7 @@
 			],
 			"rules": {
 				"automation/no-manual-tagged-construction": "off",
+				"anti-slop-effect/no-manual-tagged-construction": "off",
 			},
 		},
 		{

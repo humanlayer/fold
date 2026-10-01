@@ -1,4 +1,4 @@
-import type { LogEntry, FoldModel } from '@humanlayer/fold-core'
+import type { AssistantMessageLogEntry, LogEntry, FoldModel, UserMessageLogEntry } from '@humanlayer/fold-core'
 import { encodedContentText, languageModelLayerFor } from '@humanlayer/fold-core'
 import { Predicate, Effect, Schema, type Scope } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
@@ -6,7 +6,7 @@ import { LanguageModel } from 'effect/unstable/ai'
 const TitleResult = Schema.Struct({ title: Schema.String })
 const MAX_TRANSCRIPT_CHARS = 12_000
 
-type MessageEntry = Extract<LogEntry, { readonly _tag: 'user-message' | 'assistant-message' }>
+type MessageEntry = UserMessageLogEntry | AssistantMessageLogEntry
 
 const isMessageEntry = (entry: LogEntry): entry is MessageEntry =>
 	Predicate.isTagged(entry, 'user-message') || Predicate.isTagged(entry, 'assistant-message')

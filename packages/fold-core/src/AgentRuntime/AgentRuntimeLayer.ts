@@ -73,7 +73,7 @@ const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 
 /** Result of one private model/tool turn. */
-type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
+type TurnResult = Data.TaggedEnum<{ finished: { readonly entry: AgentFinishedLogEntry }; continue: {} }>
 const TurnResult = Data.taggedEnum<TurnResult>()
 
 type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>

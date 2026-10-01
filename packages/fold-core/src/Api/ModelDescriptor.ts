@@ -18,19 +18,18 @@ import { anthropicLanguageModel, openAiCompatibleLanguageModel } from './Provide
  * a custom implementation - the extension seam for scripted test models and provider packages. How the
  * LanguageModel is built lives on the model's `make`.
  */
-export type FoldModelProvider =
-	| {
-			readonly _tag: 'openai-compatible'
-			readonly apiKey: Redacted.Redacted<string>
-			readonly apiKeyHeader?: string | null
-			readonly baseUrl: string | null
-	  }
-	| {
-			readonly _tag: 'anthropic'
-			readonly apiKey: Redacted.Redacted<string>
-			readonly baseUrl: string | null
-	  }
-	| { readonly _tag: 'custom' }
+export type FoldModelProvider = Data.TaggedEnum<{
+	'openai-compatible': {
+		readonly apiKey: Redacted.Redacted<string>
+		readonly apiKeyHeader?: string | null
+		readonly baseUrl: string | null
+	}
+	anthropic: {
+		readonly apiKey: Redacted.Redacted<string>
+		readonly baseUrl: string | null
+	}
+	custom: {}
+}>
 
 const FoldModelProvider = Data.taggedEnum<FoldModelProvider>()
 

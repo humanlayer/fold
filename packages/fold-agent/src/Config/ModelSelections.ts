@@ -20,14 +20,16 @@ type RolesBuilder = {
 	orchestrator?: RoleBinding
 }
 
-export type ProfileModelSelection = { readonly _tag: 'profile'; readonly profile: string }
-export type DirectModelSelection = {
-	readonly _tag: 'direct'
-	readonly provider: string
-	readonly model: string
-	readonly reasoning?: RoleBinding['reasoning']
-}
-export type ConfiguredModelSelection = ProfileModelSelection | DirectModelSelection
+export type ConfiguredModelSelection = Data.TaggedEnum<{
+	profile: { readonly profile: string }
+	direct: {
+		readonly provider: string
+		readonly model: string
+		readonly reasoning?: RoleBinding['reasoning']
+	}
+}>
+export type ProfileModelSelection = Data.TaggedEnum.Value<ConfiguredModelSelection, 'profile'>
+export type DirectModelSelection = Data.TaggedEnum.Value<ConfiguredModelSelection, 'direct'>
 export const ConfiguredModelSelection = Data.taggedEnum<ConfiguredModelSelection>()
 
 export type ModelConfiguration = {

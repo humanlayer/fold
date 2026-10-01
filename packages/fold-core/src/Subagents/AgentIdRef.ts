@@ -50,11 +50,12 @@ export type AgentIdRef = typeof AgentIdRef.Type
 export const shortAgentId = (agentId: AgentId): string => `agent_${cuidSegmentOf(agentId).slice(0, 8)}`
 
 /** Outcome of resolving one inbound agent-id reference against the session's known agent ids. */
-export type AgentIdRefResolution =
-	| { readonly _tag: 'resolved'; readonly agentId: AgentId }
-	| { readonly _tag: 'not-found' }
+export type AgentIdRefResolution = Data.TaggedEnum<{
+	resolved: { readonly agentId: AgentId }
+	'not-found': {}
 	/** Two or more known ids share the referenced prefix; `candidates` carries their SHORT ids. */
-	| { readonly _tag: 'ambiguous'; readonly candidates: ReadonlyArray<string> }
+	ambiguous: { readonly candidates: ReadonlyArray<string> }
+}>
 
 const AgentIdRefResolution = Data.taggedEnum<AgentIdRefResolution>()
 

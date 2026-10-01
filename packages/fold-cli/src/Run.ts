@@ -54,7 +54,7 @@ import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type Se
  * What `--resume` selected: the newest session log for this project, or one exact id. Absent means a
  * fresh session.
  */
-export type ResumeTarget = { readonly _tag: 'latest' } | { readonly _tag: 'id'; readonly sessionId: SessionId }
+export type ResumeTarget = Data.TaggedEnum<{ latest: {}; id: { readonly sessionId: SessionId } }>
 export const ResumeTarget = Data.taggedEnum<ResumeTarget>()
 
 /** Shared options for opening a CLI-backed fold session. */

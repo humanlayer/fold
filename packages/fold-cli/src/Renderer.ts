@@ -15,6 +15,10 @@ import {
 	usageOutputTotal,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
+	type AgentStartedLogEntry,
+	type AssistantMessageLogEntry,
+	type ModelChangeLogEntry,
+	type ToolResultLogEntry,
 	AgentId,
 	LogEntry,
 	type ModelCatalogEntry,
@@ -74,10 +78,11 @@ export type SessionHeader = {
 }
 
 /** Human-safe credential status printed in the session header. */
-export type CredentialSummary =
-	| { readonly _tag: 'found'; readonly detail: string }
-	| { readonly _tag: 'missing'; readonly detail: string }
-	| { readonly _tag: 'unknown'; readonly detail: string }
+export type CredentialSummary = Data.TaggedEnum<{
+	found: { readonly detail: string }
+	missing: { readonly detail: string }
+	unknown: { readonly detail: string }
+}>
 
 export const CredentialSummary = Data.taggedEnum<CredentialSummary>()
 
@@ -181,7 +186,7 @@ const truncate = (text: string, max: number): string =>
 
 const label = (ansi: AnsiPalette, text: string): string => ansi.dim(`[${text}]`)
 
-const modelName = (entry: Extract<LogEntry, { readonly _tag: 'agent_started' | 'model-change' }>): string => {
+const modelName = (entry: AgentStartedLogEntry | ModelChangeLogEntry): string => {
 	const role = entry.model.role === null ? '' : ` role=${entry.model.role}`
 	return `${entry.model.providerId}/${entry.model.modelId}${role}`
 }
@@ -339,7 +344,7 @@ export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer =
 	/** The compact `agent_xxxx` display form used on subagent start/done lines (a valid /steer//send target). */
 	const displayAgentId = (agentId: AgentId): string => `agent_${shortIdSuffix(agentId)}`
 
-	const registerAgentLabel = (entry: Extract<LogEntry, { readonly _tag: 'agent_started' }>): void => {
+	const registerAgentLabel = (entry: AgentStartedLogEntry): void => {
 		if (entry.parentAgentId === null || agentLabels.has(entry.agentId)) return
 		const kind = entry.agentType ?? (entry.mode === 'fork' ? 'fork' : 'agent')
 		const color = tagPalette[agentLabels.size % tagPalette.length] ?? ansi.magenta
@@ -403,7 +408,7 @@ export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer =
 			return writeStdout(`${leading}${body}${endsWithNewline ? '\n' : ''}`)
 		})
 
-	const renderToolCalls = (entry: Extract<LogEntry, { readonly _tag: 'assistant-message' }>) =>
+	const renderToolCalls = (entry: AssistantMessageLogEntry) =>
 		Effect.forEach(
 			encodedContentParts(entry.message.content).filter(isPartOfType('tool-call')),
 			(part) =>
@@ -414,7 +419,7 @@ export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer =
 			{ discard: true },
 		)
 
-	const renderToolResult = (entry: Extract<LogEntry, { readonly _tag: 'tool-result' }>) => {
+	const renderToolResult = (entry: ToolResultLogEntry) => {
 		const failed = entry.message.content.filter(isPartOfType('tool-result')).some((part) => part.isFailure)
 		const color = failed ? ansi.red : ansi.green
 		return renderAgentLine(entry.agentId, `${label(ansi, 'tool')} ${color('result')} ${ansi.dim(entry.toolCallId)}`)
