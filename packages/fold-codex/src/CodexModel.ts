@@ -17,7 +17,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import type * as OpenAiSchema from '@humanlayer/effect-ai-openai/OpenAiSchema'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
-import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
+import type { ReasoningLevel, FoldModel, UsageLimits } from '@humanlayer/fold-core'
 import { Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
 import type { Scope } from 'effect'
 import { AiError } from 'effect/unstable/ai'
@@ -37,6 +37,7 @@ import {
 	withFirstEventRetry,
 	withStallTimeouts,
 } from './Hardening'
+import { usageLimitsFromCodexHeaders } from './RateLimitHeaders'
 
 /** The ChatGPT Codex backend the provider talks to (the client appends `/responses`). */
 export const CODEX_API_URL = 'https://chatgpt.com/backend-api/codex'
@@ -111,7 +112,11 @@ type ResponseFold = {
  * non-streaming requests with "Stream must be set to true") and returns the terminal event's
  * response, which also carries `generateText`/`generateObject` on the stock provider for free.
  */
-export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
+export const decorateCodexClient = (
+	inner: OpenAiClient.Service,
+	options: CodexRetryOptions,
+	onUsageLimits: (limits: UsageLimits) => Effect.Effect<void> = () => Effect.void,
+): OpenAiClient.Service => {
 	// `min` caps the infinite exponential delay; `max` intersects it with the finite retry counter.
 	const retryDelaySchedule: Schedule.Schedule<Duration.Duration, AiError.AiError> = Schedule.min([
 		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
@@ -143,6 +148,12 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 		// failures retry in-effect - nothing has streamed yet, so a re-send cannot duplicate anything.
 		return acquireOnce(transformed).pipe(
 			Effect.retry({ while: isCodexRetryableBeforeFirstEvent, schedule: retrySchedule }),
+			Effect.tap(([response]) =>
+				Option.match(usageLimitsFromCodexHeaders(response.headers), {
+					onNone: () => Effect.void,
+					onSome: onUsageLimits,
+				}),
+			),
 			Effect.map(([response, firstStream]) => {
 				let pending: EventStream | null = firstStream
 
@@ -234,6 +245,8 @@ export type CodexModelOptions = {
 	readonly hardening?: Partial<CodexHardeningOptions>
 	/** Observes stream retries (the future AgentEvents `stream-retry` seam). */
 	readonly onStreamRetry?: (info: StreamRetryInfo) => Effect.Effect<void>
+	/** Observes subscription usage-limit snapshots parsed from each response's Codex rate-limit headers. */
+	readonly onUsageLimits?: (limits: UsageLimits) => Effect.Effect<void>
 }
 
 /**
@@ -273,7 +286,7 @@ export const makeCodexLanguageModel = (
 
 		const hardening: MutableCodexRetryOptions = { ...defaultCodexHardening, ...options.hardening }
 		if (options.onStreamRetry !== undefined) hardening.onStreamRetry = options.onStreamRetry
-		const codexClient = decorateCodexClient(stockClient, hardening)
+		const codexClient = decorateCodexClient(stockClient, hardening, options.onUsageLimits)
 
 		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
 		const reasoningConfig = Match.valueTags(reasoning, {
