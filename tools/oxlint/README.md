@@ -27,11 +27,11 @@ its exemption in `.oxlintrc.jsonc`.
 
 | Rule                                             | Production | Tests |
 | ------------------------------------------------ | ---------- | ----- |
-| `automation/private-function-prefix`             | 393        | 161   |
-| `automation/no-multiple-function-params`         | 286        | 59    |
-| `automation/no-single-use-private-functions`     | 284        | 41    |
+| `automation/private-function-prefix`             | 406        | 161   |
+| `automation/no-multiple-function-params`         | 283        | 59    |
+| `automation/no-single-use-private-functions`     | 292        | 41    |
 | `automation/no-optional-function-parameters`     | 104        | 22    |
-| `anti-slop/no-known-value-widening`              | 65         | 9     |
+| `anti-slop/no-known-value-widening`              | 64         | 9     |
 | `anti-slop-effect/no-manual-tagged-construction` | 46         | 295   |
 | `anti-slop/no-conditional-spread`                | 35         | 3     |
 | `anti-slop/no-conditional-empty-array-spread`    | 24         | 3     |
