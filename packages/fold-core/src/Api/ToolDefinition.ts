@@ -14,25 +14,35 @@
 import { Effect, Schema, type Scope } from 'effect'
 import { Tool } from 'effect/unstable/ai'
 
+import type { AgentEvents } from '../AgentEvents/AgentEventsService'
+import type { EventLog } from '../EventLog/EventLogService'
+import type { Ids } from '../Ids'
+import type { ModelRequestSettings } from '../Model/ModelRequestSettings'
+import type { Profiles } from '../Session/Profiles'
+import type { SessionControls } from '../Session/SessionControls'
 import type { SkillSourceService } from '../Skills/SkillSource'
-import { Subagents } from '../Subagents/SubagentsService'
+import type { SessionAgents } from '../Subagents/SessionAgents'
 import type { SubagentToolCapabilities } from '../Subagents/SubagentTool'
+import type { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import {
 	CurrentAgent,
 	CurrentToolCall,
 	InterruptNote,
 	StopController,
 	ToolEvents,
+	type ToolEventSink,
 } from '../ToolRuntime/ToolContextServices'
 import { ToolState } from '../ToolRuntime/ToolStateService'
 
 /**
  * Ambient services every tool handler may use: durable per-call `ToolState` (through declared
  * `defineToolState` namespaces), ephemeral `ToolEvents` progress, the cooperative `StopController`,
- * the executing call's identity (`CurrentAgent`/`CurrentToolCall` - D12), the `InterruptNote` enriching
- * this call's synthetic result if it is interrupted, and the `Subagents` engine (the subagent tool's
- * handler delegates to it). The runtime provides all of them around each call; handlers needing none of
- * them simply have a smaller `R`. Anything else a handler needs (a filesystem, an HTTP client, a host
+ * the executing call's identity (`CurrentAgent`/`CurrentToolCall` - D12), and the `InterruptNote`
+ * enriching this call's synthetic result if it is interrupted. The runtime provides all of them around
+ * each call. Every handler also runs inside the session's own services - its event log, ids, controls,
+ * profiles, and what building an agent takes - which is what lets a delegation tool's handler call
+ * `dispatchSubagent`, `forkSubagent`, and `resumeSubagent`. Handlers needing none of these simply have a
+ * smaller `R`. Anything else a handler needs (a filesystem, an HTTP client, a host
  * service) becomes part of the tool's own type, {@link FoldTool}, and the host provides it at the top.
  */
 export type ToolHandlerServices =
@@ -42,7 +52,15 @@ export type ToolHandlerServices =
 	| CurrentAgent
 	| CurrentToolCall
 	| InterruptNote
-	| Subagents
+	| EventLog
+	| Ids
+	| AgentEvents
+	| ToolEventSink
+	| SystemPrompt
+	| ModelRequestSettings
+	| SessionControls
+	| Profiles
+	| SessionAgents
 
 type ToolDependency =
 	| typeof ToolState
@@ -51,7 +69,6 @@ type ToolDependency =
 	| typeof CurrentAgent
 	| typeof CurrentToolCall
 	| typeof InterruptNote
-	| typeof Subagents
 
 type ToolOptionsBuilder<Params extends Schema.Top, Success extends Schema.Top, Failure extends Schema.Top> = {
 	description: string
@@ -62,10 +79,18 @@ type ToolOptionsBuilder<Params extends Schema.Top, Success extends Schema.Top, F
 	dependencies: Array<ToolDependency>
 }
 
-/** Handler stored on a tool descriptor, erased to the runtime dispatch shape (Effect AI's erased tool params). */
+/**
+ * Handler stored on a tool descriptor, erased to the runtime dispatch shape (Effect AI's erased tool
+ * params). Its `R` is the per-call services the runtime provides around each call; the session's and the
+ * host's services come from the context its toolkit is built in.
+ */
 export type ErasedToolHandler = (
 	params: Tool.Parameters<Tool.Any>,
-) => Effect.Effect<unknown, unknown, ToolHandlerServices>
+) => Effect.Effect<
+	unknown,
+	unknown,
+	ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote
+>
 
 /**
  * What one tool contributes to a session once its `init` has run: the realized tool definition (final
@@ -78,8 +103,8 @@ export type SessionToolContribution = {
 	/** Appended to the leading prompt blocks of each agent whose `tools` carry this value. */
 	readonly promptBlock: string | null
 	/**
-	 * The resolved skill source, when this contribution is a skill tool's - the seam the Subagents
-	 * service preloads dispatch-time skills through (the dispatcher picks from skills *it* can see).
+	 * The resolved skill source, when this contribution is a skill tool's - the seam the subagent
+	 * operations preload dispatch-time skills through (the dispatcher picks from skills *it* can see).
 	 */
 	readonly skillSource?: SkillSourceService
 }
@@ -176,7 +201,7 @@ export const defineTool = <
 		failureMode: 'return',
 		// Every tool may use the ambient per-call services; declaring them here keeps handler `R`
 		// honest while the runtime provides all of them around each execution.
-		dependencies: [ToolState, ToolEvents, StopController, CurrentAgent, CurrentToolCall, InterruptNote, Subagents],
+		dependencies: [ToolState, ToolEvents, StopController, CurrentAgent, CurrentToolCall, InterruptNote],
 	}
 	if (options.parameters !== undefined) {
 		toolOptions.parameters = options.parameters
@@ -198,9 +223,9 @@ export const defineTool = <
 			tool,
 			// SAFETY: the handler is stored erased so heterogeneous tools can share one dispatch table. Effect
 			// AI decodes model-supplied params against `parameters` before invoking it, so it only ever receives
-			// `Params['Type']`. The runtime provides the per-call services around each call, and the host
-			// services in `Services` come from the session's services, which `startSession` requires from its
-			// caller because this tool's type carries them.
+			// `Params['Type']`. The runtime provides the per-call services around each call; the session's own
+			// services and the host services in `Services` come from the context the toolkit is built in, and
+			// `startSession` requires the host ones from its caller because this tool's type carries them.
 			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
 			handler: handler as ErasedToolHandler,
 			promptBlock: null,

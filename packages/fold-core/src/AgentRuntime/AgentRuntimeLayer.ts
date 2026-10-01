@@ -115,7 +115,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const agentEvents = yield* AgentEvents
 		const sessionControls = yield* SessionControls
 		// Defaulted reference (D11): resolves the provisioned live policy, or the disabled no-op. The
-		// provisioner builds it over this runtime's own LanguageModel and the session ModelCatalog.
+		// provisioning builds it over this runtime's own LanguageModel and the session ModelCatalog.
 		const compaction = yield* Compaction
 		// Defaulted reference: host-specific post-compaction archive/log access guidance.
 		const compactionArchiveAccess = yield* CompactionArchiveAccess

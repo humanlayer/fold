@@ -25,18 +25,17 @@ supported; `prepare` patches oxlint with the Effect rules used by the `recommend
 These rules are vendored but off because Fold code still violates them. Counts exclude TUI code, which keeps
 its exemption in `.oxlintrc.jsonc`.
 
-| Rule                                              | Production | Tests |
-| ------------------------------------------------- | ---------- | ----- |
-| `automation/private-function-prefix`              | 393        | 161   |
-| `automation/no-multiple-function-params`          | 286        | 59    |
-| `automation/no-single-use-private-functions`      | 284        | 41    |
-| `automation/no-optional-function-parameters`      | 104        | 22    |
-| `anti-slop/no-known-value-widening`               | 65         | 9     |
-| `anti-slop-effect/no-manual-tagged-construction`  | 46         | 295   |
-| `anti-slop/no-conditional-spread`                 | 35         | 3     |
-| `anti-slop/no-conditional-empty-array-spread`     | 24         | 3     |
-| `anti-slop-effect/no-service-constructor-imports` | 2          | 1     |
-| `automation/no-effect-asvoid`                     | 15         | 1     |
+| Rule                                             | Production | Tests |
+| ------------------------------------------------ | ---------- | ----- |
+| `automation/private-function-prefix`             | 393        | 161   |
+| `automation/no-multiple-function-params`         | 286        | 59    |
+| `automation/no-single-use-private-functions`     | 284        | 41    |
+| `automation/no-optional-function-parameters`     | 104        | 22    |
+| `anti-slop/no-known-value-widening`              | 65         | 9     |
+| `anti-slop-effect/no-manual-tagged-construction` | 46         | 295   |
+| `anti-slop/no-conditional-spread`                | 35         | 3     |
+| `anti-slop/no-conditional-empty-array-spread`    | 24         | 3     |
+| `automation/no-effect-asvoid`                    | 15         | 1     |
 
 `anti-slop/no-comments`, `automation/no-comments`, and `automation/no-reexport-only-modules` (it only flags package
 entrypoints) are intentionally off. Tests are exempt from `automation/no-global-json`, the type-assertion rules,

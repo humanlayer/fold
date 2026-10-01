@@ -10,13 +10,13 @@ import { expect, it } from '@effect/vitest'
 import { Predicate, Cause, Effect, Exit, Schema } from 'effect'
 
 import {
+	forkSubagent,
 	defineAgent,
 	defineForkAgent,
 	defineSubagent,
 	defineTool,
 	renderSubagentResult,
 	startSession,
-	Subagents,
 	subagentTool,
 	withSubagentCapabilities,
 	type ForkAgentDefinition,
@@ -174,10 +174,12 @@ const hostAgentTool = (forkAgent: ForkAgentDefinition) =>
 			success: Schema.Struct({ content: Schema.String }),
 			handler: ({ prompt }) =>
 				Effect.gen(function* () {
-					const subagents = yield* Subagents
-					const result = yield* subagents
-						.fork({ prompt, skill: null, forkAgentDefinitionId: forkAgent.id, history: 'all' })
-						.pipe(Effect.orDie)
+					const result = yield* forkSubagent({
+						prompt,
+						skill: null,
+						forkAgentDefinitionId: forkAgent.id,
+						history: 'all',
+					}).pipe(Effect.orDie)
 					return { content: renderSubagentResult(result) }
 				}),
 		}),

@@ -1,5 +1,5 @@
 /**
- * This file defines the schema-first domain types for the Subagents service (D21). Schemas are the
+ * This file defines the schema-first domain types for the subagent operations (D21). Schemas are the
  * source of truth and the TypeScript types are derived from them; SubagentOutcome deliberately reuses
  * the agent-finished vocabulary rather than inventing a parallel one, so a subagent result and its
  * durable terminal marker can never disagree about what outcomes exist. The subagent tool's flat wire
@@ -23,7 +23,7 @@ export const SubagentOutcome = AgentFinishedOutcome
 export type SubagentOutcome = typeof SubagentOutcome.Type
 
 /**
- * Result of one subagent dispatch, fork, or resume, as returned by the Subagents service. A subagent
+ * Result of one subagent dispatch, fork, or resume, as returned by the subagent operations. A subagent
  * that errored, died, or was interrupted is still a result (its agent-finished marker is in the log);
  * the dispatching model sees it rendered and may resume the subagent by id.
  */

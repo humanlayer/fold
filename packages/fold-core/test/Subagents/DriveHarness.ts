@@ -1,6 +1,6 @@
 /**
  * Shared engine-test harness for the Subagents slice: a real facade session whose root model calls a
- * test-only `drive` tool once per send, and whose handler yields the ambient Subagents service with an
+ * test-only `drive` tool once per send, and whose handler calls the subagent operations with an
  * instruction chosen at runtime - so resume ids (only known after a dispatch) can be fed back in while
  * the facade, provisioning, per-call ambient services, and child loops all stay real. Also provides a
  * hang-once scripted model for interrupt scenarios: its first request signals a Deferred and never
@@ -11,12 +11,14 @@ import { Predicate, Deferred, Effect, Ref, Schema, Stream } from 'effect'
 import { AiError, LanguageModel } from 'effect/unstable/ai'
 
 import {
+	dispatchSubagent,
+	resumeSubagent,
+	forkSubagent,
 	customModel,
 	defineAgent,
 	defineTool,
 	renderSubagentResult,
 	startSession,
-	Subagents,
 	subagentTool,
 	type ActiveModel,
 	type AgentId,
@@ -35,11 +37,11 @@ export type DriveInstruction =
 	| { readonly op: 'resume'; readonly agentId: AgentId; readonly prompt: string }
 	| { readonly op: 'fork'; readonly prompt: string }
 
-/** A test-only tool whose handler drives the ambient Subagents engine from a mutable instruction slot. */
+/** A test-only tool whose handler drives the subagent operations from a mutable instruction slot. */
 export const makeDriveTool = (instructions: Ref.Ref<ReadonlyArray<DriveInstruction>>, roster: ReadonlyArray<string>) =>
 	defineTool({
 		name: 'drive',
-		description: 'Test driver over the Subagents engine.',
+		description: 'Test driver over the subagent operations.',
 		parameters: Schema.Struct({}),
 		success: Schema.Struct({ content: Schema.String }),
 		failure: Schema.Struct({ message: Schema.String }),
@@ -52,33 +54,34 @@ export const makeDriveTool = (instructions: Ref.Ref<ReadonlyArray<DriveInstructi
 				}
 				yield* Ref.set(instructions, remaining.slice(1))
 
-				const subagents = yield* Subagents
 				const failWith = (error: { readonly _tag: string }) => ({
 					message: `${instruction.op} failed: ${error._tag}`,
 				})
 
 				if (instruction.op === 'dispatch') {
-					const result = yield* subagents
-						.dispatch({
-							agent: instruction.agent,
-							prompt: instruction.prompt,
-							skill: instruction.skill ?? null,
-							allowedAgents: roster,
-						})
-						.pipe(Effect.mapError(failWith))
+					const result = yield* dispatchSubagent({
+						agent: instruction.agent,
+						prompt: instruction.prompt,
+						skill: instruction.skill ?? null,
+						allowedAgents: roster,
+					}).pipe(Effect.mapError(failWith))
 					return { content: renderSubagentResult(result) }
 				}
 
 				if (instruction.op === 'resume') {
-					const result = yield* subagents
-						.resume({ agentId: instruction.agentId, prompt: instruction.prompt, skill: null })
-						.pipe(Effect.mapError(failWith))
+					const result = yield* resumeSubagent({
+						agentId: instruction.agentId,
+						prompt: instruction.prompt,
+						skill: null,
+					}).pipe(Effect.mapError(failWith))
 					return { content: renderSubagentResult(result) }
 				}
 
-				const result = yield* subagents
-					.fork({ prompt: instruction.prompt, skill: null, forkAgentDefinitionId: null })
-					.pipe(Effect.mapError(failWith))
+				const result = yield* forkSubagent({
+					prompt: instruction.prompt,
+					skill: null,
+					forkAgentDefinitionId: null,
+				}).pipe(Effect.mapError(failWith))
 				return { content: renderSubagentResult(result) }
 			}),
 	})

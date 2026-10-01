@@ -3,7 +3,7 @@
  * One instance per session owns three things every agent's loop and the public facade share:
  *
  * - The running-agent registry: who is running right now, with the run fiber once it exists. The
- *   facade claims the root's runs, the Subagents engine claims dispatched children, and SDK
+ *   facade claims the root's runs, the subagent operations claim dispatched children, and SDK
  *   continuations claim their target - so "is agent X running", targeted interrupt (D10), and the
  *   subagent Busy guard (D21) all read one source of truth.
  * - Per-agent steering and follow-up queues (D8). Both are ephemeral in-memory queues: a steered

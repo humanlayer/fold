@@ -5,7 +5,7 @@
  * picks the keep-recent cut over the agent's projected conversation, serializes the replaced
  * history, runs the summarizer through the LanguageModel captured when the service is built (each
  * agent's own provisioned model - subagents therefore summarize with their own model, D21), and returns
- * the durable entry payload. The provisioner builds one service per agent runtime from the session's
+ * the durable entry payload. Provisioning builds one service per agent runtime from the session's
  * policy; the loop owns appends.
  */
 import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'

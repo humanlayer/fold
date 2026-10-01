@@ -10,7 +10,6 @@ import {
 	makeSkillTool,
 	skillSourceFromData,
 	StopController,
-	Subagents,
 	ToolCallId,
 	ToolEvents,
 	ToolResultFailure,
@@ -30,12 +29,6 @@ const ambientServices = Layer.mergeAll(
 	Layer.succeed(CurrentAgent, { agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'), parentAgentId: null }),
 	Layer.succeed(CurrentToolCall, { toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa') }),
 	Layer.succeed(InterruptNote, { set: () => Effect.void }),
-	Layer.succeed(Subagents, {
-		dispatch: () => Effect.die(new Error('Subagents not available in this test')),
-		fork: () => Effect.die(new Error('Subagents not available in this test')),
-		resume: () => Effect.die(new Error('Subagents not available in this test')),
-		continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
-	}),
 	NodeServices.layer,
 )
 

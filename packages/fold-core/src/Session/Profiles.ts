@@ -57,7 +57,7 @@ export type ProfilesService = {
 	readonly snapshot: Effect.Effect<SessionProfiles<unknown>>
 }
 
-/** Profiles service tag; one instance per session, shared by the facade and the Subagents engine. */
+/** Profiles service tag; one instance per session, shared by the facade and the subagent operations. */
 export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles') {}
 
 /** One session's profiles over the initial bindings from `startSession`/`resumeSession`. */

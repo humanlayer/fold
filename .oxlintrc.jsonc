@@ -72,6 +72,7 @@
 		"anti-slop/no-runtime-typeof": "error",
 		"anti-slop/no-unknown-parameters": "error",
 		"anti-slop/no-unsafe-dictionary-type": "error",
+		"anti-slop-effect/no-service-constructor-imports": "error",
 		"import-extensions/no-relative-source-extensions": "error",
 		"typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
 		"typescript/no-import-type-side-effects": "error",
@@ -171,6 +172,7 @@
 				"anti-slop/no-runtime-typeof": "off",
 				"anti-slop/no-unknown-parameters": "off",
 				"anti-slop/no-unsafe-dictionary-type": "off",
+				"anti-slop-effect/no-service-constructor-imports": "off",
 			},
 		},
 		{
@@ -211,6 +213,7 @@
 				"anti-slop/no-runtime-typeof": "off",
 				"anti-slop/no-unknown-parameters": "off",
 				"anti-slop/no-unsafe-dictionary-type": "off",
+				"anti-slop-effect/no-service-constructor-imports": "off",
 			},
 		},
 		{

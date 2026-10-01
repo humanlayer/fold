@@ -30,12 +30,12 @@ export type RegisteredAgentType = {
 	readonly systemPrompt: ReadonlyArray<string>
 	/**
 	 * The type's tools exactly as configured - its skillTool/subagentTool values included. The
-	 * Subagents service realizes session-initialized values from their session-start contributions
-	 * when it provisions this type's runtime; the roster and skill source are derivable from here.
+	 * subagent operations realize session-initialized values from their session-start contributions
+	 * when they provision this type's runtime; the roster and skill source are derivable from here.
 	 * Every one has already been initialized, so their host services no longer matter here.
 	 */
 	readonly tools: ReadonlyArray<FoldTool<unknown>>
-	/** Concrete model or profile role name; the Subagents engine resolves roles per dispatch/resume. */
+	/** Concrete model or profile role name; the subagent operations resolve roles per dispatch/resume. */
 	readonly model: SubagentModelBinding<unknown>
 	readonly hooks: HookConfig
 }

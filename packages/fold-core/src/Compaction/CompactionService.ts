@@ -6,8 +6,8 @@
  * the loop consults it unconditionally with zero configuration burden on low-level composition
  * roots (core owns loop semantics; hosts own enablement - the D11 package-boundary ruling).
  *
- * The service deliberately does NOT append log entries: the loop owns envelopes and appends. The
- * provisioner builds one live service per agent runtime over that runtime's own LanguageModel, so each
+ * The service deliberately does NOT append log entries: the loop owns envelopes and appends.
+ * Provisioning builds one live service per agent runtime over that runtime's own LanguageModel, so each
  * agent summarizes through its own model (subagents compact with their own model - D21), while a
  * future fold-agent layer can bring a configured fast summarizer instead.
  */

@@ -2,7 +2,7 @@
  * This file implements `startSession` and `resumeSession` - the ergonomic composition roots of the
  * public API. Callers describe an agent (model, prompt, tools, hooks) and optionally an event log
  * backend; this file lowers those descriptors into the internal service graph (EventLog, Ids,
- * AgentEvents, SystemPrompt, ModelRequestSettings, SessionControls, the Subagents engine, and
+ * AgentEvents, SystemPrompt, ModelRequestSettings, SessionControls, SessionAgents, and
  * per-provision Toolset + resolver + HookRunner + ToolRuntime + AgentRuntime, plus the Session facade)
  * and returns a running session handle. Per the composition-root ruling, this is the only place
  * descriptors become layers; no public signature accepts or returns one.
@@ -95,15 +95,15 @@ import {
 	collectAgentDefinitions,
 	type CollectedAgentDefinitions,
 } from '../Subagents/AgentRegistry'
-import { SubagentNotFoundError } from '../Subagents/Errors'
-import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
-import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
+import { type SubagentBusyError, SubagentNotFoundError } from '../Subagents/Errors'
+import { SessionAgents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SessionAgents'
+import { continueSubagent, type ContinueSubagentInput } from '../Subagents/SubagentEngine'
 import { layerSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
 import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from './AgentDefinition'
 import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
-import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
+import { provisionAgentRuntime, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
@@ -305,7 +305,9 @@ type SessionGraph<R> = {
 	readonly ids: IdsService
 	readonly controls: SessionControlsService
 	readonly systemPromptService: SystemPromptService
-	readonly subagentsEngine: SubagentsService
+	readonly continueSubagent: (
+		input: ContinueSubagentInput,
+	) => Effect.Effect<AgentFinishedLogEntry, SubagentNotFoundError | SubagentBusyError>
 	readonly profiles: ProfilesService
 	readonly configRef: Ref.Ref<SessionAgentConfig<R>>
 	readonly validateSubagentRegistry: (
@@ -331,7 +333,7 @@ type SessionGraph<R> = {
 
 /**
  * Assemble one session's whole service graph - registry, tool contributions, shared services,
- * provisioner, Subagents engine, controls, and the delegating root runtime - without writing anything
+ * controls, and the delegating root runtime - without writing anything
  * durable. `startSession` follows with `session.start`; `resumeSession` follows with adoption.
  */
 const assembleSessionGraph = <R>(options: {
@@ -452,27 +454,19 @@ const assembleSessionGraph = <R>(options: {
 			tools: rootTools,
 		}
 
-		// The Subagents engine is constructed after the provisioner (it provisions per dispatch), but the
-		// provisioner's runtimes need the Subagents service in their graph (tool handlers yield it as an
-		// ambient per-call service). A delegating value breaks the construction cycle: it is installed in
-		// the session services now and bound to the real engine right after construction below.
-		const subagentsHolder: { current: SubagentsService | null } = { current: null }
-		const requireSubagentsEngine: Effect.Effect<SubagentsService> = Effect.suspend(() =>
-			subagentsHolder.current === null
-				? Effect.die(new Error('Subagents engine consumed before session construction completed'))
-				: Effect.succeed(subagentsHolder.current),
+		const configRef = yield* Ref.make(initialConfig)
+		const currentRootAgent: Effect.Effect<RootAgentSnapshot> = Ref.get(configRef).pipe(
+			Effect.map((config) => ({
+				model: config.model,
+				promptCacheKey: config.promptCacheKey,
+				tools: config.tools,
+				hooks: rootHooks,
+				systemPrompt: config.systemPrompt,
+			})),
 		)
-		const delegatingSubagents: SubagentsService = {
-			dispatch: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.dispatch(input))),
-			fork: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.fork(input))),
-			resume: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.resume(input))),
-			continueSubagent: (input) =>
-				requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.continueSubagent(input))),
-		}
 
-		// One shared service graph per session; every provisioned runtime closes over these same
-		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
-		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
+		// One shared service graph per session; every provisioned runtime runs inside these same
+		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls). HookRunner is deliberately NOT session-fixed: each provisioned runtime
 		// carries its own agent's hook chains (D16/D21). Tool handlers get their declared platform
 		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
 		const idsLayer = layerLiveIdFactory
@@ -487,7 +481,15 @@ const assembleSessionGraph = <R>(options: {
 			layerSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
 			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
-			Layer.succeed(Subagents, delegatingSubagents),
+			// How this session builds agents: the subagent operations and every provision read it.
+			Layer.succeed(SessionAgents, {
+				registry,
+				realizeTools: realizeAgentTools,
+				currentRoot: currentRootAgent,
+				// Session-wide auto-compaction policy (D11): every provisioned runtime - root and subagent -
+				// shares it while checking its own projection and summarizing with its own model.
+				autoCompact: agent.autoCompact,
+			}),
 			Layer.succeed(CompactionArchiveAccess, options.compactionArchiveAccess ?? noopCompactionArchiveAccess),
 			// Session-wide model catalog (D15): compaction resolves context windows through it. Omitted
 			// entries build the empty catalog, which behaves exactly like the Reference default.
@@ -495,7 +497,7 @@ const assembleSessionGraph = <R>(options: {
 			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
 			layerSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
 			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
-			// setProfile and the Subagents engine's per-dispatch/resume resolution.
+			// setProfile and the subagent operations' per-dispatch/resume resolution.
 			layerProfiles(initialProfiles),
 		)
 		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
@@ -510,36 +512,20 @@ const assembleSessionGraph = <R>(options: {
 
 		// Provision one runtime slice per epoch: the installed Toolset, its family resolver, the root's
 		// HookRunner, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
-		// provider (Provisioning.ts owns the fresh-memo-map and ambient-scope invariants). The
-		// delegating runtime below lets the Session service survive swaps (interim AgentModels seam -
-		// D15). Root provisions target the session scope explicitly: switchModel runs later, from the
-		// caller's own scope, and the provisioned provider client must outlive that caller.
-		// Session-wide auto-compaction policy (D11): every provisioned runtime - root and subagent - shares
-		// this one policy while checking against its own projection and summarizing with its own model.
-		const provisioner = makeAgentProvisioner(sessionServicesLayer, agent.autoCompact)
+		// provider (Provisioning.ts owns the fresh-memo-map and ambient-scope invariants). The delegating
+		// runtime below lets the Session service survive swaps (interim AgentModels seam - D15). Root
+		// provisions target the session scope explicitly: switchModel runs later, from the caller's own
+		// scope, and the provisioned provider client must outlive that caller. The session handle is the
+		// edge where host code calls in with nothing around it, so it runs these inside the session's
+		// services.
 		const provisionRootRuntime = (
 			model: FoldModel<R>,
 			tools: ReadonlyArray<FoldTool<R>>,
 		): Effect.Effect<AgentRuntimeService> =>
-			provisioner
-				.provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks })
-				.pipe(Scope.provide(sessionScope))
-
-		const configRef = yield* Ref.make(initialConfig)
-		const currentRootAgent: Effect.Effect<RootAgentSnapshot> = Ref.get(configRef).pipe(
-			Effect.map((config) => ({
-				model: config.model,
-				promptCacheKey: config.promptCacheKey,
-				tools: config.tools,
-				hooks: rootHooks,
-				systemPrompt: config.systemPrompt,
-			})),
-		)
-
-		const subagentsEngine = yield* makeSubagents({ registry, realizeAgentTools, currentRootAgent }).pipe(
-			Effect.provide(Layer.mergeAll(sessionServicesLayer, Layer.succeed(AgentProvisioner, provisioner))),
-		)
-		subagentsHolder.current = subagentsEngine
+			provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks }).pipe(
+				Scope.provide(sessionScope),
+				Effect.provideContext(sessionServices),
+			)
 
 		const runtimeRef = yield* Ref.make(yield* provisionRootRuntime(agent.model, rootTools))
 		const delegatingRuntime: AgentRuntimeService = {
@@ -564,7 +550,7 @@ const assembleSessionGraph = <R>(options: {
 			ids: Context.get(sessionServices, Ids),
 			controls: Context.get(sessionServices, SessionControls),
 			systemPromptService: Context.get(sessionServices, SystemPrompt),
-			subagentsEngine,
+			continueSubagent: (input) => continueSubagent(input).pipe(Effect.provideContext(sessionServices)),
 			profiles: Context.get(sessionServices, Profiles),
 			configRef,
 			validateSubagentRegistry: (definitions, candidateProfiles) =>
@@ -597,7 +583,7 @@ const assembleSessionGraph = <R>(options: {
 
 /** Build the public handle over one assembled, started-or-adopted session. */
 const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession): FoldSession<R> => {
-	const { session, eventLog, ids, controls, subagentsEngine, configRef, profiles } = graph
+	const { session, eventLog, ids, controls, continueSubagent, configRef, profiles } = graph
 	const rootAgentId = identity.rootAgentId
 
 	const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
@@ -746,9 +732,9 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 			}
 
 			// A finished subagent continues directly (D8): null toolCallId - no tool dispatch caused it.
-			return yield* subagentsEngine
-				.continueSubagent({ agentId: target, prompt: text })
-				.pipe(Effect.catchTag('SubagentBusyError', () => send(text, options)))
+			return yield* continueSubagent({ agentId: target, prompt: text }).pipe(
+				Effect.catchTag('SubagentBusyError', () => send(text, options)),
+			)
 		})
 
 	const steer = (text: string, options?: AgentTargetOptions): Effect.Effect<void, AgentNotRunningError> =>

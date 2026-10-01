@@ -17,14 +17,12 @@ import {
 	CurrentToolCall,
 	InterruptNote,
 	StopController,
-	Subagents,
 	ToolCallId,
 	ToolEvents,
 	ToolResultFailure,
 	ToolResultSuccess,
 	ToolState,
 	type FoldTool,
-	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Layer, type Path, PlatformError, Ref, Schema, type Scope } from 'effect'
 import { HttpClient, HttpClientError } from 'effect/unstable/http'
@@ -44,7 +42,12 @@ export const makeAmbientServices: Effect.Effect<
 	{
 		/** The per-call services, the platform, an output store, and the real photon image library. */
 		readonly layer: Layer.Layer<
-			| ToolHandlerServices
+			| ToolState
+			| ToolEvents
+			| StopController
+			| CurrentAgent
+			| CurrentToolCall
+			| InterruptNote
 			| FileSystem.FileSystem
 			| Path.Path
 			| ChildProcessSpawner.ChildProcessSpawner
@@ -83,12 +86,6 @@ export const makeAmbientServices: Effect.Effect<
 				toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa'),
 			}),
 			Layer.succeed(InterruptNote, { set: (text) => Ref.set(note, text) }),
-			Layer.succeed(Subagents, {
-				dispatch: () => Effect.die(new Error('Subagents not available in this test')),
-				fork: () => Effect.die(new Error('Subagents not available in this test')),
-				resume: () => Effect.die(new Error('Subagents not available in this test')),
-				continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
-			}),
 			layerOutputStore({ directory: outputDirectory }).pipe(Layer.provide(NodeFileSystem.layer)),
 			Photon.layer,
 		),
@@ -99,7 +96,11 @@ export const makeAmbientServices: Effect.Effect<
 })
 
 /** One realized tool call: it needs the per-call services plus the tool's own host services `R`. */
-type ToolCall<R> = Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | R>
+type ToolCall<R> = Effect.Effect<
+	ToolResultSuccess,
+	ToolResultFailure,
+	ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | R
+>
 
 /**
  * Initialize a tool the way the session does and return its handler. A realized handler's success and
@@ -131,12 +132,21 @@ export const realizeTool = <R>(
 export const callTool = <R>(
 	tool: FoldTool<R>,
 	params: unknown,
-): Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | R | Scope.Scope> =>
-	Effect.flatMap(realizeTool(tool), (handler) => handler(params))
+): Effect.Effect<
+	ToolResultSuccess,
+	ToolResultFailure,
+	ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | R | Scope.Scope
+> => Effect.flatMap(realizeTool(tool), (handler) => handler(params))
 
 export const handlerOf =
 	<R>(tool: FoldTool<R>) =>
-	(params: unknown): Effect.Effect<ToolResultSuccess, ToolResultFailure, ToolHandlerServices | R | Scope.Scope> =>
+	(
+		params: unknown,
+	): Effect.Effect<
+		ToolResultSuccess,
+		ToolResultFailure,
+		ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | R | Scope.Scope
+	> =>
 		callTool(tool, params)
 
 /** Run one handler with throwaway ambient services; anything else it needs, the caller provides. */
@@ -148,7 +158,12 @@ export const runHandler = <A, E, R>(
 	Exclude<
 		Exclude<
 			R,
-			| ToolHandlerServices
+			| ToolState
+			| ToolEvents
+			| StopController
+			| CurrentAgent
+			| CurrentToolCall
+			| InterruptNote
 			| FileSystem.FileSystem
 			| Path.Path
 			| ChildProcessSpawner.ChildProcessSpawner
