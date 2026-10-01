@@ -66,8 +66,9 @@ const systemPrompt = (repoNames: ReadonlyArray<string>) =>
 		repoNames.length === 0
 			? 'No repos are cloned for this session.'
 			: `This session's repos are cloned under ${WORKSPACE_ROOT}:\n${repoNames.map((name) => `- ${WORKSPACE_ROOT}/${name}`).join('\n')}`,
-		'Use bash to list, search and inspect them, and the file tools to read and change files. The shell is ' +
-			'lightweight: it cannot install packages, build, or run tests.',
+		'Use bash to list, search and inspect them, and the file tools to read and change files. Run bash in ' +
+			"the container to install packages, build, and run tests. Files a repo's .gitignore lists, such as " +
+			'node_modules and build output, exist only in the container.',
 	].join('\n\n')
 
 /** Skills from each repo's `.claude/skills` and `.agents/skills`, scanned once when the session opens. */
@@ -175,11 +176,12 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 			// scope. Opened on the first send, so reading an unknown id writes nothing.
 			const scope = yield* Scope.make()
 
-			// A new session clones its repos, then starts; a cut-off start leaves the log empty, so the next
-			// send clones them again from scratch.
+			// A new session clones its repos, starts its container in the background, then starts; a cut-off
+			// start leaves the log empty, so the next send clones them again from scratch.
 			const start = (repos: ReadonlyArray<Repo>) =>
 				Effect.gen(function* () {
 					const cloned = yield* workspace.prepare(sessionId, repos)
+					yield* Effect.forkIn(workspace.startContainer(sessionId), scope)
 					return yield* startSession({
 						agent: agentFor(cloned.map((repo) => repo.name)),
 						log,

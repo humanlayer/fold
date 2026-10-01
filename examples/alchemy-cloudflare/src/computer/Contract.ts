@@ -45,8 +45,15 @@ export type FileInfo = {
 	readonly inode: number
 }
 
-/** One shell command, run in `cwd` and stopped after `timeoutMs`. */
+/**
+ * Where a command runs: `shell` is just-bash in a Worker, fast but with only text commands and git;
+ * `container` is a Linux container with node, bun, python and internet access, slow to start.
+ */
+export type Backend = 'shell' | 'container'
+
+/** One command, run on `backend` in `cwd` and stopped after `timeoutMs`. */
 export type CommandInput = {
+	readonly backend: Backend
 	readonly command: string
 	readonly cwd: string
 	readonly timeoutMs: number

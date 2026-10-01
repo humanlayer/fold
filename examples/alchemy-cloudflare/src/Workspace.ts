@@ -5,7 +5,7 @@
 import type { SessionId } from '@humanlayer/fold-core'
 import type { RpcCallError } from 'alchemy'
 import * as Cloudflare from 'alchemy/Cloudflare'
-import { Context, Data, Effect, type FileSystem, Layer, Schema } from 'effect'
+import { Clock, Context, Data, Effect, type FileSystem, Layer, Schema } from 'effect'
 
 import {
 	COMPUTER_WORKER_NAME,
@@ -58,6 +58,7 @@ class Computer extends Cloudflare.DurableObject<
 	ComputerFiles & {
 		readonly prepare: (repos: ReadonlyArray<RepoSpec>) => Effect.Effect<ReadonlyArray<ClonedRepo>, RpcCallError>
 		readonly exec: (input: CommandInput) => Effect.Effect<ComputerResult<CommandOutput>, RpcCallError>
+		readonly startContainer: () => Effect.Effect<ComputerResult<null>, RpcCallError>
 		readonly expireAt: (deleteAt: number) => Effect.Effect<void, RpcCallError>
 		readonly destroy: () => Effect.Effect<void, RpcCallError>
 	}
@@ -73,8 +74,13 @@ export class Workspace extends Context.Service<
 		) => Effect.Effect<ReadonlyArray<ClonedRepo>, RepoCloneError>
 		/** The session's workspace as a `FileSystem`, for fold's file tools and skill loader. */
 		readonly fileSystem: (sessionId: SessionId) => FileSystem.FileSystem
-		/** Run one command in the session's shell. */
+		/** Run one command in the session's shell or container. */
 		readonly exec: (sessionId: SessionId, input: CommandInput) => Effect.Effect<CommandOutput, ShellError>
+		/**
+		 * Start the session's container, so its first command doesn't wait for it. A failure is logged, not
+		 * raised: the first container command starts it again.
+		 */
+		readonly startContainer: (sessionId: SessionId) => Effect.Effect<void>
 		/**
 		 * Have the workspace delete itself at `deleteAt` (epoch milliseconds) unless moved again: the backup
 		 * for a session that never deletes it. A failure is logged, not raised.
@@ -128,6 +134,24 @@ export class Workspace extends Context.Service<
 								),
 							),
 						),
+				startContainer: Effect.fn('alchemy_cloudflare.workspace.startContainer')(function* (sessionId) {
+					const started = yield* Clock.currentTimeMillis
+					const result = yield* computers
+						.getByName(sessionId)
+						.startContainer()
+						.pipe(
+							Effect.catch((error) =>
+								Effect.succeed({ ok: false as const, code: 'RPC', message: error.message }),
+							),
+						)
+					const details = { sessionId, millis: (yield* Clock.currentTimeMillis) - started }
+					yield* result.ok
+						? Effect.logInfo('workspace.container.started', JSON.stringify(details))
+						: Effect.logWarning(
+								'workspace.container.start failed',
+								JSON.stringify({ ...details, error: result.message }),
+							)
+				}),
 				exec: Effect.fn('alchemy_cloudflare.workspace.exec')(function* (sessionId, input) {
 					const result = yield* computers
 						.getByName(sessionId)
@@ -136,6 +160,7 @@ export class Workspace extends Context.Service<
 					yield* Effect.logInfo(
 						'workspace.exec',
 						JSON.stringify({
+							backend: input.backend,
 							command: input.command,
 							cwd: input.cwd,
 							outcome: result.ok

@@ -31,7 +31,7 @@
 		"catalog": {
 			"@kitlangton/terminal-control": "0.3.1",
 			"alchemy": "2.0.0-beta.76",
-			"@cloudflare/computer": "0.3.1",
+			"@cloudflare/computer": "https://github.com/K-Mistele/computer/releases/download/fold-91611593a1d7/cloudflare-computer-0.3.1.tgz",
 			"@platformatic/vfs": "0.4.0",
 			"@cloudflare/workers-types": "5.20260929.1",
 			"@opentui/core": "0.4.3",

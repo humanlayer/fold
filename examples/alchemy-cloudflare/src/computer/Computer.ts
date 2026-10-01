@@ -1,17 +1,30 @@
 /// <reference types="@cloudflare/workers-types/experimental" />
 /**
  * The Computer Durable Object: one `@cloudflare/computer` Workspace per fold session, named by its
- * SessionId. The Workspace is a virtual filesystem in the object's SQLite, with git, and a shell: just-bash
- * in a Worker the Worker Loader starts, which reads and writes this same filesystem. A plain Durable Object
- * rather than an Effect one, because `withWorkspace` must wrap the `cloudflare:workers` class.
+ * SessionId. The Workspace is a virtual filesystem in the object's SQLite, with git, and two places to run
+ * commands on it:
+ *
+ * - `shell`: just-bash in a Worker the Worker Loader starts, which reads and writes this same filesystem.
+ * - `container`: this object's Linux container (see `Dockerfile`), running `computerd`, which mounts a copy
+ *   of the filesystem at `/workspace`. Each command first sends the container the files changed since the
+ *   last one, then copies back what the command changed.
+ *
+ * A plain Durable Object rather than an Effect one, because `withWorkspace` must wrap the
+ * `cloudflare:workers` class.
  */
 import { type DurableObjectStorageLike, getWorkspace, withWorkspace } from '@cloudflare/computer'
+import {
+	CloudflareContainerBackend,
+	type CloudflareContainerBackendOptions,
+	withWorkspaceContainer,
+} from '@cloudflare/computer/backends/container'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient, type GitClient, type GitCloneOptions } from '@cloudflare/computer/git'
 import jq from '@cloudflare/computer/shell/jq'
 import { DurableObject } from 'cloudflare:workers'
 
 import {
+	type Backend,
 	type ClonedRepo,
 	type CommandInput,
 	type CommandOutput,
@@ -22,15 +35,17 @@ import {
 	WORKSPACE_ROOT,
 } from './Contract'
 
-// The shell reaches back into this object's workspace through this entrypoint, via `ctx.exports`.
-export { WorkspaceServiceProxy } from '@cloudflare/computer'
+// Entrypoints the backends reach this object through, via `ctx.exports`: the shell calls back into the
+// workspace through WorkspaceServiceProxy, and the container dials its connection in through WorkspaceProxy.
+export { WorkspaceProxy, WorkspaceServiceProxy } from '@cloudflare/computer'
 
 type Env = {
 	/** Starts the shell's Worker. */
 	readonly LOADER: WorkerLoader
 }
 
-const SHELL_BACKEND = 'shell'
+/** How long `startContainer` waits for the no-op command, past the container's own 30s start budget. */
+const CONTAINER_START_TIMEOUT_MILLIS = 10_000
 
 /** How long `destroy` waits after answering before the object restarts. */
 const RESTART_DELAY_MILLIS = 1_000
@@ -51,6 +66,18 @@ const workspaceStorage = (storage: DurableObjectStorage): DurableObjectStorageLi
 	}
 }
 
+/** What `withWorkspaceContainer` adds to the object. */
+type ContainerOwner = { getWorkspaceContainer(): unknown }
+
+/**
+ * The object as the container backend's host. `@cloudflare/computer` types the container API against its
+ * own copy of the Workers types, whose `Fetcher` has more methods than ours; the object is the same.
+ */
+function containerHost(self: ContainerOwner): Awaited<ReturnType<CloudflareContainerBackendOptions['container']>>
+function containerHost(self: ContainerOwner): ContainerOwner {
+	return self
+}
+
 /** Run one file operation, returning a thrown workspace error as its code and message. */
 const attempt = async <A>(operation: () => Promise<A>): Promise<ComputerResult<A>> => {
 	try {
@@ -62,24 +89,49 @@ const attempt = async <A>(operation: () => Promise<A>): Promise<ComputerResult<A
 	}
 }
 
-class ComputerBase extends DurableObject<Env> {
+class ComputerBase extends withWorkspaceContainer(class extends DurableObject<Env> {}) {
 	// For withWorkspace's options, which see the instance but not `ctx` or `env`: DurableObject keeps them
 	// protected.
 	readonly storage = workspaceStorage(this.ctx.storage)
 	readonly shell = new WorkerShellBackend({
-		id: SHELL_BACKEND,
+		id: 'shell' satisfies Backend,
 		loader: this.env.LOADER,
 		workspace: { binding: COMPUTER_BINDING, id: this.ctx.id.toString() },
 		ctx: this.ctx,
 		commands: [jq],
+	})
+	readonly container = new CloudflareContainerBackend({
+		id: 'container' satisfies Backend,
+		container: () => containerHost(this),
+		workspace: { binding: COMPUTER_BINDING, id: this.ctx.id.toString() },
+		// Commands may install packages.
+		egress: { mode: 'direct' },
 	})
 }
 
 export class Computer extends withWorkspace(ComputerBase, (self) => ({
 	storage: self.storage,
 	git: createGitClient(),
-	backends: [self.shell],
+	backends: [self.shell, self.container],
 })) {
+	/** The container's connection, which `computerd` dials in through WorkspaceProxy. */
+	override async fetch(request: Request): Promise<Response> {
+		return await this.container.handleFetch(request)
+	}
+
+	/**
+	 * Start the container and connect to it, so the first container command doesn't wait for it. Runs a
+	 * no-op command: the workspace connects a backend on its first command.
+	 */
+	async startContainer(): Promise<ComputerResult<null>> {
+		return await this.exec({
+			backend: 'container',
+			command: 'true',
+			cwd: '/',
+			timeoutMs: CONTAINER_START_TIMEOUT_MILLIS,
+		}).then((result) => (result.ok ? { ok: true, value: null } : result))
+	}
+
 	/**
 	 * Clone each repo into `/workspace/<name>`, one at a time, replacing whatever a cut-off earlier attempt
 	 * left there. Rejects with the first repo that fails.
@@ -155,8 +207,9 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		await this.ctx.storage.setAlarm(deleteAt)
 	}
 
-	/** Delete the workspace: files, git data, and the backup alarm. The object then restarts empty. */
+	/** Delete the workspace: the container, files, git data, and the backup alarm. The object then restarts empty. */
 	async destroy(): Promise<void> {
+		if (this.ctx.container?.running === true) await this.ctx.container.destroy('workspace deleted')
 		await this.ctx.storage.deleteAlarm()
 		await this.ctx.storage.deleteAll()
 		// The in-memory workspace must go: its tables are gone. Wait until this call has answered: Cloudflare
@@ -175,12 +228,12 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		await this.destroy()
 	}
 
-	/** Run one command in the shell. A command that fails still succeeds here, with its exit code. */
+	/** Run one command. A command that fails still succeeds here, with its exit code. */
 	async exec(input: CommandInput): Promise<ComputerResult<CommandOutput>> {
 		using workspace = await getWorkspace(this)
 		return await attempt(async () => {
 			using handle = await workspace.runtime.exec(input.command, {
-				backend: SHELL_BACKEND,
+				backend: input.backend,
 				cwd: input.cwd,
 				encoding: 'utf8',
 				timeoutMs: input.timeoutMs,

@@ -1,8 +1,9 @@
 /**
- * The agent's `bash` tool, running commands in the session workspace's shell: just-bash, which covers the
- * common text commands and git but no package managers or language runtimes. fold-agent's bash tool starts
- * real processes, which a Worker cannot; this one keeps its parameters and its output handling - stdout and
- * stderr trimmed to the last 2000 lines or 50KB, and a failure carrying the output when the command fails.
+ * The agent's `bash` tool, running commands on the session's workspace in one of two places: the shell
+ * (just-bash, fast, with the common text commands and git) or the container (Linux, with package managers
+ * and language runtimes, slower to start). fold-agent's bash tool starts real processes, which a Worker
+ * cannot; this one keeps its parameters and its output handling - stdout and stderr trimmed to the last
+ * 2000 lines or 50KB, and a failure carrying the output when the command fails - and adds `backend`.
  */
 import {
 	defaultMaxBytes,
@@ -24,6 +25,11 @@ const MAX_TIMEOUT_MS = 600_000
 
 const BashParameters = Schema.Struct({
 	command: Schema.String.annotate({ description: 'Bash command to execute' }),
+	backend: Schema.optionalKey(Schema.Literals(['shell', 'container'])).annotate({
+		description:
+			'Where to run the command: "shell" (default; fast, text commands and git only) or "container" ' +
+			'(full Linux: installs, builds, tests)',
+	}),
 	timeout_ms: Schema.optionalKey(Schema.Number).annotate({
 		description: `Timeout in milliseconds (default ${DEFAULT_TIMEOUT_MS}, maximum ${MAX_TIMEOUT_MS})`,
 	}),
@@ -40,11 +46,23 @@ const DESCRIPTION =
 	'Returns stdout then stderr, keeping the last ' +
 	`${defaultMaxLines} lines or ${formatSize(defaultMaxBytes)}. Commands start in ${WORKSPACE_ROOT} unless ` +
 	'you pass workdir.\n\n' +
-	'This is a lightweight shell (just-bash), not a full Linux machine. It has the common text commands - ' +
-	'ls, cat, head, tail, grep, find, sed, awk, sort, uniq, wc, diff, cut, tr, xargs, jq and more - pipes, ' +
-	'redirects, and git (clone, status, diff, log, add, commit, branch, checkout). It has no package managers, ' +
-	'no node or python, no compilers, and no network access. Use it to explore and search the repos: list ' +
-	'directories, grep for code, and inspect git history.'
+	'Commands run in one of two places, which see the same files:\n' +
+	'- backend "shell" (the default): a lightweight shell (just-bash), not a full Linux machine. It has the ' +
+	'common text commands - ls, cat, head, tail, grep, find, sed, awk, sort, uniq, wc, diff, cut, tr, xargs, ' +
+	'jq and more - pipes, redirects, and git (clone, status, diff, log, add, commit, branch, checkout). It has ' +
+	'no package managers, no node or python, no compilers, and no network access. It answers at once. Use it ' +
+	'to explore and search the repos: list directories, grep for code, and inspect git history.\n' +
+	'- backend "container": a Debian Linux container where commands run as root in a bash login shell, with ' +
+	'internet access, git, node 22 with npm, bun, ' +
+	'python3, ripgrep, fd and tmux; install anything else with apt-get or a package manager. Use it to install ' +
+	'dependencies, build, and run tests or scripts. It can take up to 30 seconds to start if it was stopped. ' +
+	'Programs and files outside the workspace last only until it stops; files under the workspace are kept, ' +
+	"except those a repo's .gitignore lists (node_modules, build output, caches): they stay in the container " +
+	'only, so the shell and the file tools cannot see them, and they are gone once the container stops, so ' +
+	'reinstall or rebuild after a restart. Look at them with container commands. A gitignored file you made ' +
+	'with the file tools, such as .env, does not receive changes made in the container; change it with the ' +
+	'file tools.\n\n' +
+	'Try the shell first, and switch to the container when a command is not found or needs a real machine.'
 
 /** The command's output as the model sees it: stdout, then stderr, trimmed from the front. */
 const formatOutput = ({ stdout, stderr }: CommandOutput) => {
@@ -77,9 +95,12 @@ export const bashTool = (run: (input: CommandInput) => Effect.Effect<CommandOutp
 							? params.workdir
 							: `${WORKSPACE_ROOT}/${params.workdir}`
 
-				const output = yield* run({ command: params.command, cwd, timeoutMs }).pipe(
-					Effect.mapError((error) => `The shell could not run the command: ${error.message}`),
-				)
+				const output = yield* run({
+					backend: params.backend ?? 'shell',
+					command: params.command,
+					cwd,
+					timeoutMs,
+				}).pipe(Effect.mapError((error) => `The shell could not run the command: ${error.message}`))
 				const text = formatOutput(output).replace(/\n+$/, '')
 
 				if (output.status === 'cancelled') {

@@ -39,7 +39,19 @@ it.effect('returns stdout then stderr, running in /workspace by default', () =>
 		const { bash, inputs } = yield* fakeBash(Effect.succeed(output({ stdout: 'README\n', stderr: 'warning' })))
 
 		expect(yield* bash({ command: 'ls' })).toEqual({ _tag: 'text', text: 'README\nwarning' })
-		expect(yield* inputs).toEqual([{ command: 'ls', cwd: '/workspace', timeoutMs: 120_000 }])
+		expect(yield* inputs).toEqual([{ backend: 'shell', command: 'ls', cwd: '/workspace', timeoutMs: 120_000 }])
+	}),
+)
+
+it.effect('runs in the container when asked', () =>
+	Effect.gen(function* () {
+		const { bash, inputs } = yield* fakeBash(Effect.succeed(output({ stdout: 'v22.0.0\n' })))
+
+		expect(yield* bash({ command: 'node --version', backend: 'container' })).toEqual({
+			_tag: 'text',
+			text: 'v22.0.0',
+		})
+		expect((yield* inputs).map(({ backend }) => backend)).toEqual(['container'])
 	}),
 )
 

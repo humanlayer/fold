@@ -12,8 +12,13 @@ export const ComputerWorker = Cloudflare.Worker('ComputerWorker', {
 	main: './src/computer/Computer.ts',
 	compatibility: { flags: ['nodejs_compat'], date: '2026-08-31' },
 	env: {
-		// Named COMPUTER_BINDING: the shell calls back into the Computer through this binding.
-		Computer: Cloudflare.DurableObject<Computer>('Computer'),
+		// The Computer Durable Object with its container. Named COMPUTER_BINDING: the shell and the container
+		// call back into the Computer through this binding.
+		Computer: Cloudflare.Container<Computer>('Computer', {
+			context: './src/computer/container',
+
+			instanceType: 'standard-4', // standard-2 = 1 vCPU, standard-1 for 1/2 and standard-4 = 4
+		}),
 		LOADER: Cloudflare.WorkerLoader(),
 	},
 })

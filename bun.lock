@@ -265,7 +265,7 @@
     },
   },
   "catalog": {
-    "@cloudflare/computer": "0.3.1",
+    "@cloudflare/computer": "https://github.com/K-Mistele/computer/releases/download/fold-91611593a1d7/cloudflare-computer-0.3.1.tgz",
     "@cloudflare/workers-types": "5.20260929.1",
     "@effect/platform-bun": "4.0.0-rc.112",
     "@effect/platform-node": "4.0.0-rc.112",
@@ -409,7 +409,7 @@
 
     "@clack/prompts": ["@clack/prompts@1.8.1", "", { "dependencies": { "@clack/core": "1.5.1", "fast-string-width": "^3.0.2", "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ=="],
 
-    "@cloudflare/computer": ["@cloudflare/computer@0.3.1", "", { "dependencies": { "acorn": "^8.17.0", "capnweb": "^0.10.0", "just-bash": "^3.0.1" }, "peerDependencies": { "@platformatic/vfs": "*", "ai": "^6.0.196 || ^7.0.0", "zod": "^4.4.3" }, "optionalPeers": ["@platformatic/vfs", "ai", "zod"] }, "sha512-am79tH9IukXidlJZTXeMAs7rvy4KgdlbBoOM1HgLBdxrlpeP1aQf2YLvXhxKGzSh6PkV/NmxSz0R2BcwSoRzPA=="],
+    "@cloudflare/computer": ["@cloudflare/computer@https://github.com/K-Mistele/computer/releases/download/fold-91611593a1d7/cloudflare-computer-0.3.1.tgz", { "dependencies": { "acorn": "^8.17.0", "capnweb": "^0.10.0", "just-bash": "^3.0.1" }, "peerDependencies": { "@platformatic/vfs": "*", "ai": "^6.0.196 || ^7.0.0", "zod": "^4.4.3" }, "optionalPeers": ["@platformatic/vfs", "ai", "zod"] }, "sha512-TC9Pqi3UtVbaA/jSW9ZOVUQcfnQaSJdJkTK1sc8oL0skyopVFtjxX6N3vrbqzavN50zKXpxTDPL6xRh6hyP2VQ=="],
 
     "@cloudflare/unenv-preset": ["@cloudflare/unenv-preset@2.16.2", "", { "peerDependencies": { "unenv": "2.0.0-rc.24", "workerd": ">1.20260305.0 <2.0.0-0" }, "optionalPeers": ["workerd"] }, "sha512-JBP1+Z7ZSNG/d4mRP+y8VC5dka3tZVMLEZRvS+rzQ4DGV1EoxRFQckcJTTkXbHSQiTj0DtNI01Zwb/V2fX0mvQ=="],
 
