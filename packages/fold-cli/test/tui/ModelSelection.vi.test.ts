@@ -109,14 +109,14 @@ describe('model picker state machine', () => {
 					kind: 'codex' as const,
 					apiKeyEnv: null,
 					credentialPresent: true,
-					models: ['gpt-5.6-terra', 'gpt-5.6-sol'],
+					models: ['gpt-5.6-terra', 'gpt-6.1-sol'],
 				},
 			],
 		}
 
 		expect(modelPickerChoices(configured, initialModelPickerState())[0]?.id).toBe('direct')
 		expect(modelPickerChoices(configured, { _tag: 'provider' })[0]?.id).toBe('codex')
-		expect(modelPickerChoices(configured, { _tag: 'model', provider: 'codex' })[0]?.id).toBe('gpt-5.6-sol')
+		expect(modelPickerChoices(configured, { _tag: 'model', provider: 'codex' })[0]?.id).toBe('gpt-6.1-sol')
 	})
 
 	it('stages profile selection without a mode', () => {

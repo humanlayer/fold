@@ -44,7 +44,7 @@ it.effect('the starter config is valid against the schema (round-trips through t
 
 		expect(config.roles.smart).toMatchObject({
 			provider: 'codex',
-			model: 'gpt-6-astra',
+			model: 'gpt-6.1-sol',
 			reasoning: 'medium',
 		})
 		expect(config.providers.codex?.kind).toBe('codex')

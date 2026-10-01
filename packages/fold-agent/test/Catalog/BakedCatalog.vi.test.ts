@@ -104,6 +104,21 @@ it('ships the GPT-6 Sol and Luna public limits, efforts, pricing, and Codex prov
 	}
 })
 
+it('ships the GPT-6.1 Sol public limits, efforts, pricing, and Codex provider lookup', () => {
+	const entry = lookupCatalogEntry(bakedModelCatalog, codexModel('gpt-6.1-sol'))
+
+	expect(entry).toMatchObject({
+		providerId: 'openai',
+		modelId: 'gpt-6.1-sol',
+		contextWindow: 1_050_000,
+		maxInputTokens: 922_000,
+		maxOutputTokens: 128_000,
+		reasoning: true,
+		reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+		pricing: { inputPerMTokens: 2, outputPerMTokens: 10, cacheReadPerMTokens: 0.1 },
+	})
+})
+
 it('resolves an openai-compatible gpt-5.6-terra to the baked openai entry', () => {
 	const entry = lookupCatalogEntry(bakedModelCatalog, openAiTerra)
 

@@ -81,7 +81,7 @@ describe('provider config form state', () => {
 		expect(nextProviderKind('xai')).toBe('anthropic')
 		expect(withNextProviderKind({ ...emptyProviderForm(), kind: 'openai-compat' })).toMatchObject({
 			kind: 'codex',
-			model: 'gpt-5.6-sol',
+			model: 'gpt-6.1-sol',
 			baseUrl: 'https://chatgpt.com/backend-api/codex',
 			apiKey: '',
 		})
