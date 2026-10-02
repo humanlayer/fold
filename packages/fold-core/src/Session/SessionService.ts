@@ -18,8 +18,8 @@ export type StartSessionInput = {
 	readonly model: ActiveModel
 	readonly promptCacheKey?: string
 	/** One leading system block, an ordered set of blocks (one system message each), or null for none. */
-	readonly systemPrompt: string | ReadonlyArray<string> | null
-	readonly meta?: Readonly<Record<string, typeof Schema.Json.Type>>
+	readonly systemPrompt: ReadonlyArray<string> | null
+	readonly meta?: Readonly<Record<string, Schema.Json>>
 	/** Pre-minted session id (hosts that name the log location by session id - D5); defaults to fresh. */
 	readonly sessionId?: SessionId
 }
@@ -34,7 +34,7 @@ export type StartedSession = {
 export type SwitchSessionModelInput = {
 	readonly model: ActiveModel
 	/** The agent's own prompt blocks, recomposed with the new model family's base prompt. */
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	readonly systemPrompt: ReadonlyArray<string> | null
 	readonly reason?: string | null
 }
 

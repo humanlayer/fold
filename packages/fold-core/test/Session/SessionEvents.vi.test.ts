@@ -20,7 +20,7 @@ const durableTags = [
 
 it.effect('surfaces durable rows and one ephemeral tool-progress delta on Session.events', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([
 			toolCallTurn([{ id: 'provider-call-1', name: 'echo', params: { text: 'hi' } }]),
 			textTurn('Tool said hi'),

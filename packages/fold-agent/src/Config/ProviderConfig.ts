@@ -8,9 +8,9 @@ import { dirname } from 'node:path'
 import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_OPENCODE_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID } from '@humanlayer/fold-xai'
-import { Clock, Effect, FileSystem, Match, Random, Schema } from 'effect'
+import { Array as Arr, Clock, Effect, FileSystem, Match, Random, Schema } from 'effect'
 
-import type { FoldConfig, ProviderKind } from './ConfigSchema'
+import { FoldConfig, type ProviderKind } from './ConfigSchema'
 import {
 	configPathFor,
 	loadFoldConfig,
@@ -84,6 +84,30 @@ const validBaseUrl = (value: string): Effect.Effect<string, ProviderConfiguratio
 		),
 	)
 
+/** The connection's credential field: none for OAuth providers, otherwise exactly one of the two. */
+const resolveCredentials = (input: ConfigureProviderInput) =>
+	Effect.gen(function* () {
+		const oauth = input.kind === 'codex' || input.kind === 'opencode' || input.kind === 'xai'
+		const hasApiKey = input.apiKey !== undefined && input.apiKey.trim() !== ''
+		const hasApiKeyEnv = input.apiKeyEnv !== undefined && input.apiKeyEnv.trim() !== ''
+		if (oauth && (hasApiKey || hasApiKeyEnv))
+			return yield* new ProviderConfigurationKindError({
+				kind: input.kind,
+				message: `${input.kind} credentials are OAuth-managed; API key options must not be supplied`,
+			})
+		if (!oauth && hasApiKey === hasApiKeyEnv)
+			return yield* new ProviderConfigurationValidationError({
+				field: 'apiKey',
+				message: 'supply exactly one of apiKey or apiKeyEnv',
+			})
+		if (oauth) return {}
+		return hasApiKey
+			? { apiKey: yield* required(input.apiKey ?? '', 'apiKey') }
+			: { apiKeyEnv: yield* required(input.apiKeyEnv ?? '', 'apiKeyEnv') }
+	})
+
+const encodeConfigText = Schema.encodeEffect(Schema.fromJsonString(FoldConfig, { space: '\t' }))
+
 const writeConfig = (
 	config: FoldConfig,
 	options: LoadConfigOptions | undefined,
@@ -96,7 +120,12 @@ const writeConfig = (
 		const now = yield* Clock.currentTimeMillis
 		const salt = (yield* Random.next).toString(36).slice(2)
 		const temporaryPath = `${path}.tmp-${process.pid}-${now}-${salt}`
-		const text = `${JSON.stringify(config, null, '\t')}\n`
+		const text = `${yield* encodeConfigText(config).pipe(
+			Effect.mapError(
+				(error) =>
+					new ProviderConfigurationWriteError({ path, message: `could not encode config: ${error.message}` }),
+			),
+		)}\n`
 		const writeDirect = fs.writeFileString(path, text, { mode: 0o600 }).pipe(Effect.andThen(fs.chmod(path, 0o600)))
 
 		return yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(
@@ -125,21 +154,7 @@ export const configureProvider = (
 	Effect.gen(function* () {
 		const name = yield* required(input.name, 'name')
 		const baseUrl = yield* validBaseUrl(input.baseUrl)
-		const oauth = input.kind === 'codex' || input.kind === 'opencode' || input.kind === 'xai'
-		const hasApiKey = input.apiKey !== undefined && input.apiKey.trim() !== ''
-		const hasApiKeyEnv = input.apiKeyEnv !== undefined && input.apiKeyEnv.trim() !== ''
-		if (oauth && (hasApiKey || hasApiKeyEnv))
-			return yield* new ProviderConfigurationKindError({
-				kind: input.kind,
-				message: `${input.kind} credentials are OAuth-managed; API key options must not be supplied`,
-			})
-		if (!oauth && hasApiKey === hasApiKeyEnv)
-			return yield* new ProviderConfigurationValidationError({
-				field: 'apiKey',
-				message: 'supply exactly one of apiKey or apiKeyEnv',
-			})
-		const apiKey = !oauth && hasApiKey ? yield* required(input.apiKey ?? '', 'apiKey') : undefined
-		const apiKeyEnv = !oauth && hasApiKeyEnv ? yield* required(input.apiKeyEnv ?? '', 'apiKeyEnv') : undefined
+		const credential = yield* resolveCredentials(input)
 		const defaultModel = Match.value(input.kind).pipe(
 			Match.when('codex', () => DEFAULT_CODEX_MODEL_ID),
 			Match.when('opencode', () => DEFAULT_OPENCODE_MODEL_ID),
@@ -150,19 +165,10 @@ export const configureProvider = (
 		const config = yield* loadFoldConfig(options)
 		const previousModels = config.providers[name]?.configuredModels ?? []
 		const configuredModels = model === undefined ? previousModels : [...new Set([...previousModels, model])]
-		const provider: {
-			kind: ProviderKind
-			baseUrl: string
-			apiKey?: string
-			apiKeyEnv?: string
-			configuredModels?: ReadonlyArray<string>
-		} = {
-			kind: input.kind,
-			baseUrl,
-		}
-		if (apiKey !== undefined) provider.apiKey = apiKey
-		if (apiKeyEnv !== undefined) provider.apiKeyEnv = apiKeyEnv
-		if (configuredModels.length > 0) provider.configuredModels = configuredModels
+		const connection = { kind: input.kind, baseUrl, ...credential }
+		const provider = Arr.isReadonlyArrayNonEmpty(configuredModels)
+			? { ...connection, configuredModels }
+			: connection
 		const updated: FoldConfig = { ...config, providers: { ...config.providers, [name]: provider } }
 
 		yield* writeConfig(updated, options)

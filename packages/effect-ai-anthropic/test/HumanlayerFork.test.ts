@@ -120,7 +120,7 @@ describe('@humanlayer/effect-ai-anthropic', () => {
 
 			yield* LanguageModel.generateText({ prompt }).pipe(Effect.provide(modelLayer))
 
-			const body = Schema.decodeUnknownSync(CapturedRequest)(requestBody)
+			const body = yield* Schema.decodeUnknownEffect(CapturedRequest)(requestBody)
 			const toolResults = body.messages.flatMap((message) =>
 				message.content.filter((block) => block['type'] === 'tool_result'),
 			)

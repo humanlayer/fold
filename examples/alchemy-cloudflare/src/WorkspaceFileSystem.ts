@@ -65,11 +65,10 @@ const run = <A>(
 						}),
 					),
 		),
-		Effect.tap(() => Effect.logInfo('workspace.file', JSON.stringify({ method, path, outcome: 'ok' }))),
+		Effect.tap(() => Effect.logInfo('workspace.file').pipe(Effect.annotateLogs({ method, path, outcome: 'ok' }))),
 		Effect.tapError((error) =>
-			Effect.logInfo(
-				'workspace.file',
-				JSON.stringify({ method, path, outcome: error.reason._tag, error: error.message }),
+			Effect.logInfo('workspace.file').pipe(
+				Effect.annotateLogs({ method, path, outcome: error.reason._tag, error: error.message }),
 			),
 		),
 	)

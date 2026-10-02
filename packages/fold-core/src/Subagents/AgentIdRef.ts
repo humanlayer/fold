@@ -9,7 +9,7 @@
  * cannot themselves be full ids (4-20 characters - a full cuid segment is 21-32). The 4-char floor
  * matches the CLI renderer's tag suffix, so an id read off a tag is always a valid reference.
  */
-import { Data, Predicate, Schema } from 'effect'
+import { Array as Arr, Data, Predicate, Schema } from 'effect'
 
 import type { LogEntry } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'
@@ -50,11 +50,12 @@ export type AgentIdRef = typeof AgentIdRef.Type
 export const shortAgentId = (agentId: AgentId): string => `agent_${cuidSegmentOf(agentId).slice(0, 8)}`
 
 /** Outcome of resolving one inbound agent-id reference against the session's known agent ids. */
-export type AgentIdRefResolution =
-	| { readonly _tag: 'resolved'; readonly agentId: AgentId }
-	| { readonly _tag: 'not-found' }
+export type AgentIdRefResolution = Data.TaggedEnum<{
+	resolved: { readonly agentId: AgentId }
+	'not-found': {}
 	/** Two or more known ids share the referenced prefix; `candidates` carries their SHORT ids. */
-	| { readonly _tag: 'ambiguous'; readonly candidates: ReadonlyArray<string> }
+	ambiguous: { readonly candidates: ReadonlyArray<string> }
+}>
 
 const AgentIdRefResolution = Data.taggedEnum<AgentIdRefResolution>()
 
@@ -76,7 +77,7 @@ export const resolveAgentIdRef = (knownIds: Iterable<AgentId>, ref: string): Age
 	const matches = ids.filter((id) => cuidSegmentOf(id).startsWith(wanted))
 	const [single] = matches
 	if (matches.length === 1 && single !== undefined) return AgentIdRefResolution.resolved({ agentId: single })
-	if (matches.length === 0) return AgentIdRefResolution['not-found']()
+	if (Arr.isArrayEmpty(matches)) return AgentIdRefResolution['not-found']()
 
 	return AgentIdRefResolution.ambiguous({ candidates: matches.map(shortAgentId) })
 }

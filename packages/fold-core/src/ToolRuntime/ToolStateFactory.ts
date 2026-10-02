@@ -5,8 +5,9 @@
  * as of the handler fork point plus the call's own writes, so parallel sibling calls cannot leak
  * mid-batch state into each other. Both variants append durable tool_state entries immediately.
  */
-import { Effect, Ref, Stream } from 'effect'
+import { Effect, Ref, type Schema, Stream } from 'effect'
 
+import type { EventLogError } from '../EventLog/Errors'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import { LogEntryInputs, type LogEntry } from '../EventLog/Schemas'
 import { Ids, type AgentId, type IdsService, type ToolCallId } from '../Ids'
@@ -15,7 +16,7 @@ import type { ToolStateService } from './ToolStateService'
 
 /** Collect every persisted event so ToolState reads can derive the latest value from projections. */
 const collectEventLogEntries = Effect.fn('fold.tool_state.collect_entries')(
-	(entries: Stream.Stream<LogEntry, unknown>) =>
+	(entries: Stream.Stream<LogEntry, EventLogError>) =>
 		Stream.runCollect(entries).pipe(
 			Effect.orDie,
 			Effect.map((entries): ReadonlyArray<LogEntry> => entries),
@@ -98,54 +99,73 @@ export const toolStateServiceForToolCall = (
 		}
 	})
 
-/**
- * Build the snapshot ToolState service for one tool handler. Reads see the state folded from the given
- * snapshot (the log as of the handler fork point, after preToolUse chains) plus this call's own writes,
- * both resolved against the namespace supplied per operation; writes made by concurrently running sibling
- * calls stay invisible until the next batch. Writes are still appended to the EventLog immediately - they
- * are durable facts even if this call is later interrupted.
- */
-export const toolStateServiceForHandler = (input: {
+type ToolStateForHandlerInput = {
 	readonly agentId: AgentId
 	readonly parentAgentId: AgentId | null
 	readonly toolCallId: ToolCallId
 	readonly snapshot: ReadonlyArray<LogEntry>
-}): Effect.Effect<ToolStateService, never, EventLog | Ids> =>
-	Effect.gen(function* () {
-		const eventLog = yield* EventLog
-		const ids = yield* Ids
-		const ownWrites = yield* Ref.make<
-			ReadonlyArray<{ readonly namespace: string; readonly key: string; readonly value: unknown }>
-		>([])
-		const appendDurable = appendToolStateEntry(input, eventLog, ids)
+}
 
-		return {
-			/** Read one key from the fork-point snapshot overlaid with this call's own writes. */
-			get: Effect.fn('fold.tool_state.get')((namespace, key) =>
-				Ref.get(ownWrites).pipe(
-					Effect.map((writes) => {
-						const ownWrite = writes.findLast((write) => write.namespace === namespace && write.key === key)
-						if (ownWrite !== undefined) return ownWrite.value
+/**
+ * Capture EventLog and Ids once and return a builder for per-handler snapshot ToolState services. Reads
+ * see the state folded from the given snapshot (the log as of the handler fork point, after preToolUse
+ * chains) plus this call's own writes, both resolved against the namespace supplied per operation;
+ * writes made by concurrently running sibling calls stay invisible until the next batch. Writes are
+ * still appended to the EventLog immediately - they are durable facts even if this call is later
+ * interrupted.
+ */
+export const toolStateServiceBuilder: Effect.Effect<
+	(input: ToolStateForHandlerInput) => Effect.Effect<ToolStateService>,
+	never,
+	EventLog | Ids
+> = Effect.gen(function* () {
+	const eventLog = yield* EventLog
+	const ids = yield* Ids
 
-						return toolStateForAgent(input.snapshot, input.agentId, namespace)[key] ?? null
-					}),
-					Effect.withSpan('fold.tool_state.get', {
-						attributes: {
-							agentId: input.agentId,
-							toolCallId: input.toolCallId,
-							namespace,
-							key,
-							snapshot: true,
-						},
-					}),
+	return (input: ToolStateForHandlerInput): Effect.Effect<ToolStateService> =>
+		Effect.gen(function* () {
+			const ownWrites = yield* Ref.make<
+				ReadonlyArray<{ readonly namespace: string; readonly key: string; readonly value: Schema.Json }>
+			>([])
+			const appendDurable = appendToolStateEntry(input, eventLog, ids)
+
+			const service: ToolStateService = {
+				/** Read one key from the fork-point snapshot overlaid with this call's own writes. */
+				get: Effect.fn('fold.tool_state.get')((namespace, key) =>
+					Ref.get(ownWrites).pipe(
+						Effect.map((writes) => {
+							const ownWrite = writes.findLast(
+								(write) => write.namespace === namespace && write.key === key,
+							)
+							if (ownWrite !== undefined) return ownWrite.value
+
+							return toolStateForAgent(input.snapshot, input.agentId, namespace)[key] ?? null
+						}),
+						Effect.withSpan('fold.tool_state.get', {
+							attributes: {
+								agentId: input.agentId,
+								toolCallId: input.toolCallId,
+								namespace,
+								key,
+								snapshot: true,
+							},
+						}),
+					),
 				),
-			),
 
-			/** Persist one value durably and record it in this call's own-writes overlay. */
-			set: Effect.fn('fold.tool_state.set')((namespace, key, value) =>
-				appendDurable(namespace, key, value).pipe(
-					Effect.flatMap(() => Ref.update(ownWrites, (writes) => [...writes, { namespace, key, value }])),
+				/** Persist one value durably and record it in this call's own-writes overlay. */
+				set: Effect.fn('fold.tool_state.set')((namespace, key, value) =>
+					appendDurable(namespace, key, value).pipe(
+						Effect.flatMap(() => Ref.update(ownWrites, (writes) => [...writes, { namespace, key, value }])),
+					),
 				),
-			),
-		}
-	})
+			}
+			return service
+		})
+})
+
+/** Build the snapshot ToolState service for one tool handler (see {@link toolStateServiceBuilder}). */
+export const toolStateServiceForHandler = (
+	input: ToolStateForHandlerInput,
+): Effect.Effect<ToolStateService, never, EventLog | Ids> =>
+	toolStateServiceBuilder.pipe(Effect.flatMap((forHandler) => forHandler(input)))

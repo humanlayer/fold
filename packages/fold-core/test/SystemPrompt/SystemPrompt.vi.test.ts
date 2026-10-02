@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 
-import { layerDefaultSystemPrompt, makeSystemPrompt, SystemPrompt, type ActiveModel } from '../../src/index'
+import { layerDefaultSystemPrompt, layerSystemPrompt, SystemPrompt, type ActiveModel } from '../../src/index'
 
 const anthropicModel: ActiveModel = {
 	providerId: 'anthropic',
@@ -21,7 +21,7 @@ const gptModel: ActiveModel = {
 	reasoning: { _tag: 'disabled' },
 }
 
-const familyPrompts = makeSystemPrompt({
+const familyPrompts = layerSystemPrompt({
 	basePrompts: { claude: 'CLAUDE BASE PROMPT', codex: 'CODEX BASE PROMPT' },
 })
 

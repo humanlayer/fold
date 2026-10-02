@@ -5,7 +5,7 @@
  * disk loader. Public configuration goes through descriptors ({@link skillsFromData} /
  * {@link skillSource}) so no service or layer appears in caller signatures.
  */
-import { Data, Predicate, Context, Effect, Schema, type FileSystem } from 'effect'
+import { Context, Effect, Schema } from 'effect'
 
 import { skillDescriptionProblem, skillNameProblem, type Skill, type SkillMeta } from './Schemas'
 
@@ -78,23 +78,22 @@ export const skillSourceFromData = (skills: ReadonlyArray<SkillData>): Effect.Ef
 		}
 	})
 
-/** Skills configuration descriptor for {@link defineAgent}: data-backed or a custom source seam. */
-export type FoldSkills =
-	| { readonly _tag: 'fromData'; readonly skills: ReadonlyArray<SkillData> }
-	| { readonly _tag: 'source'; readonly make: Effect.Effect<SkillSourceService, unknown, FileSystem.FileSystem> }
-
-const FoldSkills = Data.taggedEnum<FoldSkills>()
+/**
+ * Skills configuration descriptor for `skillTool`: how to build the skill source once per session. `R`
+ * is the host services that takes (a filesystem for disk skills); the session requires them.
+ */
+export type FoldSkills<R = never> = {
+	readonly make: Effect.Effect<SkillSourceService, never, R>
+}
 
 /** Configure an agent's skills from in-memory data (isomorphic; browser/worker hosts). */
-export const skillsFromData = (skills: ReadonlyArray<SkillData>): FoldSkills => FoldSkills.fromData({ skills })
+export const skillsFromData = (skills: ReadonlyArray<SkillData>): FoldSkills => ({ make: skillSourceFromData(skills) })
 
 /**
  * Configure an agent's skills from a custom source implementation (the extension seam, mirroring
- * `eventLogSource`): fold-agent exposes its disk loader through this.
+ * `eventLogSource`): fold-agent exposes its disk loader through this. A construction failure is an
+ * infrastructure defect.
  */
-export const skillSource = (make: Effect.Effect<SkillSourceService, unknown, FileSystem.FileSystem>): FoldSkills =>
-	FoldSkills.source({ make })
-
-/** Lower a skills descriptor to its source implementation (composition-root internal). */
-export const skillSourceFor = (skills: FoldSkills): Effect.Effect<SkillSourceService, never, FileSystem.FileSystem> =>
-	Predicate.isTagged(skills, 'fromData') ? skillSourceFromData(skills.skills) : skills.make.pipe(Effect.orDie)
+export const skillSource = <E, R>(make: Effect.Effect<SkillSourceService, E, R>): FoldSkills<R> => ({
+	make: Effect.orDie(make),
+})

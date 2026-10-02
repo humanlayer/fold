@@ -8,11 +8,11 @@ import { join } from 'node:path'
 
 import { assert, it } from '@effect/vitest'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
-import { bashTool, editTool, readTool, writeTool } from '@humanlayer/fold-agent'
 import { Effect, Layer, Redacted, Schema } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 import { FetchHttpClient } from 'effect/unstable/http'
 
+import { bashTool, editTool, readTool, writeTool } from '../../src/index'
 import {
 	buildSessionPromptWithToolResults,
 	type CapturedFetchRequest,
@@ -61,7 +61,7 @@ const expectedModelText = [
 	'Successfully replaced 1 block(s) in editable.txt.',
 ]
 
-const expectedDurableResults: ReadonlyArray<typeof Schema.Json.Type> = [
+const expectedDurableResults: ReadonlyArray<Schema.Json> = [
 	{ _tag: 'text', text: '1→read alpha\n2→read beta\n3→' },
 	{ _tag: 'text', text: 'bash success\n' },
 	{ _tag: 'failure', text: 'bash failure\n\n\nCommand exited with code 7' },
@@ -75,10 +75,10 @@ const makeActualBuiltInToolResults = Effect.gen(function* () {
 	writeFileSync(join(directory, 'editable.txt'), 'before edit\nkeep\n')
 
 	const readResult = yield* executeToolHandler(readTool({ cwd: directory }), { path: 'read-source.txt' })
-	const bashSuccessResult = yield* executeToolHandler(bashTool({ cwd: directory, spillDir: directory }), {
+	const bashSuccessResult = yield* executeToolHandler(bashTool({ cwd: directory }), {
 		command: "printf 'bash success\\n'",
 	})
-	const bashFailureResult = yield* executeToolHandler(bashTool({ cwd: directory, spillDir: directory }), {
+	const bashFailureResult = yield* executeToolHandler(bashTool({ cwd: directory }), {
 		command: "printf 'bash failure\\n'; exit 7",
 	}).pipe(Effect.flip)
 	const writeResult = yield* executeToolHandler(writeTool({ cwd: directory }), {

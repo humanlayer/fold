@@ -16,7 +16,7 @@ import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'e
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { CompactionArchiveAccess } from '../Compaction/CompactionArchiveAccess'
 import { isContextOverflowError } from '../Compaction/CompactionEngine'
-import { Compaction, type CompactionService, type CompactionTrigger } from '../Compaction/CompactionService'
+import { Compaction, type CompactionTrigger } from '../Compaction/CompactionService'
 import { EventLog } from '../EventLog/EventLogService'
 import {
 	LogEntryInputs,
@@ -30,7 +30,6 @@ import {
 import { usageFromResponseUsage } from '../EventLog/Usage'
 import { HookRunner } from '../HookRunner/HookRunnerService'
 import { Ids, type AgentId, type ToolCallId } from '../Ids'
-import { ModelCatalog } from '../Model/ModelCatalog'
 import { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import { buildPrompt, providerToolCallIdKey, foldPartOptionsKey } from '../Model/RequestBuilder'
 import { messagesForAgent, runtimeForAgent } from '../Projection/Projection'
@@ -40,6 +39,7 @@ import {
 	observeDoomLoop,
 	StopConditions,
 	type DoomLoopState,
+	type ToolCallFingerprintInput,
 } from '../StopConditions/StopConditions'
 import { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import { StopController, type StopControllerService } from '../ToolRuntime/ToolContextServices'
@@ -59,35 +59,18 @@ const encodeSystemMessage = Schema.encodeUnknownSync(Prompt.SystemMessage)
 
 const anthropicEphemeralCacheControl = { type: 'ephemeral' } as const
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
 const leadingSystemMessageFor = (content: string, cacheBreakpoint: boolean): Prompt.SystemMessage => {
-	const input: Mutable<Parameters<typeof Prompt.systemMessage>[0]> = { content }
-	if (cacheBreakpoint) {
-		input.options = { anthropic: { cacheControl: anthropicEphemeralCacheControl } }
-	}
-
-	return Prompt.systemMessage(input)
+	const options = cacheBreakpoint ? { anthropic: { cacheControl: anthropicEphemeralCacheControl } } : undefined
+	return Prompt.systemMessage({ content, options })
 }
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
 
 /** Result of one private model/tool turn. */
-type TurnResult = { readonly _tag: 'finished'; readonly entry: AgentFinishedLogEntry } | { readonly _tag: 'continue' }
+type TurnResult = Data.TaggedEnum<{ finished: { readonly entry: AgentFinishedLogEntry }; continue: {} }>
 const TurnResult = Data.taggedEnum<TurnResult>()
 
 type CompactionEnvelope = Pick<CompactAgentInput, 'agentId' | 'parentAgentId' | 'toolCallId'>
-
-/** Derive a short human-readable message from a model provider failure. */
-const describeModelError = (error: unknown): string => {
-	if (Predicate.isError(error)) return error.message
-
-	try {
-		return JSON.stringify(error)
-	} catch {
-		return String(error)
-	}
-}
 
 /** Concatenate the text parts of an assistant message, or null when it produced no text. */
 const assistantResultText = (message: Prompt.AssistantMessage): string | null => {
@@ -125,21 +108,11 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 		const languageModel = yield* LanguageModel.LanguageModel
 		const agentEvents = yield* AgentEvents
 		const sessionControls = yield* SessionControls
-		// Defaulted reference (D11): resolves the session-installed live policy, or the disabled no-op.
-		const installedCompaction = yield* Compaction
+		// Defaulted reference (D11): resolves the provisioned live policy, or the disabled no-op. The
+		// provisioning builds it over this runtime's own LanguageModel and the session ModelCatalog.
+		const compaction = yield* Compaction
 		// Defaulted reference: host-specific post-compaction archive/log access guidance.
 		const compactionArchiveAccess = yield* CompactionArchiveAccess
-		// Defaulted reference (D15): the session catalog is captured HERE, at layer construction under
-		// the session services, and re-provided around every compaction call - run effects execute on
-		// caller fibers whose context lacks session services, so the compaction checks would otherwise
-		// resolve the Reference's empty default instead of the installed catalog.
-		const modelCatalog = yield* ModelCatalog
-		const compaction: CompactionService = {
-			enabled: installedCompaction.enabled,
-			shouldCompact: (input) =>
-				installedCompaction.shouldCompact(input).pipe(Effect.provideService(ModelCatalog, modelCatalog)),
-			plan: (input) => installedCompaction.plan(input).pipe(Effect.provideService(ModelCatalog, modelCatalog)),
-		}
 		const stopConditions = yield* StopConditions
 
 		const appendToEventLog = (input: LogEntryInput): Effect.Effect<LogEntry> =>
@@ -206,8 +179,10 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					const foldId = yield* ids.makeToolCallId
 					content.push(
 						Prompt.toolCallPart({
-							...part,
 							id: foldId,
+							name: part.name,
+							params: part.params,
+							providerExecuted: part.providerExecuted,
 							options: { ...part.options, [foldPartOptionsKey]: { [providerToolCallIdKey]: part.id } },
 						}),
 					)
@@ -239,7 +214,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 						trigger,
 						additionalInstructions,
 					})
-					.pipe(Effect.provideService(LanguageModel.LanguageModel, languageModel), Effect.result)
+					.pipe(Effect.result)
 
 				if (Result.isFailure(planned)) {
 					yield* appendToEventLog(
@@ -262,7 +237,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					trigger,
 				})
 
-				const compactionInput: Mutable<Parameters<(typeof LogEntryInputs)['compaction']>[0]> = {
+				const compactionEntry = {
 					agentId: input.agentId,
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
@@ -272,13 +247,54 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					replacesThroughSeq: planned.success.replacesThroughSeq,
 					tokensBefore: planned.success.tokensBefore,
 				}
-				if (postCompactionInstructions !== null) {
-					compactionInput.postCompactionInstructions = postCompactionInstructions
-				}
-				const entry = yield* appendToEventLog(LogEntryInputs['compaction'](compactionInput))
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['compaction'](
+						postCompactionInstructions === null
+							? compactionEntry
+							: { ...compactionEntry, postCompactionInstructions },
+					),
+				)
 
 				if (Predicate.isTagged(entry, 'compaction')) return entry
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending compaction`))
+			})
+
+		/** Settle one assistant message's tool calls, then decide whether the run stops or continues. */
+		const settleToolCalls = (
+			input: RunAgentInput,
+			persistedAssistant: Prompt.AssistantMessage,
+			toolCalls: ReadonlyArray<ToolCallFingerprintInput>,
+			doomLoopRef: Ref.Ref<DoomLoopState>,
+		): Effect.Effect<TurnResult> =>
+			Effect.gen(function* () {
+				const doomLoop = observeDoomLoop(stopConditions, yield* Ref.get(doomLoopRef), toolCalls)
+				yield* Ref.set(doomLoopRef, doomLoop.state)
+
+				const settlement = yield* toolRuntime.settle({
+					agentId: input.agentId,
+					parentAgentId: input.parentAgentId,
+					assistantMessage: persistedAssistant,
+				})
+
+				if (settlement.stopRequested) {
+					const entry = yield* appendFinished(input, 'stopped', null, 'a tool or hook requested a stop')
+					return TurnResult.finished({ entry })
+				}
+
+				// D9: a session-wide stop lets the in-flight batch finish and its results land (above),
+				// then ends the run here - no further LLM call.
+				const sessionStopAfterBatch = yield* sessionControls.sessionStopReason
+				if (sessionStopAfterBatch !== null) {
+					const entry = yield* appendFinished(input, 'stopped', null, sessionStopAfterBatch)
+					return TurnResult.finished({ entry })
+				}
+
+				if (doomLoop.reason !== null) {
+					const entry = yield* appendFinished(input, 'stopped', null, doomLoop.reason)
+					return TurnResult.finished({ entry })
+				}
+
+				return TurnResult.continue()
 			})
 
 		/** Run one model turn: build the request, call the model, persist, and settle tool calls. */
@@ -380,7 +396,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				)
 
 				if (Result.isFailure(modelParts)) {
-					const message = describeModelError(modelParts.failure)
+					const message = modelParts.failure.message
 
 					// Reactive overflow path (D11): when the provider says the request exceeded the context
 					// window, compact and restart the turn - once per run. A recovered attempt writes no
@@ -447,37 +463,10 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const toolCalls = persistedAssistant.content.flatMap((part) =>
 					part.type === 'tool-call' ? [{ name: part.name, params: part.params }] : [],
 				)
-				const hasToolCalls = toolCalls.length > 0
+				const hasToolCalls = Arr.isArrayNonEmpty(toolCalls)
 
 				if (hasToolCalls) {
-					const doomLoop = observeDoomLoop(stopConditions, yield* Ref.get(doomLoopRef), toolCalls)
-					yield* Ref.set(doomLoopRef, doomLoop.state)
-
-					const settlement = yield* toolRuntime.settle({
-						agentId: input.agentId,
-						parentAgentId: input.parentAgentId,
-						assistantMessage: persistedAssistant,
-					})
-
-					if (settlement.stopRequested) {
-						const entry = yield* appendFinished(input, 'stopped', null, 'a tool or hook requested a stop')
-						return TurnResult.finished({ entry })
-					}
-
-					// D9: a session-wide stop lets the in-flight batch finish and its results land (above),
-					// then ends the run here - no further LLM call.
-					const sessionStopAfterBatch = yield* sessionControls.sessionStopReason
-					if (sessionStopAfterBatch !== null) {
-						const entry = yield* appendFinished(input, 'stopped', null, sessionStopAfterBatch)
-						return TurnResult.finished({ entry })
-					}
-
-					if (doomLoop.reason !== null) {
-						const entry = yield* appendFinished(input, 'stopped', null, doomLoop.reason)
-						return TurnResult.finished({ entry })
-					}
-
-					return TurnResult.continue()
+					return yield* settleToolCalls(input, persistedAssistant, toolCalls, doomLoopRef)
 				}
 
 				yield* Ref.set(doomLoopRef, initialDoomLoopState)
@@ -502,7 +491,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// D8: follow-ups queued while this agent was running drain exactly where the run would
 				// complete naturally - each becomes an ordinary user-message and the run continues.
 				const followUps = yield* sessionControls.drainFollowUps(input.agentId)
-				if (followUps.length > 0) {
+				if (Arr.isReadonlyArrayNonEmpty(followUps)) {
 					for (const text of followUps) {
 						yield* appendUserMessage(input, text)
 					}
@@ -519,18 +508,13 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			readonly parentAgentId: AgentId | null
 			readonly toolCallId: ToolCallId | null
 			readonly model: ActiveModel
-			readonly systemPrompt: string | ReadonlyArray<string> | null
+			readonly systemPrompt: ReadonlyArray<string> | null
 		}
 
 		/** Compose and append one epoch's leading system-message block set (agent start and model switch). */
 		const appendLeadingSystemMessage = (input: LeadingSystemMessageInput): Effect.Effect<void> =>
 			Effect.gen(function* () {
-				const agentBlocks =
-					input.systemPrompt === null
-						? []
-						: typeof input.systemPrompt === 'string'
-							? [input.systemPrompt]
-							: input.systemPrompt
+				const agentBlocks = input.systemPrompt ?? []
 
 				const blocks = yield* systemPrompt.compose({ model: input.model, agentBlocks })
 
@@ -556,7 +540,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// prompt block set once for the starting model; both are recorded durably.
 				const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
 
-				const agentStartedInput: Mutable<Parameters<(typeof LogEntryInputs)['agent_started']>[0]> = {
+				const agentStarted = {
 					agentId: input.agentId,
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
@@ -567,10 +551,12 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					fork: input.fork,
 					agentType: input.agentType,
 				}
-				if (input.promptCacheKey != null) {
-					agentStartedInput.promptCacheKey = input.promptCacheKey
-				}
-				const entry = yield* appendToEventLog(LogEntryInputs['agent_started'](agentStartedInput))
+				const promptCacheKey = input.promptCacheKey ?? null
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['agent_started'](
+						promptCacheKey === null ? agentStarted : { ...agentStarted, promptCacheKey },
+					),
+				)
 
 				// A fork appends no leading system message: its projection folds the forked-from agent's
 				// history, leading blocks included, keeping the fork's prompt prefix byte-identical for

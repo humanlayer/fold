@@ -3,7 +3,13 @@
  * WebP EXIF chunks and apply the corresponding flips/rotations with photon so resized images render
  * upright. Flips mutate in place; rotations return a new image (the caller frees the old one).
  */
-import type { Photon, PhotonImage } from './Photon'
+import { Match, Schema } from 'effect'
+
+import type { PhotonImage, PhotonModule } from './Photon'
+
+const Orientation = Schema.Literals([1, 2, 3, 4, 5, 6, 7, 8])
+type Orientation = typeof Orientation.Type
+const isOrientation = Schema.is(Orientation)
 
 const hasExifHeader = (bytes: Uint8Array, offset: number): boolean =>
 	bytes[offset] === 0x45 &&
@@ -13,7 +19,7 @@ const hasExifHeader = (bytes: Uint8Array, offset: number): boolean =>
 	bytes[offset + 4] === 0x00 &&
 	bytes[offset + 5] === 0x00
 
-const readOrientationFromTiff = (bytes: Uint8Array, tiffStart: number): number => {
+const readOrientationFromTiff = (bytes: Uint8Array, tiffStart: number): Orientation => {
 	if (tiffStart + 8 > bytes.length) return 1
 
 	const littleEndian = (((bytes[tiffStart] ?? 0) << 8) | (bytes[tiffStart + 1] ?? 0)) === 0x4949
@@ -43,7 +49,7 @@ const readOrientationFromTiff = (bytes: Uint8Array, tiffStart: number): number =
 		if (entryPosition + 12 > bytes.length) return 1
 		if (read16(entryPosition) === 0x0112) {
 			const value = read16(entryPosition + 8)
-			return value >= 1 && value <= 8 ? value : 1
+			return isOrientation(value) ? value : 1
 		}
 	}
 
@@ -104,7 +110,7 @@ const findWebpTiffOffset = (bytes: Uint8Array): number => {
 }
 
 /** Read the EXIF orientation (1-8) from JPEG or WebP bytes; 1 when absent or unreadable. */
-export const exifOrientation = (bytes: Uint8Array): number => {
+export const exifOrientation = (bytes: Uint8Array): Orientation => {
 	let tiffOffset = -1
 
 	if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) {
@@ -128,7 +134,7 @@ export const exifOrientation = (bytes: Uint8Array): number => {
 
 type DstIndex = (x: number, y: number, width: number, height: number) => number
 
-const rotate90 = (photon: Photon, image: PhotonImage, dstIndex: DstIndex): PhotonImage => {
+const rotate90 = (photon: PhotonModule, image: PhotonImage, dstIndex: DstIndex): PhotonImage => {
 	const width = image.get_width()
 	const height = image.get_height()
 	const source = image.get_raw_pixels()
@@ -149,33 +155,37 @@ const rotate90 = (photon: Photon, image: PhotonImage, dstIndex: DstIndex): Photo
 }
 
 /** Apply the EXIF orientation to a decoded image. Rotations return a NEW image; flips mutate. */
-export const applyExifOrientation = (photon: Photon, image: PhotonImage, originalBytes: Uint8Array): PhotonImage => {
-	switch (exifOrientation(originalBytes)) {
-		case 2:
+export const applyExifOrientation = (
+	photon: PhotonModule,
+	image: PhotonImage,
+	originalBytes: Uint8Array,
+): PhotonImage =>
+	Match.value(exifOrientation(originalBytes)).pipe(
+		Match.when(1, () => image),
+		Match.when(2, () => {
 			photon.fliph(image)
 			return image
-		case 3:
+		}),
+		Match.when(3, () => {
 			photon.fliph(image)
 			photon.flipv(image)
 			return image
-		case 4:
+		}),
+		Match.when(4, () => {
 			photon.flipv(image)
 			return image
-		case 5: {
+		}),
+		Match.when(5, () => {
 			const rotated = rotate90(photon, image, (x, y, _width, height) => x * height + (height - 1 - y))
 			photon.fliph(rotated)
 			return rotated
-		}
-		case 6:
-			return rotate90(photon, image, (x, y, _width, height) => x * height + (height - 1 - y))
-		case 7: {
+		}),
+		Match.when(6, () => rotate90(photon, image, (x, y, _width, height) => x * height + (height - 1 - y))),
+		Match.when(7, () => {
 			const rotated = rotate90(photon, image, (x, y, width, height) => (width - 1 - x) * height + y)
 			photon.fliph(rotated)
 			return rotated
-		}
-		case 8:
-			return rotate90(photon, image, (x, y, width, height) => (width - 1 - x) * height + y)
-		default:
-			return image
-	}
-}
+		}),
+		Match.when(8, () => rotate90(photon, image, (x, y, width, height) => (width - 1 - x) * height + y)),
+		Match.exhaustive,
+	)

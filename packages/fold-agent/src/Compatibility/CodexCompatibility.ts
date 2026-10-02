@@ -1,18 +1,18 @@
 import { homedir } from 'node:os'
 
-import type { SkillSourceService } from '@humanlayer/fold-core'
-import { Effect, Path } from 'effect'
+import type { FoldSkills } from '@humanlayer/fold-core'
+import { Effect, type FileSystem, Path } from 'effect'
 
 import { loadCodexInstructions, renderCodexInstructions, type CodexInstructionSource } from './CodexInstructions'
 import { discoverCodexPluginSkillRoots, type CodexPluginDiagnostic } from './CodexPlugins'
-import { makeCodexSkillSource, type CodexSkillOptions } from './CodexSkills'
+import { codexSkills, type CodexSkillOptions } from './CodexSkills'
 
 export type CodexCompatibilityOptions = CodexSkillOptions
 
 export type CodexCompatibility = {
 	readonly instructions: ReadonlyArray<CodexInstructionSource>
 	readonly instructionBlock: string | null
-	readonly skills: SkillSourceService
+	readonly skills: FoldSkills<FileSystem.FileSystem | Path.Path>
 	readonly diagnostics: ReadonlyArray<CodexPluginDiagnostic>
 }
 
@@ -23,10 +23,8 @@ export const loadCodexCompatibility = (options: CodexCompatibilityOptions) =>
 		const codexHome = path.resolve(options.codexHome ?? path.join(homeValue, '.codex'))
 		const plugins = yield* discoverCodexPluginSkillRoots({ codexHome })
 		const instructions = yield* loadCodexInstructions(options)
-		const skills = yield* makeCodexSkillSource({
-			...options,
-			pluginPaths: [...(options.pluginPaths ?? []), ...plugins.roots],
-		})
+		const { pluginPaths = [] } = options
+		const skills = codexSkills({ ...options, pluginPaths: [...pluginPaths, ...plugins.roots] })
 		return {
 			instructions,
 			instructionBlock: renderCodexInstructions(instructions),

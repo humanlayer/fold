@@ -1,34 +1,32 @@
 /**
  * Managed-binaries tests (D18): the system -> managed -> download resolution ladder, alias and
  * version-floor handling on system hits, sha256 verification before anything touches disk, the
- * download kill switch, never-failing degradation, and per-process memoization. Every seam is
- * injected (which/download/exec/env); installs land on a real temp dir so the extract/rename/chmod
- * path is exercised against the actual filesystem.
+ * download kill switch, never-failing degradation, and per-process caching. The resolver runs on
+ * the real filesystem in a temp dir (PATH scan, extract/rename/chmod); the child-process spawner and
+ * HttpClient are fake layers that record what they were asked to do, and env comes from a
+ * `ConfigProvider`.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { ConfigProvider, Effect, FileSystem, Layer, Sink, Stream } from 'effect'
+import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import {
-	BinaryDownloadError,
-	BinaryExecError,
 	ensureManagedBinaries,
+	FOLD_DISABLE_BINARY_DOWNLOADS,
+	HostPlatform,
+	ManagedBinaries,
 	managedBinDir,
 	parseBinaryVersion,
-	FOLD_DISABLE_BINARY_DOWNLOADS,
-	type DownloadSeam,
-	type ExecSeam,
 	type ManagedBinaryDefinition,
-	type WhichSeam,
 } from '../../src/index'
-import { tempDir } from '../TestHelpers'
+import { offlineHttpClient, tempDir } from '../TestHelpers'
 
 const binaryBytes = new TextEncoder().encode('#!/bin/sh\necho fake binary\n')
 
-// sha256 of `binaryBytes`, precomputed so the verification test has a real matching digest.
 const definitionOf = (overrides?: Partial<ManagedBinaryDefinition>): ManagedBinaryDefinition => ({
 	name: 'rg',
 	repo: 'example/rg',
@@ -44,84 +42,205 @@ const definitionOf = (overrides?: Partial<ManagedBinaryDefinition>): ManagedBina
 	...overrides,
 })
 
-const whichOf =
-	(hits: Readonly<Record<string, string>>): WhichSeam =>
-	(name) =>
-		Effect.succeed(hits[name] ?? null)
-
-/** Download seam returning fixed bytes, recording every requested URL. */
-const recordingDownload = (bytes: Uint8Array): { readonly seam: DownloadSeam; readonly urls: Array<string> } => {
+/** HttpClient returning fixed bytes, recording every requested URL. */
+const recordingDownload = (
+	bytes: Uint8Array<ArrayBuffer>,
+): { readonly layer: Layer.Layer<HttpClient.HttpClient>; readonly urls: Array<string> } => {
 	const urls: Array<string> = []
 	return {
 		urls,
-		seam: (url) =>
-			Effect.sync(() => {
-				urls.push(url)
-				return bytes
+		layer: Layer.succeed(
+			HttpClient.HttpClient,
+			HttpClient.make((request) =>
+				Effect.sync(() => {
+					urls.push(request.url)
+					return HttpClientResponse.fromWeb(request, new Response(bytes))
+				}),
+			),
+		),
+	}
+}
+
+/** What one fake process run produces. */
+type FakeRun = {
+	readonly stdout?: string
+	readonly stderr?: string
+	readonly exitCode?: number
+}
+
+type FakeCommand = (
+	command: string,
+	args: ReadonlyArray<string>,
+) => Effect.Effect<FakeRun, never, FileSystem.FileSystem>
+
+const textStream = (text: string) => Stream.make(new TextEncoder().encode(text))
+
+/** A spawner whose processes run `respond` instead of a real program; records every command line. */
+const fakeSpawner = (
+	respond: FakeCommand,
+): {
+	readonly layer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner, never, FileSystem.FileSystem>
+	readonly commands: Array<string>
+} => {
+	const commands: Array<string> = []
+	return {
+		commands,
+		layer: Layer.effect(
+			ChildProcessSpawner.ChildProcessSpawner,
+			Effect.gen(function* () {
+				const context = yield* Effect.context<FileSystem.FileSystem>()
+				return ChildProcessSpawner.make((command) => {
+					if (!ChildProcess.isStandardCommand(command))
+						return Effect.die(new Error('unexpected piped command'))
+					commands.push([command.command, ...command.args].join(' '))
+					return respond(command.command, command.args).pipe(
+						Effect.provideContext(context),
+						Effect.map((run) =>
+							ChildProcessSpawner.makeHandle({
+								pid: ChildProcessSpawner.ProcessId(1),
+								exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(run.exitCode ?? 0)),
+								isRunning: Effect.succeed(false),
+								kill: () => Effect.void,
+								stdin: Sink.drain,
+								stdout: textStream(run.stdout ?? ''),
+								stderr: textStream(run.stderr ?? ''),
+								all: textStream(`${run.stdout ?? ''}${run.stderr ?? ''}`),
+								getInputFd: () => Sink.drain,
+								getOutputFd: () => Stream.empty,
+								unref: Effect.succeed(Effect.void),
+							}),
+						),
+					)
+				})
 			}),
+		),
 	}
 }
 
 /**
- * Exec seam that emulates `tar xzf <archive> -C <dir>` by writing the expected binary into the
- * extraction dir, and answers `--version` probes with the given output.
+ * Emulates `tar xzf <archive> -C <dir>` (and `unzip -d <dir>`) by writing the expected binary into
+ * the extraction dir, and answers `--version` probes with the given output.
  */
-const extractingExec =
-	(pathInArchive: string, versionOutput = ''): ExecSeam =>
-	(command, args) =>
-		Effect.sync(() => {
-			if (args[0] === '--version' || args.includes('--version')) return { stdout: versionOutput }
-			const extractDir = args[args.indexOf('-C') + 1]
-			if (command === 'tar' && extractDir !== undefined) {
-				const target = join(extractDir, pathInArchive)
-				mkdirSync(dirname(target), { recursive: true })
-				writeFileSync(target, binaryBytes)
-				return { stdout: '' }
-			}
-			return { stdout: '' }
+const extracting =
+	(pathInArchive: string, versionOutput = ''): FakeCommand =>
+	(_command, args) =>
+		Effect.gen(function* () {
+			if (args.includes('--version')) return { stdout: versionOutput }
+			const flagIndex = Math.max(args.indexOf('-C'), args.indexOf('-d'))
+			const extractDir = args[flagIndex + 1]
+			if (flagIndex === -1 || extractDir === undefined) return { exitCode: 2, stderr: 'no target dir' }
+			const fs = yield* FileSystem.FileSystem
+			const target = join(extractDir, pathInArchive)
+			yield* fs.makeDirectory(dirname(target), { recursive: true }).pipe(Effect.orDie)
+			yield* fs.writeFile(target, binaryBytes).pipe(Effect.orDie)
+			return {}
 		})
 
-const emptyEnv = (): string | undefined => undefined
+/** A spawner that must never run: any command is a test failure. */
+const noCommands: FakeCommand = (command, args) =>
+	Effect.die(new Error(`unexpected command ${command} ${args.join(' ')}`))
+
+/** The resolver over a test registry, with every external seam replaced. */
+const resolverLayer = (input: {
+	readonly registry: ReadonlyArray<ManagedBinaryDefinition>
+	readonly env: Record<string, string>
+	readonly spawner: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner, never, FileSystem.FileSystem>
+	readonly http: Layer.Layer<HttpClient.HttpClient>
+}): Layer.Layer<ManagedBinaries> =>
+	ManagedBinaries.layerWith(input.registry).pipe(
+		Layer.provide(
+			Layer.mergeAll(
+				input.spawner,
+				input.http,
+				ConfigProvider.layer(ConfigProvider.fromEnv({ env: input.env })),
+				Layer.succeed(HostPlatform, { platform: 'linux', arch: 'x64' }),
+			).pipe(Layer.provideMerge(NodeFileSystem.layer)),
+		),
+	)
+
+/** Put one fake executable (or, with a non-exec mode, a plain file) into a PATH dir. */
+const onPath = (directory: string, name: string, mode = 0o755): Effect.Effect<string, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const path = join(directory, name)
+		yield* fs.makeDirectory(directory, { recursive: true })
+		yield* fs.writeFile(path, binaryBytes)
+		yield* fs.chmod(path, mode)
+		return path
+	}).pipe(Effect.orDie)
+
+const exists = (path: string): Effect.Effect<boolean, never, FileSystem.FileSystem> =>
+	FileSystem.FileSystem.use((fs) => fs.exists(path)).pipe(Effect.orDie)
 
 it.effect('a system alias hit short-circuits the ladder without downloading', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
+		const pathDir = join(home, 'sys')
+		const fdfind = yield* onPath(pathDir, 'fdfind')
 		const download = recordingDownload(binaryBytes)
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({ fdfind: '/usr/bin/fdfind' }),
-			download: download.seam,
-			registry: [definitionOf({ name: 'fd', systemNames: ['fd', 'fdfind'] })],
-		})
+		const spawner = fakeSpawner(noCommands)
+
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf({ name: 'fd', systemNames: ['fd', 'fdfind'] })],
+					env: { PATH: pathDir },
+					spawner: spawner.layer,
+					http: download.layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('system')
-		expect(status?.path).toBe('/usr/bin/fdfind')
+		expect(status?.path).toBe(fdfind)
 		expect(status?.detail).toContain('fdfind')
 		expect(download.urls).toEqual([])
+		expect(spawner.commands).toEqual([])
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('a non-executable file on PATH is not a system hit', () =>
+	Effect.gen(function* () {
+		const home = yield* tempDir
+		const pathDir = join(home, 'sys')
+		yield* onPath(pathDir, 'rg', 0o644)
+
+		const [status] = yield* ensureManagedBinaries({ foldHome: home, disableDownloads: true }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: { PATH: pathDir },
+					spawner: fakeSpawner(noCommands).layer,
+					http: recordingDownload(binaryBytes).layer,
+				}),
+			),
+		)
+
+		expect(status?.resolution).toBe('unavailable')
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('requireManagedInstall installs the canonical managed binary even when a system binary exists', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
+		const pathDir = join(home, 'sys')
+		yield* onPath(pathDir, 'rg')
 		const download = recordingDownload(binaryBytes)
 
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({ rg: '/opt/homebrew/bin/rg' }),
-			download: download.seam,
-			exec: extractingExec('rg-1.0.0/rg'),
-			requireManagedInstall: true,
-			registry: [definitionOf()],
-		})
+		const [status] = yield* ensureManagedBinaries({ foldHome: home, requireManagedInstall: true }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: { PATH: pathDir },
+					spawner: fakeSpawner(extracting('rg-1.0.0/rg')).layer,
+					http: download.layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('installed-now')
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
-		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(true)
+		expect(yield* exists(join(managedBinDir(home), 'rg'))).toBe(true)
 		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
@@ -129,56 +248,71 @@ it.effect('requireManagedInstall installs the canonical managed binary even when
 it.effect('requireManagedInstall plus disabled downloads can still report a usable system binary', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
+		const pathDir = join(home, 'sys')
+		const rg = yield* onPath(pathDir, 'rg')
+
 		const [status] = yield* ensureManagedBinaries({
 			foldHome: home,
-			memoize: false,
 			disableDownloads: true,
-			env: emptyEnv,
-			which: whichOf({ rg: '/opt/homebrew/bin/rg' }),
 			requireManagedInstall: true,
-			registry: [definitionOf()],
-		})
+		}).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: { PATH: pathDir },
+					spawner: fakeSpawner(noCommands).layer,
+					http: recordingDownload(binaryBytes).layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('system')
-		expect(status?.path).toBe('/opt/homebrew/bin/rg')
-		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(false)
+		expect(status?.path).toBe(rg)
+		expect(yield* exists(join(managedBinDir(home), 'rg'))).toBe(false)
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a system binary below the version floor falls through past the system rung', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			disableDownloads: true,
-			env: emptyEnv,
-			which: whichOf({ 'ast-grep': '/usr/bin/ast-grep' }),
-			exec: extractingExec('unused', 'ast-grep 0.39.6'),
-			registry: [definitionOf({ name: 'ast-grep', systemNames: ['ast-grep'], minVersion: '0.44.0' })],
-		})
+		const pathDir = join(home, 'sys')
+		const astGrep = yield* onPath(pathDir, 'ast-grep')
+		const spawner = fakeSpawner(extracting('unused', 'ast-grep 0.39.6'))
+
+		const [status] = yield* ensureManagedBinaries({ foldHome: home, disableDownloads: true }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf({ name: 'ast-grep', systemNames: ['ast-grep'], minVersion: '0.44.0' })],
+					env: { PATH: pathDir },
+					spawner: spawner.layer,
+					http: recordingDownload(binaryBytes).layer,
+				}),
+			),
+		)
 
 		// Not 'system': the old binary was rejected; with downloads disabled the ladder ends unavailable.
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('downloads disabled')
+		expect(spawner.commands).toEqual([`${astGrep} --version`])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('an already-installed managed binary resolves without downloading', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
-		mkdirSync(managedBinDir(home), { recursive: true })
-		writeFileSync(join(managedBinDir(home), 'rg'), binaryBytes)
+		yield* onPath(managedBinDir(home), 'rg')
 		const download = recordingDownload(binaryBytes)
 
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({}),
-			download: download.seam,
-			registry: [definitionOf()],
-		})
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: {},
+					spawner: fakeSpawner(noCommands).layer,
+					http: download.layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('managed')
 		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
@@ -190,49 +324,92 @@ it.effect('a missing binary downloads, extracts, and installs into <foldHome>/bi
 	Effect.gen(function* () {
 		const home = yield* tempDir
 		const download = recordingDownload(binaryBytes)
+		const spawner = fakeSpawner(extracting('rg-1.0.0/rg'))
 
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({}),
-			download: download.seam,
-			exec: extractingExec('rg-1.0.0/rg'),
-			registry: [definitionOf()],
-		})
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({ registry: [definitionOf()], env: {}, spawner: spawner.layer, http: download.layer }),
+			),
+		)
+
+		const fs = yield* FileSystem.FileSystem
+		const installed = join(managedBinDir(home), 'rg')
+		expect(status?.resolution).toBe('installed-now')
+		expect(status?.path).toBe(installed)
+		expect(((yield* fs.stat(installed)).mode & 0o777).toString(8)).toBe('755')
+		// The temp extraction dir is gone; only the installed binary remains.
+		expect(yield* fs.readDirectory(managedBinDir(home))).toEqual(['rg'])
+		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
+		expect(spawner.commands).toHaveLength(1)
+		expect(spawner.commands[0]).toMatch(/^tar xzf .*rg-1\.0\.0\.tar\.gz -C /)
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('a zip asset falls back to tar when unzip fails', () =>
+	Effect.gen(function* () {
+		const home = yield* tempDir
+		const spawner = fakeSpawner((command, args) =>
+			command === 'unzip'
+				? Effect.succeed({ exitCode: 127, stderr: 'unzip: not found' })
+				: extracting('sg')(command, args),
+		)
+
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [
+						definitionOf({
+							name: 'ast-grep',
+							assetFor: () => ({
+								url: 'https://example.com/ast-grep.zip',
+								archive: 'zip',
+								pathInArchive: 'sg',
+								sha256: null,
+							}),
+						}),
+					],
+					env: {},
+					spawner: spawner.layer,
+					http: recordingDownload(binaryBytes).layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('installed-now')
-		expect(status?.path).toBe(join(managedBinDir(home), 'rg'))
-		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(true)
-		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
+		expect(spawner.commands.map((line) => line.split(' ')[0])).toEqual(['unzip', 'tar'])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
 it.effect('a sha256 mismatch degrades to unavailable and writes nothing', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({}),
-			download: recordingDownload(binaryBytes).seam,
-			exec: extractingExec('rg-1.0.0/rg'),
-			registry: [
-				definitionOf({
-					assetFor: () => ({
-						url: 'https://example.com/rg-1.0.0.tar.gz',
-						archive: 'tar.gz',
-						pathInArchive: 'rg-1.0.0/rg',
-						sha256: 'deadbeef',
-					}),
+		const spawner = fakeSpawner(extracting('rg-1.0.0/rg'))
+
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [
+						definitionOf({
+							assetFor: () => ({
+								url: 'https://example.com/rg-1.0.0.tar.gz',
+								archive: 'tar.gz',
+								pathInArchive: 'rg-1.0.0/rg',
+								sha256: 'deadbeef',
+							}),
+						}),
+					],
+					env: {},
+					spawner: spawner.layer,
+					http: recordingDownload(binaryBytes).layer,
 				}),
-			],
-		})
+			),
+		)
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('sha256 mismatch')
-		expect(existsSync(join(managedBinDir(home), 'rg'))).toBe(false)
+		// Verification runs on the in-memory bytes: not even the bin dir was created.
+		expect(yield* exists(managedBinDir(home))).toBe(false)
+		expect(spawner.commands).toEqual([])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
@@ -241,16 +418,19 @@ it.effect('the env kill switch skips downloads entirely', () =>
 		const home = yield* tempDir
 		const download = recordingDownload(binaryBytes)
 
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: (name) => (name === FOLD_DISABLE_BINARY_DOWNLOADS ? '1' : undefined),
-			which: whichOf({}),
-			download: download.seam,
-			registry: [definitionOf()],
-		})
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: { [FOLD_DISABLE_BINARY_DOWNLOADS]: '1' },
+					spawner: fakeSpawner(noCommands).layer,
+					http: download.layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('unavailable')
+		expect(status?.detail).toContain('downloads disabled')
 		expect(download.urls).toEqual([])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
@@ -258,63 +438,71 @@ it.effect('the env kill switch skips downloads entirely', () =>
 it.effect('one failing binary never blocks the rest (ensure never fails)', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
-		const failingDownload: DownloadSeam = (url) =>
-			Effect.fail(new BinaryDownloadError({ message: `GET ${url}: network down` }))
+		const pathDir = join(home, 'sys')
+		yield* onPath(pathDir, 'fd')
 
-		const statuses = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({ fd: '/usr/bin/fd' }),
-			download: failingDownload,
-			registry: [definitionOf(), definitionOf({ name: 'fd', systemNames: ['fd'] })],
-		})
+		const statuses = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf(), definitionOf({ name: 'fd', systemNames: ['fd'] })],
+					env: { PATH: pathDir },
+					spawner: fakeSpawner(noCommands).layer,
+					http: offlineHttpClient,
+				}),
+			),
+		)
 
 		expect(statuses.map((status) => status.resolution)).toEqual(['unavailable', 'system'])
 		expect(statuses[0]?.detail).toContain('network down')
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('an exec failure during extraction also degrades to unavailable', () =>
+it.effect('a failing extraction also degrades to unavailable and cleans up', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
-		const brokenExec: ExecSeam = (command, args) =>
-			Effect.fail(new BinaryExecError({ message: `${command} ${args.join(' ')}: exploded` }))
+		const spawner = fakeSpawner(() => Effect.succeed({ exitCode: 1, stderr: 'exploded' }))
 
-		const [status] = yield* ensureManagedBinaries({
-			foldHome: home,
-			memoize: false,
-			env: emptyEnv,
-			which: whichOf({}),
-			download: recordingDownload(binaryBytes).seam,
-			exec: brokenExec,
-			registry: [definitionOf()],
-		})
+		const [status] = yield* ensureManagedBinaries({ foldHome: home }).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: {},
+					spawner: spawner.layer,
+					http: recordingDownload(binaryBytes).layer,
+				}),
+			),
+		)
 
 		expect(status?.resolution).toBe('unavailable')
 		expect(status?.detail).toContain('exploded')
+		expect(yield* FileSystem.FileSystem.use((fs) => fs.readDirectory(managedBinDir(home)))).toEqual([])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('memoized ensures share one resolution pass per (foldHome, mode)', () =>
+it.effect('cached ensures share one resolution pass per (foldHome, mode); memoize false runs fresh', () =>
 	Effect.gen(function* () {
 		const home = yield* tempDir
 		const download = recordingDownload(binaryBytes)
-		const options = {
-			foldHome: home,
-			env: emptyEnv,
-			which: whichOf({}),
-			download: download.seam,
-			exec: extractingExec('rg-1.0.0/rg'),
-			registry: [definitionOf()],
-		}
 
-		const first = yield* ensureManagedBinaries(options)
-		const second = yield* ensureManagedBinaries(options)
+		const [first, second, fresh] = yield* Effect.all([
+			ensureManagedBinaries({ foldHome: home }),
+			ensureManagedBinaries({ foldHome: home, requireManagedInstall: false }),
+			ensureManagedBinaries({ foldHome: home, memoize: false }),
+		]).pipe(
+			Effect.provide(
+				resolverLayer({
+					registry: [definitionOf()],
+					env: {},
+					spawner: fakeSpawner(extracting('rg-1.0.0/rg')).layer,
+					http: download.layer,
+				}),
+			),
+		)
 
-		expect(first[0]?.resolution).toBe('installed-now')
-		expect(second[0]?.resolution).toBe('installed-now')
-		// One download despite two ensure calls: the memoized run was shared.
+		expect(first?.[0]?.resolution).toBe('installed-now')
+		expect(second?.[0]?.resolution).toBe('installed-now')
+		// One download despite two cached calls; the fresh pass finds the managed copy.
+		expect(fresh?.[0]?.resolution).toBe('managed')
 		expect(download.urls).toEqual(['https://example.com/rg-1.0.0.tar.gz'])
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )

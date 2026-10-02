@@ -3,7 +3,7 @@ import { AgentId, EventId } from '@humanlayer/fold-core'
 import type { AgentFinishedLogEntry } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
 
-import { ASSISTANT_RESPONSE_BEGIN, ASSISTANT_RESPONSE_END, makePromptOutputRenderer } from '../src/index'
+import { ASSISTANT_RESPONSE_BEGIN, ASSISTANT_RESPONSE_END, promptOutputRenderer } from '../src/index'
 
 const finished = (resultText: string | null): AgentFinishedLogEntry => ({
 	_tag: 'agent-finished',
@@ -23,7 +23,7 @@ const render = (response: string | null, duplicate = false) =>
 	Effect.gen(function* () {
 		const stdout: Array<string> = []
 		const stderr: Array<string> = []
-		const renderer = makePromptOutputRenderer({
+		const renderer = promptOutputRenderer({
 			colors: false,
 			stdout: (text) => Effect.sync(() => void stdout.push(text)),
 			stderr: (text) => Effect.sync(() => void stderr.push(text)),

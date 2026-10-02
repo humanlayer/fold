@@ -1,5 +1,5 @@
 /**
- * loadModelCatalog flow tests (D15) over the in-memory FileSystem, a recording fake fetch seam, and a
+ * loadModelCatalog flow tests (D15) over the in-memory FileSystem, a recording fake HttpClient, and a
  * fixed clock - zero network, zero real disk. Covered: a fresh cache short-circuits the fetch; a
  * stale cache refetches and rewrites the cache; a fetch failure degrades to the stale cache; no cache
  * plus a fetch failure degrades to the baked snapshot; FOLD_DISABLE_MODELS_FETCH skips the fetch
@@ -8,14 +8,9 @@
 import { expect, it } from '@effect/vitest'
 import type { ModelCatalogEntry } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Layer, Ref } from 'effect'
+import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
-import {
-	bakedModelCatalog,
-	CatalogFetchError,
-	loadModelCatalog,
-	modelCatalogCachePath,
-	FOLD_DISABLE_MODELS_FETCH,
-} from '../../src/index'
+import { bakedModelCatalog, loadModelCatalog, modelCatalogCachePath, FOLD_DISABLE_MODELS_FETCH } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
 
 const foldHome = '/home/user/.fold'
@@ -53,28 +48,35 @@ const fetchedPayload = {
 	},
 }
 
-/** A fetch seam that counts calls and yields the given outcome. */
-const recordingFetch = (outcome: Effect.Effect<unknown, CatalogFetchError>) =>
+/** An HttpClient that counts calls and answers every request with the given response. */
+const recordingFetch = (respond: () => Response) =>
 	Effect.gen(function* () {
 		const calls = yield* Ref.make(0)
 
 		return {
 			calls: Ref.get(calls),
-			fetchJson: (_url: string) => Ref.update(calls, (count) => count + 1).pipe(Effect.andThen(outcome)),
+			layer: Layer.succeed(
+				HttpClient.HttpClient,
+				HttpClient.make((request) =>
+					Ref.update(calls, (count) => count + 1).pipe(
+						Effect.as(HttpClientResponse.fromWeb(request, respond())),
+					),
+				),
+			),
 		}
 	})
 
-const failingOutcome = Effect.fail(new CatalogFetchError({ message: 'network unreachable' }))
+const fetchedOutcome = () => Response.json(fetchedPayload)
+const failingOutcome = () => new Response('network unreachable', { status: 503 })
 
 it.effect('a fresh cache short-circuits the fetch', () =>
 	Effect.gen(function* () {
-		const fetch = yield* recordingFetch(Effect.succeed(fetchedPayload))
+		const fetch = yield* recordingFetch(fetchedOutcome)
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
-		})
+		}).pipe(Effect.provide(fetch.layer))
 
 		expect(entries).toEqual([cachedEntry])
 		expect(yield* fetch.calls).toBe(0)
@@ -88,13 +90,12 @@ it.effect('a fresh cache short-circuits the fetch', () =>
 it.effect('a stale cache refetches, returns the live entries, and rewrites the cache', () =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
-		const fetch = yield* recordingFetch(Effect.succeed(fetchedPayload))
+		const fetch = yield* recordingFetch(fetchedOutcome)
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
-		})
+		}).pipe(Effect.provide(fetch.layer))
 
 		expect(yield* fetch.calls).toBe(1)
 		expect(entries).toHaveLength(1)
@@ -117,9 +118,8 @@ it.effect('a fetch failure degrades to the stale cache with a warning', () =>
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
-		})
+		}).pipe(Effect.provide(fetch.layer))
 
 		expect(yield* fetch.calls).toBe(1)
 		expect(entries).toEqual([cachedEntry])
@@ -136,9 +136,8 @@ it.effect('no cache plus a fetch failure degrades to the baked snapshot', () =>
 
 		const entries = yield* loadModelCatalog({
 			foldHome,
-			fetchJson: fetch.fetchJson,
 			now: Effect.succeed(fixedNow),
-		})
+		}).pipe(Effect.provide(fetch.layer))
 
 		expect(entries).toBe(bakedModelCatalog)
 	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({})))),
@@ -148,30 +147,31 @@ it.effect('FOLD_DISABLE_MODELS_FETCH skips the fetch: stale cache when present, 
 	Effect.gen(function* () {
 		const env = (name: string): string | undefined => (name === FOLD_DISABLE_MODELS_FETCH ? '1' : undefined)
 
-		const fetchA = yield* recordingFetch(Effect.succeed(fetchedPayload))
+		const fetchA = yield* recordingFetch(fetchedOutcome)
 		const staleEntries = yield* loadModelCatalog({
 			foldHome,
 			env,
-			fetchJson: fetchA.fetchJson,
 			now: Effect.succeed(fixedNow),
 		}).pipe(
 			Effect.provide(
-				Layer.succeed(
-					FileSystem.FileSystem,
-					memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) }),
+				Layer.merge(
+					fetchA.layer,
+					Layer.succeed(
+						FileSystem.FileSystem,
+						memoryFileSystem({ [cachePath]: cacheFile(fixedNow - 25 * hourMs) }),
+					),
 				),
 			),
 		)
 		expect(staleEntries).toEqual([cachedEntry])
 		expect(yield* fetchA.calls).toBe(0)
 
-		const fetchB = yield* recordingFetch(Effect.succeed(fetchedPayload))
+		const fetchB = yield* recordingFetch(fetchedOutcome)
 		const bakedEntries = yield* loadModelCatalog({
 			foldHome,
 			env,
-			fetchJson: fetchB.fetchJson,
 			now: Effect.succeed(fixedNow),
-		}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, memoryFileSystem({}))))
+		}).pipe(Effect.provide(Layer.merge(fetchB.layer, Layer.succeed(FileSystem.FileSystem, memoryFileSystem({})))))
 		expect(bakedEntries).toBe(bakedModelCatalog)
 		expect(yield* fetchB.calls).toBe(0)
 	}),
@@ -184,13 +184,12 @@ it.effect('corrupt or wrong-version caches read as absent: the fetch runs and re
 			JSON.stringify({ version: 2, fetchedAt: fixedNow, entries: [] }),
 		]) {
 			const fs = memoryFileSystem({ [cachePath]: corrupt })
-			const fetch = yield* recordingFetch(Effect.succeed(fetchedPayload))
+			const fetch = yield* recordingFetch(fetchedOutcome)
 
 			const entries = yield* loadModelCatalog({
 				foldHome,
-				fetchJson: fetch.fetchJson,
 				now: Effect.succeed(fixedNow),
-			}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+			}).pipe(Effect.provide(Layer.merge(fetch.layer, Layer.succeed(FileSystem.FileSystem, fs))))
 
 			expect(yield* fetch.calls).toBe(1)
 			expect(entries[0]?.modelId).toBe('fetched-model')

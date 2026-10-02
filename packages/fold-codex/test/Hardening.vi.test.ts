@@ -1,16 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Deferred, Duration, Effect, Fiber, Stream } from 'effect'
+import { Deferred, Duration, Effect, Fiber, Option, Predicate, Stream } from 'effect'
 import { TestClock } from 'effect/testing'
 import { AiError } from 'effect/unstable/ai'
 
-import {
-	firstEventRetryDelayMs,
-	hardenCodexStream,
-	isCodexFirstEventStall,
-	isCodexIdleStall,
-	withStallTimeouts,
-} from '../src/index'
+import { firstEventRetryDelayMs, hardenCodexStream, withStallTimeouts } from '../src/index'
 import type { CodexRetryOptions, StreamRetryInfo } from '../src/index'
+
+const isCodexFirstEventStall = Predicate.isTagged('CodexFirstEventStall')
+const isCodexIdleStall = Predicate.isTagged('CodexIdleStall')
 
 // Real-clock tests (it.live) with tiny durations: stall timeouts never fire under the TestClock.
 const fastOptions = (overrides?: Partial<CodexRetryOptions>): CodexRetryOptions => ({
@@ -146,7 +143,11 @@ describe('hardenCodexStream', () => {
 	it.live('does not retry ordinary provider failures', () =>
 		Effect.gen(function* () {
 			let attempts = 0
-			const boom = new Error('provider exploded')
+			const boom = AiError.make({
+				module: 'test',
+				method: 'streamText',
+				reason: new AiError.InvalidRequestError({ description: 'provider rejected the request' }),
+			})
 			const stream = hardenCodexStream(() => {
 				attempts += 1
 				return Stream.fail(boom)
@@ -218,11 +219,7 @@ describe('firstEventRetryDelayMs', () => {
 			const delay = yield* firstEventRetryDelayMs(
 				{ firstEventRetryBaseDelayMs: 1000, firstEventRetryMaxDelayMs: 10_000 },
 				0,
-				AiError.make({
-					module: 'test',
-					method: 'streamText',
-					reason: new AiError.RateLimitError({ retryAfter: Duration.seconds(16) }),
-				}),
+				Option.some(Duration.seconds(16)),
 			)
 
 			expect(delay).toBe(16_000)

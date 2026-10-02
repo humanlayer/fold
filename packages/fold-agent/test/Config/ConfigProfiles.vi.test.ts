@@ -101,6 +101,21 @@ const withProfileRoles = (config: FoldConfig, profile: ProfileConfig): FoldConfi
 	return { ...config, roles }
 }
 
+const expectEveryBindingAtMax = (profiles: ReadonlyArray<ProfileConfig | undefined>): void => {
+	for (const profile of profiles) {
+		expect(profile).toBeDefined()
+		if (profile === undefined) continue
+		for (const binding of profileBindings(profile)) {
+			expect(binding.reasoning, binding.model).toBe('max')
+			const model = binding.model
+			expect(model).toBeDefined()
+			if (model === undefined) continue
+			const entry = lookupCatalogEntry(bakedModelCatalog, syntheticOpenAiModel(model))
+			expect(entry?.reasoningEfforts, model).toContain('max')
+		}
+	}
+}
+
 it.effect('the starter config ships the ultraclaude, powerclaude, and ultracodex everything-max RLM presets', () =>
 	Effect.gen(function* () {
 		const config = yield* parseFoldConfig(starterConfigJsonc())
@@ -126,18 +141,7 @@ it.effect('the starter config ships the ultraclaude, powerclaude, and ultracodex
 
 		// Every binding runs at max, and the baked catalog confirms every pinned model supports it -
 		// this is what makes `reasoning: "max"` a known-good shipped default rather than a hope.
-		for (const profile of [ultraclaude, powerclaude, ultracodex]) {
-			expect(profile).toBeDefined()
-			if (profile === undefined) continue
-			for (const binding of profileBindings(profile)) {
-				expect(binding.reasoning, binding.model).toBe('max')
-				const model = binding.model
-				expect(model).toBeDefined()
-				if (model === undefined) continue
-				const entry = lookupCatalogEntry(bakedModelCatalog, syntheticOpenAiModel(model))
-				expect(entry?.reasoningEfforts, model).toContain('max')
-			}
-		}
+		expectEveryBindingAtMax([ultraclaude, powerclaude, ultracodex])
 	}),
 )
 

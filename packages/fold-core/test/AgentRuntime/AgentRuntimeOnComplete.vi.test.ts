@@ -9,7 +9,7 @@ import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestH
 
 it.effect('onComplete continueWith appends a continuation user message and loops one more turn', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const completions = yield* Ref.make(0)
 
 		const hooks: HookConfig = {

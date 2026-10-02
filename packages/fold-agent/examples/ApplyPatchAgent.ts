@@ -12,9 +12,9 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
-import { Predicate, Console, Effect } from 'effect'
+import { Predicate, Console, Effect, Layer } from 'effect'
 
-import { codingTools } from '../src/index'
+import { codingTools, layerCodingToolServices } from '../src/index'
 
 const modelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
 const apiKey = process.env.OPENAI_API_KEY
@@ -25,6 +25,10 @@ const makeProgram = (apiKey: string) =>
 		writeFileSync(join(workspace, 'config.json'), '{\n  "retries": 1,\n  "verbose": false\n}\n')
 		yield* Console.log(`workspace: ${workspace}`)
 
+		// The coding tools' services live as long as the session, in this program's scope.
+		const toolServices = yield* Layer.build(
+			layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
+		)
 		const session = yield* startSession({
 			agent: defineAgent({
 				name: 'apply-patch-demo',
@@ -35,7 +39,7 @@ const makeProgram = (apiKey: string) =>
 				tools: codingTools({ cwd: workspace }),
 			}),
 			cwd: workspace,
-		})
+		}).pipe(Effect.provideContext(toolServices))
 
 		const finished = yield* session.send(
 			'Read config.json, then use apply_patch to set "retries" to 3 and read it back to confirm.',

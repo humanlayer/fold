@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 
-import { Effect, FileSystem, Path, Schema } from 'effect'
+import { Array as Arr, Effect, FileSystem, Path, Schema } from 'effect'
 
 export const CodexInstructionSource = Schema.Struct({
 	path: Schema.String,
@@ -22,7 +22,7 @@ const readNonEmpty = (path: string): Effect.Effect<CodexInstructionSource | null
 			Effect.map((content) =>
 				content.trim().length === 0 ? null : { path, content, scope: 'ancestor' as const },
 			),
-			Effect.catch(() => Effect.succeed(null)),
+			Effect.orElseSucceed(() => null),
 		)
 	})
 
@@ -101,7 +101,7 @@ const escapeXmlAttribute = (text: string): string =>
 		.replace(/'/g, '&apos;')
 
 export const renderCodexInstructions = (sources: ReadonlyArray<CodexInstructionSource>): string | null => {
-	if (sources.length === 0) return null
+	if (Arr.isReadonlyArrayEmpty(sources)) return null
 	return `<project_context>\n${sources
 		.map(
 			(source) =>

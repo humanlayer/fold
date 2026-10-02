@@ -5,7 +5,13 @@
  */
 import { Context, Effect, Schema } from 'effect'
 
-type ToolStateKeySchemas = Readonly<Record<string, Schema.ConstraintDecoder<unknown>>>
+/** A key schema: any service-free codec whose encoded form is JSON, so values persist in tool_state entries. */
+type ToolStateKeySchema = Schema.Top & {
+	readonly Encoded: Schema.Json
+	readonly DecodingServices: never
+	readonly EncodingServices: never
+}
+type ToolStateKeySchemas = Readonly<Record<string, ToolStateKeySchema>>
 type ToolStateKey<Keys extends ToolStateKeySchemas> = Extract<keyof Keys, string>
 type ToolStateValue<Keys extends ToolStateKeySchemas, Key extends ToolStateKey<Keys>> = Keys[Key]['Type']
 
@@ -15,10 +21,10 @@ type ToolStateValue<Keys extends ToolStateKeySchemas, Key extends ToolStateKey<K
  * declaration is the single source of truth for which namespace a read or write targets.
  */
 export type ToolStateService = {
-	/** Read a raw state value by namespace and key, returning null when no value has been written. */
-	readonly get: (namespace: string, key: string) => Effect.Effect<unknown>
-	/** Write or clear a raw state value by namespace and key. */
-	readonly set: (namespace: string, key: string, value: unknown) => Effect.Effect<void>
+	/** Read an encoded state value by namespace and key, returning null when no value has been written. */
+	readonly get: (namespace: string, key: string) => Effect.Effect<Schema.Json>
+	/** Write (encoded) or clear (null) a state value by namespace and key. */
+	readonly set: (namespace: string, key: string, value: Schema.Json) => Effect.Effect<void>
 }
 
 /** Typed ToolState namespace definition for a tool or hook. */
@@ -56,11 +62,17 @@ export const defineToolState = <const Keys extends ToolStateKeySchemas>(input: {
 		return schema
 	}
 
-	/** Decode one candidate value with the schema declared for the requested key. */
+	/** Decode one persisted value with the schema declared for the requested key. */
 	const decodeValue = <Key extends ToolStateKey<Keys>>(
 		key: Key,
-		value: unknown,
-	): Effect.Effect<ToolStateValue<Keys, Key>> => Effect.sync(() => Schema.decodeUnknownSync(schemaFor(key))(value))
+		encoded: Schema.Json,
+	): Effect.Effect<ToolStateValue<Keys, Key>> => Schema.decodeEffect(schemaFor(key))(encoded).pipe(Effect.orDie)
+
+	/** Validate and encode one value with the schema declared for the requested key. */
+	const encodeValue = <Key extends ToolStateKey<Keys>>(
+		key: Key,
+		value: ToolStateValue<Keys, Key>,
+	): Effect.Effect<Schema.Json> => Schema.encodeEffect(schemaFor(key))(value).pipe(Effect.orDie)
 
 	return {
 		namespace: input.namespace,
@@ -86,8 +98,8 @@ export const defineToolState = <const Keys extends ToolStateKeySchemas>(input: {
 				Effect.flatMap((state) => {
 					if (value === null) return state.set(input.namespace, key, null)
 
-					return decodeValue(key, value).pipe(
-						Effect.flatMap((decoded) => state.set(input.namespace, key, decoded)),
+					return encodeValue(key, value).pipe(
+						Effect.flatMap((encoded) => state.set(input.namespace, key, encoded)),
 					)
 				}),
 			),

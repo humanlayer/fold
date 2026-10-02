@@ -22,9 +22,9 @@ import {
 	type FoldSkills,
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem } from 'effect'
-import { parse as parseYaml } from 'yaml'
 
 import { cwdFor } from '../Fs/DefaultFileSystem'
+import { parseSkillFile, skillNameOr, type SkillDocument } from './SkillFrontmatter'
 
 /** Options for {@link skillsFromDisk}. */
 export type DiskSkillsOptions = {
@@ -39,11 +39,11 @@ export type DiskSkillsOptions = {
 const isDirectory = (fs: FileSystem.FileSystem, path: string): Effect.Effect<boolean> =>
 	fs.stat(path).pipe(
 		Effect.map((info) => info.type === 'Directory'),
-		Effect.catch(() => Effect.succeed(false)),
+		Effect.orElseSucceed(() => false),
 	)
 
 const fileExists = (fs: FileSystem.FileSystem, path: string): Effect.Effect<boolean> =>
-	fs.exists(path).pipe(Effect.catch(() => Effect.succeed(false)))
+	fs.exists(path).pipe(Effect.orElseSucceed(() => false))
 
 /** Walk up from `cwd` to the filesystem root looking for a `.git` entry (worktrees keep a file). */
 const findGitRoot = (fs: FileSystem.FileSystem, cwd: string): Effect.Effect<string | null> =>
@@ -57,53 +57,12 @@ const findGitRoot = (fs: FileSystem.FileSystem, cwd: string): Effect.Effect<stri
 		}
 	})
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
-
-/** Split SKILL.md into YAML frontmatter and body. Null when there is no leading `---` block. */
-const extractFrontmatter = (
-	rawContent: string,
-): { readonly frontmatter: Record<string, unknown>; readonly body: string } | null => {
-	// Normalize newlines first (pi parity): CRLF frontmatter would otherwise leave a trailing \r on
-	// the last field, corrupting descriptions and failing name validation.
-	const content = rawContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-	if (!content.startsWith('---')) return null
-
-	const endIndex = content.indexOf('\n---', 3)
-	if (endIndex === -1) return null
-
-	const rawYaml = content.slice(4, endIndex)
-	const body = content.slice(endIndex + 4).trim()
-
-	try {
-		const parsed: unknown = parseYaml(rawYaml)
-		if (!isRecord(parsed)) return null
-		return { frontmatter: parsed, body }
-	} catch {
-		return null
-	}
-}
-
-/** Parse and validate one SKILL.md; null (with a logged warning) when it cannot be loaded. */
-const loadSkillFile = (fs: FileSystem.FileSystem, skillFilePath: string): Effect.Effect<Skill | null> =>
+/** Apply the Agent Skills spec to decoded frontmatter; null (with a logged warning) when it fails. */
+const validateSkill = (skillFilePath: string, { frontmatter, body }: SkillDocument): Effect.Effect<Skill | null> =>
 	Effect.gen(function* () {
-		const raw = yield* fs.readFileString(skillFilePath).pipe(Effect.catch(() => Effect.succeed(null)))
-		if (raw === null) {
-			yield* Effect.logWarning(`skill skipped (unreadable): ${skillFilePath}`)
-			return null
-		}
-
-		const parsed = extractFrontmatter(raw)
-		if (parsed === null) {
-			yield* Effect.logWarning(`skill skipped (missing or invalid frontmatter): ${skillFilePath}`)
-			return null
-		}
-
 		const directory = dirname(skillFilePath)
-		const rawName = parsed.frontmatter.name
-		const name = typeof rawName === 'string' && rawName.length > 0 ? rawName : basename(directory)
-		const rawDescription = parsed.frontmatter.description
-		const description = typeof rawDescription === 'string' ? rawDescription : ''
+		const name = skillNameOr(frontmatter, basename(directory))
+		const description = frontmatter.description ?? ''
 
 		const problem = skillNameProblem(name) ?? skillDescriptionProblem(description)
 		if (problem !== null) {
@@ -111,8 +70,46 @@ const loadSkillFile = (fs: FileSystem.FileSystem, skillFilePath: string): Effect
 			return null
 		}
 
-		return { name, description, content: parsed.body, baseDir: directory }
+		return { name, description, content: body, baseDir: directory }
 	})
+
+/** Parse and validate one SKILL.md; null (with a logged warning) when it cannot be loaded. */
+const loadSkillFile = (fs: FileSystem.FileSystem, skillFilePath: string): Effect.Effect<Skill | null> =>
+	fs.readFileString(skillFilePath).pipe(
+		Effect.catchTag('PlatformError', (error) =>
+			Effect.as(Effect.logWarning(`skill skipped (unreadable): ${skillFilePath}`, error), null),
+		),
+		Effect.flatMap((raw) =>
+			raw === null
+				? Effect.succeed(null)
+				: parseSkillFile(raw).pipe(
+						Effect.flatMap((document) => validateSkill(skillFilePath, document)),
+						Effect.catchTags({
+							SkillFrontmatterMissing: (error) =>
+								Effect.as(
+									Effect.logWarning(`skill skipped (${error.message}): ${skillFilePath}`),
+									null,
+								),
+							SkillFrontmatterInvalidYaml: (error) =>
+								Effect.as(
+									Effect.logWarning(
+										`skill skipped (invalid frontmatter YAML): ${skillFilePath}`,
+										error,
+									),
+									null,
+								),
+							SkillFrontmatterInvalidFields: (error) =>
+								Effect.as(
+									Effect.logWarning(
+										`skill skipped (invalid frontmatter fields): ${skillFilePath}`,
+										error,
+									),
+									null,
+								),
+						}),
+					),
+		),
+	)
 
 /**
  * Scan one root for skills, pi-style: a directory containing SKILL.md is a skill root (no deeper
@@ -142,7 +139,7 @@ const scanRoot = (fs: FileSystem.FileSystem, root: string): Effect.Effect<Readon
 					return
 				}
 
-				const entries = yield* fs.readDirectory(directory).pipe(Effect.catch(() => Effect.succeed([])))
+				const entries = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []))
 				for (const entry of [...entries].sort()) {
 					if (entry.startsWith('.') || entry === 'node_modules') continue
 					const childPath = join(directory, entry)
@@ -212,4 +209,5 @@ export const makeDiskSkillSource = (
 	})
 
 /** Configure an agent's skills from disk (the standard chain + optional extra roots). */
-export const skillsFromDisk = (options?: DiskSkillsOptions): FoldSkills => skillSource(makeDiskSkillSource(options))
+export const skillsFromDisk = (options?: DiskSkillsOptions): FoldSkills<FileSystem.FileSystem> =>
+	skillSource(makeDiskSkillSource(options))

@@ -5,7 +5,7 @@
  * handling, and baseDir wiring.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem, Layer, Predicate } from 'effect'
+import { Effect, FileSystem, Predicate } from 'effect'
 
 import { makeDiskSkillSource } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -46,7 +46,7 @@ it.effect('scans Claude and Fold roots across home, git root, and cwd with later
 				['review', 'Repo review skill'],
 			]),
 		)
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('loads Claude project skills independently of AGENTS.md', () => {
@@ -60,7 +60,7 @@ it.effect('loads Claude project skills independently of AGENTS.md', () => {
 		const source = yield* makeDiskSkillSource({ cwd: '/repo', home: '/home/user' })
 
 		expect(yield* source.list).toEqual([{ name: 'claude-only', description: 'Claude-compatible skill' }])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('skips the git-root scan when the repo root IS the cwd (no double scan)', () => {
@@ -74,7 +74,7 @@ it.effect('skips the git-root scan when the repo root IS the cwd (no double scan
 		const metas = yield* source.list
 
 		expect(metas).toEqual([{ name: 'solo', description: 'Only skill' }])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('defaults the name from the skill directory and sets baseDir', () => {
@@ -89,24 +89,29 @@ it.effect('defaults the name from the skill directory and sets baseDir', () => {
 		expect(skill.name).toBe('from-dir-name')
 		expect(skill.baseDir).toBe('/cwd/.agents/skills/from-dir-name')
 		expect(skill.content).toBe('Do the thing.')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
-it.effect('skips skills violating the spec (invalid name, missing description) without failing', () => {
-	const fs = memoryFileSystem({
-		'/cwd/.agents/skills/Bad--Name/SKILL.md': skillFile(null, 'Invalid directory-derived name'),
-		'/cwd/.agents/skills/no-description/SKILL.md': ['---', 'name: no-description', '---', 'body'].join('\n'),
-		'/cwd/.agents/skills/no-frontmatter/SKILL.md': 'just a plain markdown file',
-		'/cwd/.agents/skills/good/SKILL.md': skillFile('good', 'A valid skill'),
-	})
+it.effect(
+	'skips skills violating the spec (invalid name, missing description, bad frontmatter) without failing',
+	() => {
+		const fs = memoryFileSystem({
+			'/cwd/.agents/skills/Bad--Name/SKILL.md': skillFile(null, 'Invalid directory-derived name'),
+			'/cwd/.agents/skills/no-description/SKILL.md': ['---', 'name: no-description', '---', 'body'].join('\n'),
+			'/cwd/.agents/skills/no-frontmatter/SKILL.md': 'just a plain markdown file',
+			'/cwd/.agents/skills/bad-yaml/SKILL.md': '---\nname: [unterminated\n---\nbody',
+			'/cwd/.agents/skills/numeric-name/SKILL.md': '---\nname: 42\ndescription: Numeric name\n---\nbody',
+			'/cwd/.agents/skills/good/SKILL.md': skillFile('good', 'A valid skill'),
+		})
 
-	return Effect.gen(function* () {
-		const source = yield* makeDiskSkillSource({ cwd: '/cwd', home: '/home/user' })
-		const metas = yield* source.list
+		return Effect.gen(function* () {
+			const source = yield* makeDiskSkillSource({ cwd: '/cwd', home: '/home/user' })
+			const metas = yield* source.list
 
-		expect(metas).toEqual([{ name: 'good', description: 'A valid skill' }])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
-})
+			expect(metas).toEqual([{ name: 'good', description: 'A valid skill' }])
+		}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
+	},
+)
 
 it.effect('finds nested skill groups but does not recurse into a skill directory', () => {
 	const fs = memoryFileSystem({
@@ -120,7 +125,7 @@ it.effect('finds nested skill groups but does not recurse into a skill directory
 		const metas = yield* source.list
 
 		expect(metas).toEqual([{ name: 'one', description: 'Grouped skill' }])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('load fails with the roster for unknown names', () => {
@@ -135,7 +140,7 @@ it.effect('load fails with the roster for unknown names', () => {
 		expect(failure._tag).toBe('SkillNotFoundError')
 		if (!Predicate.isTagged(failure, 'SkillNotFoundError')) throw new Error('expected SkillNotFoundError')
 		expect(failure.availableSkills).toEqual(['present'])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('a fresh scan per list picks up newly added skills (the refresh path)', () => {
@@ -151,7 +156,7 @@ it.effect('a fresh scan per list picks up newly added skills (the refresh path)'
 		yield* fs.writeFileString('/cwd/.agents/skills/second/SKILL.md', skillFile('second', 'Added later'))
 
 		expect((yield* source.list).map((meta) => meta.name)).toEqual(['first', 'second'])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('parses CRLF SKILL.md files without corrupting fields (trailing \\r regression)', () => {
@@ -169,7 +174,7 @@ it.effect('parses CRLF SKILL.md files without corrupting fields (trailing \\r re
 		expect(skill.name).toBe('crlf-skill')
 		expect(skill.description).toBe('Written on Windows')
 		expect(skill.content).toBe('Body line.')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('supports extra scan roots with highest precedence', () => {
@@ -186,5 +191,5 @@ it.effect('supports extra scan roots with highest precedence', () => {
 		})
 
 		expect(yield* source.list).toEqual([{ name: 'tool', description: 'From extra root' }])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })

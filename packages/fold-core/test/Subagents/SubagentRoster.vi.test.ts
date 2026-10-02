@@ -1,4 +1,4 @@
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import * as NodeServices from '@effect/platform-node/NodeServices'
 /**
  * Engine tests for per-agent rosters (D21, round-five shape): the roster is the subagentTool value's
  * argument - each value advertises exactly its own roster and its closure is the dispatch authority -
@@ -10,13 +10,13 @@ import { expect, it } from '@effect/vitest'
 import { Predicate, Cause, Effect, Exit, Schema } from 'effect'
 
 import {
+	forkSubagent,
 	defineAgent,
 	defineForkAgent,
 	defineSubagent,
 	defineTool,
 	renderSubagentResult,
 	startSession,
-	Subagents,
 	subagentTool,
 	withSubagentCapabilities,
 	type ForkAgentDefinition,
@@ -39,7 +39,7 @@ it.effect('each subagentTool value advertises exactly its own roster', () =>
 		expect(wide.tool.description).toContain('- beta: second specialist')
 		expect(narrow.tool.description).not.toContain('alpha')
 		expect(narrow.tool.description).toContain('- beta: second specialist')
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 )
 
 it.effect('nested rosters give depth; out-of-roster dispatch fails instructively; envelopes chain', () =>
@@ -118,7 +118,7 @@ it.effect('nested rosters give depth; out-of-roster dispatch fails instructively
 		const renderedFailure = JSON.stringify(selfDispatchResult.message.content[0])
 		expect(renderedFailure).toContain('Agent type \\"general-purpose\\" is not available to you')
 		expect(renderedFailure).toContain('researcher')
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 )
 
 it.effect('duplicate type names across distinct definitions defect at session start', () =>
@@ -133,7 +133,7 @@ it.effect('duplicate type names across distinct definitions defect at session st
 
 		if (!Exit.isFailure(exit)) throw new Error('expected session start to defect')
 		expect(String(Cause.squash(exit.cause))).toContain('duplicate subagent type name')
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 )
 
 it.effect('the same definition shared by two rosters is one registry entry', () =>
@@ -162,7 +162,7 @@ it.effect('the same definition shared by two rosters is one registry entry', () 
 
 		const finished = yield* session.send('go')
 		expect(finished.outcome).toBe('completed')
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 )
 
 const hostAgentTool = (forkAgent: ForkAgentDefinition) =>
@@ -174,10 +174,12 @@ const hostAgentTool = (forkAgent: ForkAgentDefinition) =>
 			success: Schema.Struct({ content: Schema.String }),
 			handler: ({ prompt }) =>
 				Effect.gen(function* () {
-					const subagents = yield* Subagents
-					const result = yield* subagents
-						.fork({ prompt, skill: null, forkAgentDefinitionId: forkAgent.id, history: 'all' })
-						.pipe(Effect.orDie)
+					const result = yield* forkSubagent({
+						prompt,
+						skill: null,
+						forkAgentDefinitionId: forkAgent.id,
+						history: 'all',
+					}).pipe(Effect.orDie)
 					return { content: renderSubagentResult(result) }
 				}),
 		}),
@@ -212,7 +214,7 @@ it.effect('host agent tools configure two fork generations structurally', () =>
 		expect(started[1]?.fork?.definitionId).toBe('leaf-fork')
 		expect(started[1]?.tools).not.toContain('agent')
 		expect(started[1]?.parentAgentId).toBe(started[0]?.agentId)
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 )
 
 it.effect('duplicate fork agent definition ids defect at session start', () =>
@@ -230,5 +232,5 @@ it.effect('duplicate fork agent definition ids defect at session start', () =>
 
 		if (!Exit.isFailure(exit)) throw new Error('expected session start to defect')
 		expect(String(Cause.squash(exit.cause))).toContain('duplicate fork agent definition id')
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+	}).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 )

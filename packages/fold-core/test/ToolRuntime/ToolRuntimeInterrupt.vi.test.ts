@@ -7,11 +7,9 @@ import {
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
 	messagesForAgent,
-	Subagents,
 	ToolRuntime,
 	toolsetLayerFromToolkit,
 } from '../../src/index'
-import { noSubagentsStub } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
 import { agentId, collectEntries, layerNoopToolEvents, toolCallId } from './ToolRuntimeTestHelpers'
@@ -61,7 +59,6 @@ it.effect('writes a synthetic interrupted tool-result when a running tool fiber 
 					toolsetLayerFromToolkit(BlockingToolkit).pipe(Layer.provide(handlerLayer)),
 					hookRunnerNoop,
 					layerNoopToolEvents,
-					Layer.succeed(Subagents, noSubagentsStub),
 					NodeFileSystem.layer,
 				),
 			),

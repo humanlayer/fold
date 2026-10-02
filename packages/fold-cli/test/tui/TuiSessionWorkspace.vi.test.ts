@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { makeTuiRouter } from '../../src/tui/TuiRouter'
 import { makeTuiSessionWorkspace } from '../../src/tui/TuiSessionWorkspace'
 
-const sessionId = Schema.decodeUnknownSync(SessionId)('sess_workspacexxxxxxxxxxxxxxx')
+const sessionId = Schema.decodeSync(SessionId)('sess_workspacexxxxxxxxxxxxxxx')
 
 describe('TuiSessionWorkspace', () => {
 	it('admits one operation synchronously without changing the route', async () => {

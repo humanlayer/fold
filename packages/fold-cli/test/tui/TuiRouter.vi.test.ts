@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { makeTuiRouter } from '../../src/tui/TuiRouter'
 
-const sessionId = (suffix: string) => Schema.decodeUnknownSync(SessionId)(`sess_${suffix.padEnd(24, 'x')}`)
+const sessionId = (suffix: string) => Schema.decodeSync(SessionId)(`sess_${suffix.padEnd(24, 'x')}`)
 
 describe('TuiRouter', () => {
 	it('performs synchronous picker and session transitions', () => {

@@ -1,17 +1,18 @@
 import { it } from '@effect/vitest'
 import { webFetchToolContract, webSearchToolContract, type FoldTool } from '@humanlayer/fold-core'
-import { Effect, Fiber, Schema } from 'effect'
+import { Effect, Fiber, Layer, Schema } from 'effect'
 import { TestClock } from 'effect/testing'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 import { expect } from 'vitest'
 
+import type { Photon } from '../../src/Tools/Image/Photon'
 import { webFetchTool } from '../../src/Tools/WebFetchTool'
 import { webSearchTool } from '../../src/Tools/WebSearchTool'
-import { handlerOf, messageOf, runHandler } from '../TestHelpers'
+import { handlerOf, makeAmbientServices, messageOf, realizeTool, runHandler } from '../TestHelpers'
 
 const cases: ReadonlyArray<{
 	readonly name: string
-	readonly tool: () => FoldTool
+	readonly tool: () => FoldTool<HttpClient.HttpClient | Photon>
 	readonly params: Record<string, unknown>
 	readonly timeoutMs: number
 	readonly message: string
@@ -85,7 +86,17 @@ for (const testCase of cases) {
 					}),
 				{ preconnect: globalThis.fetch.preconnect },
 			)
-			const fiber = yield* runHandler(handlerOf(testCase.tool())(testCase.params)).pipe(
+			// Build the ambient services (photon loads for real) and the tool first, so the clock only times
+			// the request.
+			const ambient = yield* makeAmbientServices
+			const services = yield* Layer.build(ambient.layer)
+			const handler = yield* realizeTool(testCase.tool()).pipe(
+				Effect.provideContext(services),
+				Effect.provide(FetchHttpClient.layer),
+			)
+			const fiber = yield* handler(testCase.params).pipe(
+				Effect.provideContext(services),
+				Effect.provide(FetchHttpClient.layer),
 				Effect.provideService(FetchHttpClient.Fetch, fetch),
 				Effect.flip,
 				Effect.forkChild,
@@ -133,7 +144,7 @@ it.effect('search clears its timeout after a successful response', () =>
 		)
 		const result = yield* runHandler(
 			handlerOf(webSearchTool({ provider: 'exa' }))({ query: 'test', timeout_seconds: 1 }),
-		).pipe(Effect.provideService(FetchHttpClient.Fetch, fetch))
+		).pipe(Effect.provide(FetchHttpClient.layer), Effect.provideService(FetchHttpClient.Fetch, fetch))
 		expect(messageOf(result)).toBe('Search result')
 		yield* TestClock.adjust('2 seconds')
 		expect(signals).toHaveLength(1)

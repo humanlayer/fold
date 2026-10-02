@@ -6,10 +6,11 @@
  * malformed model/provider without killing the rest of the catalog.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 
 import {
 	decodeModelsDevModels,
+	ModelsDevPayload,
 	modelCatalogEntriesFromModelsDev,
 	modelCatalogEntryFromModelsDev,
 } from '../../src/index'
@@ -161,9 +162,9 @@ it.effect('a malformed model or provider is skipped; the rest of the catalog sur
 	}),
 )
 
-it.effect('a payload that is not a provider map fails with ModelsDevDecodeError', () =>
+it.effect('a payload that is not a provider map fails to decode at the boundary', () =>
 	Effect.gen(function* () {
-		const error = yield* decodeModelsDevModels('<!doctype html>').pipe(Effect.flip)
-		expect(error._tag).toBe('ModelsDevDecodeError')
+		const error = yield* Schema.decodeUnknownEffect(ModelsDevPayload)('<!doctype html>').pipe(Effect.flip)
+		expect(error._tag).toBe('SchemaError')
 	}),
 )

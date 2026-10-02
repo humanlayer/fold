@@ -39,7 +39,7 @@ export const Repos = Schema.Array(Repo).check(
 	Schema.makeFilter((repos) => {
 		const names = repos.map(repoName)
 		const invalid = names.find((name) => !REPO_NAME.test(name))
-		if (invalid !== undefined) return `repo directory name ${JSON.stringify(invalid)} is invalid; pass a "name"`
+		if (invalid !== undefined) return `repo directory name "${invalid}" is invalid; pass a "name"`
 		return new Set(names).size === names.length || 'repo directory names must be distinct'
 	}),
 )
@@ -103,7 +103,7 @@ export class Workspace extends Context.Service<
 						.prepare(repos.map((repo) => ({ name: repoName(repo), url: repo.url, ref: repo.ref ?? null })))
 						.pipe(
 							Effect.tap((cloned) =>
-								Effect.logInfo('workspace.prepare', JSON.stringify({ sessionId, cloned })),
+								Effect.logInfo('workspace.prepare').pipe(Effect.annotateLogs({ sessionId, cloned })),
 							),
 							Effect.mapError((error) => new RepoCloneError({ message: error.message })),
 						),
@@ -115,9 +115,8 @@ export class Workspace extends Context.Service<
 						.expireAt(deleteAt)
 						.pipe(
 							Effect.catch((error) =>
-								Effect.logWarning(
-									'workspace.expireAt failed',
-									JSON.stringify({ sessionId, error: error.message }),
+								Effect.logWarning('workspace.expireAt failed').pipe(
+									Effect.annotateLogs({ sessionId, error: error.message }),
 								),
 							),
 						),
@@ -126,11 +125,12 @@ export class Workspace extends Context.Service<
 						.getByName(sessionId)
 						.destroy()
 						.pipe(
-							Effect.tap(() => Effect.logInfo('workspace.destroyed', JSON.stringify({ sessionId }))),
+							Effect.tap(() =>
+								Effect.logInfo('workspace.destroyed').pipe(Effect.annotateLogs({ sessionId })),
+							),
 							Effect.catch((error) =>
-								Effect.logWarning(
-									'workspace.destroy failed',
-									JSON.stringify({ sessionId, error: error.message }),
+								Effect.logWarning('workspace.destroy failed').pipe(
+									Effect.annotateLogs({ sessionId, error: error.message }),
 								),
 							),
 						),
@@ -146,10 +146,9 @@ export class Workspace extends Context.Service<
 						)
 					const details = { sessionId, millis: (yield* Clock.currentTimeMillis) - started }
 					yield* result.ok
-						? Effect.logInfo('workspace.container.started', JSON.stringify(details))
-						: Effect.logWarning(
-								'workspace.container.start failed',
-								JSON.stringify({ ...details, error: result.message }),
+						? Effect.logInfo('workspace.container.started').pipe(Effect.annotateLogs(details))
+						: Effect.logWarning('workspace.container.start failed').pipe(
+								Effect.annotateLogs({ ...details, error: result.message }),
 							)
 				}),
 				exec: Effect.fn('alchemy_cloudflare.workspace.exec')(function* (sessionId, input) {
@@ -157,9 +156,8 @@ export class Workspace extends Context.Service<
 						.getByName(sessionId)
 						.exec(input)
 						.pipe(Effect.mapError((error) => new ShellError({ message: error.message })))
-					yield* Effect.logInfo(
-						'workspace.exec',
-						JSON.stringify({
+					yield* Effect.logInfo('workspace.exec').pipe(
+						Effect.annotateLogs({
 							backend: input.backend,
 							command: input.command,
 							cwd: input.cwd,

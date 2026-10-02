@@ -17,7 +17,7 @@
  * {@link SessionExpiry}. Its id then starts a new session.
  */
 import { skillsFromDisk } from '@humanlayer/fold-agent/skills'
-import { fileTools } from '@humanlayer/fold-agent/tools/files'
+import { fileTools, Photon } from '@humanlayer/fold-agent/tools/files'
 import {
 	SessionId,
 	type AgentId,
@@ -36,6 +36,7 @@ import {
 	Config,
 	Effect,
 	FileSystem,
+	Layer,
 	Match,
 	Option,
 	Path,
@@ -46,6 +47,7 @@ import {
 	Stream,
 	SynchronizedRef,
 } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
 import { bashTool } from './BashTool'
 import type { Message, WhenRunning } from './ChatSessions'
@@ -103,7 +105,7 @@ const openRootMessages = (entries: ReadonlyArray<LogEntry>, rootAgentId: AgentId
 }
 
 const isRestartNudge = ({ message }: UserMessageLogEntry) =>
-	typeof message.content === 'string'
+	Predicate.isString(message.content)
 		? message.content === RESTART_NUDGE
 		: message.content.some((part) => part.type === 'text' && part.text === RESTART_NUDGE)
 
@@ -152,6 +154,8 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 		const expiry = yield* SessionExpiry
 		const workspace = yield* Workspace
 
+		// Alchemy runs this outer Effect once per class and the returned Effect once per object instance.
+		// oxlint-disable-next-line effecttsgo/return-effect-in-gen
 		return Effect.gen(function* () {
 			const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(state.id.name)
 			const eventLog = yield* eventLogs.open
@@ -211,9 +215,9 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 						onSome: (session) => Effect.succeed([session, current] as const),
 						onNone: () =>
 							(isEmpty ? start(repos) : resume).pipe(
-								// fold hands these to the file tools and the skill loader.
+								// fold hands these to the file tools, the skill loader, and the model.
 								Effect.provideService(FileSystem.FileSystem, fileSystem),
-								Effect.provide(Path.layer),
+								Effect.provide(Layer.mergeAll(Path.layer, FetchHttpClient.layer, Photon.layer)),
 								Scope.provide(scope),
 								Effect.map((session) => [session, Option.some(session)] as const),
 							),

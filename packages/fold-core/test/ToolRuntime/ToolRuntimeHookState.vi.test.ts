@@ -1,7 +1,7 @@
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Schema } from 'effect'
 
-import { defineToolState, makeHookRunner, toolStateForAgent, ToolRuntime } from '../../src/index'
+import { defineToolState, layerHookRunner, toolStateForAgent, ToolRuntime } from '../../src/index'
 import { layerStatefulEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
 import {
 	agentId,
@@ -14,16 +14,16 @@ import {
 const AuditState = defineToolState({
 	namespace: 'audit',
 	keys: {
-		seen: Schema.Number,
+		seen: Schema.Finite,
 	},
 })
 
 it.effect('a preToolUse hook writes durable state in its declared namespace, separate from the tool namespace', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		// The hook name differs from its declared ToolState namespace ('audit'), proving the persisted
 		// namespace comes from the AuditState definition rather than the hook's name.
-		const hookLayer = makeHookRunner({
+		const hookLayer = layerHookRunner({
 			preToolUse: [
 				{
 					name: 'audit-hook',

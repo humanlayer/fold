@@ -11,7 +11,7 @@ const durableTags = ['agent_started', 'system-message', 'user-message', 'assista
 
 it.effect('publishes streamed reasoning/text deltas through AgentEvents without persisting them', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([
 			rawTurn([
 				{ type: 'reasoning-start', id: 'reasoning-1' },

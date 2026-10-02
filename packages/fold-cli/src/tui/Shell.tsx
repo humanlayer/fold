@@ -6,6 +6,7 @@ import {
 	defaultFoldHome,
 	describeModelConfiguration,
 	ensureManagedBinaries,
+	type ManagedBinaries,
 	loadViewedPatchHashes,
 	loadFoldConfigOrNull,
 	saveViewedPatchHash,
@@ -13,21 +14,22 @@ import {
 	type FoldConfig,
 	type ViewedPatchHashes,
 } from '@humanlayer/fold-agent'
-import { makeCodexAuth, makeCodexAuthStore } from '@humanlayer/fold-codex'
+import { CodexAuth, CodexAuthStore, layerCodexAuth, layerCodexAuthStore } from '@humanlayer/fold-codex'
 import type { SessionId } from '@humanlayer/fold-core'
-import { makeOpenCodeAuth, makeOpenCodeAuthStore } from '@humanlayer/fold-opencode'
+import { layerOpenCodeAuth, layerOpenCodeAuthStore, OpenCodeAuth, OpenCodeAuthStore } from '@humanlayer/fold-opencode'
 import { ALL_FX_ON, type FxToggles } from '@humanlayer/fold-tui-theme/postfx'
 import { nextThemeId, type ThemeId } from '@humanlayer/fold-tui-theme/themes'
-import { makeXaiAuth, makeXaiAuthStore } from '@humanlayer/fold-xai'
+import { layerXaiAuth, layerXaiAuthStore, XaiAuth, XaiAuthStore } from '@humanlayer/fold-xai'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
-import { Cause, Clock, Deferred, Effect, type FileSystem, Option, Schema, type Scope } from 'effect'
+import { Cause, Clock, Deferred, Effect, type FileSystem, Layer, Option, Schema, type Scope } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js'
 
 import { TuiApp } from './App'
 import { loadGitSnapshot, type GitSnapshot } from './GitChanges'
 import type { HostedTuiSession } from './HostedTuiSession'
+import type { LiveSessionHostClosedError } from './LiveSessionHost'
 import { openUrlInBrowser } from './OpenUrl'
 import {
 	codexAuthStoreOptions,
@@ -57,7 +59,7 @@ export const runTui = (
 ): Effect.Effect<
 	void,
 	TuiRequiresTtyError | TuiRendererError | TuiInitialSessionError,
-	Scope.Scope | FileSystem.FileSystem
+	Scope.Scope | FileSystem.FileSystem | ManagedBinaries
 > =>
 	Effect.gen(function* () {
 		if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return yield* new TuiRequiresTtyError()
@@ -72,7 +74,6 @@ export const runTui = (
 			ensureManagedBinaries({
 				foldHome: options.foldHome ?? defaultFoldHome(),
 				requireManagedInstall: true,
-				suppressWarnings: true,
 			}).pipe(Effect.asVoid),
 		)
 		const initialConfig = bootstrapped.config
@@ -154,172 +155,211 @@ export const runTui = (
 						setConfiguration(describeModelConfiguration(updated, options.catalog ?? []))
 					}
 					if (providerKind === 'opencode') {
-						const store = makeOpenCodeAuthStore(openCodeAuthStoreOptions(provider, options.foldHome))
-						if (action === 'status') {
-							update({ _tag: 'working', message: 'Checking stored OpenCode credential...' })
-							const token = yield* store.load
-							if (Option.isNone(token))
+						return yield* Effect.gen(function* () {
+							const store = yield* OpenCodeAuthStore
+							if (action === 'status') {
+								update({ _tag: 'working', message: 'Checking stored OpenCode credential...' })
+								const token = yield* store.load
+								if (Option.isNone(token))
+									return update({
+										_tag: 'success',
+										message: 'No OpenCode credential stored.',
+										authStatus: 'logged-out',
+									})
+								const now = yield* Clock.currentTimeMillis
+								const expired = token.value.isExpired(now)
 								return update({
 									_tag: 'success',
-									message: 'No OpenCode credential stored.',
+									message: `OpenCode credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+									authStatus: expired ? 'expired' : 'logged-in',
+								})
+							}
+							const auth = yield* OpenCodeAuth
+							if (action === 'logout') {
+								yield* auth.logout
+								return update({
+									_tag: 'success',
+									message: 'OpenCode credential removed.',
 									authStatus: 'logged-out',
 								})
-							const now = yield* Clock.currentTimeMillis
-							const expired = token.value.isExpired(now)
+							}
+							if (action === 'browser')
+								return update({
+									_tag: 'failure',
+									message: 'OpenCode supports device login only. Press D.',
+								})
+							update({ _tag: 'working', message: 'Starting OpenCode device login...' })
+							yield* auth.authenticateDevice
 							return update({
 								_tag: 'success',
-								message: `OpenCode credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
-								authStatus: expired ? 'expired' : 'logged-in',
+								message: 'OpenCode authentication saved successfully.',
+								authStatus: 'logged-in',
 							})
-						}
-						const auth = yield* makeOpenCodeAuth({
-							store,
-							onDeviceCode: (prompt) =>
-								openUrlInBrowser(prompt.url).pipe(
-									Effect.tap((opened) =>
-										Effect.sync(() =>
-											update({ _tag: 'device', url: prompt.url, code: prompt.userCode, opened }),
+						}).pipe(
+							Effect.provide(
+								layerOpenCodeAuth({
+									onDeviceCode: (prompt) =>
+										openUrlInBrowser(prompt.url).pipe(
+											Effect.tap((opened) =>
+												Effect.sync(() =>
+													update({
+														_tag: 'device',
+														url: prompt.url,
+														code: prompt.userCode,
+														opened,
+													}),
+												),
+											),
+											Effect.asVoid,
 										),
+								}).pipe(
+									Layer.provideMerge(
+										layerOpenCodeAuthStore(openCodeAuthStoreOptions(provider, options.foldHome)),
 									),
-									Effect.asVoid,
 								),
-						}).pipe(Effect.provide(FetchHttpClient.layer))
-						if (action === 'logout') {
-							yield* auth.logout
-							return update({
-								_tag: 'success',
-								message: 'OpenCode credential removed.',
-								authStatus: 'logged-out',
-							})
-						}
-						if (action === 'browser')
-							return update({ _tag: 'failure', message: 'OpenCode supports device login only. Press D.' })
-						update({ _tag: 'working', message: 'Starting OpenCode device login...' })
-						yield* auth.authenticateDevice
-						return update({
-							_tag: 'success',
-							message: 'OpenCode authentication saved successfully.',
-							authStatus: 'logged-in',
-						})
+							),
+						)
 					}
 					if (providerKind === 'xai') {
-						const store = yield* makeXaiAuthStore(xaiAuthStoreOptions(provider, options.foldHome))
+						return yield* Effect.gen(function* () {
+							const store = yield* XaiAuthStore
+							if (action === 'status') {
+								update({ _tag: 'working', message: 'Checking stored xAI credential...' })
+								const token = yield* store.load
+								if (Option.isNone(token))
+									return update({
+										_tag: 'success',
+										message: 'No xAI credential stored.',
+										authStatus: 'logged-out',
+									})
+								const now = yield* Clock.currentTimeMillis
+								const expired = token.value.isExpired(now)
+								return update({
+									_tag: 'success',
+									message: `xAI credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+									authStatus: expired ? 'expired' : 'logged-in',
+								})
+							}
+							const auth = yield* XaiAuth
+							if (action === 'logout') {
+								yield* auth.logout
+								return update({
+									_tag: 'success',
+									message: 'xAI credential removed.',
+									authStatus: 'logged-out',
+								})
+							}
+							update({ _tag: 'working', message: `Starting xAI ${action} login...` })
+							yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
+							return update({
+								_tag: 'success',
+								message: 'xAI authentication saved successfully.',
+								authStatus: 'logged-in',
+							})
+						}).pipe(
+							Effect.provide(
+								layerXaiAuth({
+									onBrowserUrl: (url) =>
+										openUrlInBrowser(url).pipe(
+											Effect.tap((opened) =>
+												Effect.sync(() => update({ _tag: 'browser', url, opened })),
+											),
+											Effect.asVoid,
+										),
+									onDeviceCode: (prompt) =>
+										openUrlInBrowser(prompt.browserUrl).pipe(
+											Effect.tap((opened) =>
+												Effect.sync(() =>
+													update({
+														_tag: 'device',
+														url: prompt.browserUrl,
+														code: prompt.userCode,
+														opened,
+													}),
+												),
+											),
+											Effect.asVoid,
+										),
+								}).pipe(
+									Layer.provideMerge(
+										layerXaiAuthStore(xaiAuthStoreOptions(provider, options.foldHome)),
+									),
+								),
+							),
+						)
+					}
+					return yield* Effect.gen(function* () {
+						const store = yield* CodexAuthStore
 						if (action === 'status') {
-							update({ _tag: 'working', message: 'Checking stored xAI credential...' })
+							update({ _tag: 'working', message: 'Checking stored credential...' })
 							const token = yield* store.load
 							if (Option.isNone(token))
 								return update({
 									_tag: 'success',
-									message: 'No xAI credential stored.',
+									message: 'No Codex credential stored.',
 									authStatus: 'logged-out',
 								})
 							const now = yield* Clock.currentTimeMillis
 							const expired = token.value.isExpired(now)
 							return update({
 								_tag: 'success',
-								message: `xAI credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
+								message: `Codex credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
 								authStatus: expired ? 'expired' : 'logged-in',
 							})
 						}
-						const auth = yield* makeXaiAuth({
-							store,
-							onBrowserUrl: (url) =>
-								openUrlInBrowser(url).pipe(
-									Effect.tap((opened) => Effect.sync(() => update({ _tag: 'browser', url, opened }))),
-									Effect.asVoid,
-								),
-							onDeviceCode: (prompt) =>
-								openUrlInBrowser(prompt.browserUrl).pipe(
-									Effect.tap((opened) =>
-										Effect.sync(() =>
-											update({
-												_tag: 'device',
-												url: prompt.browserUrl,
-												code: prompt.userCode,
-												opened,
-											}),
-										),
-									),
-									Effect.asVoid,
-								),
-						}).pipe(Effect.provide(FetchHttpClient.layer))
+						const auth = yield* CodexAuth
 						if (action === 'logout') {
+							update({ _tag: 'working', message: 'Removing stored credential...' })
 							yield* auth.logout
 							return update({
 								_tag: 'success',
-								message: 'xAI credential removed.',
+								message: 'Codex credential removed.',
 								authStatus: 'logged-out',
 							})
 						}
-						update({ _tag: 'working', message: `Starting xAI ${action} login...` })
+						update({ _tag: 'working', message: `Starting ${action} login...` })
 						yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
-						return update({
+						update({
 							_tag: 'success',
-							message: 'xAI authentication saved successfully.',
+							message: 'Codex authentication saved successfully.',
 							authStatus: 'logged-in',
 						})
-					}
-					const store = yield* makeCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome))
-					if (action === 'status') {
-						update({ _tag: 'working', message: 'Checking stored credential...' })
-						const token = yield* store.load
-						if (Option.isNone(token))
-							return update({
-								_tag: 'success',
-								message: 'No Codex credential stored.',
-								authStatus: 'logged-out',
-							})
-						const now = yield* Clock.currentTimeMillis
-						const expired = token.value.isExpired(now)
-						return update({
-							_tag: 'success',
-							message: `Codex credential is ${expired ? 'expired' : 'valid'} (expires ${new Date(token.value.expires).toISOString()}).`,
-							authStatus: expired ? 'expired' : 'logged-in',
-						})
-					}
-					const auth = yield* makeCodexAuth({
-						store,
-						onBrowserUrl: (url) =>
-							openUrlInBrowser(url).pipe(
-								Effect.tap((opened) => Effect.sync(() => update({ _tag: 'browser', url, opened }))),
-								Effect.asVoid,
-							),
-						onDeviceCode: (prompt) =>
-							openUrlInBrowser(prompt.verifyUrl).pipe(
-								Effect.tap((opened) =>
-									Effect.sync(() =>
-										update({
-											_tag: 'device',
-											url: prompt.verifyUrl,
-											code: prompt.userCode,
-											opened,
-										}),
+					}).pipe(
+						Effect.provide(
+							layerCodexAuth({
+								onBrowserUrl: (url) =>
+									openUrlInBrowser(url).pipe(
+										Effect.tap((opened) =>
+											Effect.sync(() => update({ _tag: 'browser', url, opened })),
+										),
+										Effect.asVoid,
 									),
+								onDeviceCode: (prompt) =>
+									openUrlInBrowser(prompt.verifyUrl).pipe(
+										Effect.tap((opened) =>
+											Effect.sync(() =>
+												update({
+													_tag: 'device',
+													url: prompt.verifyUrl,
+													code: prompt.userCode,
+													opened,
+												}),
+											),
+										),
+										Effect.asVoid,
+									),
+							}).pipe(
+								Layer.provideMerge(
+									layerCodexAuthStore(codexAuthStoreOptions(provider, options.foldHome)),
 								),
-								Effect.asVoid,
 							),
-					}).pipe(Effect.provide(FetchHttpClient.layer))
-					if (action === 'logout') {
-						update({ _tag: 'working', message: 'Removing stored credential...' })
-						yield* auth.logout
-						return update({
-							_tag: 'success',
-							message: 'Codex credential removed.',
-							authStatus: 'logged-out',
-						})
-					}
-					update({ _tag: 'working', message: `Starting ${action} login...` })
-					yield* action === 'browser' ? auth.authenticateBrowser : auth.authenticateDevice
-					update({
-						_tag: 'success',
-						message: 'Codex authentication saved successfully.',
-						authStatus: 'logged-in',
-					})
+						),
+					)
 				}).pipe(
 					Effect.catchCause((cause) =>
 						Effect.sync(() => update({ _tag: 'failure', message: Cause.pretty(cause) })),
 					),
-					Effect.provide(NodeFileSystem.layer),
+					Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
 				),
 			)
 		}
@@ -396,7 +436,9 @@ export const runTui = (
 			return route._tag === 'session' ? workspace.get(route.sessionId) : null
 		}
 		const activate = (
-			operation: Option.Option<Effect.Effect<HostedTuiSession, unknown>>,
+			operation: Option.Option<
+				Effect.Effect<HostedTuiSession, TuiInitialSessionError | LiveSessionHostClosedError>
+			>,
 			focusInput: boolean,
 		): void => {
 			if (Option.isNone(operation)) return
@@ -420,7 +462,7 @@ export const runTui = (
 			const route = router.route()
 			const wasActive = route._tag === 'session' && route.sessionId === sessionId
 			if (wasActive) router.showPicker()
-			runFork(operation.value.pipe(Effect.catchCause(() => Effect.void)))
+			runFork(operation.value.pipe(Effect.ignoreCause))
 		}
 
 		yield* Effect.tryPromise({

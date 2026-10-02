@@ -14,7 +14,7 @@
  */
 import { ReasoningLevel } from '@humanlayer/fold-core'
 import type { AutoCompactConfig as CoreAutoCompactConfig, StopConditionConfig } from '@humanlayer/fold-core'
-import { Schema } from 'effect'
+import { Array as Arr, Predicate, Schema } from 'effect'
 
 /** How a configured provider profile is reached. */
 export const ProviderKind = Schema.Literals(['anthropic', 'openai-compat', 'codex', 'opencode', 'xai']).annotate({
@@ -167,28 +167,25 @@ type RolesRef = {
 	readonly fast: RoleBindingRef
 	readonly orchestrator?: RoleBindingRef
 }
-type CrossRefShape = {
-	readonly providers: Record<string, unknown>
+type ConfigCrossReferences = {
+	readonly providers: Readonly<Record<string, ProviderConnection>>
 	readonly roles: RolesRef
 	readonly profiles?: Record<string, RolesRef>
 }
 
-const bindingsOf = (roles: RolesRef): ReadonlyArray<RoleBindingRef> => [
-	roles.smart,
-	roles.fast,
-	...(roles.orchestrator === undefined ? [] : [roles.orchestrator]),
-]
+const bindingsOf = (roles: RolesRef): ReadonlyArray<RoleBindingRef> =>
+	[roles.smart, roles.fast, roles.orchestrator].filter(Predicate.isNotUndefined)
 
 /**
  * Every provider a role binds to - in the default `roles` map AND in every named profile - must be
  * declared in `providers` (decode-time typo/reference safety).
  */
-const providersReferencedByRolesExist = Schema.makeFilter<CrossRefShape>(
+const providersReferencedByRolesExist = Schema.makeFilter<ConfigCrossReferences>(
 	({ providers, roles, profiles }) => {
 		const declared = new Set(Object.keys(providers))
 		const bindings = [...bindingsOf(roles), ...Object.values(profiles ?? {}).flatMap(bindingsOf)]
 		const missing = [...new Set(bindings.map((binding) => binding.provider).filter((name) => !declared.has(name)))]
-		return missing.length === 0
+		return Arr.isArrayEmpty(missing)
 			? undefined
 			: `roles reference undeclared providers: ${missing.join(', ')} (declared: ${[...declared].join(', ') || '(none)'})`
 	},

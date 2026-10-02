@@ -1,5 +1,5 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { Effect, Layer } from 'effect'
+import { Layer } from 'effect'
 import type { LanguageModel, Tool } from 'effect/unstable/ai'
 
 import {
@@ -10,13 +10,11 @@ import {
 	liveAgentRuntimeLayer,
 	liveModelRequestSettingsLayer,
 	liveToolRuntimeLayer,
-	makeHookRunner,
-	makeSessionControls,
-	makeToolsetResolver,
+	layerHookRunner,
+	layerSessionControls,
+	layerToolsetResolver,
 	noopToolEventSink,
-	SessionControls,
 	StopConditions,
-	Subagents,
 	ToolEventSink,
 	toolsetLayerFromToolkit,
 	type ActiveModel,
@@ -24,7 +22,6 @@ import {
 	type RunAgentInput,
 	type StartAgentInput,
 	type StopConditionConfig,
-	type SubagentsService,
 } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { TestToolkit } from '../TestLayers/TestTools'
@@ -51,7 +48,7 @@ export const startInput = (overrides?: Partial<StartAgentInput>): StartAgentInpu
 	skill: null,
 	agentType: null,
 	model: testModel,
-	systemPrompt: 'You are a test agent.',
+	systemPrompt: ['You are a test agent.'],
 	...overrides,
 })
 
@@ -63,13 +60,6 @@ export const runInput = (text: string): RunAgentInput => ({
 })
 
 /** Die-on-use Subagents stub: the runtime harness tests exercise no subagent dispatches. */
-export const noSubagentsStub: SubagentsService = {
-	dispatch: () => Effect.die(new Error('Subagents.dispatch not available in this test harness')),
-	fork: () => Effect.die(new Error('Subagents.fork not available in this test harness')),
-	resume: () => Effect.die(new Error('Subagents.resume not available in this test harness')),
-	continueSubagent: () => Effect.die(new Error('Subagents.continueSubagent not available in this test harness')),
-}
-
 /**
  * Real AgentRuntime over real ToolRuntime, EventLog, projections, and the live HookRunner
  * interpreter. Only true externals vary per test: the scripted model layer, the tool handler
@@ -92,14 +82,13 @@ export const agentRuntimeBaseLayer = (
 		idsLayer,
 		agentEventsLayer,
 		toolsetLayer,
-		makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
+		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 		layerDefaultSystemPrompt,
 		liveModelRequestSettingsLayer,
-		makeHookRunner(hooks).pipe(Layer.provide(hookDeps)),
+		layerHookRunner(hooks).pipe(Layer.provide(hookDeps)),
 		Layer.succeed(ToolEventSink, noopToolEventSink),
-		Layer.succeed(Subagents, noSubagentsStub),
 		Layer.succeed(StopConditions, stopConditions),
-		Layer.effect(SessionControls, makeSessionControls()),
+		layerSessionControls(),
 		NodeFileSystem.layer,
 	)
 

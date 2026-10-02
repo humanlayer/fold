@@ -1,4 +1,4 @@
-import { Match, Predicate } from 'effect'
+import { Array as Arr, Match, Predicate } from 'effect'
 
 /**
  * This file is the pure auto-compaction engine (D11): the threshold arithmetic over API-reported
@@ -8,6 +8,15 @@ import { Match, Predicate } from 'effect'
  * error classifier for the reactive path. Everything here is data-in/data-out; the Compaction
  * service and the agent loop orchestrate around it.
  */
+import {
+	contentPartText,
+	encodedContentParts,
+	isPartOfType,
+	type EncodedContentPart,
+	type EncodedMessageContent,
+	toolCallParamsText,
+	toolResultText,
+} from '../EventLog/MessageContent'
 import type { LogEntry } from '../EventLog/Schemas'
 import { usageInputTotal, usageOutputTotal, type UsageEncoded } from '../EventLog/Usage'
 import type { ProjectedMessage } from '../Projection/Projection'
@@ -102,47 +111,18 @@ export const latestReportedContextTokens = (visibleEntries: ReadonlyArray<LogEnt
 	return null
 }
 
-type EncodedPart = {
-	readonly type: string
-	readonly text?: string
-	readonly name?: string
-	readonly params?: unknown
-	readonly result?: unknown
-	readonly isFailure?: boolean
-}
-
-const safeStringify = (value: unknown): string => {
-	try {
-		return JSON.stringify(value) ?? String(value)
-	} catch {
-		return String(value)
-	}
-}
-
-const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
-	if (typeof content === 'string') return [{ type: 'text', text: content }]
-	if (!Array.isArray(content)) return []
-
-	return content.filter(
-		(part): part is EncodedPart => typeof part === 'object' && part !== null && typeof part.type === 'string',
+const estimatePartChars = (part: EncodedContentPart): number =>
+	Match.value(part).pipe(
+		Match.discriminatorsExhaustive('type')({
+			text: ({ text }) => text.length,
+			reasoning: ({ text }) => text.length,
+			file: () => filePartEstimateChars,
+			'tool-call': (call) => call.name.length + toolCallParamsText(call).length,
+			'tool-result': (result) => toolResultText(result).length,
+			'tool-approval-request': (approval) => contentPartText(approval).length,
+			'tool-approval-response': (approval) => contentPartText(approval).length,
+		}),
 	)
-}
-
-const estimatePartChars = (part: EncodedPart): number => {
-	switch (part.type) {
-		case 'text':
-		case 'reasoning':
-			return part.text?.length ?? 0
-		case 'file':
-			return filePartEstimateChars
-		case 'tool-call':
-			return (part.name?.length ?? 0) + safeStringify(part.params).length
-		case 'tool-result':
-			return safeStringify(part.result).length
-		default:
-			return safeStringify(part).length
-	}
-}
 
 /** Estimate one projected message's token footprint (chars/4 heuristic; image parts weigh 4800 chars). */
 export const estimateMessageTokens = (message: ProjectedMessage): number => {
@@ -150,7 +130,7 @@ export const estimateMessageTokens = (message: ProjectedMessage): number => {
 
 	const chars = Predicate.isTagged(message, 'system-message')
 		? message.messages.reduce((total, systemMessage) => total + systemMessage.content.length, 0)
-		: contentParts(message.message.content).reduce((total, part) => total + estimatePartChars(part), 0)
+		: encodedContentParts(message.message.content).reduce((total, part) => total + estimatePartChars(part), 0)
 
 	return Math.max(1, Math.ceil(chars / 4))
 }
@@ -189,7 +169,7 @@ export const findCompactionCutPlan = (
 	messages: ReadonlyArray<ProjectedMessage>,
 	keepRecentTokens: number,
 ): CompactionCut => {
-	if (messages.length === 0) return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
+	if (Arr.isReadonlyArrayEmpty(messages)) return { firstKeptIndex: 0, turnStartIndex: -1, isSplitTurn: false }
 
 	let accumulated = 0
 	let boundary = -1
@@ -240,18 +220,17 @@ export const findCompactionCutPlan = (
 export const findCompactionCut = (messages: ReadonlyArray<ProjectedMessage>, keepRecentTokens: number): number =>
 	findCompactionCutPlan(messages, keepRecentTokens).firstKeptIndex
 
-const serializeUserContent = (content: unknown): string =>
-	contentParts(content)
-		.map((part) => {
-			switch (part.type) {
-				case 'text':
-					return part.text ?? ''
-				case 'file':
-					return '[attached file]'
-				default:
-					return safeStringify(part)
-			}
-		})
+const serializeUserContent = (content: EncodedMessageContent): string =>
+	encodedContentParts(content)
+		.map((part) =>
+			Match.value(part).pipe(
+				Match.discriminators('type')({
+					text: ({ text }) => text,
+					file: () => '[attached file]',
+				}),
+				Match.orElse(contentPartText),
+			),
+		)
 		.join('\n')
 
 const truncateToolResult = (serialized: string): string =>
@@ -274,29 +253,28 @@ export const serializeConversation = (messages: ReadonlyArray<ProjectedMessage>)
 				lines.push(`[User]: ${serializeUserContent(entry.message.content)}`)
 			},
 			'assistant-message': (entry) => {
-				const parts = contentParts(entry.message.content)
-				const reasoning = parts.filter((part) => part.type === 'reasoning')
-				const text = parts.filter((part) => part.type === 'text')
-				const toolCalls = parts.filter((part) => part.type === 'tool-call')
+				const parts = encodedContentParts(entry.message.content)
+				const reasoning = parts.filter(isPartOfType('reasoning'))
+				const text = parts.filter(isPartOfType('text'))
+				const toolCalls = parts.filter(isPartOfType('tool-call'))
 
 				for (const part of reasoning) {
-					lines.push(`[Assistant thinking]: ${part.text ?? ''}`)
+					lines.push(`[Assistant thinking]: ${part.text}`)
 				}
-				if (text.length > 0) {
-					lines.push(`[Assistant]: ${text.map((part) => part.text ?? '').join('\n')}`)
+				if (Arr.isArrayNonEmpty(text)) {
+					lines.push(`[Assistant]: ${text.map((part) => part.text).join('\n')}`)
 				}
-				if (toolCalls.length > 0) {
+				if (Arr.isArrayNonEmpty(toolCalls)) {
 					lines.push(
 						`[Assistant tool calls]: ${toolCalls
-							.map((part) => `${part.name ?? 'tool'}(${safeStringify(part.params)})`)
+							.map((part) => `${part.name}(${toolCallParamsText(part)})`)
 							.join('; ')}`,
 					)
 				}
 			},
 			'tool-result': (entry) => {
-				for (const part of contentParts(entry.message.content)) {
-					if (part.type !== 'tool-result') continue
-					lines.push(`[Tool result]: ${truncateToolResult(safeStringify(part.result))}`)
+				for (const part of encodedContentParts(entry.message.content).filter(isPartOfType('tool-result'))) {
+					lines.push(`[Tool result]: ${truncateToolResult(toolResultText(part))}`)
 				}
 			},
 			'system-message': (entry) => {

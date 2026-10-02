@@ -10,14 +10,24 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { SessionId, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
-import type { ActiveModel, LogEntry, FoldEventLog, Ids } from '@humanlayer/fold-core'
-import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
+import { SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
+import type {
+	ActiveModel,
+	AgentFinishedLogEntry,
+	AgentStartedLogEntry,
+	AssistantMessageLogEntry,
+	LogEntry,
+	FoldEventLog,
+	Ids,
+	ModelChangeLogEntry,
+	SessionStartedLogEntry,
+	SessionTitleLogEntry,
+	UserMessageLogEntry,
+} from '@humanlayer/fold-core'
+import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream, Struct } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
-
-type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] }
 
 /** Options shared by the layout helpers. */
 export type SessionLayoutOptions = {
@@ -73,22 +83,22 @@ export const sessionLogPathFor = (sessionId: SessionId, options?: SessionLayoutO
 /** Schema for a deleted session record in the index. */
 const DeletedIndexRecord = Schema.TaggedStruct('deleted', {
 	sessionId: SessionId,
-	ts: Schema.Number,
+	ts: Schema.Finite,
 })
 
 /** Schema for the session summary as persisted in the index. */
 const SessionSummarySchema = Schema.Struct({
 	sessionId: SessionId,
 	path: Schema.String,
-	mtimeMs: Schema.Number,
-	size: Schema.optional(Schema.Number),
+	mtimeMs: Schema.Finite,
+	size: Schema.optional(Schema.Finite),
 	title: Schema.String,
 	status: Schema.Literals(['ready', 'running', 'stopped', 'error']),
-	turns: Schema.Number,
+	turns: Schema.Finite,
 	providerId: Schema.NullOr(Schema.String),
 	modelId: Schema.NullOr(Schema.String),
 	model: Schema.NullOr(Schema.Any),
-	contextTokens: Schema.NullOr(Schema.Number),
+	contextTokens: Schema.NullOr(Schema.Finite),
 	mode: Schema.NullOr(Schema.String),
 	rpi: Schema.Boolean,
 	profile: Schema.NullOr(Schema.String),
@@ -96,15 +106,17 @@ const SessionSummarySchema = Schema.Struct({
 
 /** Schema for a summary record in the index (includes source file metadata for cache validation). */
 const SummaryIndexRecord = Schema.TaggedStruct('summary', {
-	sourceMtimeMs: Schema.Number,
-	sourceSize: Schema.Number,
+	sourceMtimeMs: Schema.Finite,
+	sourceSize: Schema.Finite,
 	summary: SessionSummarySchema,
 })
 
 const SessionIndexRecordSchema = Schema.Union([SummaryIndexRecord, DeletedIndexRecord])
 type SessionIndexRecord = typeof SessionIndexRecordSchema.Type
 
-const decodeIndexRecord = Schema.decodeUnknownOption(SessionIndexRecordSchema)
+const SessionIndexLine = Schema.fromJsonString(SessionIndexRecordSchema)
+const decodeIndexLine = Schema.decodeUnknownOption(SessionIndexLine)
+const encodeIndexLine = Schema.encodeEffect(SessionIndexLine)
 
 const appendSessionIndexRecord = (
 	record: SessionIndexRecord,
@@ -114,9 +126,8 @@ const appendSessionIndexRecord = (
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
 		yield* fs.makeDirectory(directory, { recursive: true }).pipe(
-			Effect.andThen(
-				fs.writeFileString(join(directory, 'index.jsonl'), `${JSON.stringify(record)}\n`, { flag: 'a' }),
-			),
+			Effect.andThen(encodeIndexLine(record)),
+			Effect.flatMap((line) => fs.writeFileString(join(directory, 'index.jsonl'), `${line}\n`, { flag: 'a' })),
 			Effect.catch((error) =>
 				Effect.logWarning(
 					`could not append session index record at ${join(directory, 'index.jsonl')}: ${error.message}`,
@@ -141,16 +152,13 @@ const loadSessionIndex = (
 				const latest = new Map<SessionId, SessionIndexRecord>()
 				for (const line of contents.split('\n')) {
 					if (line.trim().length === 0) continue
-					try {
-						const record = decodeIndexRecord(JSON.parse(line))
-						if (Option.isSome(record)) latest.set(sessionIdFromIndexRecord(record.value), record.value)
-					} catch {
-						// A partial/corrupt cache row is independently recoverable from the source log.
-					}
+					// A partial/corrupt cache row is independently recoverable from the source log.
+					const record = decodeIndexLine(line)
+					if (Option.isSome(record)) latest.set(sessionIdFromIndexRecord(record.value), record.value)
 				}
 				return latest
 			}),
-			Effect.catch(() => Effect.succeed(new Map<SessionId, SessionIndexRecord>())),
+			Effect.orElseSucceed(() => new Map<SessionId, SessionIndexRecord>()),
 		)
 	})
 
@@ -162,7 +170,7 @@ const loadSessionIndex = (
 export const prepareSessionLog = (
 	options?: SessionLayoutOptions,
 ): Effect.Effect<
-	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog },
+	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog<FileSystem.FileSystem> },
 	never,
 	Ids | FileSystem.FileSystem
 > =>
@@ -184,9 +192,7 @@ export const listSessionLogs = (
 		const fs = yield* FileSystem.FileSystem
 		const directory = sessionsDirFor(options)
 
-		const names = yield* fs
-			.readDirectory(directory)
-			.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
+		const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []))
 
 		const refs: Array<SessionLogRef> = []
 		for (const name of names) {
@@ -195,7 +201,7 @@ export const listSessionLogs = (
 			if (Option.isNone(decoded)) continue
 
 			const path = join(directory, name)
-			const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+			const info = yield* fs.stat(path).pipe(Effect.orElseSucceed(() => null))
 			if (info === null || info.type !== 'File') continue
 
 			refs.push({
@@ -210,37 +216,42 @@ export const listSessionLogs = (
 	})
 
 // Type-safe entry predicates that narrow the LogEntry union.
-const isSessionStarted = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_started' }> =>
+const isSessionStarted = (entry: LogEntry): entry is SessionStartedLogEntry =>
 	Predicate.isTagged(entry, 'session_started')
 
-const isSessionTitle = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'session_title' }> =>
-	Predicate.isTagged(entry, 'session_title')
+const isSessionTitle = (entry: LogEntry): entry is SessionTitleLogEntry => Predicate.isTagged(entry, 'session_title')
 
-const isUserMessage = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'user-message' }> =>
-	Predicate.isTagged(entry, 'user-message')
+const isUserMessage = (entry: LogEntry): entry is UserMessageLogEntry => Predicate.isTagged(entry, 'user-message')
 
-const isAgentFinished = (entry: LogEntry): entry is Extract<LogEntry, { readonly _tag: 'agent-finished' }> =>
-	Predicate.isTagged(entry, 'agent-finished')
+const isAgentFinished = (entry: LogEntry): entry is AgentFinishedLogEntry => Predicate.isTagged(entry, 'agent-finished')
 
-type ModelCarrier = Extract<LogEntry, { readonly _tag: 'agent_started' | 'model-change' }>
+type ModelCarrier = AgentStartedLogEntry | ModelChangeLogEntry
 const carriesModel = (entry: LogEntry): entry is ModelCarrier =>
 	Predicate.isTagged(entry, 'agent_started') || Predicate.isTagged(entry, 'model-change')
 
-type FinishedAssistantMessage = Extract<LogEntry, { readonly _tag: 'assistant-message' }> & {
-	readonly finish: NonNullable<Extract<LogEntry, { readonly _tag: 'assistant-message' }>['finish']>
+type FinishedAssistantMessage = AssistantMessageLogEntry & {
+	readonly finish: NonNullable<AssistantMessageLogEntry['finish']>
 }
 const isFinishedAssistantMessage = (entry: LogEntry): entry is FinishedAssistantMessage =>
 	Predicate.isTagged(entry, 'assistant-message') && entry.finish !== null
 
-const userMessageText = (entry: Extract<LogEntry, { readonly _tag: 'user-message' }>): string => {
-	const content = entry.message.content
-	return typeof content === 'string'
-		? content
-		: content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-}
+/**
+ * The launch fields fold records in `session_started.meta`. Meta is an open JSON record; a session
+ * whose meta does not match reads as having none of these fields.
+ */
+const FoldSessionMeta = Schema.Struct({
+	mode: Schema.optionalKey(Schema.String),
+	rpi: Schema.optionalKey(Schema.Boolean),
+	profile: Schema.optionalKey(Schema.String),
+})
+type FoldSessionMeta = typeof FoldSessionMeta.Type
+const decodeFoldSessionMeta = Schema.decodeUnknownOption(FoldSessionMeta)
+
+const sessionMeta = (started: SessionStartedLogEntry | undefined): FoldSessionMeta =>
+	started === undefined ? {} : Option.getOrElse(decodeFoldSessionMeta(started.meta), () => ({}))
 
 const computeStatus = (
-	lastFinished: Extract<LogEntry, { readonly _tag: 'agent-finished' }> | undefined,
+	lastFinished: AgentFinishedLogEntry | undefined,
 	latestRootEntry: LogEntry | undefined,
 ): SessionSummary['status'] => {
 	// No finish yet, or activity after the last finish → derive from latest activity
@@ -274,11 +285,11 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 			? generatedTitle.title
 			: userEntries[0] === undefined
 				? 'Untitled session'
-				: userMessageText(userEntries[0]).replace(/\s+/g, ' ').trim()
+				: encodedContentText(userEntries[0].message.content).replace(/\s+/g, ' ').trim()
 	const modelEntry = rootEntries.findLast(carriesModel)
 	const model = modelEntry?.model ?? null
 	const latestUsage = rootEntries.findLast(isFinishedAssistantMessage)
-	const meta = started?.meta ?? {}
+	const meta = sessionMeta(started)
 	const lastFinished = rootEntries.findLast(isAgentFinished)
 	const latestRootEntry = rootEntries.findLast((entry) => !isSessionTitle(entry))
 	const status = computeStatus(lastFinished, latestRootEntry)
@@ -292,9 +303,9 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 		modelId: model?.modelId ?? null,
 		model,
 		contextTokens: latestUsage !== undefined ? usageInputTotal(latestUsage.finish.usage) : null,
-		mode: typeof meta.mode === 'string' ? meta.mode : null,
+		mode: meta.mode ?? null,
 		rpi: meta.rpi === true,
-		profile: typeof meta.profile === 'string' ? meta.profile : null,
+		profile: meta.profile ?? null,
 	}
 }
 
@@ -335,24 +346,11 @@ export const listSessionSummaries = (
 			(ref): Effect.Effect<SessionSummary | null, never, FileSystem.FileSystem> => {
 				const cached = index.get(ref.sessionId)
 				if (isCacheHit(cached, ref)) {
-					// Explicitly construct to ensure size conforms to SessionLogRef's optional semantics.
-					const summary = cached.summary
-					const cachedSummary: Mutable<SessionSummary> = {
-						sessionId: summary.sessionId,
-						path: ref.path,
-						mtimeMs: ref.mtimeMs,
-						title: summary.title,
-						status: summary.status,
-						turns: summary.turns,
-						providerId: summary.providerId,
-						modelId: summary.modelId,
-						model: summary.model,
-						contextTokens: summary.contextTokens,
-						mode: summary.mode,
-						rpi: summary.rpi,
-						profile: summary.profile,
+					// The index's summary, with the file facts (path, mtime, size) taken from the current listing.
+					const cachedSummary = {
+						...Struct.omit(cached.summary, ['size']),
+						...Struct.pick(ref, ['path', 'mtimeMs', 'size']),
 					}
-					if (ref.size !== undefined) cachedSummary.size = ref.size
 					return Effect.succeed(cachedSummary)
 				}
 				return loadSessionSummary(ref).pipe(
@@ -417,7 +415,7 @@ export const sessionLogById = (
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const path = sessionLogPathFor(sessionId, options)
-		const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
+		const info = yield* fs.stat(path).pipe(Effect.orElseSucceed(() => null))
 
 		if (info === null || info.type !== 'File') return null
 

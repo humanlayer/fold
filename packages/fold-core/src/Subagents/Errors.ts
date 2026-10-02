@@ -1,5 +1,5 @@
 /**
- * This file defines the expected failures of the Subagents service (D21). Each error models the
+ * This file defines the expected failures of the subagent operations (D21). Each error models the
  * dispatching model's recovery action - pick from the listed roster, check the id, or wait - and the
  * subagent tool encodes them into instructive `failureMode: "return"` payloads so the model
  * self-corrects instead of the run failing.

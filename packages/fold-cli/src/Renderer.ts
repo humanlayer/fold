@@ -1,7 +1,13 @@
 import { decodeBashOutputDelta } from '@humanlayer/fold-agent'
 import {
+	encodedContentParts,
+	encodedContentText,
+	isPartOfType,
+	jsonText,
 	lookupCatalogEntry,
+	toolCallParamsText,
 	shortAgentId,
+	ToolCallId,
 	usageCacheRead,
 	usageCacheWrite,
 	usageInputTotal,
@@ -9,29 +15,24 @@ import {
 	usageOutputTotal,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
-	type AgentId,
-	type LogEntry,
+	type AgentStartedLogEntry,
+	type AssistantMessageLogEntry,
+	type ModelChangeLogEntry,
+	type ToolResultLogEntry,
+	AgentId,
+	LogEntry,
 	type ModelCatalogEntry,
 	type ModelPricing,
 	type SessionId,
 	type UsageEncoded,
 	type FoldEvent,
 } from '@humanlayer/fold-core'
-import { Data, Effect, Match } from 'effect'
+import { Array as Arr, Data, Effect, Match, Schema } from 'effect'
 
-import { makeAnsiPalette, type AnsiPalette } from './Ansi'
+import { ansiPalette, type AnsiPalette } from './Ansi'
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from './ContextWindow'
 
 type Writer = (text: string) => Effect.Effect<void>
-
-type EncodedPart = {
-	readonly type: string
-	readonly text?: string
-	readonly name?: string
-	readonly params?: unknown
-	readonly result?: unknown
-	readonly isFailure?: boolean
-}
 
 /** Creation options for the colored headless output renderer. */
 export type RendererOptions = {
@@ -77,10 +78,11 @@ export type SessionHeader = {
 }
 
 /** Human-safe credential status printed in the session header. */
-export type CredentialSummary =
-	| { readonly _tag: 'found'; readonly detail: string }
-	| { readonly _tag: 'missing'; readonly detail: string }
-	| { readonly _tag: 'unknown'; readonly detail: string }
+export type CredentialSummary = Data.TaggedEnum<{
+	found: { readonly detail: string }
+	missing: { readonly detail: string }
+	unknown: { readonly detail: string }
+}>
 
 export const CredentialSummary = Data.taggedEnum<CredentialSummary>()
 
@@ -98,24 +100,39 @@ export type OutputRenderer = {
 const defaultStdout: Writer = (text) => Effect.sync(() => process.stdout.write(text))
 const defaultStderr: Writer = (text) => Effect.sync(() => process.stderr.write(text))
 
-const safeStringify = (value: unknown): string => {
-	try {
-		return JSON.stringify(value) ?? String(value)
-	} catch {
-		return String(value)
-	}
-}
+const DeltaPart = Schema.Union([
+	Schema.Struct({ type: Schema.Literal('text-delta'), id: Schema.String, delta: Schema.String }),
+	Schema.Struct({ type: Schema.Literal('reasoning-delta'), id: Schema.String, delta: Schema.String }),
+	Schema.Struct({ type: Schema.Literal('tool-progress'), toolName: Schema.String, payload: Schema.Json }),
+])
 
-const jsonLine = (value: unknown): string => `${JSON.stringify(value)}\n`
+const FoldEventJson = Schema.fromJsonString(
+	Schema.Union([
+		Schema.Struct({ kind: Schema.Literal('log'), entry: LogEntry }),
+		Schema.Struct({
+			kind: Schema.Literal('delta'),
+			agentId: AgentId,
+			parentAgentId: Schema.NullOr(AgentId),
+			toolCallId: Schema.NullOr(ToolCallId),
+			part: DeltaPart,
+		}),
+	]),
+)
+
+const encodeFoldEventJson = Schema.encodeEffect(FoldEventJson)
 
 /** Create a JSONL renderer for programmatic/headless consumers. */
-export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRenderer => {
+export const jsonOutputRenderer = (options?: JsonRendererOptions): OutputRenderer => {
 	const stdout = options?.stdout ?? defaultStdout
 	const stderr = options?.stderr ?? defaultStderr
 	const mode = options?.mode ?? 'json-concise'
 	const seenLogSeqs = new Set<number>()
 
-	const writeEvent = (event: FoldEvent): Effect.Effect<void> => stdout(jsonLine(event))
+	const writeEvent = (event: FoldEvent): Effect.Effect<void> =>
+		encodeFoldEventJson(event).pipe(
+			Effect.orDie,
+			Effect.flatMap((line) => stdout(`${line}\n`)),
+		)
 
 	return {
 		renderHeader: () => Effect.void,
@@ -140,10 +157,10 @@ export const makeJsonOutputRenderer = (options?: JsonRendererOptions): OutputRen
 }
 
 /** Keep one-shot human stdout extraction-safe while retaining normal human diagnostics on stderr. */
-export const makePromptOutputRenderer = (options?: RendererOptions): OutputRenderer => {
+export const promptOutputRenderer = (options?: RendererOptions): OutputRenderer => {
 	const stdout = options?.stdout ?? defaultStdout
 	const stderr = options?.stderr ?? defaultStderr
-	const human = makeOutputRenderer({ ...options, stdout: stderr, stderr })
+	const human = humanOutputRenderer({ ...options, stdout: stderr, stderr })
 	let framed = false
 
 	return {
@@ -167,23 +184,9 @@ export const makePromptOutputRenderer = (options?: RendererOptions): OutputRende
 const truncate = (text: string, max: number): string =>
 	text.length <= max ? text : `${text.slice(0, max)}... (${text.length - max} more chars)`
 
-const contentParts = (content: unknown): ReadonlyArray<EncodedPart> => {
-	if (typeof content === 'string') return [{ type: 'text', text: content }]
-	if (!Array.isArray(content)) return []
-
-	return content.filter(
-		(part): part is EncodedPart => typeof part === 'object' && part !== null && typeof part.type === 'string',
-	)
-}
-
-const textContent = (content: unknown): string =>
-	contentParts(content)
-		.flatMap((part) => (part.type === 'text' ? [part.text ?? ''] : []))
-		.join('')
-
 const label = (ansi: AnsiPalette, text: string): string => ansi.dim(`[${text}]`)
 
-const modelName = (entry: Extract<LogEntry, { readonly _tag: 'agent_started' | 'model-change' }>): string => {
+const modelName = (entry: AgentStartedLogEntry | ModelChangeLogEntry): string => {
 	const role = entry.model.role === null ? '' : ` role=${entry.model.role}`
 	return `${entry.model.providerId}/${entry.model.modelId}${role}`
 }
@@ -283,7 +286,7 @@ const resumeCommand = (
 	input: { readonly model: ActiveModel | null; readonly flags: ReadonlyArray<ResumeCommandFlag> },
 ): string => {
 	const flags = [`--resume ${shellQuote(sessionId)}`]
-	if (input.flags.length > 0) {
+	if (Arr.isReadonlyArrayNonEmpty(input.flags)) {
 		flags.push(...input.flags.map(formattedFlag))
 	} else if (input.model !== null) {
 		const model = input.model
@@ -307,10 +310,10 @@ const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome
 	)
 
 /** Create the CLI's colored renderer for durable log rows plus live deltas. */
-export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer => {
+export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer => {
 	const stdout = options?.stdout ?? defaultStdout
 	const stderr = options?.stderr ?? defaultStderr
-	const ansi = makeAnsiPalette(options?.colors ?? true)
+	const ansi = ansiPalette(options?.colors ?? true)
 	const verbose = options?.verbose ?? false
 	const catalog = options?.catalog ?? []
 	const agentsWithText = new Set<string>()
@@ -341,7 +344,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	/** The compact `agent_xxxx` display form used on subagent start/done lines (a valid /steer//send target). */
 	const displayAgentId = (agentId: AgentId): string => `agent_${shortIdSuffix(agentId)}`
 
-	const registerAgentLabel = (entry: Extract<LogEntry, { readonly _tag: 'agent_started' }>): void => {
+	const registerAgentLabel = (entry: AgentStartedLogEntry): void => {
 		if (entry.parentAgentId === null || agentLabels.has(entry.agentId)) return
 		const kind = entry.agentType ?? (entry.mode === 'fork' ? 'fork' : 'agent')
 		const color = tagPalette[agentLabels.size % tagPalette.length] ?? ansi.magenta
@@ -405,21 +408,19 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 			return writeStdout(`${leading}${body}${endsWithNewline ? '\n' : ''}`)
 		})
 
-	const renderToolCalls = (entry: Extract<LogEntry, { readonly _tag: 'assistant-message' }>) =>
+	const renderToolCalls = (entry: AssistantMessageLogEntry) =>
 		Effect.forEach(
-			contentParts(entry.message.content).filter((part) => part.type === 'tool-call'),
+			encodedContentParts(entry.message.content).filter(isPartOfType('tool-call')),
 			(part) =>
 				renderAgentLine(
 					entry.agentId,
-					`${label(ansi, 'tool')} ${ansi.cyan(part.name ?? 'tool')} ${truncate(safeStringify(part.params), verbose ? 2000 : 300)}`,
+					`${label(ansi, 'tool')} ${ansi.cyan(part.name)} ${truncate(toolCallParamsText(part), verbose ? 2000 : 300)}`,
 				),
 			{ discard: true },
 		)
 
-	const renderToolResult = (entry: Extract<LogEntry, { readonly _tag: 'tool-result' }>) => {
-		const failed = contentParts(entry.message.content).some(
-			(part) => part.type === 'tool-result' && part.isFailure === true,
-		)
+	const renderToolResult = (entry: ToolResultLogEntry) => {
+		const failed = entry.message.content.filter(isPartOfType('tool-result')).some((part) => part.isFailure)
 		const color = failed ? ansi.red : ansi.green
 		return renderAgentLine(entry.agentId, `${label(ansi, 'tool')} ${color('result')} ${ansi.dim(entry.toolCallId)}`)
 	}
@@ -447,7 +448,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 						)
 			},
 			'user-message': (message) => {
-				const text = textContent(message.message.content)
+				const text = encodedContentText(message.message.content)
 				return text.length === 0 ? Effect.void : renderAgentLine(message.agentId, `${ansi.cyan('>')} ${text}`)
 			},
 			'assistant-message': (message) => {
@@ -458,7 +459,7 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 					})
 				}
 
-				const text = textContent(message.message.content)
+				const text = encodedContentText(message.message.content)
 				const textEffect = streamedAssistantText.has(message.agentId)
 					? Effect.void
 					: renderAssistantText(message.agentId, text)
@@ -512,70 +513,73 @@ export const makeOutputRenderer = (options?: RendererOptions): OutputRenderer =>
 	const renderEvent = (event: FoldEvent): Effect.Effect<void> => {
 		if (event.kind === 'log') return renderLog(event.entry)
 
-		switch (event.part.type) {
-			case 'text-delta': {
-				const agentId = event.agentId
-				const delta = event.part.delta
-				return Effect.suspend(() => {
-					const tag = tagFor(agentId)
-					const transition = streamTransition(agentId, tag)
-					agentsWithText.add(agentId)
-					streamedAssistantText.add(agentId)
-					const prefix = assistantLabelOpen.has(agentId)
-						? Effect.void
-						: Effect.suspend(() =>
-								newlineIfOpen().pipe(
-									Effect.andThen(
-										writeStdout(`${tag === null ? '' : `${tag} `}${ansi.green('[assistant]')} `),
+		return Match.value(event.part).pipe(
+			Match.discriminatorsExhaustive('type')({
+				'text-delta': ({ delta }) => {
+					const agentId = event.agentId
+					return Effect.suspend(() => {
+						const tag = tagFor(agentId)
+						const transition = streamTransition(agentId, tag)
+						agentsWithText.add(agentId)
+						streamedAssistantText.add(agentId)
+						const prefix = assistantLabelOpen.has(agentId)
+							? Effect.void
+							: Effect.suspend(() =>
+									newlineIfOpen().pipe(
+										Effect.andThen(
+											writeStdout(
+												`${tag === null ? '' : `${tag} `}${ansi.green('[assistant]')} `,
+											),
+										),
 									),
-								),
-							)
-					assistantLabelOpen.add(agentId)
-					const body = tag === null ? writeStdout(delta) : writeTaggedDelta(tag, delta, (segment) => segment)
-					return transition.pipe(Effect.andThen(prefix), Effect.andThen(body))
-				})
-			}
+								)
+						assistantLabelOpen.add(agentId)
+						const body =
+							tag === null ? writeStdout(delta) : writeTaggedDelta(tag, delta, (segment) => segment)
+						return transition.pipe(Effect.andThen(prefix), Effect.andThen(body))
+					})
+				},
 
-			case 'reasoning-delta': {
-				const agentId = event.agentId
-				const delta = event.part.delta
-				return Effect.suspend(() => {
-					const tag = tagFor(agentId)
-					if (tag === null)
-						return streamTransition(agentId, null).pipe(Effect.andThen(writeStdout(ansi.dim(delta))))
-					return streamTransition(agentId, tag).pipe(Effect.andThen(writeTaggedDelta(tag, delta, ansi.dim)))
-				})
-			}
+				'reasoning-delta': ({ delta }) => {
+					const agentId = event.agentId
+					return Effect.suspend(() => {
+						const tag = tagFor(agentId)
+						if (tag === null)
+							return streamTransition(agentId, null).pipe(Effect.andThen(writeStdout(ansi.dim(delta))))
+						return streamTransition(agentId, tag).pipe(
+							Effect.andThen(writeTaggedDelta(tag, delta, ansi.dim)),
+						)
+					})
+				},
 
-			case 'tool-progress': {
-				const toolName = event.part.toolName
-				const payload = event.part.payload
-				const bash = decodeBashOutputDelta(payload)
-				if (bash !== null) {
-					if (verbose)
-						return Effect.suspend(() => {
-							const tag = tagFor(event.agentId)
-							const decorate = bash.stream === 'stderr' ? ansi.yellow : ansi.dim
-							return tag === null
-								? writeStdout(decorate(bash.text))
-								: writeTaggedDelta(tag, bash.text, decorate)
-						})
+				'tool-progress': ({ toolName, payload }) => {
+					const bash = decodeBashOutputDelta(payload)
+					if (bash !== null) {
+						if (verbose)
+							return Effect.suspend(() => {
+								const tag = tagFor(event.agentId)
+								const decorate = bash.stream === 'stderr' ? ansi.yellow : ansi.dim
+								return tag === null
+									? writeStdout(decorate(bash.text))
+									: writeTaggedDelta(tag, bash.text, decorate)
+							})
 
-					const noticeKey = `${event.toolCallId ?? 'unknown'}:${toolName}`
-					if (hiddenToolOutputNotices.has(noticeKey)) return Effect.void
-					hiddenToolOutputNotices.add(noticeKey)
+						const noticeKey = `${event.toolCallId ?? 'unknown'}:${toolName}`
+						if (hiddenToolOutputNotices.has(noticeKey)) return Effect.void
+						hiddenToolOutputNotices.add(noticeKey)
+						return renderAgentLine(
+							event.agentId,
+							`${label(ansi, 'tool')} ${ansi.cyan(toolName)} output hidden; pass --verbose to stream it`,
+						)
+					}
+
 					return renderAgentLine(
 						event.agentId,
-						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} output hidden; pass --verbose to stream it`,
+						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(jsonText(payload), verbose ? 2000 : 300)}`,
 					)
-				}
-
-				return renderAgentLine(
-					event.agentId,
-					`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(safeStringify(payload), verbose ? 2000 : 300)}`,
-				)
-			}
-		}
+				},
+			}),
+		)
 	}
 
 	const renderFinish = (entry: AgentFinishedLogEntry): Effect.Effect<void> => {

@@ -3,12 +3,12 @@ import { AgentId, EventId, MessageId, SessionId, ToolCallId } from '@humanlayer/
 import type { ActiveModel, ModelCatalogEntry, UsageEncoded } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
 
-import { makeJsonOutputRenderer, makeOutputRenderer, responseCostUsd } from '../src/index'
+import { jsonOutputRenderer, humanOutputRenderer, responseCostUsd } from '../src/index'
 
 it.effect('renders the session id in the header and finish line', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
-		const renderer = makeOutputRenderer({
+		const renderer = humanOutputRenderer({
 			colors: false,
 			stdout: (text) =>
 				Effect.sync(() => {
@@ -90,7 +90,7 @@ it.effect('renders the session id in the header and finish line', () =>
 it.effect('json renderer emits only log rows in concise mode and finish is not duplicated', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
-		const renderer = makeJsonOutputRenderer({
+		const renderer = jsonOutputRenderer({
 			mode: 'json-concise',
 			stdout: (text) =>
 				Effect.sync(() => {
@@ -133,7 +133,7 @@ it.effect('json renderer emits only log rows in concise mode and finish is not d
 it.effect('json renderer includes deltas in verbose mode', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
-		const renderer = makeJsonOutputRenderer({
+		const renderer = jsonOutputRenderer({
 			mode: 'json-verbose',
 			stdout: (text) =>
 				Effect.sync(() => {
@@ -160,7 +160,7 @@ it.effect('json renderer includes deltas in verbose mode', () =>
 it.effect('renders profile-based resume command when the session used --profile', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
-		const renderer = makeOutputRenderer({
+		const renderer = humanOutputRenderer({
 			colors: false,
 			stdout: (text) =>
 				Effect.sync(() => {
@@ -241,7 +241,7 @@ const gptTestCatalog: ReadonlyArray<ModelCatalogEntry> = [
 it.effect('with a catalog entry the usage table shows a real cost and the catalog context window', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
-		const renderer = makeOutputRenderer({
+		const renderer = humanOutputRenderer({
 			colors: false,
 			catalog: gptTestCatalog,
 			stdout: (text) =>
@@ -315,7 +315,7 @@ it.effect('with a catalog entry the usage table shows a real cost and the catalo
 it.effect('tags every subagent line with its bracket label and keeps interleaved streams attributed', () =>
 	Effect.gen(function* () {
 		const chunks: Array<string> = []
-		const renderer = makeOutputRenderer({
+		const renderer = humanOutputRenderer({
 			colors: false,
 			stdout: (text) =>
 				Effect.sync(() => {

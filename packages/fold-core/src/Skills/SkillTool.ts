@@ -5,13 +5,13 @@
  * New skills become discoverable through the tool's `refresh` flag, which diffs the live list against
  * the session-start snapshot and reports changes inside the tool result (cache-neutral).
  */
-import { Effect } from 'effect'
+import { Array as Arr, Effect, Option } from 'effect'
 
 import { defineTool, type SessionToolContribution, type FoldTool } from '../Api/ToolDefinition'
 import { skillToolContract } from '../Tools/Contracts'
 import { ToolResultFailure, ToolResultText } from '../Tools/ToolResultContent'
 import type { SkillMeta } from './Schemas'
-import { skillSourceFor, type SkillSourceService, type FoldSkills } from './SkillSource'
+import type { SkillSourceService, FoldSkills } from './SkillSource'
 
 /** Escape text destined for the XML-ish skills listing (pi parity). */
 const escapeXml = (text: string): string =>
@@ -36,7 +36,7 @@ const renderSkillList = (skills: ReadonlyArray<SkillMeta>): string =>
  * roster is empty so no block is written.
  */
 export const renderSkillsBlock = (skills: ReadonlyArray<SkillMeta>): string | null => {
-	if (skills.length === 0) return null
+	if (Arr.isReadonlyArrayEmpty(skills)) return null
 
 	return (
 		'The following skills provide specialized instructions and workflows for specific tasks.\n' +
@@ -76,10 +76,10 @@ export type MakeSkillToolInput = {
  * loses its baseline - D20). Listing the same value on several agents shares that one scan; a fresh
  * `skillTool(...)` call gives an agent its own independent setup.
  */
-export const skillTool = (source: FoldSkills): FoldTool => ({
+export const skillTool = <R>(source: FoldSkills<R>): FoldTool<R> => ({
 	name: skillToolContract.name,
 	init: Effect.gen(function* () {
-		const resolved = yield* skillSourceFor(source)
+		const resolved = yield* source.make
 		const snapshot = yield* resolved.list.pipe(Effect.orDie)
 		const realized = yield* makeSkillTool({ source: resolved, snapshot }).init
 
@@ -103,10 +103,9 @@ type SkillToolFailure = ToolResultFailure
  */
 export const makeSkillTool = (input: MakeSkillToolInput): FoldTool => {
 	const snapshotNames = input.snapshot.map((meta) => meta.name)
-	const rosterSuffix =
-		snapshotNames.length === 0
-			? ' No skills were available when this session started; call with refresh: true to re-scan.'
-			: ` Available skills: ${snapshotNames.join(', ')}.`
+	const rosterSuffix = Arr.isArrayEmpty(snapshotNames)
+		? ' No skills were available when this session started; call with refresh: true to re-scan.'
+		: ` Available skills: ${snapshotNames.join(', ')}.`
 
 	return defineTool({
 		...skillToolContract,
@@ -121,7 +120,9 @@ export const makeSkillTool = (input: MakeSkillToolInput): FoldTool => {
 							Effect.fail<SkillToolFailure>(
 								ToolResultFailure.make({
 									text: `Skill "${params.name}" not found. Available skills: ${
-										error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')
+										Arr.isReadonlyArrayEmpty(error.availableSkills)
+											? '(none)'
+											: error.availableSkills.join(', ')
 									}`,
 									details: { availableSkills: error.availableSkills },
 								}),
@@ -159,16 +160,20 @@ const refreshedRoster = (input: MakeSkillToolInput) =>
 		const added = current.filter((meta) => !snapshotNames.has(meta.name))
 		const removed = input.snapshot.filter((meta) => !currentNames.has(meta.name))
 
-		if (added.length === 0 && removed.length === 0) {
+		if (Arr.isArrayEmpty(added) && Arr.isArrayEmpty(removed)) {
 			return '<system-information>The skill list has not changed since this session started.</system-information>'
 		}
 
 		const addedLines = added.map((meta) => `- ${meta.name}: ${meta.description}`)
 		const removedLines = removed.map((meta) => `- ${meta.name}`)
-		const sections = [
-			...(addedLines.length === 0 ? [] : [`Skills added since session start:\n${addedLines.join('\n')}`]),
-			...(removedLines.length === 0 ? [] : [`Skills removed since session start:\n${removedLines.join('\n')}`]),
-		]
+		const section = (heading: string, lines: ReadonlyArray<string>) =>
+			Option.liftPredicate(lines, Arr.isReadonlyArrayNonEmpty).pipe(
+				Option.map((present) => `${heading}:\n${present.join('\n')}`),
+			)
+		const sections = Arr.getSomes([
+			section('Skills added since session start', addedLines),
+			section('Skills removed since session start', removedLines),
+		])
 
 		return `<system-information>\n${sections.join('\n\n')}\n</system-information>`
 	})

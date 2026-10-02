@@ -10,12 +10,12 @@ import {
 import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Match, Context, Effect, Layer, Option, Schema } from 'effect'
-import type { Scope } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
+import type { FileSystem, Scope } from 'effect'
+import { LanguageModel } from 'effect/unstable/ai'
+import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 
-import type { OpenCodeAuthStore } from './AuthStore'
-import { makeOpenCodeAuth, OPENCODE_CONSOLE_URL, withOpenCodeAuth } from './OpenCodeAuth'
+import { layerOpenCodeAuthStore, type OpenCodeAuthStoreOptions } from './AuthStore'
+import { layerOpenCodeAuth, OPENCODE_CONSOLE_URL, OpenCodeAuth, openCodeAuthenticatedClient } from './OpenCodeAuth'
 
 /** Public OpenCode Zen gateway used when Console does not return an override. */
 export const OPENCODE_ZEN_API_URL = 'https://opencode.ai/zen/v1'
@@ -89,8 +89,21 @@ export type OpenCodeModelOptions = {
 	/** Explicit inference base URL. This takes precedence over Console's remote config. */
 	readonly apiUrl?: string
 	readonly consoleUrl?: string
-	readonly store?: OpenCodeAuthStore
+	/** The auth document holding this provider's credential, under the `providerId` entry. Defaults to `~/.fold/auth.json`. */
+	readonly authStorePath?: string
 }
+
+/** The credential store for this model: its provider's entry in its auth document. */
+const authStoreOptionsFor = (options: OpenCodeModelOptions): OpenCodeAuthStoreOptions =>
+	options.authStorePath === undefined
+		? { providerId: options.providerId ?? 'opencode' }
+		: { providerId: options.providerId ?? 'opencode', path: options.authStorePath }
+
+/** This model's OpenCodeAuth over its provider's credential store, on the host's HttpClient and FileSystem. */
+const authLayerFor = (options: OpenCodeModelOptions) =>
+	layerOpenCodeAuth(options.consoleUrl === undefined ? {} : { server: options.consoleUrl }).pipe(
+		Layer.provide(layerOpenCodeAuthStore(authStoreOptionsFor(options))),
+	)
 
 const fetchRemoteProviders = (authenticated: HttpClient.HttpClient, server: string) =>
 	authenticated.execute(HttpClientRequest.get(`${server}/api/config`).pipe(HttpClientRequest.acceptJson)).pipe(
@@ -112,55 +125,62 @@ const fetchRemoteProviders = (authenticated: HttpClient.HttpClient, server: stri
 /** Construct the Effect LanguageModel backed by stored OpenCode OAuth credentials. */
 export const makeOpenCodeLanguageModel = (
 	options: OpenCodeModelOptions = {},
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope> =>
-	Effect.gen(function* () {
-		const httpContext = yield* Layer.build(FetchHttpClient.layer)
-		const http = Context.get(httpContext, HttpClient.HttpClient)
-		const authOptions: { store?: OpenCodeAuthStore; server?: string } = {}
-		if (options.store !== undefined) authOptions.store = options.store
-		if (options.consoleUrl !== undefined) authOptions.server = options.consoleUrl
-		const auth = yield* makeOpenCodeAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, http))
-		const authenticated = withOpenCodeAuth(http, auth)
-		const requestedModel = options.model ?? DEFAULT_OPENCODE_MODEL_ID
-		const credential = yield* Effect.option(auth.get)
-		const credentialServer = Option.isSome(credential) ? credential.value.metadata?.server : undefined
-		const providers = yield* fetchRemoteProviders(
-			authenticated,
-			options.consoleUrl ?? credentialServer ?? OPENCODE_CONSOLE_URL,
-		)
-		const resolved = resolveOpenCodeModelConfig(providers, requestedModel, options.apiUrl)
-		const reasoning = resolveOpenAiReasoning(options.reasoning ?? 'off')
-		const config = Match.valueTags(reasoning, {
-			disabled: () => ({}),
-			effort: ({ effort }) => ({ reasoning: { effort } }),
-		})
+): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+	Layer.build(
+		Layer.effect(
+			LanguageModel.LanguageModel,
+			Effect.gen(function* () {
+				const auth = yield* OpenCodeAuth
+				const authenticated = yield* openCodeAuthenticatedClient(yield* HttpClient.HttpClient)
+				const requestedModel = options.model ?? DEFAULT_OPENCODE_MODEL_ID
+				const credential = yield* Effect.option(auth.get)
+				const credentialServer = Option.isSome(credential) ? credential.value.metadata?.server : undefined
+				const providers = yield* fetchRemoteProviders(
+					authenticated,
+					options.consoleUrl ?? credentialServer ?? OPENCODE_CONSOLE_URL,
+				)
+				const resolved = resolveOpenCodeModelConfig(providers, requestedModel, options.apiUrl)
+				const reasoning = resolveOpenAiReasoning(options.reasoning ?? 'off')
+				const config = Match.valueTags(reasoning, {
+					disabled: () => ({}),
+					effort: ({ effort }) => ({ reasoning: { effort } }),
+				})
 
-		if (resolved.protocol === 'chat-completions') {
-			const clientContext = yield* Layer.build(ChatClient.layer({ apiUrl: resolved.apiUrl })).pipe(
-				Effect.provideService(HttpClient.HttpClient, authenticated),
-			)
-			return yield* ChatLanguageModel.make({
-				model: resolved.model,
-				config,
-			}).pipe(Effect.provideService(ChatClient.OpenAiClient, Context.get(clientContext, ChatClient.OpenAiClient)))
-		}
+				if (resolved.protocol === 'chat-completions') {
+					const clientContext = yield* Layer.build(ChatClient.layer({ apiUrl: resolved.apiUrl })).pipe(
+						Effect.provideService(HttpClient.HttpClient, authenticated),
+					)
+					return yield* ChatLanguageModel.make({
+						model: resolved.model,
+						config,
+					}).pipe(
+						Effect.provideService(
+							ChatClient.OpenAiClient,
+							Context.get(clientContext, ChatClient.OpenAiClient),
+						),
+					)
+				}
 
-		const clientContext = yield* Layer.build(ResponsesClient.layer({ apiUrl: resolved.apiUrl })).pipe(
-			Effect.provideService(HttpClient.HttpClient, authenticated),
-		)
-		return yield* ResponsesLanguageModel.make({
-			model: resolved.model,
-			config,
-		}).pipe(
-			Effect.provideService(
-				ResponsesClient.OpenAiClient,
-				Context.get(clientContext, ResponsesClient.OpenAiClient),
-			),
-		)
-	})
+				const clientContext = yield* Layer.build(ResponsesClient.layer({ apiUrl: resolved.apiUrl })).pipe(
+					Effect.provideService(HttpClient.HttpClient, authenticated),
+				)
+				return yield* ResponsesLanguageModel.make({
+					model: resolved.model,
+					config,
+				}).pipe(
+					Effect.provideService(
+						ResponsesClient.OpenAiClient,
+						Context.get(clientContext, ResponsesClient.OpenAiClient),
+					),
+				)
+			}),
+		).pipe(Layer.provide(authLayerFor(options))),
+	).pipe(Effect.map((context) => Context.get(context, LanguageModel.LanguageModel)))
 
 /** Create a Fold model descriptor directly usable by fold-agent's public session APIs. */
-export const openCodeModel = (options: OpenCodeModelOptions = {}): FoldModel => {
+export const openCodeModel = (
+	options: OpenCodeModelOptions = {},
+): FoldModel<HttpClient.HttpClient | FileSystem.FileSystem> => {
 	const reasoning = options.reasoning ?? 'off'
 	return customModel({
 		activeModel: {
@@ -176,5 +196,6 @@ export const openCodeModel = (options: OpenCodeModelOptions = {}): FoldModel => 
 }
 
 /** Convenience descriptor for OpenCode Zen's OpenAI-compatible Grok Build model. */
-export const grokBuildModel = (options: Omit<OpenCodeModelOptions, 'model'> = {}): FoldModel =>
-	openCodeModel({ ...options, model: GROK_BUILD_MODEL_ID })
+export const grokBuildModel = (
+	options: Omit<OpenCodeModelOptions, 'model'> = {},
+): FoldModel<HttpClient.HttpClient | FileSystem.FileSystem> => openCodeModel({ ...options, model: GROK_BUILD_MODEL_ID })

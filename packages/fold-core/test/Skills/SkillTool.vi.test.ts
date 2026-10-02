@@ -1,4 +1,4 @@
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
+import * as NodeServices from '@effect/platform-node/NodeServices'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Layer, Ref, Schema } from 'effect'
 
@@ -10,14 +10,15 @@ import {
 	makeSkillTool,
 	skillSourceFromData,
 	StopController,
-	Subagents,
 	ToolCallId,
 	ToolEvents,
+	ToolResultFailure,
+	ToolResultSuccess,
 	ToolResultText,
 	ToolState,
+	type SessionToolContribution,
 	type SkillMeta,
 	type SkillSourceService,
-	type ToolHandlerServices,
 } from '../../src/index'
 
 /** Ambient per-call services the runtime normally provides; the skill tool uses none of them. */
@@ -28,13 +29,7 @@ const ambientServices = Layer.mergeAll(
 	Layer.succeed(CurrentAgent, { agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'), parentAgentId: null }),
 	Layer.succeed(CurrentToolCall, { toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa') }),
 	Layer.succeed(InterruptNote, { set: () => Effect.void }),
-	Layer.succeed(Subagents, {
-		dispatch: () => Effect.die(new Error('Subagents not available in this test')),
-		fork: () => Effect.die(new Error('Subagents not available in this test')),
-		resume: () => Effect.die(new Error('Subagents not available in this test')),
-		continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
-	}),
-	NodeFileSystem.layer,
+	NodeServices.layer,
 )
 
 const skillContentOf = (result: unknown): string => {
@@ -42,8 +37,16 @@ const skillContentOf = (result: unknown): string => {
 	throw new Error('expected a skill tool result with string content')
 }
 
-const runHandler = <A, E>(effect: Effect.Effect<A, E, ToolHandlerServices>) =>
-	effect.pipe(Effect.provide(ambientServices))
+/** Run a realized handler, decoding its erased success and failure back to the tool result schemas. */
+const runHandler = (handler: SessionToolContribution['handler'], params: unknown) =>
+	// oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- the erased handler is decoded here
+	handler(params).pipe(
+		Effect.catch((error) =>
+			Schema.decodeUnknownEffect(ToolResultFailure)(error).pipe(Effect.orDie, Effect.flatMap(Effect.fail)),
+		),
+		Effect.flatMap((result) => Schema.decodeUnknownEffect(ToolResultSuccess)(result).pipe(Effect.orDie)),
+		Effect.provide(ambientServices),
+	)
 
 const demoSkills = [
 	{ name: 'commit-helper', description: 'Craft commit messages', content: 'Write conventional commits.' },
@@ -60,7 +63,7 @@ describe('makeSkillTool', () => {
 
 			expect(tool.name).toBe('skill')
 			expect(realized.tool.description).toContain('Available skills: commit-helper, reviewer.')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+		}).pipe(Effect.provide(NodeServices.layer)),
 	)
 
 	it.effect('loads a skill and wraps its content', () =>
@@ -69,13 +72,13 @@ describe('makeSkillTool', () => {
 			const snapshot = yield* source.list
 			const realized = yield* makeSkillTool({ source, snapshot }).init
 
-			const result = yield* runHandler(realized.handler({ name: 'commit-helper' }))
+			const result = yield* runHandler(realized.handler, { name: 'commit-helper' })
 
 			expect(result).toEqual({
 				_tag: 'text',
 				text: '<skill name="commit-helper">\nWrite conventional commits.\n</skill>',
 			})
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+		}).pipe(Effect.provide(NodeServices.layer)),
 	)
 
 	it.effect('returns an instructive failure with the roster for unknown skills', () =>
@@ -84,14 +87,14 @@ describe('makeSkillTool', () => {
 			const snapshot = yield* source.list
 			const realized = yield* makeSkillTool({ source, snapshot }).init
 
-			const result = yield* runHandler(realized.handler({ name: 'missing' })).pipe(Effect.flip)
+			const result = yield* runHandler(realized.handler, { name: 'missing' }).pipe(Effect.flip)
 
 			expect(result).toEqual({
 				_tag: 'failure',
 				text: 'Skill "missing" not found. Available skills: commit-helper, reviewer',
 				details: { availableSkills: ['commit-helper', 'reviewer'] },
 			})
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+		}).pipe(Effect.provide(NodeServices.layer)),
 	)
 
 	it.effect('refresh reports skills added after the session-start snapshot', () =>
@@ -115,13 +118,13 @@ describe('makeSkillTool', () => {
 				{ name: 'late-arrival', description: 'Added mid-session' },
 			])
 
-			const result = yield* runHandler(realized.handler({ name: 'commit-helper', refresh: true }))
+			const result = yield* runHandler(realized.handler, { name: 'commit-helper', refresh: true })
 			const content = skillContentOf(result)
 
 			expect(content).toContain('<skill name="commit-helper">')
 			expect(content).toContain('<system-information>')
 			expect(content).toContain('Skills added since session start:\n- late-arrival: Added mid-session')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+		}).pipe(Effect.provide(NodeServices.layer)),
 	)
 
 	it.effect('refresh reports an unchanged roster', () =>
@@ -130,11 +133,11 @@ describe('makeSkillTool', () => {
 			const snapshot = yield* source.list
 			const realized = yield* makeSkillTool({ source, snapshot }).init
 
-			const result = yield* runHandler(realized.handler({ name: 'reviewer', refresh: true }))
+			const result = yield* runHandler(realized.handler, { name: 'reviewer', refresh: true })
 			const content = skillContentOf(result)
 
 			expect(content).toContain('The skill list has not changed since this session started.')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+		}).pipe(Effect.provide(NodeServices.layer)),
 	)
 
 	it.effect('an empty snapshot steers the model toward refresh', () =>
@@ -143,6 +146,6 @@ describe('makeSkillTool', () => {
 			const realized = yield* makeSkillTool({ source, snapshot: [] }).init
 
 			expect(realized.tool.description).toContain('No skills were available when this session started')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+		}).pipe(Effect.provide(NodeServices.layer)),
 	)
 })

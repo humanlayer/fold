@@ -9,6 +9,7 @@
  */
 import { Effect } from 'effect'
 
+import { systemPromptBlocks } from '../Api/AgentDefinition'
 import type { FoldTool } from '../Api/ToolDefinition'
 import type { HookConfig } from '../HookRunner/Types'
 import type { ForkAgentDefinition, ForkAgentDefinitionId } from './ForkAgentDefinition'
@@ -16,24 +17,26 @@ import type { SubagentDefinition, SubagentModelBinding } from './SubagentDefinit
 import { subagentCapabilitiesOf } from './SubagentTool'
 
 /** Agent definitions reachable from a configured root toolset. */
-export type CollectedAgentDefinitions = {
-	readonly subagents: ReadonlyArray<SubagentDefinition>
-	readonly forkAgents: ReadonlyArray<ForkAgentDefinition>
+export type CollectedAgentDefinitions<R = never> = {
+	readonly subagents: ReadonlyArray<SubagentDefinition<R>>
+	readonly forkAgents: ReadonlyArray<ForkAgentDefinition<R>>
 }
 
 /** One registered subagent type, resolved for runtime use. */
 export type RegisteredAgentType = {
 	readonly name: string
 	readonly description: string
-	readonly systemPrompt: string | ReadonlyArray<string> | null
+	/** Own leading prompt blocks, normalized from the definition (empty when it has none). */
+	readonly systemPrompt: ReadonlyArray<string>
 	/**
 	 * The type's tools exactly as configured - its skillTool/subagentTool values included. The
-	 * Subagents service realizes session-initialized values from their session-start contributions
-	 * when it provisions this type's runtime; the roster and skill source are derivable from here.
+	 * subagent operations realize session-initialized values from their session-start contributions
+	 * when they provision this type's runtime; the roster and skill source are derivable from here.
+	 * Every one has already been initialized, so their host services no longer matter here.
 	 */
-	readonly tools: ReadonlyArray<FoldTool>
-	/** Concrete model or profile role name; the Subagents engine resolves roles per dispatch/resume. */
-	readonly model: SubagentModelBinding
+	readonly tools: ReadonlyArray<FoldTool<unknown>>
+	/** Concrete model or profile role name; the subagent operations resolve roles per dispatch/resume. */
+	readonly model: SubagentModelBinding<unknown>
 	readonly hooks: HookConfig
 }
 
@@ -44,13 +47,13 @@ export type AgentRegistry = {
 	/** Every registered type, in first-reached order from the root's tools. */
 	readonly entries: ReadonlyArray<RegisteredAgentType>
 	/** Resolve one host-configured fork toolset by its durable identifier. */
-	readonly resolveForkAgentDefinition: (id: ForkAgentDefinitionId) => ForkAgentDefinition | null
+	readonly resolveForkAgentDefinition: (id: ForkAgentDefinitionId) => ForkAgentDefinition<unknown> | null
 	/**
 	 * Add definitions discovered at an explicit session switch boundary. Existing names remain bound
 	 * to their original session definition; duplicate names within the incoming graph have already
 	 * been rejected by {@link collectAgentDefinitions}. Returns the specialist definitions actually added.
 	 */
-	readonly extend: (definitions: CollectedAgentDefinitions) => ReadonlyArray<RegisteredAgentType>
+	readonly extend: (definitions: CollectedAgentDefinitions<unknown>) => ReadonlyArray<RegisteredAgentType>
 }
 
 /**
@@ -60,16 +63,18 @@ export type AgentRegistry = {
  * two distinct definitions is a configuration bug and dies. The seen-set makes traversal total even
  * if a definition graph is ever made circular through post-construction mutation.
  */
-export const collectAgentDefinitions = (rootTools: ReadonlyArray<FoldTool>): Effect.Effect<CollectedAgentDefinitions> =>
+export const collectAgentDefinitions = <R>(
+	rootTools: ReadonlyArray<FoldTool<R>>,
+): Effect.Effect<CollectedAgentDefinitions<R>> =>
 	Effect.suspend(() => {
-		const seenSubagents = new Set<SubagentDefinition>()
-		const subagentsByName = new Map<string, SubagentDefinition>()
-		const subagents: Array<SubagentDefinition> = []
-		const seenForkAgents = new Set<ForkAgentDefinition>()
-		const forkAgentsById = new Map<ForkAgentDefinitionId, ForkAgentDefinition>()
-		const forkAgents: Array<ForkAgentDefinition> = []
+		const seenSubagents = new Set<SubagentDefinition<R>>()
+		const subagentsByName = new Map<string, SubagentDefinition<R>>()
+		const subagents: Array<SubagentDefinition<R>> = []
+		const seenForkAgents = new Set<ForkAgentDefinition<R>>()
+		const forkAgentsById = new Map<ForkAgentDefinitionId, ForkAgentDefinition<R>>()
+		const forkAgents: Array<ForkAgentDefinition<R>> = []
 
-		const visitDefinition = (definition: SubagentDefinition): Effect.Effect<void> => {
+		const visitDefinition = (definition: SubagentDefinition<R>): Effect.Effect<void> => {
 			if (seenSubagents.has(definition)) return Effect.void
 			seenSubagents.add(definition)
 
@@ -90,7 +95,7 @@ export const collectAgentDefinitions = (rootTools: ReadonlyArray<FoldTool>): Eff
 			return visitTools(definition.tools ?? [])
 		}
 
-		const visitForkAgent = (definition: ForkAgentDefinition): Effect.Effect<void> => {
+		const visitForkAgent = (definition: ForkAgentDefinition<R>): Effect.Effect<void> => {
 			if (seenForkAgents.has(definition)) return Effect.void
 			seenForkAgents.add(definition)
 
@@ -108,7 +113,7 @@ export const collectAgentDefinitions = (rootTools: ReadonlyArray<FoldTool>): Eff
 			return visitTools(definition.tools)
 		}
 
-		const visitTools = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
+		const visitTools = (tools: ReadonlyArray<FoldTool<R>>): Effect.Effect<void> =>
 			Effect.forEach(
 				tools,
 				(tool) => {
@@ -126,17 +131,17 @@ export const collectAgentDefinitions = (rootTools: ReadonlyArray<FoldTool>): Eff
 	})
 
 /** Compatibility helper returning only registered specialist definitions. */
-export const collectSubagentDefinitions = (
-	rootTools: ReadonlyArray<FoldTool>,
-): Effect.Effect<ReadonlyArray<SubagentDefinition>> =>
+export const collectSubagentDefinitions = <R>(
+	rootTools: ReadonlyArray<FoldTool<R>>,
+): Effect.Effect<ReadonlyArray<SubagentDefinition<R>>> =>
 	collectAgentDefinitions(rootTools).pipe(Effect.map((definitions) => definitions.subagents))
 
 /** Build the flat registry over pre-collected (validated, deduped) definitions. */
-export const agentRegistryFromDefinitions = (definitions: CollectedAgentDefinitions): AgentRegistry => {
-	const registeredFrom = (definition: SubagentDefinition): RegisteredAgentType => ({
+export const agentRegistryFromDefinitions = (definitions: CollectedAgentDefinitions<unknown>): AgentRegistry => {
+	const registeredFrom = (definition: SubagentDefinition<unknown>): RegisteredAgentType => ({
 		name: definition.name,
 		description: definition.description,
-		systemPrompt: definition.systemPrompt ?? null,
+		systemPrompt: systemPromptBlocks(definition.systemPrompt),
 		tools: definition.tools ?? [],
 		model: definition.model,
 		hooks: definition.hooks ?? {},

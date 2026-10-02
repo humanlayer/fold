@@ -2,12 +2,16 @@
  * Deterministic end-to-end regression for the image-read path up to the Codex HTTP boundary. It executes
  * the real read tool and session prompt builder, then asserts the intended request emitted with no active tools.
  */
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
-import { Effect, Encoding, Option, Schema } from 'effect'
+import { CodexAuthStore, CodexTokenData, layerCodexAuthStore, makeCodexLanguageModel } from '@humanlayer/fold-codex'
+import { Effect, Encoding, Layer, Schema } from 'effect'
 import { FetchHttpClient } from 'effect/unstable/http'
 
-import { CodexTokenData, makeCodexLanguageModel } from '../src/index'
-import type { CodexAuthStore } from '../src/index'
 import { type CapturedFetchRequest, makeCapturingFetch, runImageReadInference } from './SessionModelPathTestHarness'
 
 const terminalSse = `data: ${JSON.stringify({
@@ -23,13 +27,6 @@ const token = new CodexTokenData({
 	expires: Number.MAX_SAFE_INTEGER,
 	accountId: 'acct_capture',
 })
-
-const memoryAuthStore: CodexAuthStore = {
-	path: 'memory://codex-image-read-capture',
-	load: Effect.succeed(Option.some(token)),
-	save: (updated) => Effect.succeed(updated),
-	clear: Effect.void,
-}
 
 const CapturedResponsesRequest = Schema.Struct({
 	model: Schema.String,
@@ -49,11 +46,16 @@ it.effect('sends an actual image read as input_image with zero inference tools',
 	)
 
 	return Effect.gen(function* () {
+		const authStorePath = join(mkdtempSync(join(tmpdir(), 'fold-codex-image-read-')), 'auth.json')
+		yield* Effect.gen(function* () {
+			const store = yield* CodexAuthStore
+			yield* store.save(token)
+		}).pipe(Effect.provide(layerCodexAuthStore({ path: authStorePath })))
 		const model = yield* makeCodexLanguageModel({
 			model: 'gpt-5.5',
 			reasoning: 'off',
 			apiUrl: 'https://codex.capture.test/backend-api/codex',
-			store: memoryAuthStore,
+			authStorePath,
 			requestRetryTimes: 0,
 		})
 		const fixture = yield* runImageReadInference(model)
@@ -101,5 +103,8 @@ it.effect('sends an actual image read as input_image with zero inference tools',
 		expect(captured.body).not.toContain('Image omitted here')
 		expect(captured.body).not.toContain('The following image content belongs')
 		expect(captured.body).toContain(fixture.sourceImageBase64)
-	}).pipe(Effect.provideService(FetchHttpClient.Fetch, capturingFetch))
+	}).pipe(
+		Effect.provide(Layer.merge(FetchHttpClient.layer, NodeFileSystem.layer)),
+		Effect.provideService(FetchHttpClient.Fetch, capturingFetch),
+	)
 })

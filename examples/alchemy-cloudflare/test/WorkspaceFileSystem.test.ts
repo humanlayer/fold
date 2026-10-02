@@ -4,9 +4,9 @@
  */
 import { it } from '@effect/vitest'
 import { makeDiskSkillSource } from '@humanlayer/fold-agent/skills'
-import { fileTools } from '@humanlayer/fold-agent/tools/files'
+import { fileTools, Photon } from '@humanlayer/fold-agent/tools/files'
 import type { FoldTool } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Path, type PlatformError } from 'effect'
+import { Effect, FileSystem, Layer, Path, type PlatformError } from 'effect'
 import { expect } from 'vitest'
 
 import type { FileInfo, ComputerResult } from '../src/computer/Contract'
@@ -71,8 +71,16 @@ const fakeComputer = (): ComputerFiles => {
 }
 
 /** Call one of fold's tools with the workspace as its FileSystem. */
-const call = (fs: FileSystem.FileSystem, tools: ReadonlyArray<FoldTool>, name: string, params: unknown) =>
-	callTool(tools, name, params).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provide(Path.layer))
+const call = (
+	fs: FileSystem.FileSystem,
+	tools: ReadonlyArray<FoldTool<FileSystem.FileSystem | Path.Path | Photon>>,
+	name: string,
+	params: unknown,
+) =>
+	callTool(tools, name, params).pipe(
+		Effect.provideService(FileSystem.FileSystem, fs),
+		Effect.provide(Layer.mergeAll(Path.layer, Photon.layer)),
+	)
 
 const reasonTag = (error: PlatformError.PlatformError) => error.reason._tag
 

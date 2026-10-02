@@ -1,4 +1,4 @@
-import { Effect, Schema } from 'effect'
+import { Effect, Match, Schema } from 'effect'
 
 import { EventLogCorruptEntryError, EventLogUnsupportedVersionError } from './Errors'
 import {
@@ -11,20 +11,8 @@ import {
 
 const PersistedRecord = Schema.Record(Schema.String, Schema.Unknown)
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
-const corruptEntry = (message: string, cause: unknown, seq?: number) => {
-	const input: Mutable<ConstructorParameters<typeof EventLogCorruptEntryError>[0]> = {
-		operation: 'entries',
-		message,
-		cause,
-	}
-	if (seq !== undefined) {
-		input.seq = seq
-	}
-
-	return new EventLogCorruptEntryError(input)
-}
+const corruptEntry = (message: string, cause: unknown, seq?: number) =>
+	new EventLogCorruptEntryError({ operation: 'entries', message, cause, seq })
 
 /**
  * Decode one persisted Fold event by its wire-format version.
@@ -39,7 +27,7 @@ const corruptEntry = (message: string, cause: unknown, seq?: number) => {
  * so an older runtime never guesses how to replay newer state.
  */
 export const decodeStoredLogEntry = Effect.fn('fold.event_log.decode_stored_entry')(
-	(input: unknown) =>
+	(input: Schema.Json) =>
 		Effect.gen(function* () {
 			const record = yield* Schema.decodeUnknownEffect(PersistedRecord)(input).pipe(
 				Effect.mapError((cause) => corruptEntry('Persisted EventLog entry is not an object', cause)),
@@ -49,24 +37,28 @@ export const decodeStoredLogEntry = Effect.fn('fold.event_log.decode_stored_entr
 			)
 			const version = envelope.version ?? CURRENT_LOG_ENTRY_VERSION
 
-			switch (version) {
-				case 1:
-					return yield* Schema.decodeUnknownEffect(LogEntryV1)({
+			return yield* Match.value(version).pipe(
+				Match.when(1, () =>
+					Schema.decodeUnknownEffect(LogEntryV1)({
 						...record,
 						version: CURRENT_LOG_ENTRY_VERSION,
 					}).pipe(
 						Effect.mapError((cause) =>
 							corruptEntry('Persisted EventLog v1 entry has an invalid payload', cause, envelope.seq),
 						),
-					)
-				default:
-					return yield* new EventLogUnsupportedVersionError({
-						operation: 'entries',
-						message: `Fold event format v${version} is not supported by this runtime`,
-						version,
-						seq: envelope.seq,
-						supportedVersions: [...SUPPORTED_LOG_ENTRY_VERSIONS],
-					})
-			}
+					),
+				),
+				Match.orElse(() =>
+					Effect.fail(
+						new EventLogUnsupportedVersionError({
+							operation: 'entries',
+							message: `Fold event format v${version} is not supported by this runtime`,
+							version,
+							seq: envelope.seq,
+							supportedVersions: [...SUPPORTED_LOG_ENTRY_VERSIONS],
+						}),
+					),
+				),
+			)
 		}) satisfies Effect.Effect<LogEntry, EventLogCorruptEntryError | EventLogUnsupportedVersionError>,
 )

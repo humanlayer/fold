@@ -1,22 +1,18 @@
-import type { LogEntry, FoldModel } from '@humanlayer/fold-core'
-import { languageModelLayerFor } from '@humanlayer/fold-core'
-import { Predicate, Effect, Schema } from 'effect'
+import type { AssistantMessageLogEntry, LogEntry, FoldModel, UserMessageLogEntry } from '@humanlayer/fold-core'
+import { encodedContentText, languageModelLayerFor } from '@humanlayer/fold-core'
+import { Predicate, Effect, Schema, type Scope } from 'effect'
 import { LanguageModel } from 'effect/unstable/ai'
 
 const TitleResult = Schema.Struct({ title: Schema.String })
 const MAX_TRANSCRIPT_CHARS = 12_000
 
-type MessageEntry = Extract<LogEntry, { readonly _tag: 'user-message' | 'assistant-message' }>
+type MessageEntry = UserMessageLogEntry | AssistantMessageLogEntry
 
 const isMessageEntry = (entry: LogEntry): entry is MessageEntry =>
 	Predicate.isTagged(entry, 'user-message') || Predicate.isTagged(entry, 'assistant-message')
 
-const extractMessageText = (entry: MessageEntry): string =>
-	typeof entry.message.content === 'string'
-		? entry.message.content
-		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-
-const messageText = (entry: LogEntry): string => (isMessageEntry(entry) ? extractMessageText(entry) : '')
+const messageText = (entry: LogEntry): string =>
+	isMessageEntry(entry) ? encodedContentText(entry.message.content) : ''
 
 /** Normalize model output to a single, safe title of at most six words. */
 export const normalizeSessionTitle = (title: string): string =>
@@ -47,11 +43,11 @@ export const titleTranscript = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 		.slice(0, MAX_TRANSCRIPT_CHARS)
 
 /** One unlogged structured generation call. Callers persist only the resulting session_title event. */
-export const generateSessionTitle = (
+export const generateSessionTitle = <R>(
 	entries: ReadonlyArray<LogEntry>,
 	rootAgentId: string,
-	model: FoldModel,
-): Effect.Effect<string> => {
+	model: FoldModel<R>,
+): Effect.Effect<string, never, Exclude<R, Scope.Scope>> => {
 	const fallback = fallbackSessionTitle(entries, rootAgentId)
 	const transcript = titleTranscript(entries, rootAgentId)
 	if (transcript.length === 0) return Effect.succeed(fallback)

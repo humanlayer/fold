@@ -11,10 +11,12 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import * as NodeRuntime from '@effect/platform-node/NodeRuntime'
 import type { ModelCatalogEntry, ModelPricing } from '@humanlayer/fold-core'
-import { Effect, Schema } from 'effect'
+import { Array as Arr, Effect, Schema } from 'effect'
+import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/unstable/http'
 
-import { decodeModelsDevModels } from '../src/Catalog/ModelsDevSchema'
+import { decodeModelsDevModels, ModelsDevPayload } from '../src/Catalog/ModelsDevSchema'
 import { modelCatalogEntriesFromModelsDev } from '../src/Catalog/Normalize'
 
 const SNAPSHOT_PATH = '/tmp/models_dev_api.json'
@@ -29,24 +31,35 @@ class CatalogBakeError extends Schema.TaggedError<CatalogBakeError>()('CatalogBa
 	message: Schema.String,
 }) {}
 
-/** The raw payload: the local snapshot when present, a fresh fetch otherwise. */
-const readPayload: Effect.Effect<unknown, CatalogBakeError> = Effect.suspend(() => {
+const decodePayloadText = Schema.decodeEffect(Schema.fromJsonString(ModelsDevPayload))
+
+/** The decoded provider map: the local snapshot when present, a fresh fetch otherwise. */
+const readPayload: Effect.Effect<ModelsDevPayload, CatalogBakeError, HttpClient.HttpClient> = Effect.suspend(() => {
 	if (existsSync(SNAPSHOT_PATH)) {
 		return Effect.try({
-			try: (): unknown => JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')),
-			catch: (cause) => new CatalogBakeError({ message: `could not parse ${SNAPSHOT_PATH}: ${String(cause)}` }),
-		}).pipe(Effect.tap(() => Effect.log(`using local snapshot ${SNAPSHOT_PATH}`)))
+			try: () => readFileSync(SNAPSHOT_PATH, 'utf8'),
+			catch: (cause) => new CatalogBakeError({ message: `could not read ${SNAPSHOT_PATH}: ${String(cause)}` }),
+		}).pipe(
+			Effect.flatMap((text) =>
+				decodePayloadText(text).pipe(
+					Effect.mapError(
+						(error) =>
+							new CatalogBakeError({ message: `could not parse ${SNAPSHOT_PATH}: ${error.message}` }),
+					),
+				),
+			),
+			Effect.tap(() => Effect.log(`using local snapshot ${SNAPSHOT_PATH}`)),
+		)
 	}
 
-	return Effect.tryPromise({
-		try: async (signal): Promise<unknown> => {
-			const response = await fetch(MODELS_DEV_URL, { signal })
-			if (!response.ok) throw new Error(`GET ${MODELS_DEV_URL} responded ${response.status}`)
-			const body: unknown = await response.json()
-			return body
-		},
-		catch: (cause) => new CatalogBakeError({ message: `could not fetch ${MODELS_DEV_URL}: ${String(cause)}` }),
-	}).pipe(Effect.tap(() => Effect.log(`fetched ${MODELS_DEV_URL}`)))
+	return HttpClient.get(MODELS_DEV_URL).pipe(
+		Effect.flatMap(HttpClientResponse.filterStatusOk),
+		Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelsDevPayload)),
+		Effect.mapError(
+			(error) => new CatalogBakeError({ message: `could not fetch ${MODELS_DEV_URL}: ${error.message}` }),
+		),
+		Effect.tap(() => Effect.log(`fetched ${MODELS_DEV_URL}`)),
+	)
 })
 
 const stringLiteral = (value: string): string => `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`
@@ -110,7 +123,7 @@ const main = Effect.gen(function* () {
 			: left.providerId.localeCompare(right.providerId),
 	)
 
-	if (entries.length === 0) {
+	if (Arr.isArrayEmpty(entries)) {
 		return yield* new CatalogBakeError({
 			message: 'no anthropic/openai/xai entries survived normalization; refusing to bake',
 		})
@@ -124,7 +137,4 @@ const main = Effect.gen(function* () {
 	yield* Effect.log(`wrote ${entries.length} entries to ${targetPath}`)
 })
 
-void Effect.runPromise(main).catch((error: unknown) => {
-	console.error(error)
-	process.exitCode = 1
-})
+main.pipe(Effect.provide(FetchHttpClient.layer), NodeRuntime.runMain)

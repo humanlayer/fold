@@ -5,18 +5,18 @@
  * hidden by the family policy - and streaming rides the hardened first-event/idle timeout + retry
  * pipeline.
  *
- * Run: bun packages/fold-codex/examples/CodexAgent.ts
+ * Run: bun packages/fold-agent/examples/CodexAgent.ts
  */
 import { mkdtempSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { codingTools, jsonlEventLog } from '@humanlayer/fold-agent'
+import { codexModel } from '@humanlayer/fold-codex'
 import { defineAgent, startSession } from '@humanlayer/fold-core'
-import { Predicate, Console, Effect } from 'effect'
+import { Predicate, Console, Effect, Layer } from 'effect'
 
-import { codexModel } from '../src/index'
+import { codingTools, jsonlEventLog, layerCodingToolServices } from '../src/index'
 
 const modelId = process.env.FOLD_CODEX_MODEL ?? 'gpt-5.5'
 
@@ -25,6 +25,10 @@ const program = Effect.gen(function* () {
 	const logPath = join(workspace, 'session.jsonl')
 	yield* Console.log(`workspace: ${workspace}`)
 
+	// The coding tools' services live as long as the session, in this program's scope.
+	const toolServices = yield* Layer.build(
+		layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
+	)
 	const session = yield* startSession({
 		agent: defineAgent({
 			name: 'codex-demo',
@@ -36,7 +40,7 @@ const program = Effect.gen(function* () {
 		}),
 		log: jsonlEventLog(logPath),
 		cwd: workspace,
-	})
+	}).pipe(Effect.provideContext(toolServices))
 
 	const finished = yield* session.send(
 		'Create a file called greet.ts exporting `greet(name: string): string` returning "hello, {name}". ' +

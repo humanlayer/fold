@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { projectSessionRows } from '../../src/tui/SessionListProjection'
 
 const summary = (suffix: string, status: SessionSummary['status']) => ({
-	sessionId: Schema.decodeUnknownSync(SessionId)(`sess_${suffix.padEnd(24, 'x')}`),
+	sessionId: Schema.decodeSync(SessionId)(`sess_${suffix.padEnd(24, 'x')}`),
 	path: `/tmp/${suffix}.jsonl`,
 	mtimeMs: 1,
 	title: suffix,

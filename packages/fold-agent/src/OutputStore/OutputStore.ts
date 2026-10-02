@@ -1,12 +1,13 @@
 /**
- * File-backed OutputStore for large tool output (D19): one deterministic text file per tool call under
- * `<foldHome>/tool-output/<sessionId>/<toolCallId>.txt`. The durable log keeps the truncated result
- * the model saw; this store is retrieval-only supporting data, streamed from the first byte so
- * interrupted commands still leave partial output behind.
+ * File-backed OutputStore for large tool output (D19): one deterministic text file per tool call,
+ * `<directory>/<toolCallId>.txt`. A launched session uses `<foldHome>/tool-output/<sessionId>`; the host
+ * provides the store where it starts the session and the bash tool asks for it. The durable log keeps
+ * the truncated result the model saw; this store is retrieval-only supporting data, streamed from the
+ * first byte so interrupted commands still leave partial output behind.
  */
 import { join } from 'node:path'
 
-import { SessionId, ToolCallId } from '@humanlayer/fold-core'
+import { ToolCallId, type SessionId } from '@humanlayer/fold-core'
 import { Cause, Clock, Context, Effect, FileSystem, Layer, Option, Schema } from 'effect'
 
 import { defaultFoldHome } from '../Config/Load'
@@ -15,7 +16,6 @@ const dayMs = 24 * 60 * 60 * 1000
 
 /** Reference to one stored tool-output file. */
 export class OutputStoreRef extends Schema.Class<OutputStoreRef>('fold-agent/OutputStoreRef')({
-	sessionId: SessionId,
 	toolCallId: ToolCallId,
 	path: Schema.String,
 }) {}
@@ -38,9 +38,7 @@ export type OutputStoreReadOptions = {
 
 /** Deep service surface for deterministic tool-output storage. */
 export type OutputStoreService = {
-	/** Current session this store is scoped to. */
-	readonly sessionId: SessionId
-	/** Directory containing this session's tool-output files. */
+	/** Directory containing the tool-output files. */
 	readonly directory: string
 	/** Compute the deterministic reference for one tool call without touching disk. */
 	readonly refFor: (toolCallId: ToolCallId) => OutputStoreRef
@@ -50,21 +48,10 @@ export type OutputStoreService = {
 	readonly append: (toolCallId: ToolCallId, chunk: string) => Effect.Effect<OutputStoreRef, OutputStoreError>
 	/** Read output back for retrieval/debug surfaces. */
 	readonly read: (ref: OutputStoreRef, options?: OutputStoreReadOptions) => Effect.Effect<string, OutputStoreError>
-	/** Best-effort retention sweep. It logs and swallows failures. */
-	readonly sweep: Effect.Effect<void>
 }
 
-/** OutputStore service tag for composition roots that want to provide it as an Effect service. */
+/** Where tools store their full output. The host provides it; the bash tool asks for it. */
 export class OutputStore extends Context.Service<OutputStore, OutputStoreService>()('fold-agent/OutputStore') {}
-
-/** Options for constructing a file-backed OutputStore. */
-export type MakeOutputStoreOptions = {
-	readonly sessionId: SessionId
-	/** Defaults to `~/.fold`. */
-	readonly foldHome?: string
-	/** Files older than this are deleted by `sweep`. Defaults to 7 days. */
-	readonly retentionMs?: number
-}
 
 /** Root directory for all stored tool output. */
 export const toolOutputRootFor = (options?: { readonly foldHome?: string }): string =>
@@ -108,91 +95,90 @@ const lineSlice = (content: string, options?: OutputStoreReadOptions): string =>
 		.join('\n')
 }
 
-/** Construct a file-backed OutputStore service for one session. */
-export const makeOutputStore = (
-	options: MakeOutputStoreOptions,
-): Effect.Effect<OutputStoreService, never, FileSystem.FileSystem> =>
-	Effect.map(FileSystem.FileSystem, (fs) => {
-		const foldHome = options.foldHome ?? defaultFoldHome()
-		const sessionId = options.sessionId
-		const directory = toolOutputSessionDirFor({ sessionId, foldHome })
-		const retentionMs = options.retentionMs ?? 7 * dayMs
+/** A file-backed OutputStore writing one file per tool call into `directory`. */
+export const layerOutputStore = (options: {
+	readonly directory: string
+}): Layer.Layer<OutputStore, never, FileSystem.FileSystem> =>
+	Layer.effect(
+		OutputStore,
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const directory = options.directory
 
-		const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
-			new OutputStoreRef({
-				sessionId,
-				toolCallId,
-				path: toolOutputPathFor({ sessionId, toolCallId, foldHome }),
-			})
+			const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
+				new OutputStoreRef({ toolCallId, path: join(directory, `${toolCallId}.txt`) })
 
-		const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-			const ref = refFor(toolCallId)
-			return fs.makeDirectory(directory, { recursive: true }).pipe(
-				Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
-				Effect.as(ref),
-				Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
-				Effect.tapError(logStoreError),
-				Effect.withSpan('output_store.prepare', {
-					attributes: { sessionId, toolCallId, path: ref.path },
-				}),
-			)
-		}
-
-		const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-			const ref = refFor(toolCallId)
-			return fs.makeDirectory(directory, { recursive: true }).pipe(
-				Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
-				Effect.as(ref),
-				Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
-				Effect.tapError(logStoreError),
-				Effect.withSpan('output_store.append', {
-					attributes: { sessionId, toolCallId, path: ref.path, bytes: chunk.length },
-				}),
-			)
-		}
-
-		const read = (ref: OutputStoreRef, options?: OutputStoreReadOptions): Effect.Effect<string, OutputStoreError> =>
-			fs.readFileString(ref.path).pipe(
-				Effect.map((content) => lineSlice(content, options)),
-				Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
-				Effect.tapError(logStoreError),
-				Effect.withSpan('output_store.read', {
-					attributes: { sessionId: ref.sessionId, toolCallId: ref.toolCallId, path: ref.path },
-				}),
-			)
-
-		const sweep = Effect.gen(function* () {
-			const root = toolOutputRootFor({ foldHome })
-			const now = yield* Clock.currentTimeMillis
-			const sessions = yield* fs
-				.readDirectory(root)
-				.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
-
-			for (const sessionName of sessions) {
-				const sessionDir = join(root, sessionName)
-				const files = yield* fs
-					.readDirectory(sessionDir)
-					.pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<string>>([])))
-
-				for (const file of files) {
-					if (!file.endsWith('.txt')) continue
-					const path = join(sessionDir, file)
-					const info = yield* fs.stat(path).pipe(Effect.catch(() => Effect.succeed(null)))
-					if (info === null || info.type !== 'File') continue
-
-					const mtime = Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })
-					if (now - mtime > retentionMs) yield* fs.remove(path).pipe(Effect.ignore)
-				}
+			const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+				const ref = refFor(toolCallId)
+				return fs.makeDirectory(directory, { recursive: true }).pipe(
+					Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
+					Effect.as(ref),
+					Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
+					Effect.tapError(logStoreError),
+					Effect.withSpan('output_store.prepare', { attributes: { toolCallId, path: ref.path } }),
+				)
 			}
-		}).pipe(
-			Effect.catchCause((cause) => Effect.logWarning(`OutputStore sweep failed: ${Cause.pretty(cause)}`)),
-			Effect.withSpan('output_store.sweep', { attributes: { sessionId, directory } }),
-		)
 
-		return { sessionId, directory, refFor, prepare, append, read, sweep }
-	})
+			const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+				const ref = refFor(toolCallId)
+				return fs.makeDirectory(directory, { recursive: true }).pipe(
+					Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
+					Effect.as(ref),
+					Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
+					Effect.tapError(logStoreError),
+					Effect.withSpan('output_store.append', {
+						attributes: { toolCallId, path: ref.path, bytes: chunk.length },
+					}),
+				)
+			}
 
-/** Layer constructor for hosts that want OutputStore in `R`. */
-export const outputStoreLayer = (
-	options: MakeOutputStoreOptions,
-): Layer.Layer<OutputStore, never, FileSystem.FileSystem> => Layer.effect(OutputStore, makeOutputStore(options))
+			const read = (
+				ref: OutputStoreRef,
+				readOptions?: OutputStoreReadOptions,
+			): Effect.Effect<string, OutputStoreError> =>
+				fs.readFileString(ref.path).pipe(
+					Effect.map((content) => lineSlice(content, readOptions)),
+					Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
+					Effect.tapError(logStoreError),
+					Effect.withSpan('output_store.read', {
+						attributes: { toolCallId: ref.toolCallId, path: ref.path },
+					}),
+				)
+
+			return { directory, refFor, prepare, append, read }
+		}),
+	)
+
+/**
+ * Best-effort retention sweep over every session's stored output under `<foldHome>/tool-output`: files
+ * older than `retentionMs` (default 7 days) are deleted. It logs and swallows failures.
+ */
+export const sweepToolOutput = (options?: {
+	readonly foldHome?: string
+	readonly retentionMs?: number
+}): Effect.Effect<void, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const root = toolOutputRootFor(options)
+		const retentionMs = options?.retentionMs ?? 7 * dayMs
+		const now = yield* Clock.currentTimeMillis
+		const sessions = yield* fs.readDirectory(root).pipe(Effect.orElseSucceed(() => []))
+
+		for (const sessionName of sessions) {
+			const sessionDir = join(root, sessionName)
+			const files = yield* fs.readDirectory(sessionDir).pipe(Effect.orElseSucceed(() => []))
+
+			for (const file of files) {
+				if (!file.endsWith('.txt')) continue
+				const path = join(sessionDir, file)
+				const info = yield* fs.stat(path).pipe(Effect.orElseSucceed(() => null))
+				if (info === null || info.type !== 'File') continue
+
+				const mtime = Option.match(info.mtime, { onNone: () => 0, onSome: (date) => date.getTime() })
+				if (now - mtime > retentionMs) yield* fs.remove(path).pipe(Effect.ignore)
+			}
+		}
+	}).pipe(
+		Effect.catchCause((cause) => Effect.logWarning(`OutputStore sweep failed: ${Cause.pretty(cause)}`)),
+		Effect.withSpan('output_store.sweep'),
+	)

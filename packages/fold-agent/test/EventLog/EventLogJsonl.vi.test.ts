@@ -13,7 +13,7 @@ import {
 	StateId,
 	type LogEntryInput,
 } from '@humanlayer/fold-core'
-import { Effect, Fiber, FileSystem, Predicate, Stream } from 'effect'
+import { Effect, Fiber, FileSystem, Predicate, type Schema, Stream } from 'effect'
 
 import { layerJsonl } from '../../src/index'
 
@@ -28,7 +28,7 @@ const makeSessionStarted = (cwd: string): LogEntryInput => ({
 	meta: {},
 })
 
-const makeToolState = (value: unknown): LogEntryInput => ({
+const makeToolState = (value: Schema.Json): LogEntryInput => ({
 	_tag: 'tool_state',
 	agentId: AgentId.create(),
 	parentAgentId: null,

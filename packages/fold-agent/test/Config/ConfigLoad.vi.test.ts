@@ -4,7 +4,7 @@
  * FileSystem (never touches the real disk).
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem, Layer, Predicate } from 'effect'
+import { Effect, FileSystem, Predicate } from 'effect'
 
 import { loadFoldConfig, loadFoldConfigOrNull, parseFoldConfig, stripJsonc } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -85,7 +85,7 @@ it.effect('loads and decodes the config file from the fold home', () => {
 		const config = yield* loadFoldConfig({ foldHome: '/home/user/.fold' })
 
 		expect(config.roles.smart.model).toBe('claude-opus-4-8')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('fails with ConfigFileNotFoundError when the file is absent; OrNull returns null', () => {
@@ -96,5 +96,5 @@ it.effect('fails with ConfigFileNotFoundError when the file is absent; OrNull re
 
 		const orNull = yield* loadFoldConfigOrNull({ foldHome: '/home/user/.fold' })
 		expect(orNull).toBeNull()
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })

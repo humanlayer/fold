@@ -88,7 +88,11 @@ it.live('sends custom authentication and reasoning summary through the OpenAI-co
 			reasoning: { effort: 'medium', summary: 'auto' },
 		})
 	}).pipe(
-		Effect.provide(Layer.merge(languageModelLayerFor(model), liveModelRequestSettingsLayer)),
+		Effect.provide(
+			Layer.merge(languageModelLayerFor(model), liveModelRequestSettingsLayer).pipe(
+				Layer.provide(FetchHttpClient.layer),
+			),
+		),
 		Effect.provideService(FetchHttpClient.Fetch, capturingFetch),
 	)
 })

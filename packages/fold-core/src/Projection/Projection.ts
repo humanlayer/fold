@@ -1,5 +1,6 @@
-import { Data, Match, Predicate } from 'effect'
+import { Array as Arr, Data, Match, Predicate, type Schema, Struct } from 'effect'
 
+import { encodedContentParts, encodedContentText, isPartOfType } from '../EventLog/MessageContent'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -13,8 +14,8 @@ import type {
 	ToolMessageEncoded,
 	ToolResultLogEntry,
 	UserMessageLogEntry,
-} from '../EventLog/Schemas.ts'
-import type { AgentId } from '../Ids.ts'
+} from '../EventLog/Schemas'
+import type { AgentId } from '../Ids'
 
 /** Read model for an agent's lifecycle: how it started, whether it has finished, and whether it is runnable. */
 export type AgentLifecycleProjection = {
@@ -56,12 +57,12 @@ export type ProjectedAssistantMessage = ProjectedLogEntry<AssistantMessageLogEnt
 export type ProjectedToolResult = ProjectedLogEntry<ToolResultLogEntry, 'toolCallId' | 'messageId' | 'message'>
 
 /** Projection-only stand-in for history replaced by a compaction entry. */
-export type ProjectedCompactionSummary = ProjectedLogEntryFields<
-	CompactionLogEntry,
-	'compactionId' | 'replacesThroughSeq' | 'summary' | 'tokensBefore' | 'postCompactionInstructions'
-> & {
-	readonly _tag: `${CompactionLogEntry['_tag']}-summary`
-}
+export type ProjectedCompactionSummary = Data.TaggedEnum<{
+	'compaction-summary': ProjectedLogEntryFields<
+		CompactionLogEntry,
+		'compactionId' | 'replacesThroughSeq' | 'summary' | 'tokensBefore' | 'postCompactionInstructions'
+	>
+}>
 
 /** Ordered read model of the messages an agent should send to the language model. */
 export type ProjectedMessage =
@@ -73,10 +74,8 @@ export type ProjectedMessage =
 
 const ProjectedMessage = Data.taggedEnum<ProjectedMessage>()
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
 /** Tool-owned key/value state for one agent namespace, built by folding tool_state entries in log order. */
-export type ToolStateProjection = Readonly<Record<string, unknown>>
+export type ToolStateProjection = Readonly<Record<string, Schema.Json>>
 
 const ownEntriesForAgent = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): ReadonlyArray<LogEntry> =>
 	entries.filter((entry) => entry.agentId === agentId)
@@ -95,21 +94,18 @@ const findAgentFinished = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): 
 
 const compareSeq = (left: LogEntry, right: LogEntry) => left.seq - right.seq
 
-const userMessageText = (entry: UserMessageLogEntry): string =>
-	typeof entry.message.content === 'string'
-		? entry.message.content
-		: entry.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
-
 const isInjectedSkillMessage = (entry: LogEntry): boolean => {
 	if (!Predicate.isTagged(entry, 'user-message')) return false
-	const content = userMessageText(entry).trim()
+	const content = encodedContentText(entry.message.content).trim()
 	return /^<skill(?:\s|>)/.test(content) && content.endsWith('</skill>')
 }
 
 const isSettledAssistantText = (entry: LogEntry): boolean => {
 	if (!Predicate.isTagged(entry, 'assistant-message')) return false
-	if (typeof entry.message.content === 'string') return entry.message.content.trim().length > 0
-	return entry.message.content.length > 0 && entry.message.content.every((part) => part.type === 'text')
+	return Match.value(entry.message.content).pipe(
+		Match.when(Match.string, (text) => text.trim().length > 0),
+		Match.orElse((parts) => Arr.isReadonlyArrayNonEmpty(parts) && parts.every(isPartOfType('text'))),
+	)
 }
 
 const eligibleForkHistory = (
@@ -247,19 +243,19 @@ export const toolStateForAgent = (
 	agentId: AgentId,
 	namespace: string,
 ): ToolStateProjection => {
-	const state: Record<string, unknown> = {}
+	const state = new Map<string, Schema.Json>()
 
 	for (const entry of ownEntriesForAgent(entries, agentId)) {
 		if (!Predicate.isTagged(entry, 'tool_state') || entry.namespace !== namespace) continue
 
 		if (entry.value === null) {
-			delete state[entry.key]
+			state.delete(entry.key)
 		} else {
-			state[entry.key] = entry.value
+			state.set(entry.key, entry.value)
 		}
 	}
 
-	return state
+	return Object.fromEntries(state)
 }
 
 const latestLeadingSystemMessage = (entries: ReadonlyArray<LogEntry>): SystemMessageLogEntry | null =>
@@ -271,14 +267,13 @@ const latestLeadingSystemMessage = (entries: ReadonlyArray<LogEntry>): SystemMes
 const latestCompaction = (entries: ReadonlyArray<LogEntry>): CompactionLogEntry | null =>
 	entries.findLast((entry): entry is CompactionLogEntry => Predicate.isTagged(entry, 'compaction')) ?? null
 
-const toolCallIdsForAssistantMessage = (message: AssistantMessageEncoded): ReadonlyArray<string> => {
-	if (typeof message.content === 'string') return []
-
-	return message.content.flatMap((part) => (part.type === 'tool-call' ? [part.id] : []))
-}
+const toolCallIdsForAssistantMessage = (message: AssistantMessageEncoded): ReadonlyArray<string> =>
+	encodedContentParts(message.content)
+		.filter(isPartOfType('tool-call'))
+		.map((part) => part.id)
 
 const toolResultIds = (message: ToolMessageEncoded): ReadonlyArray<string> =>
-	message.content.flatMap((part) => (part.type === 'tool-result' ? [part.id] : []))
+	message.content.filter(isPartOfType('tool-result')).map((part) => part.id)
 
 /** Put completed tool results back into the assistant's tool-call order before building the next prompt. */
 const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): ReadonlyArray<ProjectedMessage> => {
@@ -295,7 +290,7 @@ const orderProjectedToolResults = (messages: ReadonlyArray<ProjectedMessage>): R
 		if (!Predicate.isTagged(message, 'assistant-message')) continue
 
 		const toolCallIds = toolCallIdsForAssistantMessage(message.message)
-		if (toolCallIds.length === 0) continue
+		if (Arr.isReadonlyArrayEmpty(toolCallIds)) continue
 
 		const toolResults: Array<ProjectedToolResult> = []
 		while (true) {
@@ -389,17 +384,18 @@ export const messagesForAgent = (
 	}
 
 	if (compaction !== null) {
-		const summaryInput: Mutable<Parameters<(typeof ProjectedMessage)['compaction-summary']>[0]> = {
-			sourceSeq: compaction.seq,
-			compactionId: compaction.compactionId,
-			replacesThroughSeq: compaction.replacesThroughSeq,
-			summary: compaction.summary,
-			tokensBefore: compaction.tokensBefore,
-		}
-		if (compaction.postCompactionInstructions !== undefined) {
-			summaryInput.postCompactionInstructions = compaction.postCompactionInstructions
-		}
-		projected.push(ProjectedMessage['compaction-summary'](summaryInput))
+		projected.push(
+			ProjectedMessage['compaction-summary']({
+				sourceSeq: compaction.seq,
+				...Struct.pick(compaction, [
+					'compactionId',
+					'replacesThroughSeq',
+					'summary',
+					'tokensBefore',
+					'postCompactionInstructions',
+				]),
+			}),
+		)
 	}
 
 	for (const entry of visibleEntries) {

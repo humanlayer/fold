@@ -46,18 +46,18 @@ const models: ModeModels = {
 	orchestrator: namedModel('orchestrator-model'),
 }
 
-const roster = (): ReadonlyArray<SubagentDefinition> => defaultSubagents({ cwd: '/tmp/project' })
+const roster = (): ReadonlyArray<SubagentDefinition<unknown>> => defaultSubagents({ cwd: '/tmp/project' })
 
-const byName = (name: string): SubagentDefinition => {
+const byName = (name: string): SubagentDefinition<unknown> => {
 	const found = roster().find((definition) => definition.name === name)
 	if (found === undefined) throw new Error(`no subagent named ${name}`)
 	return found
 }
 
-const toolNames = (tools: ReadonlyArray<FoldTool>): ReadonlyArray<string> => tools.map((tool) => tool.name)
+const toolNames = (tools: ReadonlyArray<FoldTool<unknown>>): ReadonlyArray<string> => tools.map((tool) => tool.name)
 
 /** The roster a definition may dispatch: the union of its subagentTool values' rosters. */
-const dispatchableFrom = (definition: SubagentDefinition): ReadonlyArray<string> =>
+const dispatchableFrom = (definition: SubagentDefinition<unknown>): ReadonlyArray<string> =>
 	(definition.tools ?? []).flatMap((tool) => (subagentRosterOf(tool) ?? []).map((agent) => agent.name))
 
 it('registers general-purpose, bash, researcher, and web-search-researcher', () => {
@@ -94,10 +94,7 @@ it('gives researcher read + bash + skill only - no editing tools, no way to dele
 	}
 	expect(dispatchableFrom(researcher)).toEqual([])
 	// The shared ast-grep outline guidance rides as a second leading block after the ported prompt.
-	expect(Array.isArray(researcher.systemPrompt)).toBe(true)
-	if (Array.isArray(researcher.systemPrompt)) {
-		expect(researcher.systemPrompt.at(-1)).toBe(AST_GREP_OUTLINE_GUIDANCE)
-	}
+	expect(researcher.systemPrompt).toEqual([expect.any(String), AST_GREP_OUTLINE_GUIDANCE])
 })
 
 it('gives web-search-researcher web tools only and no way to delegate', () => {

@@ -10,7 +10,6 @@ import {
 	computePatch,
 	defineTool,
 	parsePatch,
-	platformToolDependencies,
 	ToolResultFailure,
 	ToolResultText,
 	type PatchOp,
@@ -22,7 +21,7 @@ import { withFileMutationLocks } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
 
-const verificationFailed = (detail: string): { message: string } => ({
+const verificationFailed = (detail: string) => ({
 	message: `apply_patch verification failed: ${detail}`,
 })
 
@@ -31,10 +30,9 @@ const opPaths = (op: PatchOp): ReadonlyArray<string> =>
 	Predicate.isTagged(op, 'update') && op.movePath !== null ? [op.path, op.movePath] : [op.path]
 
 /** Build the apply_patch tool over the ambient FileSystem service. */
-export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
+export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool<FileSystem.FileSystem | Path.Path> =>
 	defineTool({
 		...applyPatchToolContract,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
@@ -59,9 +57,7 @@ export const applyPatchTool = (options?: { readonly cwd?: string }): FoldTool =>
 							if (Predicate.isTagged(op, 'add')) continue
 							if (!files.has(op.path)) {
 								const source = yield* resolvePath(op.path)
-								const content = yield* fs
-									.readFileString(source)
-									.pipe(Effect.catch(() => Effect.succeed<string | null>(null)))
+								const content = yield* fs.readFileString(source).pipe(Effect.orElseSucceed(() => null))
 								files.set(op.path, content)
 							}
 						}

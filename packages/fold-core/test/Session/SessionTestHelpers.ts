@@ -10,17 +10,15 @@ import {
 	liveModelRequestSettingsLayer,
 	liveSessionLayer,
 	liveToolRuntimeLayer,
-	makeHookRunner,
-	makeSessionControls,
-	makeToolsetResolver,
-	SessionControls,
-	Subagents,
+	layerHookRunner,
+	layerSessionControls,
+	layerToolsetResolver,
 	toolEventSinkLayerFromAgentEvents,
 	toolsetLayerFromToolkit,
 	type HookConfig,
 	type StartSessionInput,
 } from '../../src/index'
-import { noSubagentsStub, testModel } from '../AgentRuntime/AgentRuntimeTestHelpers'
+import { testModel } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { TestToolkit } from '../TestLayers/TestTools'
 
@@ -31,7 +29,7 @@ export { testModel }
 export const startSessionInput = (overrides?: Partial<StartSessionInput>): StartSessionInput => ({
 	cwd: '/test',
 	model: testModel,
-	systemPrompt: 'You are a test agent.',
+	systemPrompt: ['You are a test agent.'],
 	...overrides,
 })
 
@@ -61,13 +59,12 @@ export const sessionBaseLayer = (
 		idsLayer,
 		agentEventsLayer,
 		toolsetLayer,
-		makeToolsetResolver().pipe(Layer.provide(toolsetLayer)),
+		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 		layerDefaultSystemPrompt,
 		liveModelRequestSettingsLayer,
-		makeHookRunner(hooks).pipe(Layer.provide(hookDeps)),
+		layerHookRunner(hooks).pipe(Layer.provide(hookDeps)),
 		toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(agentEventsLayer)),
-		Layer.succeed(Subagents, noSubagentsStub),
-		Layer.effect(SessionControls, makeSessionControls()),
+		layerSessionControls(),
 		NodeFileSystem.layer,
 	)
 

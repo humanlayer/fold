@@ -3,7 +3,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
  * Engine tests for subagent resume (D21): a previously dispatched subagent - completed, errored, or
  * dead from a defect - is resumable by agent_id with its full prior context, new rows grouping under
  * the RESUMING tool call. The root drives the engine through a test-only `drive` tool whose handler
- * yields the ambient Subagents service directly, so resume ids (only known after the first dispatch)
+ * calls the subagent operations directly, so resume ids (only known after the first dispatch)
  * can be chosen at runtime while everything else - facade, provisioning, per-call ambient services,
  * the child loops - is real.
  */
@@ -11,13 +11,14 @@ import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Ref, Schema } from 'effect'
 
 import {
+	dispatchSubagent,
+	resumeSubagent,
 	defineAgent,
 	defineSubagent,
 	defineTool,
 	renderSubagentResult,
 	shortAgentId,
 	startSession,
-	Subagents,
 	subagentTool,
 	type AgentId,
 	type AgentStartedLogEntry,
@@ -33,11 +34,11 @@ type DriveInstruction =
 	| { readonly op: 'dispatch'; readonly agent: string; readonly prompt: string }
 	| { readonly op: 'resume'; readonly agentId: AgentId; readonly prompt: string }
 
-/** A test-only tool whose handler drives the ambient Subagents engine from a mutable instruction slot. */
+/** A test-only tool whose handler drives the subagent operations from a mutable instruction slot. */
 const makeDriveTool = (instructions: Ref.Ref<ReadonlyArray<DriveInstruction>>, roster: ReadonlyArray<string>) =>
 	defineTool({
 		name: 'drive',
-		description: 'Test driver over the Subagents engine.',
+		description: 'Test driver over the subagent operations.',
 		parameters: Schema.Struct({}),
 		success: Schema.Struct({ content: Schema.String }),
 		failure: Schema.Struct({ message: Schema.String }),
@@ -50,20 +51,19 @@ const makeDriveTool = (instructions: Ref.Ref<ReadonlyArray<DriveInstruction>>, r
 				}
 				yield* Ref.set(instructions, remaining.slice(1))
 
-				const subagents = yield* Subagents
 				const result =
 					instruction.op === 'dispatch'
-						? yield* subagents
-								.dispatch({
-									agent: instruction.agent,
-									prompt: instruction.prompt,
-									skill: null,
-									allowedAgents: roster,
-								})
-								.pipe(Effect.mapError((error) => ({ message: `dispatch failed: ${error._tag}` })))
-						: yield* subagents
-								.resume({ agentId: instruction.agentId, prompt: instruction.prompt, skill: null })
-								.pipe(Effect.mapError((error) => ({ message: `resume failed: ${error._tag}` })))
+						? yield* dispatchSubagent({
+								agent: instruction.agent,
+								prompt: instruction.prompt,
+								skill: null,
+								allowedAgents: roster,
+							}).pipe(Effect.mapError((error) => ({ message: `dispatch failed: ${error._tag}` })))
+						: yield* resumeSubagent({
+								agentId: instruction.agentId,
+								prompt: instruction.prompt,
+								skill: null,
+							}).pipe(Effect.mapError((error) => ({ message: `resume failed: ${error._tag}` })))
 
 				return { content: renderSubagentResult(result) }
 			}),

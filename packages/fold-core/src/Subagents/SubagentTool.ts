@@ -3,12 +3,13 @@
  * roster IS the factory argument: the returned value's description advertises exactly those types, its
  * closure carries their names as the dispatch authority (`allowedAgents`), and the composition root
  * discovers dispatchable definitions by walking tools arrays for these values (`subagentRosterOf`).
+ * The roster rides on the tool value itself, so the tool's type carries its roster's host services.
  * The handler is a thin adapter: it parses the flat wire parameters into one `SubagentCommand` at the
- * boundary, delegates to the ambient `Subagents` service, and narrows each typed engine failure into
+ * boundary, delegates to the subagent operations, and narrows each typed engine failure into
  * the tool's instructive failure payload with `catchTag`/`catchTags` - all choreography lives in the
  * deep module, and no error is ever inspected as a value.
  */
-import { Effect, Match } from 'effect'
+import { Array as Arr, Effect, Match } from 'effect'
 
 import { defineTool, type FoldTool } from '../Api/ToolDefinition'
 import type { SkillNotFoundError } from '../Skills/SkillSource'
@@ -18,31 +19,27 @@ import { shortAgentId } from './AgentIdRef'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { ForkAgentDefinition } from './ForkAgentDefinition'
 import { parseSubagentCommand, type SubagentResult } from './Schemas'
-import type { SubagentDefinition } from './SubagentDefinition'
-import { Subagents } from './SubagentsService'
+import { subagentsNeedingAll, type SubagentDefinition, type SubagentDefinitionServices } from './SubagentDefinition'
+import { dispatchSubagent, forkSubagent, resumeSubagent } from './SubagentEngine'
 
 /** Runtime capabilities attached to a model-visible delegation tool. */
-export type SubagentToolCapabilities = {
-	readonly agents: ReadonlyArray<SubagentDefinition>
-	readonly forkAgent?: ForkAgentDefinition
+export type SubagentToolCapabilities<R = never> = {
+	readonly agents: ReadonlyArray<SubagentDefinition<R>>
+	readonly forkAgent?: ForkAgentDefinition<R>
 }
-
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
-const capabilitiesBySubagentTool = new WeakMap<FoldTool, SubagentToolCapabilities>()
 
 /** Attach Fold's roster and fork behavior to any host-defined model-visible tool. */
-export const withSubagentCapabilities = (tool: FoldTool, capabilities: SubagentToolCapabilities): FoldTool => {
-	capabilitiesBySubagentTool.set(tool, capabilities)
-	return tool
-}
+export const withSubagentCapabilities = <R, RC>(
+	tool: FoldTool<R>,
+	capabilities: SubagentToolCapabilities<RC>,
+): FoldTool<R | RC> => ({ ...tool, subagents: capabilities })
 
 /** Read the capabilities attached to a delegation tool; null for every other tool. */
-export const subagentCapabilitiesOf = (tool: FoldTool): SubagentToolCapabilities | null =>
-	capabilitiesBySubagentTool.get(tool) ?? null
+export const subagentCapabilitiesOf = <R>(tool: FoldTool<R>): SubagentToolCapabilities<R> | null =>
+	tool.subagents ?? null
 
 /** Read the roster off a subagentTool value; null for every other tool. */
-export const subagentRosterOf = (tool: FoldTool): ReadonlyArray<SubagentDefinition> | null =>
+export const subagentRosterOf = <R>(tool: FoldTool<R>): ReadonlyArray<SubagentDefinition<R>> | null =>
 	subagentCapabilitiesOf(tool)?.agents ?? null
 
 /** Model-facing failure payload of the subagent tool (schema: message + availableAgents). */
@@ -60,28 +57,30 @@ export const renderSubagentResult = (result: SubagentResult): string => {
 }
 
 /** The system-information note appended for non-completed outcomes; null for clean completions. */
-const outcomeNoteFor = (result: SubagentResult): string | null => {
-	switch (result.outcome) {
-		case 'completed':
-			return null
-		case 'error':
-			return (
+const outcomeNoteFor = (result: SubagentResult): string | null =>
+	Match.value(result.outcome).pipe(
+		Match.when('completed', () => null),
+		Match.when(
+			'error',
+			() =>
 				`<system-information>This subagent finished with an error: ${result.errorMessage ?? 'unknown error'}. ` +
 				`Its context is preserved; you may resume it with the agent_id above (it will see your new message), ` +
-				`or dispatch a fresh agent.</system-information>`
-			)
-		case 'stopped':
-			return (
+				`or dispatch a fresh agent.</system-information>`,
+		),
+		Match.when(
+			'stopped',
+			() =>
 				`<system-information>This subagent stopped early (a tool or hook requested a stop). ` +
-				`Its context is preserved; you may resume it with the agent_id above.</system-information>`
-			)
-		case 'interrupted':
-			return (
+				`Its context is preserved; you may resume it with the agent_id above.</system-information>`,
+		),
+		Match.when(
+			'interrupted',
+			() =>
 				`<system-information>This subagent was interrupted before completing. ` +
-				`Its context is preserved; you may resume it with the agent_id above.</system-information>`
-			)
-	}
-}
+				`Its context is preserved; you may resume it with the agent_id above.</system-information>`,
+		),
+		Match.exhaustive,
+	)
 
 // --- pure failure-payload formatters, invoked from catchTag/catchTags branches -----------------------
 
@@ -90,7 +89,7 @@ const rosterFailure = (error: SubagentTypeNotInRosterError): SubagentToolFailure
 	ToolResultFailure.make({
 		text:
 			`Agent type "${error.requested}" is not available to you. Available agent types: ` +
-			`${error.availableAgents.length === 0 ? '(none)' : error.availableAgents.join(', ')}.`,
+			`${Arr.isReadonlyArrayEmpty(error.availableAgents) ? '(none)' : error.availableAgents.join(', ')}.`,
 		details: { availableAgents: error.availableAgents },
 	})
 
@@ -99,7 +98,7 @@ const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<st
 	ToolResultFailure.make({
 		text:
 			`Skill "${error.name}" not found. Available skills: ` +
-			`${error.availableSkills.length === 0 ? '(none)' : error.availableSkills.join(', ')}.`,
+			`${Arr.isReadonlyArrayEmpty(error.availableSkills) ? '(none)' : error.availableSkills.join(', ')}.`,
 		details: { availableAgents: allowedAgents },
 	})
 
@@ -107,7 +106,7 @@ const skillFailure = (error: SkillNotFoundError, allowedAgents: ReadonlyArray<st
 const notFoundFailure = (error: SubagentNotFoundError, allowedAgents: ReadonlyArray<string>): SubagentToolFailure =>
 	ToolResultFailure.make({
 		text:
-			error.candidates === undefined || error.candidates.length === 0
+			error.candidates === undefined || Arr.isReadonlyArrayEmpty(error.candidates)
 				? `No subagent with agent_id "${error.requested}" exists in this session. Use the agent_id from a ` +
 					`previous subagent result, or dispatch a fresh agent with the agent parameter.`
 				: `agent_id "${error.requested}" is ambiguous: it matches ${error.candidates.length} agents ` +
@@ -124,7 +123,7 @@ const busyFailure = (error: SubagentBusyError, allowedAgents: ReadonlyArray<stri
 	})
 
 /** Render the roster + usage guidance appended to the contract description for one factory value. */
-const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition>): string => {
+const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition<unknown>>): string => {
 	const listing = agents.map((agent) => `- ${agent.name}: ${agent.description}`).join('\n')
 
 	return (
@@ -136,15 +135,15 @@ const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition>): str
 
 /**
  * Build one subagent tool value over a roster of dispatchable types (round-five public factory). The
- * value is plain data: its description is fixed at construction (cache-stable), its handler reaches the
- * `Subagents` engine as an ambient per-call service, and the composition root reads the roster back off
+ * value is plain data: its description is fixed at construction (cache-stable), its handler runs the
+ * subagent operations over the session's services, and the composition root reads the roster back off
  * the value (`subagentRosterOf`) to build the session registry. Each call creates an independent value;
  * agents sharing one roster should share one value.
  */
-export const subagentTool = (
-	agents: ReadonlyArray<SubagentDefinition>,
-	options?: { readonly forkAgent?: ForkAgentDefinition },
-): FoldTool => {
+export const subagentTool = <D extends SubagentDefinition<unknown>, RF = never>(
+	agents: ReadonlyArray<D>,
+	options?: { readonly forkAgent?: ForkAgentDefinition<RF> },
+): FoldTool<SubagentDefinitionServices<D> | RF> => {
 	const allowedAgents = agents.map((agent) => agent.name)
 
 	const tool = defineTool({
@@ -152,7 +151,6 @@ export const subagentTool = (
 		description: `${subagentToolContract.description}${rosterDescriptionSuffix(agents)}`,
 		handler: (params) =>
 			Effect.gen(function* () {
-				const subagents = yield* Subagents
 				const command = yield* parseSubagentCommand(params).pipe(
 					Effect.catchTag('InvalidSubagentCommandError', (error) =>
 						Effect.fail<SubagentToolFailure>(
@@ -167,59 +165,51 @@ export const subagentTool = (
 				return yield* Match.value(command).pipe(
 					Match.tagsExhaustive({
 						dispatch: (dispatchCommand) =>
-							subagents
-								.dispatch({
-									agent: dispatchCommand.agent,
-									prompt: dispatchCommand.prompt,
-									skill: dispatchCommand.skill,
-									allowedAgents,
-								})
-								.pipe(
-									Effect.catchTags({
-										SubagentTypeNotInRosterError: (error) => Effect.fail(rosterFailure(error)),
-										SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
-									}),
-									Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
-								),
+							dispatchSubagent({
+								agent: dispatchCommand.agent,
+								prompt: dispatchCommand.prompt,
+								skill: dispatchCommand.skill,
+								allowedAgents,
+							}).pipe(
+								Effect.catchTags({
+									SubagentTypeNotInRosterError: (error) => Effect.fail(rosterFailure(error)),
+									SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
+								}),
+								Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
+							),
 						fork: (forkCommand) =>
-							subagents
-								.fork({
-									prompt: forkCommand.prompt,
-									skill: forkCommand.skill,
-									forkAgentDefinitionId: options?.forkAgent?.id ?? null,
-									history: 'all',
-								})
-								.pipe(
-									Effect.catchTag('SkillNotFoundError', (error) =>
-										Effect.fail(skillFailure(error, allowedAgents)),
-									),
-									Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
+							forkSubagent({
+								prompt: forkCommand.prompt,
+								skill: forkCommand.skill,
+								forkAgentDefinitionId: options?.forkAgent?.id ?? null,
+								history: 'all',
+							}).pipe(
+								Effect.catchTag('SkillNotFoundError', (error) =>
+									Effect.fail(skillFailure(error, allowedAgents)),
 								),
+								Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
+							),
 						resume: (resumeCommand) =>
-							subagents
-								.resume({
-									agentId: resumeCommand.agentId,
-									prompt: resumeCommand.prompt,
-									skill: resumeCommand.skill,
-								})
-								.pipe(
-									Effect.catchTags({
-										SubagentNotFoundError: (error) =>
-											Effect.fail(notFoundFailure(error, allowedAgents)),
-										SubagentBusyError: (error) => Effect.fail(busyFailure(error, allowedAgents)),
-										SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
-									}),
-									Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
-								),
+							resumeSubagent({
+								agentId: resumeCommand.agentId,
+								prompt: resumeCommand.prompt,
+								skill: resumeCommand.skill,
+							}).pipe(
+								Effect.catchTags({
+									SubagentNotFoundError: (error) =>
+										Effect.fail(notFoundFailure(error, allowedAgents)),
+									SubagentBusyError: (error) => Effect.fail(busyFailure(error, allowedAgents)),
+									SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
+								}),
+								Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
+							),
 					}),
 				)
 			}),
 	})
 
-	const capabilities: Mutable<SubagentToolCapabilities> = { agents }
-	if (options?.forkAgent !== undefined) {
-		capabilities.forkAgent = options.forkAgent
-	}
-
+	const roster = subagentsNeedingAll(agents)
+	const capabilities: SubagentToolCapabilities<SubagentDefinitionServices<D> | RF> =
+		options?.forkAgent === undefined ? { agents: roster } : { agents: roster, forkAgent: options.forkAgent }
 	return withSubagentCapabilities(tool, capabilities)
 }

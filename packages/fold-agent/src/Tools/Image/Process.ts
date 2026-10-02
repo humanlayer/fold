@@ -2,11 +2,12 @@
  * This file ports pi's image resize/normalize pipeline for the read tool (D18): EXIF-oriented decode,
  * pass-through when already within limits, Lanczos3 resize to 2000x2000, a PNG-then-JPEG-quality
  * encode ladder under the 4.5MB base64 cap (headroom below Anthropic's 5MB inline limit), a 0.75
- * downscale loop as last resort, and BMP-to-PNG conversion. All failures degrade to model-visible
- * "[Image omitted: ...]" notes rather than errors.
+ * downscale loop as last resort, and BMP-to-PNG conversion. Failures are `ImageProcessError`s; callers
+ * turn them into pi's model-visible "[Image omitted: ...]" notes with `imageOmittedNote`.
  */
-import { applyExifOrientation } from './ExifOrientation'
-import { loadPhoton } from './Photon'
+import { Data, Effect, Match, Option } from 'effect'
+
+import { Photon, type PhotonError, type PhotonFailureReason, type PhotonImage } from './Photon'
 
 /** 4.5MB of base64 payload: headroom below Anthropic's 5MB inline image limit (pi parity). */
 export const defaultMaxImageBytes = 4.5 * 1024 * 1024
@@ -14,7 +15,34 @@ export const defaultMaxImageBytes = 4.5 * 1024 * 1024
 const maxDimension = 2000
 const jpegQualityLadder = [80, 85, 70, 55, 40]
 
+const inlineSupportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+
 const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64')
+
+/**
+ * Image processing failed. `stage` says which step failed (converting an unsupported container to PNG,
+ * or fitting the image under the inline limits); `too-large` means no encoding fit even at 1x1.
+ */
+export class ImageProcessError extends Data.TaggedError('ImageProcessError')<{
+	readonly stage: 'convert' | 'resize'
+	readonly reason: PhotonFailureReason | 'too-large'
+	readonly cause?: PhotonError
+}> {}
+
+/** pi's verbatim model-visible note for an image that could not be processed. */
+export const imageOmittedNote = (error: ImageProcessError): string =>
+	Match.value(error.stage).pipe(
+		Match.when('convert', () => '[Image omitted: could not be converted to a supported inline image format.]'),
+		Match.when('resize', () => '[Image omitted: could not be resized below the inline image size limit.]'),
+		Match.exhaustive,
+	)
+
+/** An image ready for inline delivery, plus model-visible hints about conversion/resizing. */
+export type ProcessedImage = {
+	readonly data: string
+	readonly mimeType: string
+	readonly hints: ReadonlyArray<string>
+}
 
 type ResizedImage = {
 	readonly data: string
@@ -26,24 +54,52 @@ type ResizedImage = {
 	readonly wasResized: boolean
 }
 
-/** Resize/re-encode to fit dimension and base64-size limits. Null when photon fails or nothing fits. */
-const resizeImage = async (inputBytes: Uint8Array, mimeType: string): Promise<ResizedImage | null> => {
-	const photon = await loadPhoton()
-	if (photon === null) return null
+type Encoded = { readonly data: string; readonly mimeType: string }
 
-	const inputBase64Size = Math.ceil(inputBytes.byteLength / 3) * 4
-	let image: ReturnType<typeof photon.PhotonImage.new_from_byteslice> | undefined
+/** PNG first, then descending JPEG qualities: the first candidate under the cap wins. */
+const encodeUnderCap = (image: PhotonImage): Effect.Effect<Option.Option<Encoded>, PhotonError, Photon> =>
+	Effect.gen(function* () {
+		const photon = yield* Photon
+		const candidates = [
+			{ encode: photon.encodePng(image), mimeType: 'image/png' },
+			...jpegQualityLadder.map((quality) => ({
+				encode: photon.encodeJpeg(image, quality),
+				mimeType: 'image/jpeg',
+			})),
+		]
+		for (const candidate of candidates) {
+			const data = toBase64(yield* candidate.encode)
+			if (data.length < defaultMaxImageBytes) return Option.some({ data, mimeType: candidate.mimeType })
+		}
+		return Option.none()
+	})
 
-	try {
-		const rawImage = photon.PhotonImage.new_from_byteslice(inputBytes)
-		image = applyExifOrientation(photon, rawImage, inputBytes)
-		if (image !== rawImage) rawImage.free()
+/** Fit width/height inside maxDimension x maxDimension, preserving aspect ratio. */
+const fitWithinMaxDimension = (width: number, height: number) => {
+	let targetWidth = width
+	let targetHeight = height
+	if (targetWidth > maxDimension) {
+		targetHeight = Math.round((targetHeight * maxDimension) / targetWidth)
+		targetWidth = maxDimension
+	}
+	if (targetHeight > maxDimension) {
+		targetWidth = Math.round((targetWidth * maxDimension) / targetHeight)
+		targetHeight = maxDimension
+	}
+	return { width: targetWidth, height: targetHeight }
+}
 
+/** Resize/re-encode to fit dimension and base64-size limits. */
+const resizeImage = Effect.fn('resizeImage')(
+	function* (inputBytes: Uint8Array, mimeType: string) {
+		const photon = yield* Photon
+		const image = yield* photon.orient(yield* photon.decode(inputBytes), inputBytes)
 		const originalWidth = image.get_width()
 		const originalHeight = image.get_height()
+		const inputBase64Size = Math.ceil(inputBytes.byteLength / 3) * 4
 
 		if (originalWidth <= maxDimension && originalHeight <= maxDimension && inputBase64Size < defaultMaxImageBytes) {
-			return {
+			const passThrough: ResizedImage = {
 				data: toBase64(inputBytes),
 				mimeType,
 				originalWidth,
@@ -52,115 +108,65 @@ const resizeImage = async (inputBytes: Uint8Array, mimeType: string): Promise<Re
 				height: originalHeight,
 				wasResized: false,
 			}
+			return passThrough
 		}
 
-		let targetWidth = originalWidth
-		let targetHeight = originalHeight
-		if (targetWidth > maxDimension) {
-			targetHeight = Math.round((targetHeight * maxDimension) / targetWidth)
-			targetWidth = maxDimension
-		}
-		if (targetHeight > maxDimension) {
-			targetWidth = Math.round((targetWidth * maxDimension) / targetHeight)
-			targetHeight = maxDimension
-		}
-
-		let currentWidth = targetWidth
-		let currentHeight = targetHeight
-
+		let { width, height } = fitWithinMaxDimension(originalWidth, originalHeight)
 		while (true) {
-			const resized = photon.resize(image, currentWidth, currentHeight, photon.SamplingFilter.Lanczos3)
-			try {
-				// PNG first, then descending JPEG qualities: first candidate under the cap wins.
-				const candidates = [
-					{ bytes: resized.get_bytes(), mimeType: 'image/png' },
-					...jpegQualityLadder.map((quality) => ({
-						bytes: resized.get_bytes_jpeg(quality),
-						mimeType: 'image/jpeg',
-					})),
-				]
-				for (const candidate of candidates) {
-					const data = toBase64(candidate.bytes)
-					if (data.length < defaultMaxImageBytes) {
-						return {
-							data,
-							mimeType: candidate.mimeType,
-							originalWidth,
-							originalHeight,
-							width: currentWidth,
-							height: currentHeight,
-							wasResized: true,
-						}
-					}
+			const encoded = yield* Effect.scoped(Effect.flatMap(photon.resize(image, width, height), encodeUnderCap))
+			if (Option.isSome(encoded)) {
+				const resized: ResizedImage = {
+					...encoded.value,
+					originalWidth,
+					originalHeight,
+					width,
+					height,
+					wasResized: true,
 				}
-			} finally {
-				resized.free()
+				return resized
 			}
 
-			if (currentWidth === 1 && currentHeight === 1) break
-			const nextWidth = Math.max(1, Math.floor(currentWidth * 0.75))
-			const nextHeight = Math.max(1, Math.floor(currentHeight * 0.75))
-			if (nextWidth === currentWidth && nextHeight === currentHeight) break
-			currentWidth = nextWidth
-			currentHeight = nextHeight
+			const nextWidth = Math.max(1, Math.floor(width * 0.75))
+			const nextHeight = Math.max(1, Math.floor(height * 0.75))
+			if (nextWidth === width && nextHeight === height) break
+			width = nextWidth
+			height = nextHeight
 		}
 
-		return null
-	} catch {
-		return null
-	} finally {
-		image?.free()
-	}
-}
+		return yield* new ImageProcessError({ stage: 'resize', reason: 'too-large' })
+	},
+	Effect.scoped,
+	Effect.catchTag('PhotonError', (cause) =>
+		Effect.fail(new ImageProcessError({ stage: 'resize', reason: cause.reason, cause })),
+	),
+)
 
 /** Decode any photon-readable bytes and re-encode as PNG (the BMP conversion path). */
-const convertToPng = async (inputBytes: Uint8Array): Promise<Uint8Array | null> => {
-	const photon = await loadPhoton()
-	if (photon === null) return null
-
-	try {
-		const image = photon.PhotonImage.new_from_byteslice(inputBytes)
-		try {
-			return image.get_bytes()
-		} finally {
-			image.free()
-		}
-	} catch {
-		return null
-	}
-}
-
-const inlineSupportedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
-
-/** Outcome of processing image bytes for a tool result. */
-export type ProcessedImage =
-	| { readonly ok: true; readonly data: string; readonly mimeType: string; readonly hints: ReadonlyArray<string> }
-	| { readonly ok: false; readonly message: string }
+const convertToPng = Effect.fn('convertToPng')(
+	function* (inputBytes: Uint8Array) {
+		const photon = yield* Photon
+		return yield* photon.encodePng(yield* photon.decode(inputBytes))
+	},
+	Effect.scoped,
+	Effect.mapError((cause) => new ImageProcessError({ stage: 'convert', reason: cause.reason, cause })),
+)
 
 /**
  * Prepare sniffed image bytes for inline delivery: convert unsupported containers (BMP) to PNG, then
- * resize/re-encode under the inline limits. Failure messages are pi's, verbatim.
+ * resize/re-encode under the inline limits.
  */
-export const processImage = async (inputBytes: Uint8Array, sniffedMimeType: string): Promise<ProcessedImage> => {
+export const processImage = Effect.fn('processImage')(function* (inputBytes: Uint8Array, sniffedMimeType: string) {
 	const hints: Array<string> = []
 	let bytes = inputBytes
 	let mimeType = sniffedMimeType
 
 	if (!inlineSupportedMimeTypes.has(mimeType)) {
-		const converted = await convertToPng(bytes)
-		if (converted === null) {
-			return { ok: false, message: '[Image omitted: could not be converted to a supported inline image format.]' }
-		}
+		bytes = yield* convertToPng(bytes)
 		hints.push(`[Image converted from ${mimeType} to image/png.]`)
-		bytes = converted
 		mimeType = 'image/png'
 	}
 
-	const resized = await resizeImage(bytes, mimeType)
-	if (resized === null) {
-		return { ok: false, message: '[Image omitted: could not be resized below the inline image size limit.]' }
-	}
-
+	const resized = yield* resizeImage(bytes, mimeType)
 	if (resized.wasResized) {
 		const scale = resized.originalWidth / resized.width
 		hints.push(
@@ -168,5 +174,6 @@ export const processImage = async (inputBytes: Uint8Array, sniffedMimeType: stri
 		)
 	}
 
-	return { ok: true, data: resized.data, mimeType: resized.mimeType, hints }
-}
+	const processed: ProcessedImage = { data: resized.data, mimeType: resized.mimeType, hints }
+	return processed
+})

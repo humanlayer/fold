@@ -10,8 +10,8 @@ import {
 	reduceSessionEvents,
 } from '../../src/tui/SessionState'
 
-const rootAgentId = Schema.decodeUnknownSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
-const childAgentId = Schema.decodeUnknownSync(AgentId)('agent_bbbbbbbbbbbbbbbbbbbbbbbb')
+const rootAgentId = Schema.decodeSync(AgentId)('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+const childAgentId = Schema.decodeSync(AgentId)('agent_bbbbbbbbbbbbbbbbbbbbbbbb')
 
 const entry = (input: Record<string, unknown>) =>
 	Schema.decodeUnknownSync(LogEntry)({ ...input, eventId: EventId.create(), version: 1 })

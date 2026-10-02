@@ -9,7 +9,6 @@ import {
 	defineTool,
 	formatSize,
 	defaultMaxBytes,
-	platformToolDependencies,
 	readToolContract,
 	ToolResultFailure,
 	ToolResultImagePart,
@@ -19,11 +18,12 @@ import {
 	truncateHead,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Match, Schema, type PlatformError } from 'effect'
+import { Effect, FileSystem, Match, Option, Schema, type Path, type PlatformError } from 'effect'
 
 import { resolveReadPath, resolveToCwd } from '../Fs/PathResolve'
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
-import { processImage } from './Image/Process'
+import type { Photon } from './Image/Photon'
+import { imageOmittedNote, processImage } from './Image/Process'
 
 const binaryFileExtensions = new Set([
 	'.zip',
@@ -99,24 +99,24 @@ export const platformErrorMessage = (action: string, path: string, error: Platfo
 	)
 }
 
+const decodeErrnoCause = Schema.decodeUnknownOption(Schema.Struct({ code: Schema.String }))
+
 /** Extract the POSIX errno code (ENOENT, EACCES, ...) from a platform error, pi's error vocabulary. */
 export const errnoCode = (error: PlatformError.PlatformError): string => {
-	const cause: unknown = error.reason.cause
-	if (typeof cause === 'object' && cause !== null && 'code' in cause && typeof cause.code === 'string') {
-		return cause.code
-	}
-
-	return Match.value(error.reason).pipe(
-		Match.tags({ NotFound: () => 'ENOENT', PermissionDenied: () => 'EACCES' }),
-		Match.orElse((reason) => reason._tag),
-	)
+	return Option.match(decodeErrnoCause(error.reason.cause), {
+		onSome: ({ code }) => code,
+		onNone: () =>
+			Match.value(error.reason).pipe(
+				Match.tags({ NotFound: () => 'ENOENT', PermissionDenied: () => 'EACCES' }),
+				Match.orElse((reason) => reason._tag),
+			),
+	})
 }
 
 /** Build the read tool over the ambient FileSystem service. */
-export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
+export const readTool = (options?: { readonly cwd?: string }): FoldTool<FileSystem.FileSystem | Path.Path | Photon> =>
 	defineTool({
 		...readToolContract,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
@@ -133,21 +133,27 @@ export const readTool = (options?: { readonly cwd?: string }): FoldTool =>
 
 				const imageMimeType = detectSupportedImageMimeType(bytes.subarray(0, imageSniffBytes))
 				if (imageMimeType !== null) {
-					const processed = yield* Effect.promise(() => processImage(bytes, imageMimeType))
-
-					if (!processed.ok) {
-						return ToolResultText.make({
-							text: `Read image file [${imageMimeType}]\n${processed.message}`,
-						})
-					}
-
-					const note = [`Read image file [${processed.mimeType}]`, ...processed.hints].join('\n')
-					return ToolResultMultipart.make({
-						content: [
-							ToolResultTextPart.make({ text: note }),
-							ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
-						],
-					})
+					return yield* processImage(bytes, imageMimeType).pipe(
+						Effect.map((processed) =>
+							ToolResultMultipart.make({
+								content: [
+									ToolResultTextPart.make({
+										text: [`Read image file [${processed.mimeType}]`, ...processed.hints].join(
+											'\n',
+										),
+									}),
+									ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
+								],
+							}),
+						),
+						Effect.catchTag('ImageProcessError', (error) =>
+							Effect.succeed(
+								ToolResultText.make({
+									text: `Read image file [${imageMimeType}]\n${imageOmittedNote(error)}`,
+								}),
+							),
+						),
+					)
 				}
 
 				const text = yield* decodeTextFile(params.path, bytes)

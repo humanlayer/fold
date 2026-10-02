@@ -3,33 +3,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
 
-import * as NodeServices from '@effect/platform-node/NodeServices'
-import { readTool } from '@humanlayer/fold-agent'
 import {
 	AgentId,
 	buildPrompt,
-	CurrentAgent,
-	CurrentToolCall,
 	EventLog,
 	foldPartOptionsKey,
-	InterruptNote,
 	layerInMemoryEventLog,
 	LogEntryInputs,
 	MessageId,
 	messagesForAgent,
 	providerToolCallIdKey,
-	StopController,
-	Subagents,
 	ToolCallId,
-	ToolEvents,
-	ToolState,
 	type FoldTool,
-	type PlatformServices,
-	type ToolHandlerServices,
 	type ToolResultLogEntry,
 } from '@humanlayer/fold-core'
-import { Effect, Layer, Predicate, Schema, type Scope, Stream } from 'effect'
+import { Effect, Predicate, Schema, Stream } from 'effect'
 import { type LanguageModel, type Prompt, Toolkit } from 'effect/unstable/ai'
+
+import { readTool } from '../../src/index'
+import { callTool, runHandler } from '../TestHelpers'
 
 export const imageIdentificationPrompt =
 	'Inspect the image returned by read. Name its three vertical color bands from left to right. ' +
@@ -123,25 +115,6 @@ export const makeDeterministicColorBandsPng = (): Uint8Array => {
 	])
 }
 
-const toolHandlerTestLayer: Layer.Layer<ToolHandlerServices | PlatformServices> = Layer.mergeAll(
-	NodeServices.layer,
-	Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
-	Layer.succeed(ToolEvents, { emit: () => Effect.void }),
-	Layer.succeed(StopController, { requestStop: () => Effect.void, isStopRequested: Effect.succeed(false) }),
-	Layer.succeed(CurrentAgent, {
-		agentId: fixtureAgentId,
-		parentAgentId: null,
-	}),
-	Layer.succeed(CurrentToolCall, { toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa') }),
-	Layer.succeed(InterruptNote, { set: () => Effect.void }),
-	Layer.succeed(Subagents, {
-		dispatch: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-		fork: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-		resume: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-		continueSubagent: () => Effect.die(new Error('Subagents are unavailable in the image-read test harness')),
-	}),
-)
-
 const decodeJson = Schema.decodeUnknownEffect(Schema.Json)
 
 const toolCallIdAt = (index: number): ToolCallId =>
@@ -152,8 +125,8 @@ const messageIdAt = (index: number): MessageId =>
 
 export type DurableToolResultInput = {
 	readonly name: string
-	readonly params: typeof Schema.Json.Type
-	readonly result: typeof Schema.Json.Type
+	readonly params: Schema.Json
+	readonly result: Schema.Json
 	readonly isFailure: boolean
 	readonly providerToolCallId?: string
 }
@@ -164,11 +137,7 @@ export type SessionPromptFixture = {
 }
 
 /** Execute one production Fold tool handler under the same platform and per-call services as runtime. */
-export const executeToolHandler = (tool: FoldTool, params: unknown): Effect.Effect<unknown, unknown> =>
-	tool.init.pipe(
-		Effect.flatMap((contribution) => contribution.handler(params)),
-		Effect.provide(toolHandlerTestLayer),
-	)
+export const executeToolHandler = <R>(tool: FoldTool<R>, params: unknown) => runHandler(callTool(tool, params))
 
 /** Decode a real handler result/failure into the JSON shape accepted by the durable EventLog. */
 export const decodeToolResultJson = (result: unknown) => decodeJson(result)
@@ -256,41 +225,40 @@ export const buildSessionPromptWithToolResults = (input: {
 
 export type ImageReadPromptFixture = {
 	readonly prompt: Prompt.Prompt
-	readonly readResult: typeof Schema.Json.Type
+	readonly readResult: Schema.Json
 	readonly sourceImageBase64: string
 }
 
 /** Execute the production read tool, then feed its durable result through the session prompt builder. */
-export const makeImageReadPromptFixture: Effect.Effect<ImageReadPromptFixture, unknown, Scope.Scope> =
-	makeTemporaryTestDirectory('fold-image-read-delivery-').pipe(
-		Effect.flatMap((directory) =>
-			Effect.gen(function* () {
-				const sourceImage = makeDeterministicColorBandsPng()
-				yield* Effect.sync(() => writeFileSync(join(directory, 'visual-fixture.png'), sourceImage))
+export const makeImageReadPromptFixture = makeTemporaryTestDirectory('fold-image-read-delivery-').pipe(
+	Effect.flatMap((directory) =>
+		Effect.gen(function* () {
+			const sourceImage = makeDeterministicColorBandsPng()
+			yield* Effect.sync(() => writeFileSync(join(directory, 'visual-fixture.png'), sourceImage))
 
-				const result = yield* executeToolHandler(readTool({ cwd: directory }), { path: 'visual-fixture.png' })
-				const readResult = yield* decodeJson(result)
-				const { prompt } = yield* buildSessionPromptWithToolResults({
-					userText: imageIdentificationPrompt,
-					toolResults: [
-						{
-							name: 'read',
-							params: { path: 'visual-fixture.png' },
-							result: readResult,
-							isFailure: false,
-							providerToolCallId: 'call_image_read_delivery',
-						},
-					],
-				})
+			const result = yield* executeToolHandler(readTool({ cwd: directory }), { path: 'visual-fixture.png' })
+			const readResult = yield* decodeJson(result)
+			const { prompt } = yield* buildSessionPromptWithToolResults({
+				userText: imageIdentificationPrompt,
+				toolResults: [
+					{
+						name: 'read',
+						params: { path: 'visual-fixture.png' },
+						result: readResult,
+						isFailure: false,
+						providerToolCallId: 'call_image_read_delivery',
+					},
+				],
+			})
 
-				return {
-					prompt,
-					readResult,
-					sourceImageBase64: Buffer.from(sourceImage).toString('base64'),
-				}
-			}),
-		),
-	)
+			return {
+				prompt,
+				readResult,
+				sourceImageBase64: Buffer.from(sourceImage).toString('base64'),
+			}
+		}),
+	),
+)
 
 /**
  * Run the exact model-call shape used by AgentRuntime: session-built prompt, streaming, an explicitly

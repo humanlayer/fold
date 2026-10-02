@@ -1,6 +1,7 @@
 /**
  * Shared fixtures for fold-agent tool tests: ambient tool services (recorded ToolEvents, no-op
- * ToolState/StopController), scoped temp directories on the real filesystem, and an in-memory
+ * ToolState/StopController, the platform, photon, and an output store in a scoped temp directory), scoped temp
+ * directories on the real filesystem, and an in-memory
  * FileSystem built on `FileSystem.makeNoop` for tests that must not touch the user's disk (skill scan
  * paths reach the home directory).
  */
@@ -16,79 +17,166 @@ import {
 	CurrentToolCall,
 	InterruptNote,
 	StopController,
-	Subagents,
 	ToolCallId,
 	ToolEvents,
+	ToolResultFailure,
+	ToolResultSuccess,
 	ToolState,
 	type FoldTool,
-	type PlatformServices,
-	type ToolHandlerServices,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem, Layer, PlatformError, Ref, type Schema } from 'effect'
+import { Effect, FileSystem, Layer, type Path, PlatformError, Ref, Schema, type Scope } from 'effect'
+import { HttpClient, HttpClientError } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
-/** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
-export const makeAmbientServices = (): Effect.Effect<{
-	readonly layer: Layer.Layer<ToolHandlerServices | PlatformServices>
-	readonly emitted: Effect.Effect<ReadonlyArray<typeof Schema.Json.Type>>
-	/** The most recent InterruptNote the handler recorded, or null. */
-	readonly interruptNote: Effect.Effect<string | null>
-}> =>
-	Effect.gen(function* () {
-		const events = yield* Ref.make<ReadonlyArray<typeof Schema.Json.Type>>([])
-		const note = yield* Ref.make<string | null>(null)
-
-		return {
-			layer: Layer.mergeAll(
-				NodeServices.layer,
-				Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
-				Layer.succeed(ToolEvents, {
-					emit: (payload) => Ref.update(events, (recorded) => [...recorded, payload]),
-				}),
-				Layer.succeed(StopController, {
-					requestStop: () => Effect.void,
-					isStopRequested: Effect.succeed(false),
-				}),
-				Layer.succeed(CurrentAgent, {
-					agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
-					parentAgentId: null,
-				}),
-				Layer.succeed(CurrentToolCall, {
-					toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa'),
-				}),
-				Layer.succeed(InterruptNote, { set: (text) => Ref.set(note, text) }),
-				Layer.succeed(Subagents, {
-					dispatch: () => Effect.die(new Error('Subagents not available in this test')),
-					fork: () => Effect.die(new Error('Subagents not available in this test')),
-					resume: () => Effect.die(new Error('Subagents not available in this test')),
-					continueSubagent: () => Effect.die(new Error('Subagents not available in this test')),
-				}),
-				NodeFileSystem.layer,
-			),
-			emitted: Ref.get(events),
-			interruptNote: Ref.get(note),
-		}
-	})
-
-/** Invoke one tool's handler through its init: the realized handler, still needing the ambient R. */
-export const handlerOf =
-	(tool: FoldTool) =>
-	(params: unknown): Effect.Effect<unknown, unknown, ToolHandlerServices | FileSystem.FileSystem> =>
-		tool.init.pipe(Effect.flatMap((contribution) => contribution.handler(params)))
-
-/** Run one handler with throwaway ambient services. */
-export const runHandler = <A, E>(
-	effect: Effect.Effect<A, E, ToolHandlerServices | FileSystem.FileSystem>,
-): Effect.Effect<A, E> =>
-	Effect.gen(function* () {
-		const ambient = yield* makeAmbientServices()
-		return yield* effect.pipe(Effect.provide(ambient.layer))
-	})
+import { layerOutputStore, type OutputStore } from '../src/OutputStore/OutputStore'
+import { Photon } from '../src/Tools/Image/Photon'
 
 /** A scoped temp directory on the real filesystem, removed when the scope closes. */
 export const tempDir = Effect.acquireRelease(
 	Effect.sync(() => mkdtempSync(join(tmpdir(), 'fold-agent-test-'))),
 	(directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
 )
+
+/** Run a tool handler effect with stubbed ambient services and recorded ToolEvents/InterruptNote feeds. */
+export const makeAmbientServices: Effect.Effect<
+	{
+		/** The per-call services, the platform, an output store, and the real photon image library. */
+		readonly layer: Layer.Layer<
+			| ToolState
+			| ToolEvents
+			| StopController
+			| CurrentAgent
+			| CurrentToolCall
+			| InterruptNote
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+		>
+		readonly emitted: Effect.Effect<ReadonlyArray<Schema.Json>>
+		/** The most recent InterruptNote the handler recorded, or null. */
+		readonly interruptNote: Effect.Effect<string | null>
+		/** Where the output store writes, removed when the scope closes. */
+		readonly outputDirectory: string
+	},
+	never,
+	Scope.Scope
+> = Effect.gen(function* () {
+	const events = yield* Ref.make<ReadonlyArray<Schema.Json>>([])
+	const note = yield* Ref.make<string | null>(null)
+	const outputDirectory = yield* tempDir
+
+	return {
+		layer: Layer.mergeAll(
+			NodeServices.layer,
+			Layer.succeed(ToolState, { get: () => Effect.succeed(null), set: () => Effect.void }),
+			Layer.succeed(ToolEvents, {
+				emit: (payload) => Ref.update(events, (recorded) => [...recorded, payload]),
+			}),
+			Layer.succeed(StopController, {
+				requestStop: () => Effect.void,
+				isStopRequested: Effect.succeed(false),
+			}),
+			Layer.succeed(CurrentAgent, {
+				agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa'),
+				parentAgentId: null,
+			}),
+			Layer.succeed(CurrentToolCall, {
+				toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa'),
+			}),
+			Layer.succeed(InterruptNote, { set: (text) => Ref.set(note, text) }),
+			layerOutputStore({ directory: outputDirectory }).pipe(Layer.provide(NodeFileSystem.layer)),
+			Photon.layer,
+		),
+		emitted: Ref.get(events),
+		interruptNote: Ref.get(note),
+		outputDirectory,
+	}
+})
+
+/** One realized tool call: it needs the per-call services plus the tool's own host services `R`. */
+type ToolCall<R> = Effect.Effect<
+	ToolResultSuccess,
+	ToolResultFailure,
+	ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | R
+>
+
+/**
+ * Initialize a tool the way the session does and return its handler. A realized handler's success and
+ * failure are erased; every built-in tool succeeds with `ToolResultSuccess` and fails with
+ * `ToolResultFailure`, so both are decoded back at this test boundary. Anything else is a defect.
+ */
+export const realizeTool = <R>(
+	tool: FoldTool<R>,
+): Effect.Effect<(params: unknown) => ToolCall<R>, never, R | Scope.Scope> =>
+	Effect.map(
+		tool.init,
+		(contribution) =>
+			(params): ToolCall<R> =>
+				// oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- the erased handler is decoded here
+				contribution.handler(params).pipe(
+					Effect.catch((error) =>
+						Schema.decodeUnknownEffect(ToolResultFailure)(error).pipe(
+							Effect.orDie,
+							Effect.flatMap(Effect.fail),
+						),
+					),
+					Effect.flatMap((result) =>
+						Schema.decodeUnknownEffect(ToolResultSuccess)(result).pipe(Effect.orDie),
+					),
+				),
+	)
+
+/** Call a tool through its init, the way the runtime does. */
+export const callTool = <R>(
+	tool: FoldTool<R>,
+	params: unknown,
+): Effect.Effect<
+	ToolResultSuccess,
+	ToolResultFailure,
+	ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | R | Scope.Scope
+> => Effect.flatMap(realizeTool(tool), (handler) => handler(params))
+
+export const handlerOf =
+	<R>(tool: FoldTool<R>) =>
+	(
+		params: unknown,
+	): Effect.Effect<
+		ToolResultSuccess,
+		ToolResultFailure,
+		ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote | R | Scope.Scope
+	> =>
+		callTool(tool, params)
+
+/** Run one handler with throwaway ambient services; anything else it needs, the caller provides. */
+export const runHandler = <A, E, R>(
+	effect: Effect.Effect<A, E, R>,
+): Effect.Effect<
+	A,
+	E,
+	Exclude<
+		Exclude<
+			R,
+			| ToolState
+			| ToolEvents
+			| StopController
+			| CurrentAgent
+			| CurrentToolCall
+			| InterruptNote
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+		>,
+		Scope.Scope
+	>
+> =>
+	Effect.gen(function* () {
+		const ambient = yield* makeAmbientServices
+		return yield* effect.pipe(Effect.provide(ambient.layer))
+	}).pipe(Effect.scoped)
 
 const notFound = (method: string, path: string) =>
 	PlatformError.systemError({
@@ -160,24 +248,28 @@ export const memoryFileSystem = (initialFiles: Record<string, string>): FileSyst
 
 /** Read one file back out of a memory filesystem fixture (test assertion helper). */
 export const memoryFileFor = (fs: FileSystem.FileSystem, path: string): Effect.Effect<string | null> =>
-	fs.readFileString(path).pipe(Effect.catch(() => Effect.succeed(null)))
+	fs.readFileString(path).pipe(Effect.orElseSucceed(() => null))
 
-/** Narrow one string-valued field out of an unknown tool result/failure (assertion helper). */
-const stringField =
-	(field: string) =>
-	(value: unknown): string => {
-		if (typeof value === 'object' && value !== null && field in value) {
-			const candidate: unknown = Reflect.get(value, field)
-			if (typeof candidate === 'string') return candidate
-		}
-		throw new Error(`expected a value with a string "${field}" field`)
-	}
+/** An HttpClient with no network: every request fails at the transport with "network down". */
+export const offlineHttpClient: Layer.Layer<HttpClient.HttpClient> = Layer.succeed(
+	HttpClient.HttpClient,
+	HttpClient.make((request) =>
+		Effect.fail(
+			new HttpClientError.HttpClientError({
+				reason: new HttpClientError.TransportError({ request, description: 'network down' }),
+			}),
+		),
+	),
+)
 
-/** The `message` field of a tool success/failure value. */
-export const messageOf: (value: unknown) => string = stringField('text')
+const TextResult = Schema.Struct({ text: Schema.String })
+const decodeTextResult = Schema.decodeUnknownSync(TextResult)
 
-/** The `output` field of a bash tool success value. */
-export const outputOf: (value: unknown) => string = stringField('text')
+/** The `text` field of a tool success/failure value. */
+export const messageOf = (value: unknown): string => decodeTextResult(value).text
+
+/** The `text` field of a bash tool success value. */
+export const outputOf = (value: unknown): string => decodeTextResult(value).text
 
 const parentDirs = (path: string): ReadonlyArray<string> => {
 	const parents: Array<string> = []

@@ -15,10 +15,10 @@ import type { ActiveModel } from '../EventLog/Schemas'
 
 /** Model pricing in USD per 1,000,000 tokens. Null rates mean the provider publishes no such rate. */
 export const ModelPricing = Schema.Struct({
-	inputPerMTokens: Schema.Number,
-	outputPerMTokens: Schema.Number,
-	cacheReadPerMTokens: Schema.NullOr(Schema.Number),
-	cacheWritePerMTokens: Schema.NullOr(Schema.Number),
+	inputPerMTokens: Schema.Finite,
+	outputPerMTokens: Schema.Finite,
+	cacheReadPerMTokens: Schema.NullOr(Schema.Finite),
+	cacheWritePerMTokens: Schema.NullOr(Schema.Finite),
 }).annotate({ identifier: 'ModelPricing' })
 export type ModelPricing = typeof ModelPricing.Type
 
@@ -31,9 +31,9 @@ export const ModelCatalogEntry = Schema.Struct({
 	providerId: Schema.String,
 	modelId: Schema.String,
 	name: Schema.NullOr(Schema.String),
-	contextWindow: Schema.Number,
-	maxInputTokens: Schema.NullOr(Schema.Number),
-	maxOutputTokens: Schema.Number,
+	contextWindow: Schema.Finite,
+	maxInputTokens: Schema.NullOr(Schema.Finite),
+	maxOutputTokens: Schema.Finite,
 	reasoning: Schema.Boolean,
 	reasoningEfforts: Schema.NullOr(Schema.Array(Schema.String)),
 	vision: Schema.Boolean,
@@ -57,16 +57,15 @@ export type ModelCatalogService = {
  * `anthropic`, the codex backend serves openai models, and openai-compatible endpoints usually proxy
  * `openai` models but may be a real catalog provider themselves (the configured profile id).
  */
-const candidateProviderIds = (model: ActiveModel): ReadonlyArray<string> => {
-	switch (model.providerKind) {
-		case 'anthropic':
-			return ['anthropic']
-		case 'codex':
-			return ['openai']
-		case 'openai-compatible':
-			return model.providerId === 'openai' ? ['openai'] : [model.providerId, 'openai']
-	}
-}
+const candidateProviderIds = (model: ActiveModel): ReadonlyArray<string> =>
+	Match.value(model.providerKind).pipe(
+		Match.when('anthropic', () => ['anthropic']),
+		Match.when('codex', () => ['openai']),
+		Match.when('openai-compatible', () =>
+			model.providerId === 'openai' ? ['openai'] : [model.providerId, 'openai'],
+		),
+		Match.exhaustive,
+	)
 
 /** Deterministic preference for bare-model-id matches: anthropic, then openai, then first-seen. */
 const bareMatchPriority = Match.type<string>().pipe(

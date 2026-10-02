@@ -8,13 +8,14 @@ import { Effect, Layer, Option, Predicate } from 'effect'
 import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 
 import {
+	CodexAuth,
+	CodexAuthStore,
 	CodexTokenData,
 	extractAccountIdFromToken,
-	makeCodexAuth,
-	makeCodexAuthStore,
+	layerCodexAuth,
+	layerCodexAuthStore,
 	parseJwtClaims,
 } from '../src/index'
-import type { CodexAuthStore } from '../src/index'
 
 const tempStorePath = (): string => join(mkdtempSync(join(tmpdir(), 'fold-codex-auth-')), 'auth.json')
 
@@ -49,12 +50,24 @@ const scriptedFetchLayer = (
 const jsonResponse = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
-const storeWith = (token?: CodexTokenData): Effect.Effect<CodexAuthStore> =>
+/** A temp auth document, holding `token` under the `codex` entry when one is given. */
+const seededStorePath = (token?: CodexTokenData): Effect.Effect<string> =>
 	Effect.gen(function* () {
-		const store = yield* makeCodexAuthStore({ path: tempStorePath() })
-		if (token !== undefined) yield* Effect.orDie(store.save(token))
-		return store
+		const path = tempStorePath()
+		if (token !== undefined) {
+			yield* Effect.gen(function* () {
+				const store = yield* CodexAuthStore
+				yield* Effect.orDie(store.save(token))
+			}).pipe(Effect.provide(layerCodexAuthStore({ path })))
+		}
+		return path
 	}).pipe(Effect.provide(NodeFileSystem.layer))
+
+/** CodexAuth and its credential store over the document at `path`, talking to the scripted `network`. */
+const authLayer = (path: string, network: Layer.Layer<HttpClient.HttpClient>) => {
+	const store = layerCodexAuthStore({ path }).pipe(Layer.provide(NodeFileSystem.layer))
+	return Layer.merge(layerCodexAuth().pipe(Layer.provide([store, network])), store)
+}
 
 describe('JWT account id extraction', () => {
 	it('reads the direct claim first', () => {
@@ -100,13 +113,15 @@ describe('CodexAuth.get', () => {
 			const network = scriptedFetchLayer(() => {
 				throw new Error('no network call expected')
 			})
-			const store = yield* storeWith(validToken)
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath(validToken)
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
 
-			const token = yield* auth.get
-			expect(token.access).toBe('valid-access')
-			expect(network.requests).toHaveLength(0)
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const token = yield* auth.get
+				expect(token.access).toBe('valid-access')
+				expect(network.requests).toHaveLength(0)
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 
 	it.effect('fails NotAuthenticated when the store is empty', () =>
@@ -114,14 +129,17 @@ describe('CodexAuth.get', () => {
 			const network = scriptedFetchLayer(() => {
 				throw new Error('no network call expected')
 			})
-			const store = yield* storeWith()
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath()
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
+				const store = yield* CodexAuthStore
 
-			const result = yield* auth.get.pipe(Effect.flip)
-			expect(result._tag).toBe('CodexAuthError')
-			expect(result.reason).toBe('NotAuthenticated')
-			expect(result.message).toContain(store.path)
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const result = yield* auth.get.pipe(Effect.flip)
+				expect(result._tag).toBe('CodexAuthError')
+				expect(result.reason).toBe('NotAuthenticated')
+				expect(result.message).toContain(store.path)
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 
 	it.effect('refreshes an expired token, persists it, and preserves the account id', () =>
@@ -140,19 +158,22 @@ describe('CodexAuth.get', () => {
 					expires_in: 3600,
 				})
 			})
-			const store = yield* storeWith(expiredToken)
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath(expiredToken)
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
+				const store = yield* CodexAuthStore
 
-			const token = yield* auth.get
-			expect(token.access).toBe('fresh-access')
-			expect(token.refresh).toBe('fresh-refresh')
-			expect(token.expires).toBe(3_600_000)
-			expect(token.accountId).toBe('acct_old')
+				const token = yield* auth.get
+				expect(token.access).toBe('fresh-access')
+				expect(token.refresh).toBe('fresh-refresh')
+				expect(token.expires).toBe(3_600_000)
+				expect(token.accountId).toBe('acct_old')
 
-			const persisted = yield* store.load
-			expect(Option.isSome(persisted)).toBe(true)
-			if (Option.isSome(persisted)) expect(persisted.value.access).toBe('fresh-access')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const persisted = yield* store.load
+				expect(Option.isSome(persisted)).toBe(true)
+				if (Option.isSome(persisted)) expect(persisted.value.access).toBe('fresh-access')
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 
 	it.effect('extracts the account id from a refreshed id_token', () =>
@@ -165,12 +186,14 @@ describe('CodexAuth.get', () => {
 					id_token: jwtWith({ chatgpt_account_id: 'acct_new' }),
 				}),
 			)
-			const store = yield* storeWith(expiredToken)
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath(expiredToken)
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
 
-			const token = yield* auth.get
-			expect(token.accountId).toBe('acct_new')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const token = yield* auth.get
+				expect(token.accountId).toBe('acct_new')
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 
 	it.effect('single-flights concurrent refreshes', () =>
@@ -178,30 +201,35 @@ describe('CodexAuth.get', () => {
 			const network = scriptedFetchLayer(() =>
 				jsonResponse({ access_token: 'fresh-access', refresh_token: 'fresh-refresh', expires_in: 3600 }),
 			)
-			const store = yield* storeWith(expiredToken)
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath(expiredToken)
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
 
-			const [first, second] = yield* Effect.all([auth.get, auth.get], { concurrency: 2 })
-			expect(first.access).toBe('fresh-access')
-			expect(second.access).toBe('fresh-access')
-			expect(network.requests).toHaveLength(1)
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const [first, second] = yield* Effect.all([auth.get, auth.get], { concurrency: 2 })
+				expect(first.access).toBe('fresh-access')
+				expect(second.access).toBe('fresh-access')
+				expect(network.requests).toHaveLength(1)
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 
 	it.effect('a failed refresh surfaces RefreshFailed and keeps the stored credential', () =>
 		Effect.gen(function* () {
 			// 400 is not transient, so the issuer client does not retry and the failure is immediate.
 			const network = scriptedFetchLayer(() => jsonResponse({ error: 'invalid_grant' }, 400))
-			const store = yield* storeWith(expiredToken)
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath(expiredToken)
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
+				const store = yield* CodexAuthStore
 
-			const result = yield* auth.get.pipe(Effect.flip)
-			expect(result.reason).toBe('RefreshFailed')
+				const result = yield* auth.get.pipe(Effect.flip)
+				expect(result.reason).toBe('RefreshFailed')
 
-			const persisted = yield* store.load
-			expect(Option.isSome(persisted)).toBe(true)
-			if (Option.isSome(persisted)) expect(persisted.value.refresh).toBe('stale-refresh')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const persisted = yield* store.load
+				expect(Option.isSome(persisted)).toBe(true)
+				if (Option.isSome(persisted)) expect(persisted.value.refresh).toBe('stale-refresh')
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 
 	it.effect('logout clears the stored credential', () =>
@@ -209,15 +237,18 @@ describe('CodexAuth.get', () => {
 			const network = scriptedFetchLayer(() => {
 				throw new Error('no network call expected')
 			})
-			const store = yield* storeWith(validToken)
-			const auth = yield* makeCodexAuth({ store }).pipe(Effect.provide(network.layer))
+			const path = yield* seededStorePath(validToken)
+			yield* Effect.gen(function* () {
+				const auth = yield* CodexAuth
+				const store = yield* CodexAuthStore
 
-			yield* auth.logout
-			const persisted = yield* store.load
-			expect(Option.isNone(persisted)).toBe(true)
+				yield* auth.logout
+				const persisted = yield* store.load
+				expect(Option.isNone(persisted)).toBe(true)
 
-			const result = yield* auth.get.pipe(Effect.flip)
-			expect(result.reason).toBe('NotAuthenticated')
-		}).pipe(Effect.provide(NodeFileSystem.layer)),
+				const result = yield* auth.get.pipe(Effect.flip)
+				expect(result.reason).toBe('NotAuthenticated')
+			}).pipe(Effect.provide(authLayer(path, network.layer)))
+		}),
 	)
 })

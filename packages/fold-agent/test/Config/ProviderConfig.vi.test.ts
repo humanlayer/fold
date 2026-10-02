@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem } from 'effect'
 
 import { configureProvider, describeModelConfiguration, loadFoldConfig, starterConfigJsonc } from '../../src/index'
 import { memoryFileSystem, tempDir } from '../TestHelpers'
@@ -189,5 +189,5 @@ it.effect('does not replace a malformed existing config', () => {
 		).pipe(Effect.flip)
 
 		expect(error._tag).toBe('ConfigParseError')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })

@@ -12,23 +12,21 @@ import { ToolsetResolver, type ResolveToolsetInput } from './ToolsetResolverServ
 import { Toolset } from './ToolsetService'
 
 /** Default family-exclusion policy: which installed tool names are hidden from each family (D17/D18). */
-export const defaultExcludedToolsByFamily: Record<ModelFamily, ReadonlyArray<string>> = {
+export const defaultExcludedToolsByFamily = {
 	claude: ['apply_patch'],
 	unknown: ['apply_patch'],
 	gpt: ['write', 'edit'],
 	codex: ['write', 'edit'],
-}
+} as const satisfies Record<ModelFamily, ReadonlyArray<string>>
 
 /** Options for the default ToolsetResolver implementation. */
-export type MakeToolsetResolverOptions = {
+export type ToolsetResolverOptions = {
 	/** Per-family exclusion overrides, merged over the default policy. */
 	readonly excludedToolsByFamily?: Partial<Record<ModelFamily, ReadonlyArray<string>>>
 }
 
 /** Build a ToolsetResolver layer filtering the installed Toolset by family-exclusion policy. */
-export const makeToolsetResolver = (
-	options?: MakeToolsetResolverOptions,
-): Layer.Layer<ToolsetResolver, never, Toolset> =>
+export const layerToolsetResolver = (options?: ToolsetResolverOptions): Layer.Layer<ToolsetResolver, never, Toolset> =>
 	Layer.effect(
 		ToolsetResolver,
 		Effect.gen(function* () {
@@ -49,4 +47,4 @@ export const makeToolsetResolver = (
 	)
 
 /** Default ToolsetResolver layer with the standard family-exclusion policy. */
-export const liveToolsetResolverLayer: Layer.Layer<ToolsetResolver, never, Toolset> = makeToolsetResolver()
+export const liveToolsetResolverLayer: Layer.Layer<ToolsetResolver, never, Toolset> = layerToolsetResolver()

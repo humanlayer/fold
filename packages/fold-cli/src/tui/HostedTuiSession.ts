@@ -5,9 +5,13 @@ import {
 	switchSessionMode,
 	type ProfileModeName,
 	type FoldConfig,
+	type OutputStore,
+	type Photon,
 } from '@humanlayer/fold-agent'
-import { renderSkillContent, type ModelCatalogEntry, type SessionId, type FoldSession } from '@humanlayer/fold-core'
-import { Cause, Duration, Effect, type Scope, Stream } from 'effect'
+import { renderSkillContent, type FoldSession, type ModelCatalogEntry, type SessionId } from '@humanlayer/fold-core'
+import { Cause, Duration, Effect, type FileSystem, Layer, type Path, type Scope, Stream } from 'effect'
+import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 import { batch, createSignal, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 
@@ -25,7 +29,14 @@ export type HostedTuiSessionMetadata = {
 
 export type HostedTuiSession = {
 	readonly sessionId: SessionId
-	readonly session: FoldSession
+	readonly session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>
 	readonly cwd: string
 	readonly profile: Accessor<string>
 	readonly mode: Accessor<ProfileModeName>
@@ -46,7 +57,14 @@ export type HostedTuiSession = {
 }
 
 export const makeHostedTuiSession = (
-	session: FoldSession,
+	session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	options: {
 		readonly metadata: HostedTuiSessionMetadata
 		readonly initialInputFocused: boolean
@@ -166,7 +184,7 @@ export const makeHostedTuiSession = (
 							else setTargetNotice({ agentId, text })
 						}),
 					),
-					Effect.provide(NodeFileSystem.layer),
+					Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
 				),
 			)
 		}
@@ -207,7 +225,7 @@ export const makeHostedTuiSession = (
 						}),
 					),
 					Effect.catchCause((cause) => Effect.sync(() => setNotice(Cause.pretty(cause)))),
-					Effect.provide(NodeFileSystem.layer),
+					Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)),
 				),
 			)
 		}

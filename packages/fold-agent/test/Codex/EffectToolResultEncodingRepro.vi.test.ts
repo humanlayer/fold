@@ -106,7 +106,7 @@ it.live('passes strings through and emits multipart client tool results in Effec
 
 		const captured = requests[0]
 		assert.isDefined(captured)
-		const body = Schema.decodeUnknownSync(CapturedRequest)(JSON.parse(captured.body))
+		const body = yield* Schema.decodeUnknownEffect(CapturedRequest)(JSON.parse(captured.body))
 		const outputs = body.input.filter(
 			(item) => item['type'] === 'function_call_output' && Predicate.isString(item['call_id']),
 		)

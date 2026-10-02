@@ -1,10 +1,10 @@
 import { join } from 'node:path'
 
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import {
 	bootstrapFoldHome,
 	defaultFoldHome,
 	ensureManagedBinaries,
+	type ManagedBinaries,
 	launchSession,
 	modeForName,
 	resumeLatestSession,
@@ -16,8 +16,10 @@ import {
 	type NoSessionToResumeError,
 	type SessionToResumeNotFoundError,
 	type FoldModeName,
+	type OutputStore,
+	type Photon,
 } from '@humanlayer/fold-agent'
-import { makeCodexAuthStore } from '@humanlayer/fold-codex'
+import { CodexAuthStore, layerCodexAuthStore, type CodexAuthStoreOptions } from '@humanlayer/fold-codex'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -28,6 +30,7 @@ import type {
 	FoldSession,
 } from '@humanlayer/fold-core'
 import {
+	Array as Arr,
 	Data,
 	Match,
 	Predicate,
@@ -38,9 +41,12 @@ import {
 	Fiber,
 	type FileSystem,
 	Option,
+	type Path,
 	Stream,
 	type Scope,
 } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type SessionHeader } from './Renderer'
 
@@ -48,7 +54,7 @@ import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type Se
  * What `--resume` selected: the newest session log for this project, or one exact id. Absent means a
  * fresh session.
  */
-export type ResumeTarget = { readonly _tag: 'latest' } | { readonly _tag: 'id'; readonly sessionId: SessionId }
+export type ResumeTarget = Data.TaggedEnum<{ latest: {}; id: { readonly sessionId: SessionId } }>
 export const ResumeTarget = Data.taggedEnum<ResumeTarget>()
 
 /** Shared options for opening a CLI-backed fold session. */
@@ -77,7 +83,14 @@ export type PromptRunOptions = CliSessionOptions & {
 }
 
 type OpenedSession = {
-	readonly session: FoldSession
+	readonly session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>
 	readonly mode: 'new' | 'resumed'
 	readonly logPath: string
 }
@@ -101,7 +114,24 @@ const launchOptions = (options: CliSessionOptions) => {
 /** Start fresh, resume the project's newest log, or adopt one exact session id. */
 const openSessionFor = (
 	options: CliSessionOptions,
-): Effect.Effect<FoldSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> => {
+): Effect.Effect<
+	FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
+	OpenSessionError,
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+> => {
 	if (options.resume === undefined) return launchSession(launchOptions(options))
 
 	return Match.valueTags(options.resume, {
@@ -112,7 +142,17 @@ const openSessionFor = (
 
 const openSession = (
 	options: CliSessionOptions,
-): Effect.Effect<OpenedSession, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
+): Effect.Effect<
+	OpenedSession,
+	OpenSessionError,
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+> =>
 	Effect.gen(function* () {
 		const session = yield* openSessionFor(options)
 		const logOptions: Mutable<NonNullable<Parameters<typeof sessionLogPathFor>[1]>> = { cwd: options.cwd }
@@ -136,26 +176,38 @@ const activeModelFromEntries = (entries: ReadonlyArray<LogEntry>, rootAgentId: s
 	return null
 }
 
-const credentialSummary = (model: ActiveModel | null, options: CliSessionOptions): Effect.Effect<CredentialSummary> =>
+/** Summarize a stored Codex credential: its provider's entry in the fold home's auth document. */
+const codexCredentialSummary = (providerId: string): Effect.Effect<CredentialSummary, never, CodexAuthStore> =>
 	Effect.gen(function* () {
-		if (model === null) return CredentialSummary.unknown({ detail: 'no active model row found in the session log' })
-
-		if (model.providerKind === 'codex') {
-			const authStoreOptions: Mutable<Parameters<typeof makeCodexAuthStore>[0]> = { providerId: model.providerId }
-			if (options.foldHome !== undefined) authStoreOptions.path = join(options.foldHome, 'auth.json')
-			const store = yield* makeCodexAuthStore(authStoreOptions).pipe(Effect.provide(NodeFileSystem.layer))
-			const token = yield* store.load
-			if (Option.isNone(token)) {
-				return CredentialSummary.missing({ detail: `entry "${model.providerId}" in ${store.path}` })
-			}
-
-			const now = yield* Clock.currentTimeMillis
-			const expiry = token.value.isExpired(now) ? 'expired; will refresh on first request' : 'valid'
-			return CredentialSummary.found({ detail: `${expiry} entry "${model.providerId}" in ${store.path}` })
+		const store = yield* CodexAuthStore
+		const token = yield* store.load
+		if (Option.isNone(token)) {
+			return CredentialSummary.missing({ detail: `entry "${providerId}" in ${store.path}` })
 		}
 
-		return CredentialSummary.found({ detail: `API key resolved for provider "${model.providerId}"` })
+		const now = yield* Clock.currentTimeMillis
+		const expiry = token.value.isExpired(now) ? 'expired; will refresh on first request' : 'valid'
+		return CredentialSummary.found({ detail: `${expiry} entry "${providerId}" in ${store.path}` })
 	})
+
+const credentialSummary = (
+	model: ActiveModel | null,
+	options: CliSessionOptions,
+): Effect.Effect<CredentialSummary, never, FileSystem.FileSystem> => {
+	if (model === null)
+		return Effect.succeed(CredentialSummary.unknown({ detail: 'no active model row found in the session log' }))
+	if (model.providerKind !== 'codex') {
+		return Effect.succeed(
+			CredentialSummary.found({ detail: `API key resolved for provider "${model.providerId}"` }),
+		)
+	}
+
+	const authStoreOptions: CodexAuthStoreOptions =
+		options.foldHome === undefined
+			? { providerId: model.providerId }
+			: { providerId: model.providerId, path: join(options.foldHome, 'auth.json') }
+	return codexCredentialSummary(model.providerId).pipe(Effect.provide(layerCodexAuthStore(authStoreOptions)))
+}
 
 /**
  * The header's agent-mode label: non-default modes print their name, and an enabled RPI roster is
@@ -169,45 +221,46 @@ const agentModeLabel = (options: CliSessionOptions): string | undefined => {
 	return mode === 'default' ? undefined : mode
 }
 
+/** A `--name value` resume flag, present only when the value is. */
+const valueFlag = (name: string, value: string | undefined): Option.Option<ResumeCommandFlag> =>
+	Option.map(Option.fromUndefinedOr(value), (present) => ({ name, value: present }))
+
+/** A bare `--name` resume flag, present only when switched on. */
+const switchFlag = (name: string, on: boolean): Option.Option<ResumeCommandFlag> =>
+	Option.liftPredicate({ name }, () => on)
+
 const compactResumeFlags = (autoCompact: AutoCompactConfig | undefined): ReadonlyArray<ResumeCommandFlag> => {
 	if (autoCompact === undefined) return []
 	if (!autoCompact.enabled) return [{ name: 'disable-auto-compact' }]
 
-	return [
-		{ name: 'auto-compact' },
-		...(autoCompact.thresholdTokens === undefined
-			? []
-			: [{ name: 'compaction-threshold', value: String(autoCompact.thresholdTokens) }]),
-		...(autoCompact.reserveTokens === undefined
-			? []
-			: [{ name: 'compaction-reserve-tokens', value: String(autoCompact.reserveTokens) }]),
-		...(autoCompact.keepRecentTokens === undefined
-			? []
-			: [{ name: 'compaction-keep-recent-tokens', value: String(autoCompact.keepRecentTokens) }]),
-		...(autoCompact.compactionPrompt === undefined
-			? []
-			: [{ name: 'compaction-prompt', value: autoCompact.compactionPrompt }]),
-	]
+	return Arr.getSomes([
+		switchFlag('auto-compact', true),
+		valueFlag('compaction-threshold', autoCompact.thresholdTokens?.toString()),
+		valueFlag('compaction-reserve-tokens', autoCompact.reserveTokens?.toString()),
+		valueFlag('compaction-keep-recent-tokens', autoCompact.keepRecentTokens?.toString()),
+		valueFlag('compaction-prompt', autoCompact.compactionPrompt),
+	])
 }
 
 export const resumeFlagsFor = (options: CliSessionOptions): ReadonlyArray<ResumeCommandFlag> => [
-	...(options.cwd === process.cwd() ? [] : [{ name: 'cwd', value: options.cwd }]),
-	...(options.foldHome === undefined ? [] : [{ name: 'fold-home', value: options.foldHome }]),
-	...(options.mode === undefined ? [] : [{ name: 'mode', value: options.mode }]),
-	...(options.rpi === true ? [{ name: 'rpi' }] : []),
-	...(options.profile === undefined ? [] : [{ name: 'profile', value: options.profile }]),
-	...(options.modelSelection?.role === undefined ? [] : [{ name: 'role', value: options.modelSelection.role }]),
-	...(options.modelSelection?.provider === undefined
-		? []
-		: [{ name: 'provider', value: options.modelSelection.provider }]),
-	...(options.modelSelection?.model === undefined ? [] : [{ name: 'model', value: options.modelSelection.model }]),
-	...(options.modelSelection?.reasoning === undefined
-		? []
-		: [{ name: 'reasoning', value: options.modelSelection.reasoning }]),
+	...Arr.getSomes([
+		valueFlag('cwd', options.cwd === process.cwd() ? undefined : options.cwd),
+		valueFlag('fold-home', options.foldHome),
+		valueFlag('mode', options.mode),
+		switchFlag('rpi', options.rpi === true),
+		valueFlag('profile', options.profile),
+		valueFlag('role', options.modelSelection?.role),
+		valueFlag('provider', options.modelSelection?.provider),
+		valueFlag('model', options.modelSelection?.model),
+		valueFlag('reasoning', options.modelSelection?.reasoning),
+	]),
 	...compactResumeFlags(options.autoCompact),
 ]
 
-const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effect.Effect<SessionHeader> =>
+const sessionHeader = (
+	opened: OpenedSession,
+	options: CliSessionOptions,
+): Effect.Effect<SessionHeader, never, FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const entries = yield* opened.session.entries
 		const model = activeModelFromEntries(entries, opened.session.rootAgentId)
@@ -229,23 +282,37 @@ const sessionHeader = (opened: OpenedSession, options: CliSessionOptions): Effec
 	})
 
 const renderLiveEvents = (
-	session: FoldSession,
+	session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	renderer: OutputRenderer,
 ): Effect.Effect<Fiber.Fiber<void>, never, Scope.Scope> =>
 	Effect.gen(function* () {
 		const entries = yield* session.entries
-		const fromSeq = entries.length === 0 ? 0 : (entries.at(-1)?.seq ?? -1) + 1
-		const render = session.events(fromSeq).pipe(
-			Stream.runForEach(renderer.renderEvent),
-			Effect.catchCause(() => Effect.void),
-		)
+		const fromSeq = Arr.match(entries, {
+			onEmpty: () => 0,
+			onNonEmpty: (nonEmpty) => Arr.lastNonEmpty(nonEmpty).seq + 1,
+		})
+		const render = session.events(fromSeq).pipe(Stream.runForEach(renderer.renderEvent), Effect.ignoreCause)
 		const fiber = yield* Effect.forkScoped(render, { startImmediately: true })
 		yield* Effect.yieldNow
 		return fiber
 	})
 
 const withProcessSignals = <A, E, R>(
-	session: FoldSession,
+	session: FoldSession<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>,
 	renderer: OutputRenderer,
 	effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
@@ -279,25 +346,28 @@ const withProcessSignals = <A, E, R>(
  * absent), and the regenerated `config.schema.json` + `FOLD_INFO.md`. Never fails a run - a broken
  * home surfaces as the launch's own config error moments later.
  */
-const bootstrapForRun = (options: CliSessionOptions): Effect.Effect<void, never, FileSystem.FileSystem> => {
+const bootstrapForRun = (
+	options: CliSessionOptions,
+): Effect.Effect<void, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
 	const bootstrapOptions: Mutable<NonNullable<Parameters<typeof bootstrapFoldHome>[0]>> = {}
 	if (options.foldHome !== undefined) bootstrapOptions.foldHome = options.foldHome
+	// Debug level: a warning on the console would mix into prompt and JSON output, and the launch reports
+	// a broken home through its own config error moments later.
 	return bootstrapFoldHome(bootstrapOptions).pipe(
 		Effect.asVoid,
-		Effect.catchCause(() => Effect.void),
+		Effect.catchCause((cause) => Effect.logDebug('fold home bootstrap failed', cause)),
 	)
 }
 
 const forkStartupEnsures = (
 	options: CliSessionOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
-	Effect.forkDetach(
+): Effect.Effect<void, never, ManagedBinaries | Scope.Scope> =>
+	Effect.forkScoped(
 		Effect.gen(function* () {
 			const statuses = yield* ensureManagedBinaries({
 				foldHome: options.foldHome ?? defaultFoldHome(),
 				requireManagedInstall: true,
-				suppressWarnings: true,
 			})
 			yield* Effect.forEach(
 				statuses.filter((status) => status.resolution === 'installed-now'),
@@ -310,7 +380,18 @@ const forkStartupEnsures = (
 export const runPrompt = (
 	options: PromptRunOptions,
 	renderer: OutputRenderer,
-): Effect.Effect<AgentFinishedLogEntry, OpenSessionError, Scope.Scope | Ids | FileSystem.FileSystem> =>
+): Effect.Effect<
+	AgentFinishedLogEntry,
+	OpenSessionError,
+	| Scope.Scope
+	| Ids
+	| FileSystem.FileSystem
+	| Path.Path
+	| ChildProcessSpawner.ChildProcessSpawner
+	| Photon
+	| HttpClient.HttpClient
+	| ManagedBinaries
+> =>
 	Effect.gen(function* () {
 		yield* bootstrapForRun(options)
 		const opened = yield* openSession(options)

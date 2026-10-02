@@ -432,7 +432,8 @@ export const ToolStateLogEntryInput = Schema.TaggedStruct('tool_state', {
 	namespace: Schema.String,
 	stateId: StateId,
 	key: Schema.String,
-	value: Schema.Unknown,
+	/** The key schema's encoded value; null clears the key. */
+	value: Schema.Json,
 }).annotate({ identifier: 'ToolStateLogEntryInput' })
 export type ToolStateLogEntryInput = typeof ToolStateLogEntryInput.Type
 
@@ -445,7 +446,8 @@ export const ToolStateLogEntry = Schema.TaggedStruct('tool_state', {
 	namespace: Schema.String,
 	stateId: StateId,
 	key: Schema.String,
-	value: Schema.Unknown,
+	/** The key schema's encoded value; null clears the key. */
+	value: Schema.Json,
 }).annotate({ identifier: 'ToolStateLogEntry' })
 export type ToolStateLogEntry = typeof ToolStateLogEntry.Type
 
@@ -459,7 +461,7 @@ export const CompactionLogEntryInput = Schema.TaggedStruct('compaction', {
 	summary: Schema.String,
 	postCompactionInstructions: Schema.optionalKey(Schema.String),
 	replacesThroughSeq: LogSeq,
-	tokensBefore: Schema.Number,
+	tokensBefore: Schema.Finite,
 })
 	.check(AgentRunContextFilter)
 	.annotate({ identifier: 'CompactionLogEntryInput' })
@@ -476,7 +478,7 @@ export const CompactionLogEntry = Schema.TaggedStruct('compaction', {
 	summary: Schema.String,
 	postCompactionInstructions: Schema.optionalKey(Schema.String),
 	replacesThroughSeq: LogSeq,
-	tokensBefore: Schema.Number,
+	tokensBefore: Schema.Finite,
 })
 	.check(AgentRunContextFilter)
 	.annotate({ identifier: 'CompactionLogEntry' })
@@ -597,7 +599,7 @@ export const SessionTitleLogEntryInput = Schema.TaggedStruct('session_title', {
 	toolCallId: Schema.Null,
 	title: Schema.String,
 	generatedThroughSeq: Schema.optional(LogSeq),
-	rootUserTurns: Schema.optional(Schema.Number),
+	rootUserTurns: Schema.optional(Schema.Finite),
 }).annotate({ identifier: 'SessionTitleLogEntryInput' })
 export type SessionTitleLogEntryInput = typeof SessionTitleLogEntryInput.Type
 
@@ -609,7 +611,7 @@ export const SessionTitleLogEntry = Schema.TaggedStruct('session_title', {
 	toolCallId: Schema.Null,
 	title: Schema.String,
 	generatedThroughSeq: Schema.optional(LogSeq),
-	rootUserTurns: Schema.optional(Schema.Number),
+	rootUserTurns: Schema.optional(Schema.Finite),
 }).annotate({ identifier: 'SessionTitleLogEntry' })
 export type SessionTitleLogEntry = typeof SessionTitleLogEntry.Type
 

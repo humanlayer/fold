@@ -5,7 +5,7 @@
  * and the `<project_context>` rendering shape.
  */
 import { expect, it } from '@effect/vitest'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem } from 'effect'
 
 import { loadMemoryFiles, memoryPromptBlock, renderMemoryFiles } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'
@@ -31,7 +31,7 @@ it.effect('collects global then root..cwd, base first then local overlay', () =>
 		// AGENTS.md wins over CLAUDE.md in /repo.
 		expect(files.some((file) => file.path === '/repo/CLAUDE.md')).toBe(false)
 		expect(files[1]?.content).toBe('repo base')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('loads a local overlay even when the directory has no base file', () => {
@@ -42,7 +42,7 @@ it.effect('loads a local overlay even when the directory has no base file', () =
 	return Effect.gen(function* () {
 		const files = yield* loadMemoryFiles({ cwd: '/repo', home: '/home/user' })
 		expect(files.map((file) => file.path)).toEqual(['/repo/CLAUDE.local.md'])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('global chain: falls through to ~/.agents then ~/.codex (first existing wins)', () => {
@@ -54,7 +54,7 @@ it.effect('global chain: falls through to ~/.agents then ~/.codex (first existin
 	return Effect.gen(function* () {
 		const files = yield* loadMemoryFiles({ cwd: '/work', home: '/home/user' })
 		expect(files.map((file) => file.path)).toEqual(['/home/user/.codex/AGENTS.md', '/work/AGENTS.md'])
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it.effect('renders one project_context block with a project_instructions per file', () => {
@@ -66,7 +66,7 @@ it.effect('renders one project_context block with a project_instructions per fil
 		expect(block ?? '').toContain('<project_context>')
 		expect(block ?? '').toContain('<project_instructions path="/repo/AGENTS.md">')
 		expect(block ?? '').toContain('do the thing')
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })
 
 it('renders null for an empty set', () => {
@@ -78,5 +78,5 @@ it.effect('returns null block when no agentfiles exist for the cwd', () => {
 	return Effect.gen(function* () {
 		const block = yield* memoryPromptBlock({ cwd: '/repo', home: '/home/user' })
 		expect(block).toBeNull()
-	}).pipe(Effect.provide(Layer.succeed(FileSystem.FileSystem, fs)))
+	}).pipe(Effect.provideService(FileSystem.FileSystem, fs))
 })

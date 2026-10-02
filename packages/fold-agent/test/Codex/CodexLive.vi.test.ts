@@ -8,11 +8,16 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Option, Schema, Stream } from 'effect'
+import { makeCodexLanguageModel } from '@humanlayer/fold-codex'
+import { Effect, Layer, Option, Schema, Stream } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
-import { makeCodexLanguageModel } from '../src/index'
 import { expectedImageIdentification, runImageReadInference } from './SessionModelPathTestHarness'
+
+/** What a Codex model needs from its host: an HTTP client and a filesystem for its credential store. */
+const codexHostServices = Layer.merge(FetchHttpClient.layer, NodeFileSystem.layer)
 
 const authPath = join(homedir(), '.fold', 'auth.json')
 
@@ -50,7 +55,7 @@ describe.skipIf(skip)('codex live (skipped in CI or without a codex entry in ~/.
 
 				expect(response.text.toLowerCase()).toContain('pong')
 				expect(response.finishReason).toBe('stop')
-			}).pipe(Effect.scoped),
+			}).pipe(Effect.scoped, Effect.provide(codexHostServices)),
 		180_000,
 	)
 
@@ -76,7 +81,7 @@ describe.skipIf(skip)('codex live (skipped in CI or without a codex entry in ~/.
 
 				expect(text.toLowerCase()).toContain('ping')
 				expect(parts.some((part) => part.type === 'finish')).toBe(true)
-			}).pipe(Effect.scoped),
+			}).pipe(Effect.scoped, Effect.provide(codexHostServices)),
 		180_000,
 	)
 })
@@ -94,7 +99,7 @@ describe.skipIf(skipImageRead)(
 					const normalized = result.text.toLowerCase().replaceAll(' ', '').trim()
 
 					expect(normalized).toContain(expectedImageIdentification)
-				}).pipe(Effect.scoped),
+				}).pipe(Effect.scoped, Effect.provide(codexHostServices)),
 			180_000,
 		)
 	},

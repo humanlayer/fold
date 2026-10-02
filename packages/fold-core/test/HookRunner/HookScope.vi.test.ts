@@ -6,7 +6,7 @@ import {
 	defineToolState,
 	HookRunner,
 	layerInMemoryEventLog,
-	makeHookRunner,
+	layerHookRunner,
 	StopController,
 	ToolCallId,
 	type HookConfig,
@@ -21,7 +21,7 @@ const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
 const GuardState = defineToolState({
 	namespace: 'guard',
 	keys: {
-		count: Schema.Number,
+		count: Schema.Finite,
 	},
 })
 
@@ -32,7 +32,7 @@ const hookScopeLayer = (config: HookConfig) => {
 		layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
 	)
 
-	return Layer.mergeAll(makeHookRunner(config).pipe(Layer.provide(infra)), infra)
+	return Layer.mergeAll(layerHookRunner(config).pipe(Layer.provide(infra)), infra)
 }
 
 describe('HookRunner hook scope services', () => {
@@ -100,7 +100,7 @@ describe('HookRunner hook scope services', () => {
 			const JudgeState = defineToolState({
 				namespace: 'judge',
 				keys: {
-					attempts: Schema.Number,
+					attempts: Schema.Finite,
 				},
 			})
 

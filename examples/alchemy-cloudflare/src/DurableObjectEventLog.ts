@@ -14,7 +14,7 @@ import {
 	LogEntry,
 	decodeStoredLogEntry,
 	layerLiveIdFactory,
-	makeStoredLogEntry,
+	storedLogEntry,
 	type EventLogError,
 	type EventLogOperation,
 	type EventLogService,
@@ -33,7 +33,7 @@ const LogEntryJson = Schema.fromJsonString(LogEntry)
 
 /** Parse a row's JSON, then decode it by its stored version (older versions upcast to the current shape). */
 const decodeRow = (row: LogRow) =>
-	Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(row.entry).pipe(
+	Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(row.entry).pipe(
 		Effect.mapError(
 			(cause) =>
 				new EventLogCorruptEntryError({
@@ -43,7 +43,7 @@ const decodeRow = (row: LogRow) =>
 					cause,
 				}),
 		),
-		Effect.flatMap(decodeStoredLogEntry),
+		Effect.flatMap((json) => decodeStoredLogEntry(json)),
 	)
 
 const encodeEntry = (entry: LogEntry) =>
@@ -103,7 +103,7 @@ export class DurableObjectEventLog extends Context.Service<
 					appendLock.withPermit(
 						Effect.gen(function* () {
 							const current = yield* Ref.get(entriesRef)
-							const stored = yield* makeStoredLogEntry(input, current.length, ids)
+							const stored = yield* storedLogEntry(input, current.length, yield* ids.makeEventId)
 							const entry = yield* encodeEntry(stored)
 
 							yield* query('append', 'INSERT INTO fold_log (seq, entry) VALUES (?, ?)', stored.seq, entry)

@@ -17,9 +17,9 @@ const unavailableToolFailureOutput = (name: string, names: ReadonlyArray<string>
 })
 
 /** Build a final failure output when handler lookup or stream creation fails before execution starts. */
-const toolStartupFailureOutput = (name: string, cause: unknown): ToolHandlerOutput => ({
-	result: { message: `Tool "${name}" failed before execution.`, cause: String(cause) },
-	encodedResult: { message: `Tool "${name}" failed before execution.`, cause: String(cause) },
+const toolStartupFailureOutput = (name: string, reason: string): ToolHandlerOutput => ({
+	result: { message: `Tool "${name}" failed before execution.`, cause: reason },
+	encodedResult: { message: `Tool "${name}" failed before execution.`, cause: reason },
 	isFailure: true,
 	preliminary: false,
 })
@@ -35,7 +35,7 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 			// dispatches model-supplied names at runtime (guarded by `names.includes` below). TypeScript
 			// cannot express dynamic dispatch over a heterogeneous toolkit; the library erases internally
 			// for the same reason (Toolkit.ts: `handle: handle as any`). The one sanctioned assertion.
-			// oxlint-disable-next-line typescript/consistent-type-assertions
+			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion, automation/no-banned-type-assertions, anti-slop/no-chained-type-assertions
 			const withHandlers = (yield* toolkit) as unknown as Toolkit.WithHandler<Record<string, Tool.Any>>
 			const names = Object.keys(toolkit.tools)
 
@@ -50,21 +50,19 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 						return Effect.succeed(Stream.succeed(unavailableToolFailureOutput(name, names)))
 
 					return withHandlers.handle(name, params).pipe(
-						Effect.matchEffect({
-							onFailure: (cause) => Effect.succeed(Stream.succeed(toolStartupFailureOutput(name, cause))),
-							onSuccess: (stream) =>
-								Effect.succeed(
-									stream.pipe(
-										Stream.map((output): ToolHandlerOutput => ({
-											result: output.result,
-											encodedResult: output.encodedResult,
-											isFailure: output.isFailure,
-											preliminary: output.preliminary,
-										})),
-										Stream.mapError((error): unknown => error),
-									),
-								),
-						}),
+						Effect.map((stream) =>
+							stream.pipe(
+								Stream.map((output): ToolHandlerOutput => ({
+									result: output.result,
+									encodedResult: output.encodedResult,
+									isFailure: output.isFailure,
+									preliminary: output.preliminary,
+								})),
+							),
+						),
+						Effect.catchTag('AiError', (error) =>
+							Effect.succeed(Stream.succeed(toolStartupFailureOutput(name, error.message))),
+						),
 					)
 				},
 			}

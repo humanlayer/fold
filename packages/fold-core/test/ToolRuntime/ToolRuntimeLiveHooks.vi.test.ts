@@ -1,14 +1,14 @@
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Ref } from 'effect'
 
-import { makeHookRunner, messagesForAgent, ToolRuntime } from '../../src/index'
+import { layerHookRunner, messagesForAgent, ToolRuntime } from '../../src/index'
 import { layerEchoTool, makeEchoRecorder } from '../TestLayers/TestTools'
 import { agentId, collectEntries, makeAssistantToolCall, toolRuntimeBaseLayer } from './ToolRuntimeTestHelpers'
 
 it.effect('live preToolUse hook can replace the result and skip the handler', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
-		const hookLayer = makeHookRunner({
+		const recorder = yield* makeEchoRecorder
+		const hookLayer = layerHookRunner({
 			preToolUse: [
 				{
 					name: 'block-echo',
@@ -53,8 +53,8 @@ it.effect('live preToolUse hook can replace the result and skip the handler', ()
 
 it.effect('live preToolUse hook can update execution params without changing prompt projection', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
-		const hookLayer = makeHookRunner({
+		const recorder = yield* makeEchoRecorder
+		const hookLayer = layerHookRunner({
 			preToolUse: [
 				{
 					name: 'mutate-echo',
@@ -106,9 +106,9 @@ it.effect('live preToolUse hook can update execution params without changing pro
 
 it.effect('postToolUse receives original, executed, and handler values while hooks compose in order', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const observed = yield* Ref.make<ReadonlyArray<unknown>>([])
-		const hookLayer = makeHookRunner({
+		const hookLayer = layerHookRunner({
 			preToolUse: [
 				{
 					name: 'mutate-echo',

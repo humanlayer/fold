@@ -16,12 +16,15 @@ import { type DurableObjectStorageLike, getWorkspace, withWorkspace } from '@clo
 import {
 	CloudflareContainerBackend,
 	type CloudflareContainerBackendOptions,
+	type IWorkspaceContainerAPI,
+	type WorkspaceContainerAPI,
 	withWorkspaceContainer,
 } from '@cloudflare/computer/backends/container'
 import { WorkerShellBackend } from '@cloudflare/computer/backends/worker-shell'
 import { createGitClient, type GitClient, type GitCloneOptions } from '@cloudflare/computer/git'
 import jq from '@cloudflare/computer/shell/jq'
 import { DurableObject } from 'cloudflare:workers'
+import { Data, Effect, Option, Schema } from 'effect'
 
 import {
 	type Backend,
@@ -67,7 +70,9 @@ const workspaceStorage = (storage: DurableObjectStorage): DurableObjectStorageLi
 }
 
 /** What `withWorkspaceContainer` adds to the object. */
-type ContainerOwner = { getWorkspaceContainer(): unknown }
+type ContainerOwner = {
+	getWorkspaceContainer(): WorkspaceContainerAPI | IWorkspaceContainerAPI | Promise<IWorkspaceContainerAPI>
+}
 
 /**
  * The object as the container backend's host. `@cloudflare/computer` types the container API against its
@@ -78,16 +83,32 @@ function containerHost(self: ContainerOwner): ContainerOwner {
 	return self
 }
 
+/** A thrown workspace error carries its POSIX-style code, like `ENOENT`. */
+const ErrorCode = Schema.Struct({ code: Schema.String })
+const errorCodeOf = (cause: unknown): string =>
+	Option.match(Schema.decodeUnknownOption(ErrorCode)(cause), { onNone: () => 'UNKNOWN', onSome: ({ code }) => code })
+
+class WorkspaceOperationError extends Data.TaggedError('WorkspaceOperationError')<{
+	readonly code: string
+	readonly message: string
+}> {}
+
 /** Run one file operation, returning a thrown workspace error as its code and message. */
-const attempt = async <A>(operation: () => Promise<A>): Promise<ComputerResult<A>> => {
-	try {
-		return { ok: true, value: await operation() }
-	} catch (cause) {
-		const code =
-			cause instanceof Error && 'code' in cause && typeof cause.code === 'string' ? cause.code : 'UNKNOWN'
-		return { ok: false, code, message: String(cause) }
-	}
-}
+const attempt = <A>(operation: () => Promise<A>): Promise<ComputerResult<A>> =>
+	Effect.runPromise(
+		Effect.tryPromise({
+			try: operation,
+			catch: (cause) => new WorkspaceOperationError({ code: errorCodeOf(cause), message: String(cause) }),
+		}).pipe(
+			Effect.match({
+				onSuccess: (value): ComputerResult<A> => ({ ok: true, value }),
+				onFailure: ({ code, message }): ComputerResult<A> => ({ ok: false, code, message }),
+			}),
+		),
+	)
+
+/** Abort the object so it restarts empty. abort throws to unwind; the object resets either way. */
+const abortQuietly = (abort: () => void) => Effect.runSync(Effect.ignore(Effect.try(abort)))
 
 class ComputerBase extends withWorkspaceContainer(class extends DurableObject<Env> {}) {
 	// For withWorkspace's options, which see the instance but not `ctx` or `env`: DurableObject keeps them
@@ -142,17 +163,20 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		await workspace.fs.mkdir(WORKSPACE_ROOT, { recursive: true })
 
 		const cloned: Array<ClonedRepo> = []
-		for (const repo of repos) {
+		const clone = async (repo: RepoSpec): Promise<ClonedRepo> => {
 			const dir = `${WORKSPACE_ROOT}/${repo.name}`
-			try {
-				await workspace.fs.rm(dir, { recursive: true, force: true })
-				const options: GitCloneOptions = { url: repo.url, dir }
-				if (repo.ref !== null) options.ref = repo.ref
-				await git.clone(options)
-				cloned.push({ ...repo, dir, commit: await git.revParse({ dir, ref: 'HEAD' }) })
-			} catch (cause) {
-				throw new Error(`Cloning ${repo.name} from ${repo.url} failed: ${String(cause)}`, { cause })
-			}
+			await workspace.fs.rm(dir, { recursive: true, force: true })
+			const options: GitCloneOptions = { url: repo.url, dir }
+			if (repo.ref !== null) options.ref = repo.ref
+			await git.clone(options)
+			return { ...repo, dir, commit: await git.revParse({ dir, ref: 'HEAD' }) }
+		}
+		for (const repo of repos) {
+			cloned.push(
+				await clone(repo).catch((cause: unknown) => {
+					throw new Error(`Cloning ${repo.name} from ${repo.url} failed: ${String(cause)}`, { cause })
+				}),
+			)
 		}
 		return cloned
 	}
@@ -214,13 +238,7 @@ export class Computer extends withWorkspace(ComputerBase, (self) => ({
 		await this.ctx.storage.deleteAll()
 		// The in-memory workspace must go: its tables are gone. Wait until this call has answered: Cloudflare
 		// holds the answer until the delete is saved, and an abort before then fails the call.
-		setTimeout(() => {
-			try {
-				this.ctx.abort('workspace deleted')
-			} catch {
-				// abort throws to unwind; the object resets either way.
-			}
-		}, RESTART_DELAY_MILLIS)
+		setTimeout(() => abortQuietly(() => this.ctx.abort('workspace deleted')), RESTART_DELAY_MILLIS)
 	}
 
 	/** Only `expireAt` sets the alarm, and each call replaces it, so it fires at the latest deadline. */

@@ -2,7 +2,7 @@ import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from 'effect'
 
 import { Ids, layerLiveIdFactory } from '../Ids'
 import { EventLog, type EventLogService } from './EventLogService'
-import { makeStoredLogEntry } from './LogEntryFactory'
+import { storedLogEntry } from './LogEntryFactory'
 import type { LogEntry, LogEntryInput, LogSeq } from './Schemas'
 
 const entriesFrom = (entries: ReadonlyArray<LogEntry>, fromSeq: LogSeq) =>
@@ -21,7 +21,7 @@ export const layerInMemoryEventLogWithIds: Layer.Layer<EventLog, never, Ids> = L
 			appendLock.withPermit(
 				Effect.gen(function* () {
 					const current = yield* Ref.get(entriesRef)
-					const stored = yield* makeStoredLogEntry(input, current.length, ids)
+					const stored = yield* storedLogEntry(input, current.length, yield* ids.makeEventId)
 
 					yield* Ref.set(entriesRef, [...current, stored])
 					yield* PubSub.publish(pubsub, stored)

@@ -10,7 +10,7 @@ conventions from another repository.
 | Durable tagged data                | `packages/fold-core/src/EventLog/Schemas.ts`              | `Schema.TaggedStruct`, `Schema.Union`, versioning, and decode-time compatibility.    |
 | Provider/runtime ownership         | `packages/fold-core/src/Api/Provisioning.ts`              | Scope ownership, fresh memo maps, provider layers, and resource lifetime.            |
 | Complete tagged dispatch           | `packages/fold-agent/src/Session/SessionLayout.ts`        | An exhaustive `Match` over a Fold-owned tagged union.                                |
-| Focused tag guard                  | `packages/fold-core/src/HookRunner/Errors.ts`             | A reusable `Predicate.isTagged` guard.                                               |
+| Focused tag guard                  | `packages/fold-core/src/Subagents/SubagentsLayer.ts`      | `Predicate.isTagged` guards over decoded log entries.                                |
 | Pure projection policy             | `packages/fold-core/src/Compaction/CompactionEngine.ts`   | Pure projections and the distinction between simple loop guards and transformations. |
 
 ## Public Fold shape

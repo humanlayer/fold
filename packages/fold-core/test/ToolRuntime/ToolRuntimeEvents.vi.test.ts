@@ -13,7 +13,7 @@ import {
 
 it.effect('tool handler can emit UI progress events separate from final result', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const eventsRef = yield* Ref.make<ReadonlyArray<ToolRuntimeEvent>>([])
 		const layer = toolRuntimeBaseLayer(
 			hookRunnerNoop,

@@ -42,7 +42,7 @@ const nfdVariant = (path: string): string => path.normalize('NFD')
 const curlyQuoteVariant = (path: string): string => path.replace(/'/g, '’')
 
 const exists = (fs: FileSystem.FileSystem, path: string): Effect.Effect<boolean> =>
-	fs.exists(path).pipe(Effect.catch(() => Effect.succeed(false)))
+	fs.exists(path).pipe(Effect.orElseSucceed(() => false))
 
 /**
  * Resolve a path for reading, trying pi's macOS filename variants in order when the resolved path does

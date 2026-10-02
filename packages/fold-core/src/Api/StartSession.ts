@@ -2,7 +2,7 @@
  * This file implements `startSession` and `resumeSession` - the ergonomic composition roots of the
  * public API. Callers describe an agent (model, prompt, tools, hooks) and optionally an event log
  * backend; this file lowers those descriptors into the internal service graph (EventLog, Ids,
- * AgentEvents, SystemPrompt, ModelRequestSettings, SessionControls, the Subagents engine, and
+ * AgentEvents, SystemPrompt, ModelRequestSettings, SessionControls, SessionAgents, and
  * per-provision Toolset + resolver + HookRunner + ToolRuntime + AgentRuntime, plus the Session facade)
  * and returns a running session handle. Per the composition-root ruling, this is the only place
  * descriptors become layers; no public signature accepts or returns one.
@@ -28,24 +28,23 @@
  * send.
  */
 import {
+	Array as Arr,
 	Predicate,
 	Cause,
 	Context,
 	Effect,
 	Exit,
 	Fiber,
-	FileSystem,
 	Layer,
 	Match,
-	Path,
 	Ref,
 	Schema,
 	Scope,
 	Semaphore,
 	Stream,
+	Struct,
 } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
-import { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
@@ -55,11 +54,10 @@ import {
 	noopCompactionArchiveAccess,
 	type CompactionArchiveAccessService,
 } from '../Compaction/CompactionArchiveAccess'
-import { compactionServiceFor } from '../Compaction/CompactionLayer'
-import { Compaction } from '../Compaction/CompactionService'
 import { layerInMemoryEventLogWithIds } from '../EventLog/EventLogLayerMemory'
 import { EventLog, type EventLogService } from '../EventLog/EventLogService'
 import {
+	ActiveModel,
 	LogEntryInputs,
 	type AgentFinishedLogEntry,
 	type AssistantMessageLogEntry,
@@ -74,7 +72,8 @@ import { liveModelRequestSettingsLayer } from '../Model/ModelRequestSettings'
 import { runtimeForAgent } from '../Projection/Projection'
 import { AgentNotRunningError } from '../Session/Errors'
 import {
-	makeProfiles,
+	isProfileRole,
+	layerProfiles,
 	profileModelFor,
 	Profiles,
 	type ProfileRole,
@@ -82,13 +81,13 @@ import {
 	type SessionProfiles,
 } from '../Session/Profiles'
 import {
-	makeSessionControls,
+	layerSessionControls,
 	SessionControls,
 	type SessionControlsService,
 	type SteeringMode,
 } from '../Session/SessionControls'
 import { liveSessionLayer } from '../Session/SessionLayer'
-import { Session, type SessionService, type StartSessionInput, type StartedSession } from '../Session/SessionService'
+import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { StopConditions } from '../StopConditions/StopConditions'
 import { agentIdsFromEntries, resolveAgentIdRef } from '../Subagents/AgentIdRef'
@@ -97,27 +96,29 @@ import {
 	collectAgentDefinitions,
 	type CollectedAgentDefinitions,
 } from '../Subagents/AgentRegistry'
-import { SubagentNotFoundError } from '../Subagents/Errors'
-import { makeSubagents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SubagentsLayer'
-import { Subagents, type SubagentsService } from '../Subagents/SubagentsService'
-import { makeSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
+import { type SubagentBusyError, SubagentNotFoundError } from '../Subagents/Errors'
+import { SessionAgents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SessionAgents'
+import { continueSubagent, type ContinueSubagentInput } from '../Subagents/SubagentEngine'
+import { layerSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
-import type { AgentDefinition } from './AgentDefinition'
+import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from './AgentDefinition'
 import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
-import { AgentProvisioner, makeAgentProvisioner, validateToolNames } from './Provisioning'
-import type { PlatformServices, RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
+import { provisionAgentRuntime, validateToolNames } from './Provisioning'
+import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
-/** Options for {@link startSession}. */
-export type StartSessionOptions = {
-	readonly agent: AgentDefinition
+/**
+ * Options for {@link startSession}. `RA` is the host services the agent (its model and tools) needs, `RL`
+ * the ones the log backend needs, and `RP` the ones the profile models need; the session requires all
+ * of them from its caller.
+ */
+export type StartSessionOptions<RA = never, RL = never, RP = never> = {
+	readonly agent: AgentDefinition<RA>
 	/** Event log backend for the session. Defaults to in-memory. */
-	readonly log?: FoldEventLog
+	readonly log?: FoldEventLog<RL>
 	/** Host working directory recorded on `session_started`; omit on hosts without a filesystem. */
 	readonly cwd?: string
-	readonly meta?: Readonly<Record<string, typeof Schema.Json.Type>>
+	readonly meta?: Readonly<Record<string, Schema.Json>>
 	/**
 	 * Pre-minted session id, for hosts that name the log location by session id (D5 layout). Defaults
 	 * to a freshly minted id.
@@ -130,7 +131,7 @@ export type StartSessionOptions = {
 	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
 	 * binds a concrete model. Rebind mid-session with {@link FoldSession.setProfile}.
 	 */
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<RP>
 	/**
 	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
 	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
@@ -142,10 +143,10 @@ export type StartSessionOptions = {
 }
 
 /** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
-export type ResumeSessionOptions = {
-	readonly agent: AgentDefinition
+export type ResumeSessionOptions<RA = never, RL = never, RP = never> = {
+	readonly agent: AgentDefinition<RA>
 	/** The existing event log to adopt; the session continues exactly where the log left off. */
-	readonly log: FoldEventLog
+	readonly log: FoldEventLog<RL>
 	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
 	/**
@@ -153,7 +154,7 @@ export type ResumeSessionOptions = {
 	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
 	 * binds a concrete model. Rebind mid-session with {@link FoldSession.setProfile}.
 	 */
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<RP>
 	/**
 	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
 	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
@@ -165,18 +166,18 @@ export type ResumeSessionOptions = {
 }
 
 /** Options for {@link FoldSession.switchModel}. Omitted fields keep the session's current configuration. */
-export type SwitchModelOptions = {
+export type SwitchModelOptions<R = never> = {
 	readonly reason?: string
 	/** Replace the agent's own leading prompt blocks from this epoch on. */
-	readonly systemPrompt?: string | ReadonlyArray<string>
-	/** Replace the installed tools from this epoch on. */
-	readonly tools?: ReadonlyArray<FoldTool>
+	readonly systemPrompt?: SystemPromptInput
+	/** Replace the installed tools from this epoch on. They may need only services the session already has. */
+	readonly tools?: ReadonlyArray<FoldTool<R>>
 	/**
 	 * Atomically replace the complete role-to-model map in the same commit as this root epoch switch.
 	 * Candidate subagent types are validated against this map; it is published only after the durable
 	 * transition succeeds. Omitted means preserve the current bindings.
 	 */
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<R>
 }
 
 /**
@@ -201,9 +202,10 @@ export type InjectedSkillEntries = {
 /**
  * A running fold session: one durable log, one root agent, already started (or adopted). Every method
  * is safe to call without further wiring; root runs and `switchModel` are serialized against each
- * other so a switch cannot interleave with an in-flight root run.
+ * other so a switch cannot interleave with an in-flight root run. `R` is the host services the session
+ * was started with; tools installed by a later switch may use them.
  */
-export type FoldSession = {
+export type FoldSession<R = never> = {
 	readonly sessionId: SessionId
 	readonly rootAgentId: AgentId
 	/**
@@ -251,7 +253,7 @@ export type FoldSession = {
 	 * `thinking-change` when the reasoning level changed - and provisions the new configuration for every
 	 * subsequent send. The same log continues across the switch.
 	 */
-	readonly switchModel: (model: FoldModel, options?: SwitchModelOptions) => Effect.Effect<void>
+	readonly switchModel: (model: FoldModel<R>, options?: SwitchModelOptions<R>) => Effect.Effect<void>
 	/** Force a root-agent compaction now. Returns null when there is nothing safe to summarize. */
 	readonly compact: (options?: CompactOptions) => Effect.Effect<CompactionLogEntry | null>
 	/**
@@ -263,7 +265,7 @@ export type FoldSession = {
 	 * `model-change` transition. The ROOT agent's model is never profile-bound; switch it with
 	 * {@link switchModel}.
 	 */
-	readonly setProfile: (role: ProfileRole, model: FoldModel) => Effect.Effect<void>
+	readonly setProfile: (role: ProfileRole, model: FoldModel<R>) => Effect.Effect<void>
 	/** Merged stream of durable log rows and ephemeral streaming deltas. */
 	readonly events: (fromSeq?: LogSeq) => Stream.Stream<FoldEvent>
 	/** Snapshot of all durable log entries appended so far. */
@@ -276,104 +278,92 @@ export type FoldSession = {
 }
 
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
-type SessionAgentConfig = {
-	readonly model: FoldModel
+type SessionAgentConfig<R> = {
+	readonly model: FoldModel<R>
 	readonly promptCacheKey: string | null
-	readonly systemPrompt: string | ReadonlyArray<string> | null
-	readonly tools: ReadonlyArray<FoldTool>
+	/** The agent's own leading blocks, normalized from its descriptor. */
+	readonly systemPrompt: ReadonlyArray<string>
+	readonly tools: ReadonlyArray<FoldTool<R>>
 }
 
-/**
- * Pass along whichever platform services the caller provided, the way Effect AI's Toolkit passes its
- * build context to handlers. A session never requires them; descriptors that declare them (disk tools,
- * a JSONL log, a disk skill source) read them from here, and die with a missing-service defect when the
- * caller left one out.
- */
-const providedPlatformServices: Effect.Effect<Context.Context<PlatformServices>> = Effect.map(
-	Effect.context<never>(),
-	(caller) => {
-		const platform = Context.pick(FileSystem.FileSystem, Path.Path, ChildProcessSpawner.ChildProcessSpawner)(caller)
-		// SAFETY: `pick` keeps only the keys present, so this may hold some of the platform services. That
-		// is the point: a descriptor that declares one the caller did not provide fails when it asks for it.
-		// oxlint-disable-next-line typescript/consistent-type-assertions
-		return platform as Context.Context<PlatformServices>
-	},
-)
+/** Lower the event log descriptor to its EventLog layer; the backend's own needs stay in the layer's `R`. */
+const eventLogLayerFor = <R>(log: FoldEventLog<R>): Layer.Layer<EventLog, never, Ids | R> =>
+	Match.valueTags(log, {
+		memory: () => layerInMemoryEventLogWithIds,
+		source: ({ make }) => Layer.effect(EventLog, make),
+	})
 
-/** Lower the event log descriptor to its EventLog layer. */
 /**
- * Run the tool's handler with the session's platform services over whatever is in scope where the turn
- * runs. Effect AI merges the turn's services over the toolkit's, so a host whose request handling carries
- * its own FileSystem (Alchemy's Worker runtime provides Node's) would otherwise shadow the session's.
+ * Run a tool's handler with the session's host services over whatever is in scope where the turn runs.
+ * Effect AI merges the turn's services over the toolkit's, so a host whose request handling carries its
+ * own FileSystem (Alchemy's Worker runtime provides Node's) would otherwise shadow the session's.
  */
-const withPlatformServices = (
+const withHostServices = <R>(
 	contribution: SessionToolContribution,
-	platformServices: Context.Context<PlatformServices>,
+	hostServices: Context.Context<R>,
 ): SessionToolContribution => ({
 	...contribution,
 	handler: (params) =>
-		contribution.handler(params).pipe(Effect.updateContext((context) => Context.merge(context, platformServices))),
+		// oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- the stored handler is erased by design
+		contribution.handler(params).pipe(Effect.updateContext((context) => Context.merge(context, hostServices))),
 })
 
-const eventLogLayerFor = (
-	log: FoldEventLog,
-	platformServices: Context.Context<PlatformServices>,
-): Layer.Layer<EventLog, unknown, Ids> =>
-	Match.valueTags(log, {
-		memory: () => layerInMemoryEventLogWithIds,
-		source: ({ make }) => Layer.effect(EventLog, make.pipe(Effect.provideContext(platformServices))),
-	})
-
-/** Fold a leading-prompt config value into an ordered block list. */
-const promptBlocksOf = (systemPrompt: string | ReadonlyArray<string> | null): ReadonlyArray<string> =>
-	systemPrompt === null ? [] : typeof systemPrompt === 'string' ? [systemPrompt] : systemPrompt
+const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
+const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
 
 /** Everything one assembled session shares between `startSession` and `resumeSession`. */
-type SessionGraph = {
-	readonly agent: AgentDefinition
+type SessionGraph<R> = {
+	readonly agent: AgentDefinition<R>
 	readonly session: SessionService
 	readonly eventLog: EventLogService
 	readonly ids: IdsService
 	readonly controls: SessionControlsService
 	readonly systemPromptService: SystemPromptService
-	readonly subagentsEngine: SubagentsService
+	readonly continueSubagent: (
+		input: ContinueSubagentInput,
+	) => Effect.Effect<AgentFinishedLogEntry, SubagentNotFoundError | SubagentBusyError>
 	readonly profiles: ProfilesService
-	readonly configRef: Ref.Ref<SessionAgentConfig>
+	readonly configRef: Ref.Ref<SessionAgentConfig<R>>
 	readonly validateSubagentRegistry: (
-		definitions: CollectedAgentDefinitions,
-		profiles: SessionProfiles,
+		definitions: CollectedAgentDefinitions<R>,
+		profiles: SessionProfiles<unknown>,
 	) => Effect.Effect<void>
-	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions) => void
-	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<void>
-	readonly collectNewSubagentDefinitions: (tools: ReadonlyArray<FoldTool>) => Effect.Effect<CollectedAgentDefinitions>
+	readonly extendSubagentRegistry: (definitions: CollectedAgentDefinitions<R>) => void
+	readonly ensureToolContributions: (tools: ReadonlyArray<FoldTool<R>>) => Effect.Effect<void>
+	readonly collectNewSubagentDefinitions: (
+		tools: ReadonlyArray<FoldTool<R>>,
+	) => Effect.Effect<CollectedAgentDefinitions<R>>
 	readonly provisionRootRuntime: (
-		model: FoldModel,
-		tools: ReadonlyArray<FoldTool>,
+		model: FoldModel<R>,
+		tools: ReadonlyArray<FoldTool<R>>,
 	) => Effect.Effect<AgentRuntimeService>
 	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
 	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
 	readonly leadingPromptFor: (
-		systemPrompt: string | ReadonlyArray<string> | null,
-		tools: ReadonlyArray<FoldTool>,
+		systemPrompt: ReadonlyArray<string>,
+		tools: ReadonlyArray<FoldTool<unknown>>,
 	) => ReadonlyArray<string> | null
 }
 
 /**
  * Assemble one session's whole service graph - registry, tool contributions, shared services,
- * provisioner, Subagents engine, controls, and the delegating root runtime - without writing anything
+ * controls, and the delegating root runtime - without writing anything
  * durable. `startSession` follows with `session.start`; `resumeSession` follows with adoption.
  */
-const assembleSessionGraph = (options: {
-	readonly agent: AgentDefinition
-	readonly log?: FoldEventLog
+const assembleSessionGraph = <R>(options: {
+	readonly agent: AgentDefinition<R>
+	readonly log?: FoldEventLog<R>
 	readonly steering?: SteeringMode
-	readonly profiles?: SessionProfiles
+	readonly profiles?: SessionProfiles<R>
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}): Effect.Effect<SessionGraph, never, Scope.Scope> =>
+}): Effect.Effect<SessionGraph<R>, never, Scope.Scope | R> =>
 	Effect.gen(function* () {
 		const agent = options.agent
-		const platformServices = yield* providedPlatformServices
+		// The host services every tool and the log backend need, taken once from the caller - the way Effect
+		// AI's Toolkit hands its build context to handlers. Tools run later on the session's own fibers
+		// (including tools installed by a later switch), so the session carries these for them.
+		const hostServices = yield* Effect.context<R>()
 		const rootTools = agent.tools ?? []
 		const rootHooks = agent.hooks ?? {}
 
@@ -389,7 +379,7 @@ const assembleSessionGraph = (options: {
 		// models need no profiles at all.
 		const initialProfiles = options.profiles ?? {}
 		for (const entry of registry.entries) {
-			if (typeof entry.model !== 'string') continue
+			if (!isProfileRole(entry.model)) continue
 			if (profileModelFor(initialProfiles, entry.model) !== undefined) continue
 			const needed =
 				entry.model === 'orchestrator' ? 'profiles.orchestrator (or profiles.smart)' : `profiles.${entry.model}`
@@ -415,15 +405,19 @@ const assembleSessionGraph = (options: {
 		// constant; for the skill tool it is the roster scan): the contribution - realized tool,
 		// leading-prompt block, skill source - is reused by every agent listing that value, across
 		// epochs, and by every subagent dispatch (D20's one-snapshot law).
-		const toolContributions = new Map<FoldTool, SessionToolContribution>()
-		const ensureToolContributions = (tools: ReadonlyArray<FoldTool>): Effect.Effect<void> =>
+		// Tool inits may acquire services (a tool's own layer); they live as long as the session, including
+		// tools first introduced by a later agent switch.
+		const sessionScope = yield* Effect.scope
+		const toolContributions = new Map<FoldTool<unknown>, SessionToolContribution>()
+		const ensureToolContributions = (tools: ReadonlyArray<FoldTool<R>>): Effect.Effect<void> =>
 			Effect.forEach(
 				tools.filter((tool) => !toolContributions.has(tool)),
 				(tool) =>
 					tool.init.pipe(
-						Effect.provideContext(platformServices),
+						Effect.provideContext(hostServices),
+						Scope.provide(sessionScope),
 						Effect.map((contribution) =>
-							toolContributions.set(tool, withPlatformServices(contribution, platformServices)),
+							toolContributions.set(tool, withHostServices(contribution, hostServices)),
 						),
 					),
 				{ discard: true },
@@ -438,7 +432,7 @@ const assembleSessionGraph = (options: {
 		})
 
 		/** Realize one agent's configured tools against the session-start contributions (§2.5). */
-		const realizeAgentTools = (tools: ReadonlyArray<FoldTool>): RealizedAgentTools => {
+		const realizeAgentTools = (tools: ReadonlyArray<FoldTool<unknown>>): RealizedAgentTools => {
 			const realized: Array<RealizedFoldTool> = []
 			const promptBlocks: Array<string> = []
 			let skillSource: SkillSourceService | null = null
@@ -462,98 +456,19 @@ const assembleSessionGraph = (options: {
 
 		/** One agent's leading blocks: its own, then its tools' contributed blocks (skills block, D20). */
 		const leadingPromptFor = (
-			systemPrompt: string | ReadonlyArray<string> | null,
-			tools: ReadonlyArray<FoldTool>,
+			systemPrompt: ReadonlyArray<string>,
+			tools: ReadonlyArray<FoldTool<unknown>>,
 		): ReadonlyArray<string> | null => {
-			const blocks = [...promptBlocksOf(systemPrompt), ...realizeAgentTools(tools).promptBlocks]
-			return blocks.length === 0 ? null : blocks
+			const blocks = [...systemPrompt, ...realizeAgentTools(tools).promptBlocks]
+			return Arr.isArrayEmpty(blocks) ? null : blocks
 		}
 
-		const initialConfig: SessionAgentConfig = {
+		const initialConfig: SessionAgentConfig<R> = {
 			model: agent.model,
 			promptCacheKey: agent.promptCacheKey ?? null,
-			systemPrompt: agent.systemPrompt ?? null,
+			systemPrompt: systemPromptBlocks(agent.systemPrompt),
 			tools: rootTools,
 		}
-
-		// The Subagents engine is constructed after the provisioner (it provisions per dispatch), but the
-		// provisioner's runtimes need the Subagents service in their graph (tool handlers yield it as an
-		// ambient per-call service). A delegating value breaks the construction cycle: it is installed in
-		// the session services now and bound to the real engine right after construction below.
-		const subagentsHolder: { current: SubagentsService | null } = { current: null }
-		const requireSubagentsEngine: Effect.Effect<SubagentsService> = Effect.suspend(() =>
-			subagentsHolder.current === null
-				? Effect.die(new Error('Subagents engine consumed before session construction completed'))
-				: Effect.succeed(subagentsHolder.current),
-		)
-		const delegatingSubagents: SubagentsService = {
-			dispatch: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.dispatch(input))),
-			fork: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.fork(input))),
-			resume: (input) => requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.resume(input))),
-			continueSubagent: (input) =>
-				requireSubagentsEngine.pipe(Effect.flatMap((engine) => engine.continueSubagent(input))),
-		}
-
-		// One shared service graph per session; every provisioned runtime closes over these same
-		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls, one
-		// Subagents engine). HookRunner is deliberately NOT session-fixed: each provisioned runtime
-		// carries its own agent's hook chains (D16/D21). Tool handlers get their declared platform
-		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
-		const idsLayer = layerLiveIdFactory
-		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? memoryEventLog(), platformServices).pipe(Layer.provide(idsLayer)),
-			idsLayer,
-			liveAgentEventsLayer,
-		)
-		const servicesLayer = Layer.mergeAll(
-			infraLayer,
-			Layer.succeedContext(platformServices),
-			makeSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
-			liveModelRequestSettingsLayer,
-			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
-			Layer.succeed(Subagents, delegatingSubagents),
-			// Session-wide auto-compaction policy (D11): the live service when the agent enabled it, the
-			// no-op default otherwise. Every provisioned runtime - root and subagent - shares this one
-			// policy while checking against its own projection and summarizing with its own model.
-			Layer.succeed(Compaction, compactionServiceFor(agent.autoCompact)),
-			Layer.succeed(CompactionArchiveAccess, options.compactionArchiveAccess ?? noopCompactionArchiveAccess),
-			// Session-wide model catalog (D15): compaction resolves context windows through it. Omitted
-			// entries build the empty catalog, which behaves exactly like the Reference default.
-			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
-			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
-			Layer.effect(
-				SessionControls,
-				makeSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
-			),
-			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
-			// setProfile and the Subagents engine's per-dispatch/resume resolution.
-			Layer.effect(Profiles, makeProfiles(initialProfiles)),
-		)
-		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
-		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
-		// would share module-level layers - the event log, the event spine - across sessions, and hand
-		// every model switch the previous epoch's memoized runtime.
-		const sessionScope = yield* Effect.scope
-		const sessionMemoMap = yield* Layer.makeMemoMap
-		const sessionServices = yield* Layer.buildWithMemoMap(servicesLayer, sessionMemoMap, sessionScope).pipe(
-			Effect.orDie,
-		)
-		const sessionServicesLayer = Layer.succeedContext(sessionServices)
-
-		// Provision one runtime slice per epoch: the installed Toolset, its family resolver, the root's
-		// HookRunner, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
-		// provider (Provisioning.ts owns the fresh-memo-map and ambient-scope invariants). The
-		// delegating runtime below lets the Session service survive swaps (interim AgentModels seam -
-		// D15). Root provisions target the session scope explicitly: switchModel runs later, from the
-		// caller's own scope, and the provisioned provider client must outlive that caller.
-		const provisioner = makeAgentProvisioner(sessionServicesLayer)
-		const provisionRootRuntime = (
-			model: FoldModel,
-			tools: ReadonlyArray<FoldTool>,
-		): Effect.Effect<AgentRuntimeService> =>
-			provisioner
-				.provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks })
-				.pipe(Scope.provide(sessionScope))
 
 		const configRef = yield* Ref.make(initialConfig)
 		const currentRootAgent: Effect.Effect<RootAgentSnapshot> = Ref.get(configRef).pipe(
@@ -566,10 +481,67 @@ const assembleSessionGraph = (options: {
 			})),
 		)
 
-		const subagentsEngine = yield* makeSubagents({ registry, realizeAgentTools, currentRootAgent }).pipe(
-			Effect.provide(Layer.mergeAll(sessionServicesLayer, Layer.succeed(AgentProvisioner, provisioner))),
+		// One shared service graph per session; every provisioned runtime runs inside these same
+		// instances (one EventLog, one Ids source, one AgentEvents PubSub, one SessionControls). HookRunner is deliberately NOT session-fixed: each provisioned runtime
+		// carries its own agent's hook chains (D16/D21). Tool handlers get their declared platform
+		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
+		const idsLayer = layerLiveIdFactory
+		const infraLayer = Layer.mergeAll(
+			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(idsLayer)),
+			idsLayer,
+			liveAgentEventsLayer,
 		)
-		subagentsHolder.current = subagentsEngine
+		const servicesLayer = Layer.mergeAll(
+			infraLayer,
+			Layer.succeedContext(hostServices),
+			layerSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
+			liveModelRequestSettingsLayer,
+			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
+			// How this session builds agents: the subagent operations and every provision read it.
+			Layer.succeed(SessionAgents, {
+				registry,
+				realizeTools: realizeAgentTools,
+				currentRoot: currentRootAgent,
+				// Session-wide auto-compaction policy (D11): every provisioned runtime - root and subagent -
+				// shares it while checking its own projection and summarizing with its own model.
+				autoCompact: agent.autoCompact,
+			}),
+			Layer.succeed(CompactionArchiveAccess, options.compactionArchiveAccess ?? noopCompactionArchiveAccess),
+			// Session-wide model catalog (D15): compaction resolves context windows through it. Omitted
+			// entries build the empty catalog, which behaves exactly like the Reference default.
+			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
+			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
+			layerSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
+			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
+			// setProfile and the subagent operations' per-dispatch/resume resolution.
+			layerProfiles(initialProfiles),
+		)
+		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
+		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
+		// would share module-level layers - the event log, the event spine - across sessions, and hand
+		// every model switch the previous epoch's memoized runtime.
+		const sessionMemoMap = yield* Layer.makeMemoMap
+		const sessionServices = yield* Layer.buildWithMemoMap(servicesLayer, sessionMemoMap, sessionScope).pipe(
+			Effect.orDie,
+		)
+		const sessionServicesLayer = Layer.succeedContext(sessionServices)
+
+		// Provision one runtime slice per epoch: the installed Toolset, its family resolver, the root's
+		// HookRunner, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
+		// provider (Provisioning.ts owns the fresh-memo-map and ambient-scope invariants). The delegating
+		// runtime below lets the Session service survive swaps (interim AgentModels seam - D15). Root
+		// provisions target the session scope explicitly: switchModel runs later, from the caller's own
+		// scope, and the provisioned provider client must outlive that caller. The session handle is the
+		// edge where host code calls in with nothing around it, so it runs these inside the session's
+		// services.
+		const provisionRootRuntime = (
+			model: FoldModel<R>,
+			tools: ReadonlyArray<FoldTool<R>>,
+		): Effect.Effect<AgentRuntimeService> =>
+			provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks }).pipe(
+				Scope.provide(sessionScope),
+				Effect.provideContext(sessionServices),
+			)
 
 		const runtimeRef = yield* Ref.make(yield* provisionRootRuntime(agent.model, rootTools))
 		const delegatingRuntime: AgentRuntimeService = {
@@ -594,7 +566,7 @@ const assembleSessionGraph = (options: {
 			ids: Context.get(sessionServices, Ids),
 			controls: Context.get(sessionServices, SessionControls),
 			systemPromptService: Context.get(sessionServices, SystemPrompt),
-			subagentsEngine,
+			continueSubagent: (input) => continueSubagent(input).pipe(Effect.provideContext(sessionServices)),
 			profiles: Context.get(sessionServices, Profiles),
 			configRef,
 			validateSubagentRegistry: (definitions, candidateProfiles) =>
@@ -606,7 +578,7 @@ const assembleSessionGraph = (options: {
 						),
 					]
 					for (const entry of bindings) {
-						if (typeof entry.model !== 'string') continue
+						if (!isProfileRole(entry.model)) continue
 						if (profileModelFor(candidateProfiles, entry.model) !== undefined) continue
 						throw new Error(
 							`subagent type "${entry.name}" binds model role "${entry.model}", but the session has no covering profile binding`,
@@ -626,8 +598,8 @@ const assembleSessionGraph = (options: {
 	})
 
 /** Build the public handle over one assembled, started-or-adopted session. */
-const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldSession => {
-	const { session, eventLog, ids, controls, subagentsEngine, configRef, profiles } = graph
+const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession): FoldSession<R> => {
+	const { session, eventLog, ids, controls, continueSubagent, configRef, profiles } = graph
 	const rootAgentId = identity.rootAgentId
 
 	const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
@@ -776,9 +748,9 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 			}
 
 			// A finished subagent continues directly (D8): null toolCallId - no tool dispatch caused it.
-			return yield* subagentsEngine
-				.continueSubagent({ agentId: target, prompt: text })
-				.pipe(Effect.catchTag('SubagentBusyError', () => send(text, options)))
+			return yield* continueSubagent({ agentId: target, prompt: text }).pipe(
+				Effect.catchTag('SubagentBusyError', () => send(text, options)),
+			)
 		})
 
 	const steer = (text: string, options?: AgentTargetOptions): Effect.Effect<void, AgentNotRunningError> =>
@@ -880,16 +852,19 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 					Effect.asVoid,
 				)
 
-	const switchModel = (model: FoldModel, switchOptions?: SwitchModelOptions): Effect.Effect<void> =>
+	const switchModel = (model: FoldModel<R>, switchOptions?: SwitchModelOptions<R>): Effect.Effect<void> =>
 		gate.withPermit(
 			Effect.gen(function* () {
 				const current = yield* Ref.get(configRef)
 				const currentProfiles = yield* profiles.snapshot
 				const candidateProfiles = switchOptions?.profiles ?? currentProfiles
-				const next: SessionAgentConfig = {
+				const next: SessionAgentConfig<R> = {
 					model,
 					promptCacheKey: current.promptCacheKey,
-					systemPrompt: switchOptions?.systemPrompt ?? current.systemPrompt,
+					systemPrompt:
+						switchOptions?.systemPrompt === undefined
+							? current.systemPrompt
+							: systemPromptBlocks(switchOptions.systemPrompt),
 					tools: switchOptions?.tools ?? current.tools,
 				}
 				yield* validateToolNames(next.tools)
@@ -946,7 +921,7 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
 
 	// Deliberately un-gated (unlike switchModel): role bindings are read at dispatch/resume time, so a
 	// racing dispatch coherently gets the old or the new binding and nothing mid-run ever rebinds.
-	const setProfile = (role: ProfileRole, model: FoldModel): Effect.Effect<void> => profiles.set(role, model)
+	const setProfile = (role: ProfileRole, model: FoldModel<R>): Effect.Effect<void> => profiles.set(role, model)
 	const setTitle: FoldSession['setTitle'] = (title, provenance) =>
 		graph.eventLog
 			.append(
@@ -982,28 +957,24 @@ const makeSessionHandle = (graph: SessionGraph, identity: StartedSession): FoldS
  * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
  * runtimes.
  */
-export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const startSession = <RA = never, RL = never, RP = never>(
+	options: StartSessionOptions<RA, RL, RP>,
+): Effect.Effect<FoldSession<RA | RL | RP>, never, Scope.Scope | RA | RL | RP> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph(options)
+		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
 		const config = yield* Ref.get(graph.configRef)
-		const meta: Mutable<NonNullable<StartSessionInput['meta']>> = { ...options.meta }
-		if (options.agent.name !== undefined) {
-			meta.agentName = options.agent.name
-		}
-		const startInput: Mutable<StartSessionInput> = {
-			cwd: options.cwd ?? null,
-			model: options.agent.model.activeModel,
-			systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-			meta,
-		}
-		if (options.agent.promptCacheKey !== undefined) {
-			startInput.promptCacheKey = options.agent.promptCacheKey
-		}
-		if (options.sessionId !== undefined) {
-			startInput.sessionId = options.sessionId
-		}
-
-		const started = yield* graph.session.start(startInput).pipe(Effect.orDie)
+		const meta =
+			options.agent.name === undefined ? { ...options.meta } : { ...options.meta, agentName: options.agent.name }
+		const started = yield* graph.session
+			.start({
+				cwd: options.cwd ?? null,
+				model: options.agent.model.activeModel,
+				systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
+				meta,
+				...Struct.pick(options.agent, ['promptCacheKey']),
+				...Struct.pick(options, ['sessionId']),
+			})
+			.pipe(Effect.orDie)
 
 		return makeSessionHandle(graph, started)
 	})
@@ -1015,9 +986,11 @@ export const startSession = (options: StartSessionOptions): Effect.Effect<FoldSe
  * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
  * transition is written before the first send.
  */
-export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<FoldSession, never, Scope.Scope> =>
+export const resumeSession = <RA = never, RL = never, RP = never>(
+	options: ResumeSessionOptions<RA, RL, RP>,
+): Effect.Effect<FoldSession<RA | RL | RP>, never, Scope.Scope | RA | RL | RP> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph(options)
+		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
 		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(
 			Effect.orDie,
 			Effect.map((collected): ReadonlyArray<LogEntry> => collected),
@@ -1057,8 +1030,8 @@ export const resumeSession = (options: ResumeSessionOptions): Effect.Effect<Fold
 				? loggedLeading.messages.map((message) => message.content)
 				: []
 
-		const modelDiffers = JSON.stringify(projected.activeModel) !== JSON.stringify(config.model.activeModel)
-		const blocksDiffer = JSON.stringify(composedBlocks) !== JSON.stringify(loggedBlocks)
+		const modelDiffers = !activeModelsEquivalent(projected.activeModel, config.model.activeModel)
+		const blocksDiffer = !promptBlocksEquivalent(composedBlocks, loggedBlocks)
 
 		if (modelDiffers || blocksDiffer) {
 			yield* graph.session

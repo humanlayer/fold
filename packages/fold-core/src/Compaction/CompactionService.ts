@@ -6,14 +6,12 @@
  * the loop consults it unconditionally with zero configuration burden on low-level composition
  * roots (core owns loop semantics; hosts own enablement - the D11 package-boundary ruling).
  *
- * The service deliberately does NOT append log entries or hold a summarizer model: the loop owns
- * envelopes and appends, and `plan` takes `LanguageModel` in its requirements so each agent
- * summarizes through its own provisioned model by default (subagents compact with their own model -
- * D21) while a future fold-agent layer can ignore the ambient model and bring a configured fast
- * summarizer instead.
+ * The service deliberately does NOT append log entries: the loop owns envelopes and appends.
+ * Provisioning builds one live service per agent runtime over that runtime's own LanguageModel, so each
+ * agent summarizes through its own model (subagents compact with their own model - D21), while a
+ * future fold-agent layer can bring a configured fast summarizer instead.
  */
 import { Context, Effect, Schema } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
 
 import type { ActiveModel, LogEntry, LogSeq } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'
@@ -89,16 +87,14 @@ export class CompactionSummarizeError extends Schema.TaggedError<CompactionSumma
  * `shouldCompact` is the cheap proactive gate: it compares the agent's last post-compaction
  * API-reported usage against the model's usable budget and never calls a model. `plan` does the
  * work - chooses the cut, serializes the replaced history, runs the summarization call through the
- * ambient LanguageModel, and returns the entry payload - or `null` when there is nothing safely
+ * agent's LanguageModel, and returns the entry payload - or `null` when there is nothing safely
  * summarizable (the loop then proceeds uncompacted).
  */
 export type CompactionService = {
 	/** Whether a live compaction policy is installed; gates the reactive overflow path. */
 	readonly enabled: boolean
 	readonly shouldCompact: (input: CompactionCheckInput) => Effect.Effect<boolean>
-	readonly plan: (
-		input: CompactionPlanInput,
-	) => Effect.Effect<CompactionPlan | null, CompactionSummarizeError, LanguageModel.LanguageModel>
+	readonly plan: (input: CompactionPlanInput) => Effect.Effect<CompactionPlan | null, CompactionSummarizeError>
 }
 
 /** Low-level fallback for graphs that do not install an agent policy. */

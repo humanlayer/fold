@@ -10,15 +10,13 @@ import {
 	type Ids,
 	layerInMemoryEventLog,
 	liveToolRuntimeLayer,
-	makeHookRunner,
-	Subagents,
+	layerHookRunner,
 	ToolCallId,
 	ToolRuntime,
 	ToolState,
 	toolsetLayerFromToolkit,
 	toolStateForAgent,
 } from '../../src/index'
-import { noSubagentsStub } from '../AgentRuntime/AgentRuntimeTestHelpers'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
 import { agentId, collectEntries, layerNoopToolEvents } from './ToolRuntimeTestHelpers'
@@ -62,7 +60,6 @@ const probeRuntimeLayer = (
 				toolsetLayerFromToolkit(ProbeToolkit).pipe(Layer.provide(handlerLayer)),
 				hookLayer.pipe(Layer.provide(hookDeps)),
 				layerNoopToolEvents,
-				Layer.succeed(Subagents, noSubagentsStub),
 				NodeFileSystem.layer,
 			),
 		),
@@ -164,7 +161,7 @@ describe('ToolRuntime handler state snapshots', () => {
 
 			// The hook shares state with the tool because both use the same ProbeState definition, not
 			// because of any name match - the hook name deliberately differs from the declared namespace.
-			const hookLayer = makeHookRunner({
+			const hookLayer = layerHookRunner({
 				preToolUse: [
 					{
 						name: 'probe-seed',

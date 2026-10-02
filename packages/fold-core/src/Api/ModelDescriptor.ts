@@ -7,31 +7,29 @@
 import { Data, Redacted } from 'effect'
 import type { Effect, Scope } from 'effect'
 import type { LanguageModel } from 'effect/unstable/ai'
+import type { HttpClient } from 'effect/unstable/http'
 
 import type { ActiveModel, OpenAiReasoningSummary, ReasoningLevel } from '../EventLog/Schemas'
 import { resolveAnthropicThinking, resolveOpenAiReasoning } from '../Model/ModelRequestSettings'
+import { anthropicLanguageModel, openAiCompatibleLanguageModel } from './ProviderModels'
 
 /**
- * How the LanguageModel service for a model is obtained: a known provider connection (credentials and
- * base URL as data), or a custom service-implementation Effect - the extension seam for scripted test
- * models and future provider packages (layers are never accepted as domain-API arguments).
+ * Which provider a model talks to, as data: a known provider connection (credentials and base URL), or
+ * a custom implementation - the extension seam for scripted test models and provider packages. How the
+ * LanguageModel is built lives on the model's `make`.
  */
-export type FoldModelProvider =
-	| {
-			readonly _tag: 'openai-compatible'
-			readonly apiKey: Redacted.Redacted<string>
-			readonly apiKeyHeader?: string | null
-			readonly baseUrl: string | null
-	  }
-	| {
-			readonly _tag: 'anthropic'
-			readonly apiKey: Redacted.Redacted<string>
-			readonly baseUrl: string | null
-	  }
-	| {
-			readonly _tag: 'custom'
-			readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope>
-	  }
+export type FoldModelProvider = Data.TaggedEnum<{
+	'openai-compatible': {
+		readonly apiKey: Redacted.Redacted<string>
+		readonly apiKeyHeader?: string | null
+		readonly baseUrl: string | null
+	}
+	anthropic: {
+		readonly apiKey: Redacted.Redacted<string>
+		readonly baseUrl: string | null
+	}
+	custom: {}
+}>
 
 const FoldModelProvider = Data.taggedEnum<FoldModelProvider>()
 
@@ -40,13 +38,18 @@ const FoldModelProvider = Data.taggedEnum<FoldModelProvider>()
  * provider connection used to reach it. Built with {@link openaiModel}, {@link anthropicModel}, or
  * {@link customModel}; consumed by `startSession` and `FoldSession.switchModel`.
  */
-export type FoldModel = {
+export type FoldModel<R = never> = {
 	readonly activeModel: ActiveModel
 	readonly provider: FoldModelProvider
+	/**
+	 * Builds the model's LanguageModel service in the runtime's scope. `R` is the host services it needs
+	 * (an HttpClient for the built-in providers); `startSession` requires them from its caller.
+	 */
+	readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope | R>
 }
 
 const redact = (apiKey: string | Redacted.Redacted<string>): Redacted.Redacted<string> =>
-	typeof apiKey === 'string' ? Redacted.make(apiKey) : apiKey
+	Redacted.isRedacted(apiKey) ? apiKey : Redacted.make(apiKey)
 
 /** The anthropic model used when {@link AnthropicModelOptions.model} is omitted. */
 export const DEFAULT_ANTHROPIC_MODEL_ID = 'claude-opus-4-8'
@@ -79,8 +82,11 @@ export type AnthropicModelOptions = ProviderModelOptionsBase & {
 }
 
 /** Describe a model served by any OpenAI-compatible endpoint. */
-export const openaiModel = (options: ProviderModelOptions): FoldModel => {
+export const openaiModel = (options: ProviderModelOptions): FoldModel<HttpClient.HttpClient> => {
 	const level = options.reasoning ?? 'off'
+	const apiKey = redact(options.apiKey)
+	const apiKeyHeader = options.apiKeyHeader ?? null
+	const baseUrl = options.baseUrl ?? null
 
 	return {
 		activeModel: {
@@ -92,18 +98,17 @@ export const openaiModel = (options: ProviderModelOptions): FoldModel => {
 			reasoning: resolveOpenAiReasoning(level),
 			reasoningSummary: options.reasoningSummary,
 		},
-		provider: FoldModelProvider['openai-compatible']({
-			apiKey: redact(options.apiKey),
-			apiKeyHeader: options.apiKeyHeader ?? null,
-			baseUrl: options.baseUrl ?? null,
-		}),
+		provider: FoldModelProvider['openai-compatible']({ apiKey, apiKeyHeader, baseUrl }),
+		make: openAiCompatibleLanguageModel({ modelId: options.model, apiKey, apiKeyHeader, baseUrl }),
 	}
 }
 
 /** Describe a model served by any Anthropic-compatible endpoint. */
-export const anthropicModel = (options: AnthropicModelOptions): FoldModel => {
+export const anthropicModel = (options: AnthropicModelOptions): FoldModel<HttpClient.HttpClient> => {
 	const level = options.reasoning ?? 'off'
 	const model = options.model ?? DEFAULT_ANTHROPIC_MODEL_ID
+	const apiKey = redact(options.apiKey)
+	const baseUrl = options.baseUrl ?? null
 
 	return {
 		activeModel: {
@@ -114,20 +119,31 @@ export const anthropicModel = (options: AnthropicModelOptions): FoldModel => {
 			requestedReasoningLevel: level,
 			thinking: resolveAnthropicThinking(level, model),
 		},
-		provider: FoldModelProvider.anthropic({ apiKey: redact(options.apiKey), baseUrl: options.baseUrl ?? null }),
+		provider: FoldModelProvider.anthropic({ apiKey, baseUrl }),
+		make: anthropicLanguageModel({ modelId: model, apiKey, baseUrl }),
 	}
 }
 
 /** Options for {@link customModel}. */
-export type CustomModelOptions = {
+export type CustomModelOptions<R = never> = {
 	/** The resolved model snapshot recorded in the durable log. */
 	readonly activeModel: ActiveModel
-	/** Builds the LanguageModel service implementation - the escape hatch for tests and custom providers. */
-	readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope>
+	/**
+	 * Builds the LanguageModel service implementation - the escape hatch for tests and custom providers.
+	 * Anything it needs from the host besides `Scope` becomes the model's `R`.
+	 */
+	readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope | R>
 }
 
-/** Describe a model backed by a caller-supplied LanguageModel implementation. */
-export const customModel = (options: CustomModelOptions): FoldModel => ({
+/**
+ * Describe a model backed by a caller-supplied LanguageModel implementation. The model needs whatever
+ * `make` needs besides the `Scope` every runtime already supplies.
+ */
+export const customModel = <R = never>(options: CustomModelOptions<R>): FoldModel<Exclude<R, Scope.Scope>> => ({
 	activeModel: options.activeModel,
-	provider: FoldModelProvider.custom({ make: options.make }),
+	provider: FoldModelProvider.custom(),
+	// SAFETY: `Scope | R` and `Scope | Exclude<R, Scope>` are the same set of services; TypeScript cannot
+	// see that for a generic R.
+	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion, effecttsgo/unsafe-effect-type-assertion
+	make: options.make as Effect.Effect<LanguageModel.Service, never, Scope.Scope | Exclude<R, Scope.Scope>>,
 })

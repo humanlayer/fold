@@ -3,9 +3,46 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { json, libraries, root, stage, targetName, targets } from './manifest'
+import { Schema } from 'effect'
 
-type ExportValue = string | { types?: string; import?: string; default?: string } | null
+import { encodeJson, libraries, readJson, root, stage, StringRecord, targetName, targets } from './manifest'
+
+const ExportValue = Schema.NullOr(
+	Schema.Union([
+		Schema.String,
+		Schema.Struct({
+			types: Schema.optionalKey(Schema.String),
+			import: Schema.optionalKey(Schema.String),
+			default: Schema.optionalKey(Schema.String),
+		}),
+	]),
+)
+type ExportValue = typeof ExportValue.Type
+const ExportMap = Schema.Record(Schema.String, ExportValue)
+
+const PublishedManifest = Schema.Struct({
+	name: Schema.String,
+	version: Schema.String,
+	private: Schema.optionalKey(Schema.Boolean),
+	publishConfig: Schema.optionalKey(Schema.Struct({ access: Schema.optionalKey(Schema.String) })),
+	dependencies: Schema.optionalKey(StringRecord),
+	peerDependencies: Schema.optionalKey(StringRecord),
+	optionalDependencies: Schema.optionalKey(StringRecord),
+	exports: Schema.optionalKey(ExportMap),
+	bin: Schema.optionalKey(StringRecord),
+})
+
+const ProviderManifest = Schema.Struct({ peerDependencies: Schema.Struct({ effect: Schema.String }) })
+
+const ConsumerManifest = Schema.Struct({
+	name: Schema.String,
+	private: Schema.Boolean,
+	type: Schema.String,
+	packageManager: Schema.String,
+})
+
+const PackedPackage = Schema.Struct({ name: Schema.String, filename: Schema.String })
+const PackOutput = Schema.Union([Schema.Array(PackedPackage), Schema.Record(Schema.String, PackedPackage)])
 
 const providerPackages = new Set([
 	'@humanlayer/effect-ai-openai',
@@ -45,7 +82,7 @@ const expandGlob = async (directory: string, pattern: string) => {
 }
 
 const assertNodeImport = async (packageName: string, entrypoint: string) => {
-	const expression = `await import(${JSON.stringify(pathToFileURL(entrypoint).href)})`
+	const expression = `await import(${encodeJson(Schema.String, pathToFileURL(entrypoint).href)})`
 	const process = Bun.spawn(['node', '--input-type=module', '--eval', expression], {
 		stdout: 'inherit',
 		stderr: 'inherit',
@@ -66,24 +103,11 @@ const run = async (command: Array<string>, cwd: string, captureOutput = false) =
 }
 
 type PackedArchive = { name: string; path: string }
-type PackedPackage = { name: string; filename: string }
-
-const isPackedPackage = (value: unknown): value is PackedPackage =>
-	typeof value === 'object' &&
-	value !== null &&
-	'name' in value &&
-	typeof value.name === 'string' &&
-	'filename' in value &&
-	typeof value.filename === 'string'
 
 const pack = async (directory: string, outputDirectory: string): Promise<PackedArchive> => {
 	const output = await run(['npm', 'pack', '--json', '--pack-destination', outputDirectory], directory, true)
-	const packed: unknown = JSON.parse(output)
-	const artifact = Array.isArray(packed)
-		? packed.find(isPackedPackage)
-		: typeof packed === 'object' && packed !== null
-			? Object.values(packed).find(isPackedPackage)
-			: undefined
+	const packed = Schema.decodeSync(Schema.fromJsonString(PackOutput))(output)
+	const [artifact] = Array.isArray(packed) ? packed : Object.values(packed)
 	if (artifact === undefined) throw new Error(`npm pack did not produce an archive for ${directory}`)
 	return { name: artifact.name, path: join(outputDirectory, artifact.filename) }
 }
@@ -102,12 +126,12 @@ const validateExternalProviderConsumer = async (
 			type: 'module',
 			packageManager: 'pnpm@11.25.0',
 		}
-		await Bun.write(join(directory, 'package.json'), `${JSON.stringify(manifest)}\n`)
+		await Bun.write(join(directory, 'package.json'), `${encodeJson(ConsumerManifest, manifest)}\n`)
 		if (manager === 'pnpm')
 			await Bun.write(
 				join(directory, 'pnpm-workspace.yaml'),
 				`overrides:\n${Object.entries(overrides)
-					.map(([name, range]) => `  ${JSON.stringify(name)}: ${JSON.stringify(range)}`)
+					.map(([name, range]) => `  ${encodeJson(Schema.String, name)}: ${encodeJson(Schema.String, range)}`)
 					.join('\n')}\n`,
 			)
 		await Bun.write(
@@ -143,9 +167,7 @@ const validateExternalProviderConsumers = async () => {
 		const archives = await Promise.all(
 			externalConsumerPackages.map((name) => pack(join(stage, 'packages', name), archivesDirectory)),
 		)
-		const manifest = await json<{ peerDependencies: { effect: string } }>(
-			join(stage, 'packages/effect-ai-openai/package.json'),
-		)
+		const manifest = await readJson(join(stage, 'packages/effect-ai-openai/package.json'), ProviderManifest)
 		await validateExternalProviderConsumer('npm', archives, manifest.peerDependencies.effect)
 		await validateExternalProviderConsumer('pnpm', archives, manifest.peerDependencies.effect)
 	} finally {
@@ -219,17 +241,7 @@ const manifests = [
 	join(stage, 'packages/fold/package.json'),
 ]
 for (const path of manifests) {
-	const manifest = await json<{
-		name: string
-		version: string
-		private?: boolean
-		publishConfig?: { access?: string }
-		dependencies?: Record<string, string>
-		peerDependencies?: Record<string, string>
-		optionalDependencies?: Record<string, string>
-		exports?: Record<string, ExportValue>
-		bin?: Record<string, string>
-	}>(path)
+	const manifest = await readJson(path, PublishedManifest)
 	if (expectedVersion !== undefined && manifest.version !== expectedVersion)
 		throw new Error(`${manifest.name} is ${manifest.version}, expected ${expectedVersion}`)
 	if (manifest.private) throw new Error(`${manifest.name} is private`)
@@ -262,7 +274,7 @@ for (const path of manifests) {
 		)
 			throw new Error(`${manifest.name} must not publish ${provider} as a peer or optional dependency`)
 	}
-	if (manifest.exports && JSON.stringify(manifest.exports).includes('/src/'))
+	if (manifest.exports && encodeJson(ExportMap, manifest.exports).includes('/src/'))
 		throw new Error(`${manifest.name} exposes source files`)
 	if (providerPackages.has(manifest.name)) {
 		if (manifest.exports === undefined) throw new Error(`${manifest.name} is missing an export map`)

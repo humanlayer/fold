@@ -6,13 +6,14 @@
  * byte-identical even when a normalized match was needed; BOM and CRLF endings are preserved. Error
  * strings are pi's, verbatim. Pure and isomorphic: platform handlers do the file IO around it.
  */
-import { Effect, Schema } from 'effect'
+import { Array as Arr, Effect, Option, Schema } from 'effect'
 
 /** One targeted replacement: exact old text and its replacement. */
-export type EditPair = {
-	readonly oldText: string
-	readonly newText: string
-}
+export const EditPair = Schema.Struct({
+	oldText: Schema.String,
+	newText: Schema.String,
+})
+export type EditPair = typeof EditPair.Type
 
 /** A model-visible edit failure. `message` strings are pi's, verbatim. */
 export class EditEngineError extends Schema.TaggedError<EditEngineError>()('EditEngineError', {
@@ -107,11 +108,7 @@ const applyReplacements = (content: string, replacements: ReadonlyArray<MatchedE
 const splitLinesWithEndings = (content: string): ReadonlyArray<string> => content.match(/[^\n]*\n|[^\n]+/g) ?? []
 
 /** Map a character span in the base content to the inclusive line range it touches. */
-const lineRangeFor = (
-	lineOffsets: ReadonlyArray<number>,
-	matchIndex: number,
-	matchLength: number,
-): { readonly first: number; readonly last: number } => {
+const lineRangeFor = (lineOffsets: ReadonlyArray<number>, matchIndex: number, matchLength: number) => {
 	let first = 0
 	let last = 0
 	for (let line = 0; line < lineOffsets.length; line += 1) {
@@ -298,49 +295,27 @@ export const applyEdits = (input: {
 		}
 	})
 
-const isEditPair = (value: unknown): value is EditPair => {
-	if (typeof value !== 'object' || value === null) return false
-	if (!('oldText' in value) || !('newText' in value)) return false
-	return typeof value.oldText === 'string' && typeof value.newText === 'string'
-}
-
 /**
- * Normalize edit-tool input into an edit batch (pi's `prepareEditArguments` + `validateEditInput`):
- * accepts the batch form, a JSON-string edits array (some models stringify it), and the legacy
- * top-level oldText/newText pair, which appends as the final edit.
+ * Normalize decoded edit-tool input into an edit batch (pi's `prepareEditArguments` +
+ * `validateEditInput`): the batch form, plus the legacy top-level oldText/newText pair, which appends as
+ * the final edit. A JSON-string edits array is already decoded to the batch form by the edit tool's
+ * parameter schema.
  */
 export const normalizeEditInput = (input: {
-	readonly edits?: ReadonlyArray<EditPair> | string | undefined
+	readonly edits?: ReadonlyArray<EditPair> | undefined
 	readonly oldText?: string | undefined
 	readonly newText?: string | undefined
 }): Effect.Effect<ReadonlyArray<EditPair>, EditEngineError> =>
 	Effect.gen(function* () {
-		const invalidEdits = new EditEngineError({
-			message: 'Edit tool input is invalid. edits must be an array of {oldText, newText}.',
+		const { edits: batch = [] } = input
+		// The legacy single-edit form counts only when both halves are present.
+		const single = Option.all({
+			oldText: Option.fromUndefinedOr(input.oldText),
+			newText: Option.fromUndefinedOr(input.newText),
 		})
-		let edits: Array<EditPair> = []
+		const edits: ReadonlyArray<EditPair> = [...batch, ...Option.toArray(single)]
 
-		if (typeof input.edits === 'string') {
-			const editsText = input.edits
-			const parsed = yield* Effect.try({
-				try: (): unknown => JSON.parse(editsText),
-				catch: () => invalidEdits,
-			})
-			if (!Array.isArray(parsed)) return yield* invalidEdits
-
-			for (const item of parsed) {
-				if (!isEditPair(item)) return yield* invalidEdits
-				edits.push({ oldText: item.oldText, newText: item.newText })
-			}
-		} else if (input.edits !== undefined) {
-			edits = [...input.edits]
-		}
-
-		if (typeof input.oldText === 'string' && typeof input.newText === 'string') {
-			edits.push({ oldText: input.oldText, newText: input.newText })
-		}
-
-		if (edits.length === 0) {
+		if (Arr.isReadonlyArrayEmpty(edits)) {
 			return yield* new EditEngineError({
 				message: 'Edit tool input is invalid. edits must contain at least one replacement.',
 			})

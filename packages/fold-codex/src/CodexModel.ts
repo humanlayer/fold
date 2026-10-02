@@ -1,4 +1,3 @@
-import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * The fold-codex model descriptor: clanka's shape over the official `@humanlayer/effect-ai-openai` provider
  * pointed at the ChatGPT Codex backend (D23). The stock OpenAiLanguageModel runs unchanged; all Codex
@@ -18,20 +17,21 @@ import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import type * as OpenAiSchema from '@humanlayer/effect-ai-openai/OpenAiSchema'
 import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
-import { Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
-import type { Scope } from 'effect'
-import { AiError } from 'effect/unstable/ai'
-import type { LanguageModel } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient } from 'effect/unstable/http'
+import { Array as Arr, Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
+import type { FileSystem, Scope } from 'effect'
+import { AiError, LanguageModel } from 'effect/unstable/ai'
+import { HttpClient } from 'effect/unstable/http'
 import type { HttpClientResponse } from 'effect/unstable/http'
 
-import type { CodexAuthStore } from './AuthStore'
+import { layerCodexAuthStore, type CodexAuthStoreOptions } from './AuthStore'
 import type { CodexIdentityOptions } from './CodexAuth'
-import { makeCodexAuth, withCodexAuth } from './CodexAuth'
-import type { CodexHardeningOptions, CodexRetryOptions, StreamRetryInfo } from './Hardening'
+import { codexAuthenticatedClient, layerCodexAuth } from './CodexAuth'
+import type { CodexHardeningOptions, CodexRetryOptions, CodexStreamError, StreamRetryInfo } from './Hardening'
 import {
 	CODEX_ERROR_MODULE,
-	codexAcquisitionStallError,
+	CodexFirstEventStall,
+	codexRetryAfter,
+	codexStallToAiError,
 	defaultCodexHardening,
 	isCodexRetryableBeforeFirstEvent,
 	withFirstEventRetry,
@@ -48,8 +48,8 @@ export const DEFAULT_REQUEST_RETRY_TIMES = 3
 export const DEFAULT_CODEX_MODEL_ID = 'gpt-6.1-sol'
 
 type ResponsesPayload = Omit<typeof OpenAiSchema.CreateResponse.Encoded, 'stream'>
-type ResponseBody = typeof OpenAiSchema.Response.Type
-type ResponseEvent = typeof OpenAiSchema.ResponseStreamEvent.Type
+type ResponseBody = OpenAiSchema.Response
+type ResponseEvent = OpenAiSchema.ResponseStreamEvent
 type EventStream = Stream.Stream<ResponseEvent, AiError.AiError>
 type MutableCodexRetryOptions = { -readonly [Key in keyof CodexRetryOptions]: CodexRetryOptions[Key] }
 
@@ -80,7 +80,7 @@ export const liftLeadingSystemIntoInstructions = (payload: ResponsesPayload): Re
 		if (Option.isNone(decoded)) break
 		leading.push(decoded.value.content)
 	}
-	if (leading.length === 0) return payload
+	if (Arr.isArrayEmpty(leading)) return payload
 
 	return { ...payload, instructions: leading.join('\n\n'), input: input.slice(leading.length) }
 }
@@ -113,14 +113,16 @@ type ResponseFold = {
  */
 export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexRetryOptions): OpenAiClient.Service => {
 	// `min` caps the infinite exponential delay; `max` intersects it with the finite retry counter.
-	const retryDelaySchedule: Schedule.Schedule<Duration.Duration, AiError.AiError> = Schedule.min([
+	const retryDelaySchedule: Schedule.Schedule<Duration.Duration, CodexStreamError> = Schedule.min([
 		Schedule.exponential(Duration.millis(options.firstEventRetryBaseDelayMs)),
 		Schedule.spaced(Duration.millis(options.firstEventRetryMaxDelayMs)),
 	]).pipe(Schedule.jittered, (schedule) =>
 		Schedule.max([schedule, Schedule.recurs(options.firstEventTimeoutRetries)]),
 	)
 	const retrySchedule = Schedule.passthrough(retryDelaySchedule).pipe(
-		Schedule.modifyDelay(({ output, duration }) => Effect.succeed(output.retryAfter ?? duration)),
+		Schedule.modifyDelay(({ output, duration }) =>
+			Effect.succeed(Option.getOrElse(codexRetryAfter(output), () => duration)),
+		),
 	)
 
 	// One request attempt, bounded by the first-event timeout: a request that gets no response at all
@@ -130,7 +132,8 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 		Effect.suspend(() => inner.createResponseStream(payload)).pipe(
 			Effect.timeoutOrElse({
 				duration: Duration.millis(options.firstEventTimeoutMs),
-				orElse: () => Effect.fail(codexAcquisitionStallError(options.firstEventTimeoutMs)),
+				orElse: () =>
+					Effect.fail(new CodexFirstEventStall({ phase: 'request', timeoutMs: options.firstEventTimeoutMs })),
 			}),
 		)
 
@@ -138,15 +141,16 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 		payload: ResponsesPayload,
 	): Effect.Effect<readonly [HttpClientResponse.HttpClientResponse, EventStream], AiError.AiError> => {
 		const transformed = liftLeadingSystemIntoInstructions(payload)
+		type HardenedStream = Stream.Stream<ResponseEvent, CodexStreamError>
 
 		// Attempt 0 acquires eagerly (its HttpClientResponse is the tuple's response); retryable acquisition
 		// failures retry in-effect - nothing has streamed yet, so a re-send cannot duplicate anything.
 		return acquireOnce(transformed).pipe(
 			Effect.retry({ while: isCodexRetryableBeforeFirstEvent, schedule: retrySchedule }),
 			Effect.map(([response, firstStream]) => {
-				let pending: EventStream | null = firstStream
+				let pending: HardenedStream | null = firstStream
 
-				const makeAttempt = (): EventStream => {
+				const makeAttempt = (): HardenedStream => {
 					if (pending !== null) {
 						const stream = pending
 						pending = null
@@ -158,11 +162,21 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 					return Stream.unwrap(Effect.map(acquireOnce(transformed), ([, stream]) => stream))
 				}
 
-				const hardened = withFirstEventRetry(() => makeAttempt().pipe(withStallTimeouts(options)), options)
+				// Stalls stay typed through the retry policy; the OpenAI client contract carries only AiError.
+				const hardened: EventStream = withFirstEventRetry(
+					() => makeAttempt().pipe(withStallTimeouts(options)),
+					options,
+				).pipe(
+					Stream.catchTags({
+						CodexFirstEventStall: (stall) => Stream.fail(codexStallToAiError(stall)),
+						CodexIdleStall: (stall) => Stream.fail(codexStallToAiError(stall)),
+					}),
+				)
 
 				const result: readonly [HttpClientResponse.HttpClientResponse, EventStream] = [response, hardened]
 				return result
 			}),
+			Effect.catchTag('CodexFirstEventStall', (stall) => Effect.fail(codexStallToAiError(stall))),
 		)
 	}
 
@@ -198,8 +212,9 @@ export const decorateCodexClient = (inner: OpenAiClient.Service, options: CodexR
 						// storage); the finished items arrive as `response.output_item.done` events, so
 						// graft them in. A terminal response that does carry output (standard OpenAI
 						// behavior) wins as-is.
-						const body: ResponseBody =
-							terminal.value.output.length > 0 ? terminal.value : { ...terminal.value, output: items }
+						const body: ResponseBody = Arr.isReadonlyArrayNonEmpty(terminal.value.output)
+							? terminal.value
+							: { ...terminal.value, output: items }
 
 						const result: readonly [ResponseBody, HttpClientResponse.HttpClientResponse] = [
 							body,
@@ -224,8 +239,11 @@ export type CodexModelOptions = {
 	readonly providerId?: string
 	/** Override the backend base URL (testing/proxies). Defaults to the ChatGPT Codex backend. */
 	readonly apiUrl?: string
-	/** Credential store override. Defaults to the `codex` entry of `~/.fold/auth.json`. */
-	readonly store?: CodexAuthStore
+	/**
+	 * The auth document holding this provider's credential, under the `providerId` entry. Defaults to
+	 * `~/.fold/auth.json`.
+	 */
+	readonly authStorePath?: string
 	/** Identity headers (`originator`/`User-Agent`/`session_id`) sent on model requests. */
 	readonly identity?: CodexIdentityOptions
 	/** Maximum transport retry attempts. Provider response retries use {@link CodexHardeningOptions.firstEventTimeoutRetries}. */
@@ -236,67 +254,76 @@ export type CodexModelOptions = {
 	readonly onStreamRetry?: (info: StreamRetryInfo) => Effect.Effect<void>
 }
 
+/** The credential store for this model: its provider's entry in its auth document. */
+const authStoreOptionsFor = (options: CodexModelOptions): CodexAuthStoreOptions =>
+	options.authStorePath === undefined
+		? { providerId: options.providerId ?? 'codex' }
+		: { providerId: options.providerId ?? 'codex', path: options.authStorePath }
+
+/** This model's CodexAuth over its provider's credential store, on the host's HttpClient and FileSystem. */
+const authLayerFor = (options: CodexModelOptions) =>
+	layerCodexAuth().pipe(Layer.provide(layerCodexAuthStore(authStoreOptionsFor(options))))
+
 /**
- * Build the hardened Codex LanguageModel service. Self-contained: constructs its own fetch-backed
- * HttpClient, CodexAuth over the credential store, and the decorated OpenAiClient against the Codex
- * backend; the LanguageModel on top is the stock OpenAI provider.
+ * Build the hardened Codex LanguageModel service. Self-contained: provides its own fetch-backed
+ * HttpClient, CodexAuth over this provider's credential store, and the decorated OpenAiClient against
+ * the Codex backend; the LanguageModel on top is the stock OpenAI provider.
  */
 export const makeCodexLanguageModel = (
 	options: CodexModelOptions,
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope> =>
-	Effect.gen(function* () {
-		const httpContext = yield* Layer.build(FetchHttpClient.layer)
-		const baseClient = Context.get(httpContext, HttpClient.HttpClient)
+): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+	Layer.build(
+		Layer.effect(
+			LanguageModel.LanguageModel,
+			Effect.gen(function* () {
+				const baseClient = yield* HttpClient.HttpClient
 
-		const authOptions: { store?: CodexAuthStore } = {}
-		if (options.store !== undefined) authOptions.store = options.store
-		const auth = yield* makeCodexAuth(authOptions).pipe(Effect.provideService(HttpClient.HttpClient, baseClient))
+				// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
+				// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
+				// where the first-event retry can honor a provider Retry-After rather than retrying a 429 immediately.
+				const modelClient = yield* codexAuthenticatedClient(
+					baseClient.pipe(
+						HttpClient.retryTransient({
+							retryOn: 'errors-only',
+							times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
+						}),
+					),
+					options.identity,
+				)
 
-		// retryTransient sits below the auth wrapper: transport retries reuse the injected headers and never
-		// re-enter (or retry) the auth path itself. Status responses are mapped to AiError above this seam,
-		// where the first-event retry can honor a provider Retry-After rather than retrying a 429 immediately.
-		const modelClient = withCodexAuth(
-			baseClient.pipe(
-				HttpClient.retryTransient({
-					retryOn: 'errors-only',
-					times: options.requestRetryTimes ?? DEFAULT_REQUEST_RETRY_TIMES,
-				}),
-			),
-			auth,
-			options.identity,
-		)
+				const clientContext = yield* Layer.build(
+					OpenAiClient.layer({ apiUrl: options.apiUrl ?? CODEX_API_URL }),
+				).pipe(Effect.provideService(HttpClient.HttpClient, modelClient))
+				const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
 
-		const clientContext = yield* Layer.build(OpenAiClient.layer({ apiUrl: options.apiUrl ?? CODEX_API_URL })).pipe(
-			Effect.provideService(HttpClient.HttpClient, modelClient),
-		)
-		const stockClient = Context.get(clientContext, OpenAiClient.OpenAiClient)
+				const hardening: MutableCodexRetryOptions = { ...defaultCodexHardening, ...options.hardening }
+				if (options.onStreamRetry !== undefined) hardening.onStreamRetry = options.onStreamRetry
+				const codexClient = decorateCodexClient(stockClient, hardening)
 
-		const hardening: MutableCodexRetryOptions = { ...defaultCodexHardening, ...options.hardening }
-		if (options.onStreamRetry !== undefined) hardening.onStreamRetry = options.onStreamRetry
-		const codexClient = decorateCodexClient(stockClient, hardening)
+				const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
+				const reasoningConfig = Match.valueTags(reasoning, {
+					disabled: () => ({}),
+					effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
+				})
 
-		const reasoning = resolveCodexReasoning(options.reasoning ?? 'off')
-		const reasoningConfig = Match.valueTags(reasoning, {
-			disabled: () => ({}),
-			effort: ({ effort, summary }) => ({ reasoning: { effort, summary } }),
-		})
-
-		return yield* OpenAiLanguageModel.make({
-			model: options.model ?? DEFAULT_CODEX_MODEL_ID,
-			config: {
-				// The ChatGPT backend does no server-side response storage (clanka parity).
-				store: false,
-				...reasoningConfig,
-			},
-		}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
-	}).pipe(Effect.provide(NodeFileSystem.layer))
+				return yield* OpenAiLanguageModel.make({
+					model: options.model ?? DEFAULT_CODEX_MODEL_ID,
+					config: {
+						// The ChatGPT backend does no server-side response storage (clanka parity).
+						store: false,
+						...reasoningConfig,
+					},
+				}).pipe(Effect.provideService(OpenAiClient.OpenAiClient, codexClient))
+			}),
+		).pipe(Layer.provide(authLayerFor(options))),
+	).pipe(Effect.map((context) => Context.get(context, LanguageModel.LanguageModel)))
 
 /**
  * Describe a model served by the ChatGPT Codex backend using stored Codex OAuth credentials. Plugs
  * into `startSession`/`switchModel` like any other model descriptor; the loop's per-request reasoning
  * and model-id binding work unchanged because the provider on top is the stock OpenAI one.
  */
-export const codexModel = (options: CodexModelOptions): FoldModel => {
+export const codexModel = (options: CodexModelOptions): FoldModel<HttpClient.HttpClient | FileSystem.FileSystem> => {
 	const level = options.reasoning ?? 'off'
 
 	return customModel({

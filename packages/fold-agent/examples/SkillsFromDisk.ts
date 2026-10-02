@@ -13,7 +13,8 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/fold-core'
-import { Console, Effect } from 'effect'
+import { Console, Effect, Layer } from 'effect'
+import { FetchHttpClient } from 'effect/unstable/http'
 
 import { skillsFromDisk } from '../src/index'
 
@@ -24,7 +25,7 @@ const skillFile = (name: string, description: string, body: string): string =>
 	`---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`
 
 /** Lay out a fake home + repo: one global skill, one repo skill that shadows a global duplicate. */
-const materializeSkillTree = (): { readonly home: string; readonly cwd: string } => {
+const materializeSkillTree = () => {
 	const root = mkdtempSync(join(tmpdir(), 'fold-skills-demo-'))
 	const home = join(root, 'home')
 	const repo = join(root, 'repo')
@@ -74,7 +75,7 @@ const makeProgram = (apiKey: string) =>
 
 		yield* Console.log(`finished: ${finished.outcome}`)
 		yield* Console.log(`result:\n${finished.resultText ?? '(no text)'}`)
-	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer))
+	}).pipe(Effect.scoped, Effect.provide(Layer.merge(NodeFileSystem.layer, FetchHttpClient.layer)))
 
 if (apiKey === undefined || apiKey === '') {
 	console.error('Set ANTHROPIC_API_KEY to run this example.')

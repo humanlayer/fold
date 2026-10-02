@@ -129,7 +129,7 @@ describe('@humanlayer/effect-ai-openai', () => {
 
 			const request = requests[0]
 			assert.isDefined(request)
-			const body = Schema.decodeUnknownSync(CapturedRequest)(JSON.parse(request))
+			const body = yield* Schema.decodeUnknownEffect(CapturedRequest)(JSON.parse(request))
 			const outputs = body.input.filter((item) => item['type'] === 'function_call_output')
 			const textOutput = outputs.find((item) => item['call_id'] === 'call_text')
 			const multipartOutput = outputs.find((item) => item['call_id'] === 'call_multipart')
@@ -193,11 +193,11 @@ describe('@humanlayer/effect-ai-openai', () => {
 	})
 
 	it('accepts incomplete flat and nested error events', () => {
-		const flat = Schema.decodeUnknownSync(OpenAiSchema.ResponseStreamEvent)({
+		const flat = Schema.decodeSync(OpenAiSchema.ResponseStreamEvent)({
 			type: 'error',
 			message: 'flat provider error',
 		})
-		const nested = Schema.decodeUnknownSync(OpenAiSchema.ResponseStreamEvent)({
+		const nested = Schema.decodeSync(OpenAiSchema.ResponseStreamEvent)({
 			type: 'error',
 			error: { message: 'nested provider error' },
 		})

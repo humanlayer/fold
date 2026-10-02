@@ -23,7 +23,7 @@ import type {
 	PreToolUseHookDecision,
 	PreToolUseHookInput,
 } from './Schema'
-import type { HookScope, OnCompleteHook, PostToolUseHook, PreRequestHook, PreToolUseHook, HookConfig } from './Types.ts'
+import type { HookScope, OnCompleteHook, PostToolUseHook, PreRequestHook, PreToolUseHook, HookConfig } from './Types'
 
 type HookDecision = PreRequestHookDecision | PreToolUseHookDecision | PostToolUseHookDecision | OnCompleteHookDecision
 const HookDecision = Data.taggedEnum<HookDecision>()
@@ -37,10 +37,9 @@ const catchHookExecutionError = <A, R>(
 	hookName: string,
 ): Effect.Effect<A, HookExecutionError, R> =>
 	effect.pipe(
-		Effect.catchCause((cause) =>
-			Cause.hasInterrupts(cause)
-				? Effect.failCause(cause)
-				: Effect.fail(new HookExecutionError(phase, hookName, cause)),
+		Effect.catchCauseIf(
+			(cause) => !Cause.hasInterrupts(cause),
+			(cause) => Effect.fail(new HookExecutionError(phase, hookName, cause)),
 		),
 	)
 
@@ -88,7 +87,7 @@ const provideHookState =
 		})
 
 /** Build a HookRunner layer from hook configuration data. */
-export const makeHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never, EventLog | Ids> =>
+export const layerHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never, EventLog | Ids> =>
 	Layer.effect(
 		HookRunner,
 		Effect.gen(function* () {

@@ -10,12 +10,13 @@ import {
 	type ToolResultSuccess,
 } from '@humanlayer/fold-core'
 import { Duration, Effect, Option, Schema, Stream } from 'effect'
-import { FetchHttpClient, Headers, HttpClient } from 'effect/unstable/http'
+import { Headers, HttpClient } from 'effect/unstable/http'
 import type { HttpClientResponse } from 'effect/unstable/http'
 import TurndownService from 'turndown'
 
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'
-import { processImage } from './Image/Process'
+import type { Photon } from './Image/Photon'
+import { imageOmittedNote, processImage } from './Image/Process'
 
 const maxResponseSize = 5 * 1024 * 1024
 const defaultTimeoutMs = 30_000
@@ -38,7 +39,7 @@ const failWith = (message: string): Effect.Effect<never, WebFetchFailure> =>
 
 /** The advertised body size, decoded from the raw header; `None` when absent or unparseable. */
 const declaredBodySize = (headers: Headers.Headers): Option.Option<number> =>
-	Headers.get(headers, 'content-length').pipe(Option.flatMap(Schema.decodeOption(Schema.NumberFromString)))
+	Headers.get(headers, 'content-length').pipe(Option.flatMap(Schema.decodeOption(Schema.FiniteFromString)))
 
 /** The lowercased content-type, or an empty string when the header is absent. */
 const contentTypeOf = (headers: Headers.Headers): string =>
@@ -171,22 +172,29 @@ const renderDocument = (
 	document: FetchedDocument,
 	format: 'markdown' | 'text' | 'html',
 	turndown: TurndownService,
-): Effect.Effect<ToolResultSuccess> =>
+): Effect.Effect<ToolResultSuccess, never, Photon> =>
 	Effect.gen(function* () {
 		const imageMimeType = imageMimeFor(document.bytes, document.contentType)
 		if (imageMimeType !== null) {
-			const processed = yield* Effect.promise(() => processImage(document.bytes, imageMimeType))
-			if (!processed.ok) {
-				return ToolResultText.make({ text: `Fetched image [${imageMimeType}]\n${processed.message}` })
-			}
-
-			const note = [`Fetched image [${processed.mimeType}] from ${url}`, ...processed.hints].join('\n')
-			return ToolResultMultipart.make({
-				content: [
-					ToolResultTextPart.make({ text: note }),
-					ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
-				],
-			})
+			return yield* processImage(document.bytes, imageMimeType).pipe(
+				Effect.map((processed) =>
+					ToolResultMultipart.make({
+						content: [
+							ToolResultTextPart.make({
+								text: [`Fetched image [${processed.mimeType}] from ${url}`, ...processed.hints].join(
+									'\n',
+								),
+							}),
+							ToolResultImagePart.make({ data: processed.data, mediaType: processed.mimeType }),
+						],
+					}),
+				),
+				Effect.catchTag('ImageProcessError', (error) =>
+					Effect.succeed(
+						ToolResultText.make({ text: `Fetched image [${imageMimeType}]\n${imageOmittedNote(error)}` }),
+					),
+				),
+			)
 		}
 
 		const body = new TextDecoder().decode(document.bytes)
@@ -197,10 +205,12 @@ const renderDocument = (
 
 // --- tool ---------------------------------------------------------------------------------------------
 
-export const webFetchTool = (): FoldTool => {
+export const webFetchTool = (): FoldTool<HttpClient.HttpClient | Photon> => {
 	const turndown = makeTurndown()
 
-	const runWebFetch = (params: WebFetchParameters): Effect.Effect<ToolResultSuccess, WebFetchFailure> =>
+	const runWebFetch = (
+		params: WebFetchParameters,
+	): Effect.Effect<ToolResultSuccess, WebFetchFailure, Photon | HttpClient.HttpClient> =>
 		Effect.gen(function* () {
 			if (!params.url.startsWith('http://') && !params.url.startsWith('https://')) {
 				return yield* failWith('URL must start with http:// or https://')
@@ -209,10 +219,10 @@ export const webFetchTool = (): FoldTool => {
 			const timeoutMs = Math.min((params.timeout_seconds ?? defaultTimeoutMs / 1000) * 1000, maxTimeoutMs)
 			const document = yield* fetchDocument(params.url, timeoutMs)
 			return yield* renderDocument(params.url, document, params.format ?? 'markdown', turndown)
-		}).pipe(
-			Effect.provide(FetchHttpClient.layer),
-			Effect.withSpan('tool.web_fetch', { attributes: { url: params.url } }),
-		)
+		}).pipe(Effect.withSpan('tool.web_fetch', { attributes: { url: params.url } }))
 
-	return defineTool({ ...webFetchToolContract, handler: runWebFetch })
+	return defineTool({
+		...webFetchToolContract,
+		handler: runWebFetch,
+	})
 }

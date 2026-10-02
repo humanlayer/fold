@@ -28,28 +28,31 @@ import {
 	type FoldModel,
 	type FoldTool,
 } from '@humanlayer/fold-core'
+import type { FileSystem, Path } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
+import type { ChildProcessSpawner } from 'effect/unstable/process'
 
-import type { OutputStoreService } from '../OutputStore/OutputStore'
+import type { OutputStore } from '../OutputStore/OutputStore'
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { bashTool } from '../Tools/BashTool'
 import { codingTools } from '../Tools/CodingTools'
+import type { Photon } from '../Tools/Image/Photon'
 import { readTool } from '../Tools/ReadTool'
 import { webTools } from '../Tools/WebTools'
 
 /** The models a mode binds its agents to, resolved from config roles (or a single explicit override). */
 export type ModeModels = {
 	/** The root agent's model: the mode's role, or whatever the caller selected/overrode. */
-	readonly primary: FoldModel
-	readonly smart: FoldModel
-	readonly fast: FoldModel
+	readonly primary: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly smart: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly fast: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 	/** Falls back to `smart` when the config declares no orchestrator role (D25). */
-	readonly orchestrator: FoldModel
+	readonly orchestrator: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 }
 
 /** Inputs for building a subagent roster against one working directory. */
 export type SubagentRosterOptions = {
 	readonly cwd: string
-	readonly outputStore?: OutputStoreService
 }
 
 /** Leading prompt for the `bash` subagent. */
@@ -152,10 +155,19 @@ export const WEB_SEARCH_RESEARCHER_PROMPT: string =
  * types that get skills, so the session scans the skills directory exactly once (D20). Every type
  * binds its model by profile role, resolved through the session's profiles map at each dispatch.
  */
-export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): ReadonlyArray<SubagentDefinition> => {
-	const toolOptions: { cwd: string; outputStore?: OutputStoreService } = { cwd }
-	if (outputStore !== undefined) toolOptions.outputStore = outputStore
-	const coding = codingTools(toolOptions)
+export const defaultSubagents = ({
+	cwd,
+}: SubagentRosterOptions): ReadonlyArray<
+	SubagentDefinition<
+		| FileSystem.FileSystem
+		| Path.Path
+		| ChildProcessSpawner.ChildProcessSpawner
+		| OutputStore
+		| Photon
+		| HttpClient.HttpClient
+	>
+> => {
+	const coding = codingTools({ cwd })
 	const skills = skillTool(skillsFromDisk({ cwd }))
 	const web = webTools()
 
@@ -165,7 +177,7 @@ export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): R
 			'Run shell commands (builds, tests, git, rg searches) and report the commands, exit status, and ' +
 			'the output that matters. Use it to execute something without spending your own context on raw output.',
 		systemPrompt: BASH_SUBAGENT_PROMPT,
-		tools: [bashTool(toolOptions)],
+		tools: [bashTool({ cwd })],
 		model: 'fast',
 	})
 
@@ -177,7 +189,7 @@ export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): R
 			'Locate code and explain how it works, returning a structured report with file:line references. ' +
 			'Use it for "where is X" and "how does Y work" questions that would otherwise require reading many files.',
 		systemPrompt: [RESEARCHER_SUBAGENT_PROMPT, AST_GREP_OUTLINE_GUIDANCE],
-		tools: [readTool({ cwd }), bashTool(toolOptions), skills],
+		tools: [readTool({ cwd }), bashTool({ cwd }), skills],
 		model: 'fast',
 	})
 
@@ -195,7 +207,16 @@ export const defaultSubagents = ({ cwd, outputStore }: SubagentRosterOptions): R
 	// array is built first, handed to the definition, then closed over its own subagentTool value. The
 	// registry walk dedups by identity and carries a seen-set, so the resulting cycle is traversal-safe
 	// (see fold-core `collectSubagentDefinitions`).
-	const generalPurposeTools: Array<FoldTool> = [...coding, skills]
+	const generalPurposeTools: Array<
+		FoldTool<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+			| OutputStore
+			| Photon
+			| HttpClient.HttpClient
+		>
+	> = [...coding, skills]
 	const generalPurpose = defineSubagent({
 		name: 'general-purpose',
 		description:

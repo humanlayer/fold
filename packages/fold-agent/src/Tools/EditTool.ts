@@ -9,22 +9,20 @@ import {
 	applyEdits,
 	editToolContract,
 	normalizeEditInput,
-	platformToolDependencies,
 	ToolResultFailure,
 	ToolResultText,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Effect, FileSystem } from 'effect'
+import { Effect, FileSystem, type Path } from 'effect'
 
 import { withFileMutationLock } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { errnoCode, platformErrorMessage } from './ReadTool'
 
 /** Build the edit tool over the ambient FileSystem service. */
-export const editTool = (options?: { readonly cwd?: string }): FoldTool =>
+export const editTool = (options?: { readonly cwd?: string }): FoldTool<FileSystem.FileSystem | Path.Path> =>
 	defineTool({
 		...editToolContract,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem

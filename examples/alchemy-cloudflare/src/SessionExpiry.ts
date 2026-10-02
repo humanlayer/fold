@@ -7,7 +7,7 @@
  * heartbeat that finds no turn running hands it back here.
  */
 import * as Cloudflare from 'alchemy/Cloudflare'
-import { Clock, Context, Duration, Effect, Layer } from 'effect'
+import { Clock, Context, Duration, Effect, Layer, Option, Schema } from 'effect'
 
 /** How long a session lasts after its last message. */
 export const IDLE_TIME = Duration.days(14)
@@ -88,7 +88,9 @@ export class SessionExpiry extends Context.Service<
 				{
 					get: (key) =>
 						Effect.promise(() => raw.storage.get(key)).pipe(
-							Effect.map((value) => (typeof value === 'number' ? value : undefined)),
+							Effect.map((value) =>
+								Option.getOrUndefined(Schema.decodeUnknownOption(Schema.Finite)(value)),
+							),
 						),
 					put: (key, value) => Effect.promise(() => raw.storage.put(key, value)),
 					getAlarm: Effect.promise(() => raw.storage.getAlarm()),
@@ -99,15 +101,13 @@ export class SessionExpiry extends Context.Service<
 					}),
 					// Once the alarm has finished: Cloudflare holds its completion until the delete is saved,
 					// and an abort before then fails the alarm, which Cloudflare retries.
-					restart: Effect.sync(() => {
-						setTimeout(() => {
-							try {
-								raw.abort('session expired')
-							} catch {
-								// abort throws to unwind; the object resets either way.
-							}
-						}, RESTART_DELAY_MILLIS)
-					}),
+					restart: Effect.sleep(Duration.millis(RESTART_DELAY_MILLIS)).pipe(
+						// abort throws to unwind; the object resets either way.
+						Effect.andThen(Effect.try(() => raw.abort('session expired'))),
+						Effect.ignore,
+						Effect.forkDetach(),
+						Effect.asVoid,
+					),
 				},
 				IDLE_TIME,
 			)

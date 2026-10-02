@@ -5,7 +5,6 @@
  */
 import {
 	defineTool,
-	platformToolDependencies,
 	ToolResultFailure,
 	ToolResultText,
 	utf8ByteLength,
@@ -19,10 +18,9 @@ import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
 
 /** Build the write tool over the ambient FileSystem service. */
-export const writeTool = (options?: { readonly cwd?: string }): FoldTool =>
+export const writeTool = (options?: { readonly cwd?: string }): FoldTool<FileSystem.FileSystem | Path.Path> =>
 	defineTool({
 		...writeToolContract,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
@@ -34,19 +32,11 @@ export const writeTool = (options?: { readonly cwd?: string }): FoldTool =>
 					fs,
 					absolutePath,
 					Effect.gen(function* () {
-						yield* fs.makeDirectory(pathService.dirname(absolutePath), { recursive: true }).pipe(
-							Effect.mapError((error) => ({
-								message: platformErrorMessage('write', params.path, error),
-							})),
-						)
-						yield* fs.writeFileString(absolutePath, params.content).pipe(
-							Effect.mapError((error) => ({
-								message: platformErrorMessage('write', params.path, error),
-							})),
-						)
+						yield* fs.makeDirectory(pathService.dirname(absolutePath), { recursive: true })
+						yield* fs.writeFileString(absolutePath, params.content)
 					}),
 				).pipe(
-					// Realpath failures while keying the lock (permissions, symlink loops) surface too.
+					// Directory, write, and lock-keying realpath failures (permissions, symlink loops) all surface here.
 					Effect.catchTag('PlatformError', (error) =>
 						Effect.fail({ message: platformErrorMessage('write', params.path, error) }),
 					),

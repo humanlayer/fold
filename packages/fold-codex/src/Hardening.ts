@@ -9,14 +9,11 @@
  * producer latency per pull: the deadline arms when the consumer asks for the next event and clears
  * when one arrives, so consumer-side processing time never counts against the stream.
  */
-import { Duration, Effect, Random, Stream } from 'effect'
+import { Data, Duration, Effect, Match, Option, Random, Stream } from 'effect'
 import { AiError } from 'effect/unstable/ai'
 
 /** `AiError.module` value marking errors minted by this package. */
 export const CODEX_ERROR_MODULE = 'fold-codex'
-
-const FIRST_EVENT_METHOD = 'streamText.firstEventTimeout'
-const IDLE_METHOD = 'streamText.idleTimeout'
 
 /** Stall-timeout and retry configuration for one Codex model. */
 export type CodexHardeningOptions = {
@@ -39,45 +36,87 @@ export const defaultCodexHardening: CodexHardeningOptions = {
 	eventIdleTimeoutMs: 120_000,
 }
 
+/**
+ * Nothing arrived within the first-event window: either the request got no response (`request`) or its
+ * stream produced no event (`stream`). Retryable - nothing has reached the consumer yet.
+ */
+export class CodexFirstEventStall extends Data.TaggedError('CodexFirstEventStall')<{
+	readonly phase: 'request' | 'stream'
+	readonly timeoutMs: number
+}> {
+	override get message(): string {
+		return this.phase === 'request'
+			? `No response received within ${this.timeoutMs}ms of sending the request (codex first-event timeout)`
+			: `No stream event received within ${this.timeoutMs}ms of the request (codex first-event timeout)`
+	}
+}
+
+/** The stream went quiet mid-flight after partial output. Never retried. */
+export class CodexIdleStall extends Data.TaggedError('CodexIdleStall')<{
+	readonly timeoutMs: number
+}> {
+	override get message(): string {
+		return `No stream event received for ${this.timeoutMs}ms mid-stream (codex idle timeout)`
+	}
+}
+
+/** The stall failures this package's timeouts raise. */
+export type CodexStall = CodexFirstEventStall | CodexIdleStall
+
+/** Every failure a hardened Codex stream can raise before the provider boundary. */
+export type CodexStreamError = AiError.AiError | CodexStall
+
 /** One retry notification: `attempt` is the attempt about to run (1-based over the retries budget). */
 export type StreamRetryInfo = {
 	readonly attempt: number
 	readonly delayMs: number
-	readonly error: AiError.AiError
+	readonly error: CodexStreamError
 }
 
-const stallError = (method: string, description: string): AiError.AiError =>
-	AiError.make({
-		module: CODEX_ERROR_MODULE,
-		method,
-		reason: new AiError.InternalProviderError({ description }),
-	})
-
 /**
- * The first-event stall error for the request-acquisition phase (request sent, no response yet).
- * Classified identically to a stream first-event stall so both phases share one retry policy.
+ * A failure is safe to repeat only before the model has emitted any stream event: a first-event stall
+ * or a retryable provider error. Idle stalls are excluded because a fresh request could duplicate
+ * content or repeat a tool call that has already reached the agent runtime.
  */
-export const codexAcquisitionStallError = (timeoutMs: number): AiError.AiError =>
-	stallError(
-		FIRST_EVENT_METHOD,
-		`No response received within ${timeoutMs}ms of sending the request (codex first-event timeout)`,
+export const isCodexRetryableBeforeFirstEvent: (error: CodexStreamError) => boolean =
+	Match.type<CodexStreamError>().pipe(
+		Match.tagsExhaustive({
+			AiError: (error) => error.isRetryable,
+			CodexFirstEventStall: () => true,
+			CodexIdleStall: () => false,
+		}),
 	)
 
-/** True for the first-event stall errors this package mints (the only retryable stall class). */
-export const isCodexFirstEventStall = (error: unknown): error is AiError.AiError =>
-	AiError.isAiError(error) && error.module === CODEX_ERROR_MODULE && error.method === FIRST_EVENT_METHOD
-
-/** True for the mid-stream idle stall errors this package mints. */
-export const isCodexIdleStall = (error: unknown): error is AiError.AiError =>
-	AiError.isAiError(error) && error.module === CODEX_ERROR_MODULE && error.method === IDLE_METHOD
+/** The provider's Retry-After delay, when the failure carries one. */
+export const codexRetryAfter: (error: CodexStreamError) => Option.Option<Duration.Duration> =
+	Match.type<CodexStreamError>().pipe(
+		Match.tagsExhaustive({
+			AiError: (error) => Option.fromUndefinedOr(error.retryAfter),
+			CodexFirstEventStall: () => Option.none(),
+			CodexIdleStall: () => Option.none(),
+		}),
+	)
 
 /**
- * A retryable provider failure is safe to repeat only before the model has emitted any stream event.
- * Mid-stream failures are intentionally excluded because a fresh request could duplicate content or
- * repeat a tool call that has already reached the agent runtime.
+ * Lower a stall to the `AiError` the OpenAI client contract carries. The `method` keeps first-event and
+ * idle stalls distinguishable downstream.
  */
-export const isCodexRetryableBeforeFirstEvent = (error: unknown): error is AiError.AiError =>
-	AiError.isAiError(error) && error.isRetryable && !isCodexIdleStall(error)
+export const codexStallToAiError: (stall: CodexStall) => AiError.AiError = Match.type<CodexStall>().pipe(
+	Match.tagsExhaustive({
+		CodexFirstEventStall: (stall) =>
+			AiError.make({
+				module: CODEX_ERROR_MODULE,
+				method: 'streamText.firstEventTimeout',
+				reason: new AiError.InternalProviderError({ description: stall.message }),
+			}),
+		CodexIdleStall: (stall) =>
+			AiError.make({
+				module: CODEX_ERROR_MODULE,
+				method: 'streamText.idleTimeout',
+				reason: new AiError.InternalProviderError({ description: stall.message }),
+			}),
+	}),
+)
 
 /**
  * Bound the stream's producer latency: the first event must arrive within `firstEventTimeoutMs` and
@@ -87,22 +126,20 @@ export const isCodexRetryableBeforeFirstEvent = (error: unknown): error is AiErr
  */
 export const withStallTimeouts =
 	(options: Pick<CodexHardeningOptions, 'firstEventTimeoutMs' | 'eventIdleTimeoutMs'>) =>
-	<A, E, R>(self: Stream.Stream<A, E, R>): Stream.Stream<A, E | AiError.AiError, R> =>
+	<A, E, R>(self: Stream.Stream<A, E, R>): Stream.Stream<A, E | CodexStall, R> =>
 		Stream.transformPull(self, (pull, _scope) =>
 			Effect.sync(() => {
 				let seenFirstEvent = false
 
 				return Effect.suspend(() => {
-					const timeoutMs = seenFirstEvent ? options.eventIdleTimeoutMs : options.firstEventTimeoutMs
-					const method = seenFirstEvent ? IDLE_METHOD : FIRST_EVENT_METHOD
-					const description = seenFirstEvent
-						? `No stream event received for ${timeoutMs}ms mid-stream (codex idle timeout)`
-						: `No stream event received within ${timeoutMs}ms of the request (codex first-event timeout)`
+					const stall: CodexStall = seenFirstEvent
+						? new CodexIdleStall({ timeoutMs: options.eventIdleTimeoutMs })
+						: new CodexFirstEventStall({ phase: 'stream', timeoutMs: options.firstEventTimeoutMs })
 
 					return pull.pipe(
 						Effect.timeoutOrElse({
-							duration: Duration.millis(timeoutMs),
-							orElse: () => Effect.fail(stallError(method, description)),
+							duration: Duration.millis(stall.timeoutMs),
+							orElse: () => Effect.fail(stall),
 						}),
 						Effect.map((chunk) => {
 							seenFirstEvent = true
@@ -117,9 +154,9 @@ export const withStallTimeouts =
 export const firstEventRetryDelayMs = (
 	options: Pick<CodexHardeningOptions, 'firstEventRetryBaseDelayMs' | 'firstEventRetryMaxDelayMs'>,
 	attempt: number,
-	error?: AiError.AiError,
+	retryAfter: Option.Option<Duration.Duration> = Option.none(),
 ): Effect.Effect<number> => {
-	if (error?.retryAfter !== undefined) return Effect.succeed(Duration.toMillis(error.retryAfter))
+	if (Option.isSome(retryAfter)) return Effect.succeed(Duration.toMillis(retryAfter.value))
 
 	const max = options.firstEventRetryMaxDelayMs
 	const target = Math.min(options.firstEventRetryBaseDelayMs * 2 ** attempt, max)
@@ -144,7 +181,7 @@ const defaultOnStreamRetry = (info: StreamRetryInfo): Effect.Effect<void> =>
  * Retry-After takes precedence over the fallback jittered-exponential delay. Every mid-stream failure
  * propagates immediately.
  */
-export const withFirstEventRetry = <A, E, R>(
+export const withFirstEventRetry = <A, E extends CodexStreamError, R>(
 	makeAttempt: () => Stream.Stream<A, E, R>,
 	options: CodexRetryOptions,
 ): Stream.Stream<A, E, R> => {
@@ -171,7 +208,7 @@ export const withFirstEventRetry = <A, E, R>(
 						}
 
 						return Stream.unwrap(
-							firstEventRetryDelayMs(options, n, error).pipe(
+							firstEventRetryDelayMs(options, n, codexRetryAfter(error)).pipe(
 								Effect.tap((delayMs) => onStreamRetry({ attempt: n + 1, delayMs, error })),
 								Effect.flatMap((delayMs) => Effect.sleep(Duration.millis(delayMs))),
 								Effect.map(() => attempt(n + 1)),
@@ -185,9 +222,12 @@ export const withFirstEventRetry = <A, E, R>(
 	return attempt(0)
 }
 
-/** Stall timeouts + first-event retry composed: the full Codex hardening pipeline for one request. */
-export const hardenCodexStream = <A, E, R>(
+/**
+ * Stall timeouts + first-event retry composed: the full Codex hardening pipeline for one request.
+ * Stalls stay typed; lower them with {@link codexStallToAiError} at the provider boundary.
+ */
+export const hardenCodexStream = <A, E extends AiError.AiError, R>(
 	makeAttempt: () => Stream.Stream<A, E, R>,
 	options: CodexRetryOptions,
-): Stream.Stream<A, E | AiError.AiError, R> =>
-	withFirstEventRetry<A, E | AiError.AiError, R>(() => makeAttempt().pipe(withStallTimeouts(options)), options)
+): Stream.Stream<A, E | CodexStall, R> =>
+	withFirstEventRetry(() => makeAttempt().pipe(withStallTimeouts(options)), options)

@@ -2,7 +2,8 @@ import { DEFAULT_CODEX_MODEL_ID } from '@humanlayer/fold-codex'
 import { DEFAULT_ANTHROPIC_MODEL_ID, type ModelCatalogEntry, type FoldModel } from '@humanlayer/fold-core'
 import { DEFAULT_OPENCODE_MODEL_ID, GROK_BUILD_MODEL_ID } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID, XAI_FRONTIER_MODELS } from '@humanlayer/fold-xai'
-import { Data, Effect, Match, Predicate } from 'effect'
+import { Data, Effect, type FileSystem, Match, Predicate } from 'effect'
+import type { HttpClient } from 'effect/unstable/http'
 
 import { agentModelsFromConfig, type AgentModelsOptions, RoleResolutionError } from './AgentModels'
 import type { ConfigRole, ProfileConfig, ProfileModeName, RoleBinding, FoldConfig } from './ConfigSchema'
@@ -19,14 +20,16 @@ type RolesBuilder = {
 	orchestrator?: RoleBinding
 }
 
-export type ProfileModelSelection = { readonly _tag: 'profile'; readonly profile: string }
-export type DirectModelSelection = {
-	readonly _tag: 'direct'
-	readonly provider: string
-	readonly model: string
-	readonly reasoning?: RoleBinding['reasoning']
-}
-export type ConfiguredModelSelection = ProfileModelSelection | DirectModelSelection
+export type ConfiguredModelSelection = Data.TaggedEnum<{
+	profile: { readonly profile: string }
+	direct: {
+		readonly provider: string
+		readonly model: string
+		readonly reasoning?: RoleBinding['reasoning']
+	}
+}>
+export type ProfileModelSelection = Data.TaggedEnum.Value<ConfiguredModelSelection, 'profile'>
+export type DirectModelSelection = Data.TaggedEnum.Value<ConfiguredModelSelection, 'direct'>
 export const ConfiguredModelSelection = Data.taggedEnum<ConfiguredModelSelection>()
 
 export type ModelConfiguration = {
@@ -42,21 +45,18 @@ export type ModelConfiguration = {
 }
 
 export type FoldModels = {
-	readonly root: FoldModel
-	readonly smart: FoldModel
-	readonly fast: FoldModel
-	readonly orchestrator: FoldModel
+	readonly root: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly smart: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly fast: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
+	readonly orchestrator: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>
 }
 
+const roleBindings = (roles: FoldConfig['roles']): ReadonlyArray<RoleBinding> =>
+	[roles.smart, roles.fast, roles.orchestrator].filter(Predicate.isNotUndefined)
+
 const bindings = (config: FoldConfig): ReadonlyArray<RoleBinding> => [
-	config.roles.smart,
-	config.roles.fast,
-	...(config.roles.orchestrator === undefined ? [] : [config.roles.orchestrator]),
-	...Object.values(config.profiles ?? {}).flatMap((profile) => [
-		profile.smart,
-		profile.fast,
-		...(profile.orchestrator === undefined ? [] : [profile.orchestrator]),
-	]),
+	...roleBindings(config.roles),
+	...Object.values(config.profiles ?? {}).flatMap(roleBindings),
 ]
 
 /** A secret-free view of selectable config. This is the shared CLI/TUI configuration boundary. */
@@ -70,14 +70,12 @@ export const describeModelConfiguration = (
 		...Object.entries(config.profiles ?? {}).map(([name, profile]) => ({ name, mode: profile.mode ?? null })),
 	],
 	providers: Object.entries(config.providers).map(([name, provider]) => {
-		const catalogProviderIds =
-			provider.kind === 'anthropic'
-				? [name, 'anthropic']
-				: provider.kind === 'codex' || provider.kind === 'opencode'
-					? [name, 'openai']
-					: provider.kind === 'xai'
-						? [name, 'xai']
-						: [name, 'openai']
+		const catalogProviderIds = Match.value(provider.kind).pipe(
+			Match.when('anthropic', () => [name, 'anthropic']),
+			Match.when('xai', () => [name, 'xai']),
+			Match.when(Match.is('codex', 'opencode', 'openai-compat'), () => [name, 'openai']),
+			Match.exhaustive,
+		)
 		const configured = bindings(config)
 			.filter(
 				(binding): binding is typeof binding & { readonly model: string } =>
@@ -93,9 +91,8 @@ export const describeModelConfiguration = (
 			Match.when('xai', () => XAI_FRONTIER_MODELS.map(({ modelId }) => modelId)),
 			Match.orElse((): ReadonlyArray<string> => []),
 		)
-		const models = [
-			...new Set([...defaultModels, ...(provider.configuredModels ?? []), ...configured, ...catalogModels]),
-		].sort()
+		const { configuredModels = [] } = provider
+		const models = [...new Set([...defaultModels, ...configuredModels, ...configured, ...catalogModels])].sort()
 		return {
 			name,
 			kind: provider.kind,
@@ -128,10 +125,7 @@ type DirectProviderSelection = {
 	readonly reasoning?: RoleBinding['reasoning']
 }
 
-const defaultModelsForProvider = (
-	config: FoldConfig,
-	selection: DirectProviderSelection,
-): Record<ConfigRole, string | undefined> => {
+const defaultModelsForProvider = (config: FoldConfig, selection: DirectProviderSelection) => {
 	const kind = config.providers[selection.provider]?.kind
 	if (kind === 'codex') return { orchestrator: DEFAULT_CODEX_MODEL_ID, smart: 'gpt-5.6-terra', fast: 'gpt-5.6-luna' }
 	if (kind === 'anthropic')

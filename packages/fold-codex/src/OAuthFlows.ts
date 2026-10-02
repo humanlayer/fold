@@ -60,7 +60,7 @@ const TokenResponse = Schema.Struct({
 	id_token: Schema.optional(Schema.String),
 	access_token: Schema.String,
 	refresh_token: Schema.String,
-	expires_in: Schema.optional(Schema.Number),
+	expires_in: Schema.optional(Schema.Finite),
 })
 
 type TokenResponse = typeof TokenResponse.Type
@@ -79,45 +79,20 @@ type CodexAuthErrorInput = {
 
 // --- JWT account-id extraction (clanka port) --------------------------------------------------------
 
-/** The id/access-token claims Codex account resolution reads. */
-export type CodexJwtClaims = {
-	readonly chatgpt_account_id?: string
-	readonly 'https://api.openai.com/auth'?: { readonly chatgpt_account_id?: string }
-	readonly organizations?: ReadonlyArray<{ readonly id: string }>
-}
+/**
+ * The id/access-token claims Codex account resolution reads. Every claim is optional; other claims in
+ * the token are ignored.
+ */
+export const CodexJwtClaims = Schema.Struct({
+	chatgpt_account_id: Schema.optionalKey(Schema.String),
+	'https://api.openai.com/auth': Schema.optionalKey(
+		Schema.Struct({ chatgpt_account_id: Schema.optionalKey(Schema.String) }),
+	),
+	organizations: Schema.optionalKey(Schema.Array(Schema.Struct({ id: Schema.String }))),
+})
+export type CodexJwtClaims = typeof CodexJwtClaims.Type
 
-const decodeJwtJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const getString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined)
-
-const toJwtClaims = (value: unknown): Option.Option<CodexJwtClaims> => {
-	if (!isRecord(value)) return Option.none()
-
-	const accountId = getString(value['chatgpt_account_id'])
-	const authValue = value['https://api.openai.com/auth']
-	const nestedAccountId = isRecord(authValue) ? getString(authValue['chatgpt_account_id']) : undefined
-	const organizationsValue = value['organizations']
-	const organizationId =
-		Array.isArray(organizationsValue) && organizationsValue[0] !== undefined && isRecord(organizationsValue[0])
-			? getString(organizationsValue[0]['id'])
-			: undefined
-
-	const claims: {
-		chatgpt_account_id?: string
-		'https://api.openai.com/auth'?: { chatgpt_account_id?: string }
-		organizations?: Array<{ id: string }>
-	} = {}
-	if (accountId !== undefined) claims.chatgpt_account_id = accountId
-	if (nestedAccountId !== undefined) {
-		claims['https://api.openai.com/auth'] = { chatgpt_account_id: nestedAccountId }
-	}
-	if (organizationId !== undefined) claims.organizations = [{ id: organizationId }]
-
-	return Option.some(claims)
-}
+const decodeJwtClaimsJson = Schema.decodeOption(Schema.fromJsonString(CodexJwtClaims))
 
 const decodeJwtPayload = (token: string): Option.Option<string> => {
 	const parts = token.split('.')
@@ -131,7 +106,7 @@ const decodeJwtPayload = (token: string): Option.Option<string> => {
 
 /** Best-effort JWT claim parse - malformed tokens are `none`, never failures. */
 export const parseJwtClaims = (token: string): Option.Option<CodexJwtClaims> =>
-	decodeJwtPayload(token).pipe(Option.flatMap(decodeJwtJson), Option.flatMap(toJwtClaims))
+	decodeJwtPayload(token).pipe(Option.flatMap(decodeJwtClaimsJson))
 
 /** ChatGPT account id lookup order: direct claim, namespaced claim, first organization. */
 export const extractAccountIdFromClaims = (claims: CodexJwtClaims): Option.Option<string> => {
@@ -196,7 +171,7 @@ export const preserveAccountId = (token: CodexTokenData, fallback: string | unde
  * The HttpClient every auth request goes through: issuer-relative URLs, non-2xx as errors, transient
  * failures retried (clanka's schedule - exponential from 150ms capped at 5s, 5 retries / 6 attempts).
  */
-export const makeIssuerHttpClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
+export const issuerHttpClient = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
 	client.pipe(
 		HttpClient.mapRequest(HttpClientRequest.prependUrl(CODEX_ISSUER)),
 		HttpClient.filterStatusOk,
@@ -221,7 +196,7 @@ const deviceFlowError = (message: string, cause?: unknown) => authError('DeviceF
 
 const browserFlowError = (message: string, cause?: unknown) => authError('BrowserFlowFailed', message, cause)
 
-/** Refresh an access token through the issuer. The client must come from {@link makeIssuerHttpClient}. */
+/** Refresh an access token through the issuer. The client must come from {@link issuerHttpClient}. */
 export const refreshAccessToken = Effect.fn('fold.codexAuth.refreshAccessToken')(function* (
 	client: HttpClient.HttpClient,
 	refresh: string,
@@ -278,7 +253,7 @@ export type DeviceCodePrompt = {
 
 /** Options for {@link runDeviceFlow}. */
 export type DeviceFlowOptions = {
-	/** Issuer-scoped client from {@link makeIssuerHttpClient}. */
+	/** Issuer-scoped client from {@link issuerHttpClient}. */
 	readonly client: HttpClient.HttpClient
 	/** Presents the verification URL + user code (CLI prints it, a TUI renders it, ...). */
 	readonly onCode: (prompt: DeviceCodePrompt) => Effect.Effect<void>
@@ -402,7 +377,7 @@ const errorHtml = (error: string): string => `<!doctype html>
 
 /** Options for {@link runBrowserFlow}. */
 export type BrowserFlowOptions = {
-	/** Issuer-scoped client from {@link makeIssuerHttpClient}. */
+	/** Issuer-scoped client from {@link issuerHttpClient}. */
 	readonly client: HttpClient.HttpClient
 	/** Given the authorization URL to present/open (fold never launches a browser itself). */
 	readonly onUrl: (url: string) => Effect.Effect<void>
@@ -428,38 +403,40 @@ export const runBrowserFlow = Effect.fn('fold.codexAuth.browserFlow')(function* 
 
 	const code = yield* Effect.scoped(
 		Effect.gen(function* () {
+			const effectContext = yield* Effect.context<never>()
+
 			const callback = yield* Deferred.make<string, CodexAuthError>()
 
-			const handleRequest = (rawUrl: string): { status: number; contentType: string; body: string } => {
+			const handleRequest = (rawUrl: string) => {
 				const url = new URL(rawUrl, `http://${hostname}:${port}`)
 
 				if (url.pathname === '/auth/callback') {
 					const error = url.searchParams.get('error')
 					if (error !== null) {
 						const message = url.searchParams.get('error_description') ?? error
-						Effect.runSync(Deferred.fail(callback, browserFlowError(message)))
+						Effect.runSyncWith(effectContext)(Deferred.fail(callback, browserFlowError(message)))
 						return { status: 200, contentType: 'text/html', body: errorHtml(message) }
 					}
 
 					const receivedCode = url.searchParams.get('code')
 					if (receivedCode === null) {
 						const message = 'Missing authorization code'
-						Effect.runSync(Deferred.fail(callback, browserFlowError(message)))
+						Effect.runSyncWith(effectContext)(Deferred.fail(callback, browserFlowError(message)))
 						return { status: 400, contentType: 'text/html', body: errorHtml(message) }
 					}
 
 					if (url.searchParams.get('state') !== state) {
 						const message = 'Invalid state - potential CSRF attack'
-						Effect.runSync(Deferred.fail(callback, browserFlowError(message)))
+						Effect.runSyncWith(effectContext)(Deferred.fail(callback, browserFlowError(message)))
 						return { status: 400, contentType: 'text/html', body: errorHtml(message) }
 					}
 
-					Effect.runSync(Deferred.succeed(callback, receivedCode))
+					Effect.runSyncWith(effectContext)(Deferred.succeed(callback, receivedCode))
 					return { status: 200, contentType: 'text/html', body: successHtml }
 				}
 
 				if (url.pathname === '/cancel') {
-					Effect.runSync(Deferred.fail(callback, browserFlowError('Login cancelled')))
+					Effect.runSyncWith(effectContext)(Deferred.fail(callback, browserFlowError('Login cancelled')))
 					return { status: 200, contentType: 'text/plain', body: 'Login cancelled' }
 				}
 

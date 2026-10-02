@@ -21,23 +21,44 @@ import {
 	type FoldModeName,
 } from '@humanlayer/fold-agent'
 import {
-	makeCodexAuth,
-	makeCodexAuthStore,
+	CodexAuth,
+	CodexAuthStore,
+	layerCodexAuth,
+	layerCodexAuthStore,
 	type CodexAuthError,
-	type MakeCodexAuthStoreOptions,
+	type CodexAuthOptions,
 } from '@humanlayer/fold-codex'
 import { SessionId, type ModelCatalogEntry } from '@humanlayer/fold-core'
-import { makeOpenCodeAuth, makeOpenCodeAuthStore, type OpenCodeAuthError } from '@humanlayer/fold-opencode'
-import { makeXaiAuth, makeXaiAuthStore, type XaiAuthError } from '@humanlayer/fold-xai'
-import { Clock, Console, Effect, Option, Schema } from 'effect'
+import {
+	layerOpenCodeAuth,
+	layerOpenCodeAuthStore,
+	OpenCodeAuth,
+	OpenCodeAuthStore,
+	type OpenCodeAuthError,
+	type OpenCodeAuthOptions,
+} from '@humanlayer/fold-opencode'
+import {
+	layerXaiAuth,
+	layerXaiAuthStore,
+	XaiAuth,
+	XaiAuthStore,
+	type XaiAuthError,
+	type XaiAuthOptions,
+} from '@humanlayer/fold-xai'
+import { Array as Arr, Clock, Console, Effect, Layer, Match, Option, Schema } from 'effect'
 import { type CliError, Command, Flag } from 'effect/unstable/cli'
-import { FetchHttpClient } from 'effect/unstable/http'
 
-import { makeJsonOutputRenderer, makePromptOutputRenderer, type JsonOutputMode } from './Renderer'
+import { jsonOutputRenderer, promptOutputRenderer, type JsonOutputMode } from './Renderer'
 import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
 
 declare const FOLD_VERSION: string
+/** The release version the native build defines as a global; source runs have no such global. */
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- probes a build-time global that may not be defined
 const version = typeof FOLD_VERSION === 'string' ? FOLD_VERSION : '0.0.0'
+
+/** Whether the CLI runs on Bun (the native package); the full-screen TUI needs Bun's runtime. */
+// oxlint-disable-next-line anti-slop/no-runtime-typeof -- probes for the Bun global, absent under Node
+const isBunRuntime = typeof Bun !== 'undefined'
 
 type Mutable<Type> = { -readonly [Key in keyof Type]: Type[Key] }
 
@@ -201,33 +222,34 @@ const codexProviderId = (provider: Option.Option<string>): string => optionValue
 
 const providerId = (provider: Option.Option<string>, fallback: string): string => optionValue(provider) ?? fallback
 
-const providerAuthStoreOptions = (provider: Option.Option<string>, foldHome: string | undefined, fallback: string) => {
-	const path = authStorePath(foldHome)
-	const options: Mutable<MakeCodexAuthStoreOptions> = { providerId: providerId(provider, fallback) }
-	if (path !== undefined) options.path = path
-	return options
+/** Where a provider's credential lives: its own entry in the fold home's auth document. */
+const authStoreOptionsFor = (
+	input: ProviderAuthInput,
+	fallback: string,
+): { readonly providerId: string; readonly path?: string } => {
+	const path = authStorePath(optionValue(input.foldHome))
+	const id = providerId(input.provider, fallback)
+	return path === undefined ? { providerId: id } : { providerId: id, path }
 }
 
-const codexAuthStoreOptions = (
-	provider: Option.Option<string>,
-	foldHome: string | undefined,
-): MakeCodexAuthStoreOptions => {
-	const path = authStorePath(foldHome)
-	const options: Mutable<MakeCodexAuthStoreOptions> = { providerId: codexProviderId(provider) }
-	if (path !== undefined) options.path = path
-	return options
-}
+/** Codex auth and its credential store for the selected provider. */
+const codexAuthLayer = (input: ProviderAuthInput, options?: CodexAuthOptions) =>
+	layerCodexAuth(options).pipe(Layer.provideMerge(layerCodexAuthStore(authStoreOptionsFor(input, 'codex'))))
 
-const browserOpenCommand = (url: string): { readonly command: string; readonly args: ReadonlyArray<string> } => {
-	switch (process.platform) {
-		case 'darwin':
-			return { command: 'open', args: [url] }
-		case 'win32':
-			return { command: 'cmd', args: ['/c', 'start', '', url] }
-		default:
-			return { command: 'xdg-open', args: [url] }
-	}
-}
+/** xAI auth and its credential store for the selected provider. */
+const xaiAuthLayer = (input: ProviderAuthInput, options?: XaiAuthOptions) =>
+	layerXaiAuth(options).pipe(Layer.provideMerge(layerXaiAuthStore(authStoreOptionsFor(input, 'xai'))))
+
+/** OpenCode auth and its credential store for the selected provider. */
+const openCodeAuthLayer = (input: ProviderAuthInput, options?: OpenCodeAuthOptions) =>
+	layerOpenCodeAuth(options).pipe(Layer.provideMerge(layerOpenCodeAuthStore(authStoreOptionsFor(input, 'opencode'))))
+
+const browserOpenCommand = (url: string): { readonly command: string; readonly args: ReadonlyArray<string> } =>
+	Match.value(process.platform).pipe(
+		Match.when('darwin', () => ({ command: 'open', args: [url] })),
+		Match.when('win32', () => ({ command: 'cmd', args: ['/c', 'start', '', url] })),
+		Match.orElse(() => ({ command: 'xdg-open', args: [url] })),
+	)
 
 const openUrlInBrowser = (url: string): Effect.Effect<boolean> =>
 	Effect.try({
@@ -353,7 +375,7 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const prompt = optionValue(input.prompt)
-			if (prompt === undefined && typeof Bun === 'undefined') {
+			if (prompt === undefined && !isBunRuntime) {
 				yield* printFailure(
 					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 				)
@@ -374,8 +396,8 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 			}
 			const renderer =
 				outputMode === 'human'
-					? makePromptOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
-					: makeJsonOutputRenderer({ mode: outputMode })
+					? promptOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
+					: jsonOutputRenderer({ mode: outputMode })
 
 			const finished = yield* runPrompt({ ...sessionOptions, prompt }, renderer)
 			if (finished.outcome === 'completed') return
@@ -398,7 +420,7 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 
 const launchTui = (options: CliSessionOptions, catalog: ReadonlyArray<ModelCatalogEntry>, prompt?: string) =>
 	Effect.gen(function* () {
-		if (typeof Bun === 'undefined') {
+		if (!isBunRuntime) {
 			yield* printFailure(
 				'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 			)
@@ -456,7 +478,7 @@ const sessions = Command.make(
 			const sessionOptions: Mutable<NonNullable<Parameters<typeof listSessionLogs>[0]>> = { cwd }
 			if (foldHome !== undefined) sessionOptions.foldHome = foldHome
 			const sessions = yield* listSessionLogs(sessionOptions)
-			if (sessions.length === 0) {
+			if (Arr.isReadonlyArrayEmpty(sessions)) {
 				yield* Console.log(`No fold sessions for ${cwd}`)
 				return
 			}
@@ -470,7 +492,7 @@ const sessions = Command.make(
 const tui = Command.make('tui', commonFlags, (input) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			if (typeof Bun === 'undefined') {
+			if (!isBunRuntime) {
 				yield* printFailure(
 					'The full-screen TUI requires the native @humanlayer/fold package. Use foldcode --prompt "..." or install @humanlayer/fold globally.',
 				)
@@ -575,18 +597,8 @@ type ProviderLoginInput = ProviderAuthInput & { readonly noOpen: boolean }
 
 const openCodeLogin = (input: ProviderLoginInput) =>
 	Effect.gen(function* () {
-		const foldHome = optionValue(input.foldHome)
-		const store = makeOpenCodeAuthStore(providerAuthStoreOptions(input.provider, foldHome, 'opencode'))
-		const openCodeAuth = yield* makeOpenCodeAuth({
-			store,
-			onDeviceCode: (prompt) =>
-				printAuthUrl({
-					heading: `OpenCode device login\n\nCode: ${prompt.userCode}`,
-					url: prompt.url,
-					noOpen: input.noOpen,
-					waiting: 'Waiting for approval...',
-				}),
-		}).pipe(Effect.provide(FetchHttpClient.layer))
+		const store = yield* OpenCodeAuthStore
+		const openCodeAuth = yield* OpenCodeAuth
 		yield* Console.log(
 			`Using OpenCode device authentication for provider "${providerId(input.provider, 'opencode')}"`,
 		)
@@ -597,7 +609,19 @@ const openCodeLogin = (input: ProviderLoginInput) =>
 		yield* Console.log(
 			`Saved OpenCode credential${identity} to ${store.path} (expires ${expiryText(token.expires)})`,
 		)
-	})
+	}).pipe(
+		Effect.provide(
+			openCodeAuthLayer(input, {
+				onDeviceCode: (prompt) =>
+					printAuthUrl({
+						heading: `OpenCode device login\n\nCode: ${prompt.userCode}`,
+						url: prompt.url,
+						noOpen: input.noOpen,
+						waiting: 'Waiting for approval...',
+					}),
+			}),
+		),
+	)
 
 const openCodeCommands = Command.make('opencode').pipe(
 	Command.withDescription('Manage OpenCode OAuth credentials'),
@@ -631,9 +655,7 @@ const openCodeCommands = Command.make('opencode').pipe(
 		).pipe(Command.withDescription('Report that OpenCode browser authentication is unsupported')),
 		Command.make('status', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
-				const store = makeOpenCodeAuthStore(
-					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'opencode'),
-				)
+				const store = yield* OpenCodeAuthStore
 				const token = yield* store.load
 				if (Option.isNone(token)) {
 					yield* Console.log(
@@ -648,49 +670,48 @@ const openCodeCommands = Command.make('opencode').pipe(
 				yield* Console.log(
 					`OpenCode credential ${token.value.isExpired(now) ? 'expired' : 'valid'}${identity} in ${store.path} (expires ${expiryText(token.value.expires)})`,
 				)
-			}),
+			}).pipe(Effect.provide(layerOpenCodeAuthStore(authStoreOptionsFor(input, 'opencode')))),
 		).pipe(Command.withDescription('Show the stored OpenCode credential status')),
 		Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
-				const store = makeOpenCodeAuthStore(
-					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'opencode'),
-				)
-				const service = yield* makeOpenCodeAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
+				const store = yield* OpenCodeAuthStore
+				const service = yield* OpenCodeAuth
 				yield* service.logout
 				yield* Console.log(`Removed OpenCode credential from ${store.path}`)
-			}),
+			}).pipe(Effect.provide(openCodeAuthLayer(input))),
 		).pipe(Command.withDescription('Remove the stored OpenCode credential')),
 	]),
 )
 
 const xaiLogin = (flow: ResolvedCodexLoginFlow, input: ProviderLoginInput) =>
 	Effect.gen(function* () {
-		const store = yield* makeXaiAuthStore(
-			providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
-		)
-		const xaiAuth = yield* makeXaiAuth({
-			store,
-			onDeviceCode: (prompt) =>
-				printAuthUrl({
-					heading: `xAI device login\n\nCode: ${prompt.userCode}`,
-					url: prompt.browserUrl,
-					noOpen: input.noOpen,
-					waiting: 'Waiting for approval...',
-				}),
-			onBrowserUrl: (url) =>
-				printAuthUrl({
-					heading: 'xAI browser login',
-					url,
-					noOpen: input.noOpen,
-					waiting: 'Waiting for browser callback on localhost...',
-				}),
-		}).pipe(Effect.provide(FetchHttpClient.layer))
+		const store = yield* XaiAuthStore
+		const xaiAuth = yield* XaiAuth
 		yield* Console.log(`Using xAI ${flow} authentication for provider "${providerId(input.provider, 'xai')}"`)
 		const token = yield* flow === 'browser' ? xaiAuth.authenticateBrowser : xaiAuth.authenticateDevice
 		yield* Console.log(
 			`Saved xAI credential${token.accountId === undefined ? '' : ` for account ${token.accountId}`} to ${store.path} (expires ${expiryText(token.expires)})`,
 		)
-	})
+	}).pipe(
+		Effect.provide(
+			xaiAuthLayer(input, {
+				onDeviceCode: (prompt) =>
+					printAuthUrl({
+						heading: `xAI device login\n\nCode: ${prompt.userCode}`,
+						url: prompt.browserUrl,
+						noOpen: input.noOpen,
+						waiting: 'Waiting for approval...',
+					}),
+				onBrowserUrl: (url) =>
+					printAuthUrl({
+						heading: 'xAI browser login',
+						url,
+						noOpen: input.noOpen,
+						waiting: 'Waiting for browser callback on localhost...',
+					}),
+			}),
+		),
+	)
 
 const xaiExplicitLoginCommand = (name: ResolvedCodexLoginFlow) =>
 	Command.make(
@@ -734,9 +755,7 @@ const xaiCommands = Command.make('xai').pipe(
 		xaiExplicitLoginCommand('device'),
 		Command.make('status', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
-				const store = yield* makeXaiAuthStore(
-					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
-				)
+				const store = yield* XaiAuthStore
 				const token = yield* store.load
 				if (Option.isNone(token)) {
 					yield* Console.log(`No xAI credential found in ${store.path}. Run foldcode auth xai login.`)
@@ -746,17 +765,15 @@ const xaiCommands = Command.make('xai').pipe(
 				yield* Console.log(
 					`xAI credential ${token.value.isExpired(now) ? 'expired' : 'valid'}${token.value.accountId === undefined ? '' : ` for account ${token.value.accountId}`} in ${store.path} (expires ${expiryText(token.value.expires)})`,
 				)
-			}),
+			}).pipe(Effect.provide(layerXaiAuthStore(authStoreOptionsFor(input, 'xai')))),
 		).pipe(Command.withDescription('Show the stored xAI credential status')),
 		Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 			Effect.gen(function* () {
-				const store = yield* makeXaiAuthStore(
-					providerAuthStoreOptions(input.provider, optionValue(input.foldHome), 'xai'),
-				)
-				const service = yield* makeXaiAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
+				const store = yield* XaiAuthStore
+				const service = yield* XaiAuth
 				yield* service.logout
 				yield* Console.log(`Removed xAI credential from ${store.path}`)
-			}),
+			}).pipe(Effect.provide(xaiAuthLayer(input))),
 		).pipe(Command.withDescription('Remove the stored xAI credential')),
 	]),
 )
@@ -789,7 +806,6 @@ const auth = Command.make('auth').pipe(
 					},
 					(input) =>
 						Effect.gen(function* () {
-							const foldHome = optionValue(input.foldHome)
 							const selectedFlow = resolveCodexLoginFlow({
 								flow: optionValue(input.flow),
 								device: input.device,
@@ -803,9 +819,7 @@ const auth = Command.make('auth').pipe(
 								noOpen: input.noOpen,
 								stdoutIsTTY: process.stdout.isTTY === true,
 							})
-							const store = yield* makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
-							const codexAuth = yield* makeCodexAuth({
-								store,
+							const codexAuthOptions: CodexAuthOptions = {
 								onDeviceCode: (prompt) =>
 									Console.log(
 										`Codex device login\n\nOpen: ${prompt.verifyUrl}\nCode: ${prompt.userCode}\n\nWaiting for approval...`,
@@ -827,17 +841,21 @@ const auth = Command.make('auth').pipe(
 										}
 										yield* Console.log(`\n${url}\n\nWaiting for browser callback on localhost...`)
 									}),
-							}).pipe(Effect.provide(FetchHttpClient.layer))
-							yield* Console.log(
-								`Using Codex ${selectedFlow} authentication for provider "${codexProviderId(input.provider)}"`,
-							)
-							const token = yield* selectedFlow === 'device'
-								? codexAuth.authenticateDevice
-								: codexAuth.authenticateBrowser
+							}
+							yield* Effect.gen(function* () {
+								const store = yield* CodexAuthStore
+								const codexAuth = yield* CodexAuth
+								yield* Console.log(
+									`Using Codex ${selectedFlow} authentication for provider "${codexProviderId(input.provider)}"`,
+								)
+								const token = yield* selectedFlow === 'device'
+									? codexAuth.authenticateDevice
+									: codexAuth.authenticateBrowser
 
-							yield* Console.log(
-								`Saved Codex credential${token.accountId === undefined ? '' : ` for account ${token.accountId}`} to ${store.path} (expires ${expiryText(token.expires)})`,
-							)
+								yield* Console.log(
+									`Saved Codex credential${token.accountId === undefined ? '' : ` for account ${token.accountId}`} to ${store.path} (expires ${expiryText(token.expires)})`,
+								)
+							}).pipe(Effect.provide(codexAuthLayer(input, codexAuthOptions)))
 						}),
 				).pipe(Command.withDescription('Authenticate Codex and persist the OAuth credential')),
 				Command.make(
@@ -851,12 +869,9 @@ const auth = Command.make('auth').pipe(
 					},
 					(input) =>
 						Effect.gen(function* () {
-							const foldHome = optionValue(input.foldHome)
-							const store = yield* makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
+							const store = yield* CodexAuthStore
 							if (input.refresh) {
-								const codexAuth = yield* makeCodexAuth({ store }).pipe(
-									Effect.provide(FetchHttpClient.layer),
-								)
+								const codexAuth = yield* CodexAuth
 								const token = yield* codexAuth.get
 								yield* Console.log(
 									`Codex credential valid${token.accountId === undefined ? '' : ` for account ${token.accountId}`} in ${store.path} (expires ${expiryText(token.expires)})`,
@@ -883,16 +898,15 @@ const auth = Command.make('auth').pipe(
 										: ''
 								}`,
 							)
-						}),
+						}).pipe(Effect.provide(codexAuthLayer(input))),
 				).pipe(Command.withDescription('Show the stored Codex credential status')),
 				Command.make('logout', { provider: commonFlags.provider, foldHome: commonFlags.foldHome }, (input) =>
 					Effect.gen(function* () {
-						const foldHome = optionValue(input.foldHome)
-						const store = yield* makeCodexAuthStore(codexAuthStoreOptions(input.provider, foldHome))
-						const codexAuth = yield* makeCodexAuth({ store }).pipe(Effect.provide(FetchHttpClient.layer))
+						const store = yield* CodexAuthStore
+						const codexAuth = yield* CodexAuth
 						yield* codexAuth.logout
 						yield* Console.log(`Removed Codex credential from ${store.path}`)
-					}),
+					}).pipe(Effect.provide(codexAuthLayer(input))),
 				).pipe(Command.withDescription('Remove the stored Codex credential')),
 			]),
 		),
@@ -932,7 +946,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			UserError: (error) => printFailure(error.message),
 			ShowHelp: (error) =>
 				Effect.sync(() => {
-					process.exitCode = error.errors.length === 0 ? 0 : 1
+					process.exitCode = Arr.isReadonlyArrayEmpty(error.errors) ? 0 : 1
 				}),
 			InvalidSessionIdError: (error: InvalidSessionIdError) =>
 				printFailure(`invalid --resume value "${error.value}"; pass "latest" or an exact sess_... id`),
@@ -947,7 +961,7 @@ const withErrorHandling = <R>(effect: Effect.Effect<void, CliCommandError, R>): 
 			RoleResolutionError: (error) => printFailure(error.message),
 			UnknownProfileError: (error) =>
 				printFailure(
-					`unknown profile "${error.profile}"; available: ${error.available.length === 0 ? '(none configured)' : error.available.join(', ')}`,
+					`unknown profile "${error.profile}"; available: ${Arr.isReadonlyArrayEmpty(error.available) ? '(none configured)' : error.available.join(', ')}`,
 				),
 			NoSessionToResumeError: (error) => printFailure(`no fold sessions exist for ${error.cwd}`),
 			SessionToResumeNotFoundError: (error) =>

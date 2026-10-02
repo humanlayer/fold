@@ -16,7 +16,7 @@ import type { AgentId, ToolCallId } from '../Ids'
 export type DeltaPart =
 	| { readonly type: 'text-delta'; readonly id: string; readonly delta: string }
 	| { readonly type: 'reasoning-delta'; readonly id: string; readonly delta: string }
-	| { readonly type: 'tool-progress'; readonly toolName: string; readonly payload: typeof Schema.Json.Type }
+	| { readonly type: 'tool-progress'; readonly toolName: string; readonly payload: Schema.Json }
 
 /** One event on the merged session stream: a durable log row or an ephemeral delta. */
 export type FoldEvent =

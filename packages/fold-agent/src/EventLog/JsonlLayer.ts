@@ -10,7 +10,7 @@ import {
 	LogEntry as LogEntrySchema,
 	decodeStoredLogEntry,
 	layerLiveIdFactory,
-	makeStoredLogEntry,
+	storedLogEntry,
 	type EventLogError,
 	type EventLogService,
 	type EventLogUnsupportedVersionError,
@@ -38,18 +38,8 @@ const unavailableError = (
 		cause,
 	})
 
-const corruptEntryError = (line: number, message: string, cause?: unknown, seq?: number) => {
-	const input: {
-		operation: 'entries'
-		message: string
-		line: number
-		seq?: number
-		cause?: unknown
-	} = { operation: 'entries', message, line }
-	if (seq !== undefined) input.seq = seq
-	if (cause !== undefined) input.cause = cause
-	return new EventLogCorruptEntryError(input)
-}
+const corruptEntryError = (line: number, message: string, cause?: unknown, seq?: number) =>
+	new EventLogCorruptEntryError({ operation: 'entries', message, line, seq, cause })
 
 const invalidEntryError = (message: string, cause: unknown) =>
 	new EventLogInvalidEntryError({
@@ -64,6 +54,9 @@ const jsonlLines = (contents: string): ReadonlyArray<string> => {
 	return contents.split('\n')
 }
 
+const decodeJsonText = Schema.decodeEffect(Schema.fromJsonString(Schema.Json))
+const encodeLogEntryLine = Schema.encodeEffect(Schema.fromJsonString(LogEntrySchema))
+
 const decodeJsonlLine = (
 	line: string,
 	lineNumber: number,
@@ -73,10 +66,9 @@ const decodeJsonlLine = (
 			return yield* corruptEntryError(lineNumber, `Empty JSONL line at line ${lineNumber}`)
 		}
 
-		const parsed = yield* Effect.try({
-			try: (): unknown => JSON.parse(line),
-			catch: (cause) => corruptEntryError(lineNumber, `Invalid JSON at line ${lineNumber}`, cause),
-		})
+		const parsed = yield* decodeJsonText(line).pipe(
+			Effect.mapError((cause) => corruptEntryError(lineNumber, `Invalid JSON at line ${lineNumber}`, cause)),
+		)
 		const entry = yield* decodeStoredLogEntry(parsed).pipe(
 			Effect.catchTag('EventLogCorruptEntryError', (error) =>
 				corruptEntryError(
@@ -108,14 +100,11 @@ const decodeJsonl = (
 
 const encodeJsonlLine = (entry: LogEntry): Effect.Effect<string, EventLogInvalidEntryError> =>
 	Effect.gen(function* () {
-		const encoded = yield* Schema.encodeUnknownEffect(LogEntrySchema)(entry).pipe(
+		const line = yield* encodeLogEntryLine(entry).pipe(
 			Effect.mapError((cause) => invalidEntryError('Unable to encode EventLog entry', cause)),
 		)
 
-		return yield* Effect.try({
-			try: () => `${JSON.stringify(encoded)}\n`,
-			catch: (cause) => invalidEntryError('Unable to serialize EventLog entry as JSON', cause),
-		})
+		return `${line}\n`
 	})
 
 const loadEntries = (
@@ -202,7 +191,7 @@ export const layerJsonlWithIds = (
 				appendLock.withPermit(
 					Effect.gen(function* () {
 						const current = yield* Ref.get(entriesRef)
-						const stored = yield* makeStoredLogEntry(input, current.length, ids)
+						const stored = yield* storedLogEntry(input, current.length, yield* ids.makeEventId)
 						const line = yield* encodeJsonlLine(stored)
 
 						yield* appendJsonlLine(fs, filePath, line)

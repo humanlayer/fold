@@ -9,7 +9,7 @@ import { agentRuntimeBaseLayer, runInput, startInput } from './AgentRuntimeTestH
 
 it.effect('records a model provider failure as durable facts and resolves the run', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([failureTurn('boom: provider unavailable')])
 		const layer = agentRuntimeBaseLayer(scripted.layer, layerEchoTool(recorder))
 

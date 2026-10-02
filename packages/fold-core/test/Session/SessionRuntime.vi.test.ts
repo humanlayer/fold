@@ -15,7 +15,7 @@ import { sessionBaseLayer, startSessionInput } from './SessionTestHelpers'
 
 it.effect('starts a session and completes a text-only send with the full log shape', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
 		const layer = sessionBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -62,7 +62,7 @@ it.effect('starts a session and completes a text-only send with the full log sha
 
 it.effect('records a null cwd when the host has none', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
 		const layer = sessionBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -82,7 +82,7 @@ it.effect('records a null cwd when the host has none', () =>
 
 it.effect('fails send before start with SessionNotStartedError', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
 		const layer = sessionBaseLayer(scripted.layer, layerEchoTool(recorder))
 
@@ -98,7 +98,7 @@ it.effect('fails send before start with SessionNotStartedError', () =>
 
 it.effect('fails a second start with SessionAlreadyStartedError and appends no second session_started', () =>
 	Effect.gen(function* () {
-		const recorder = yield* makeEchoRecorder()
+		const recorder = yield* makeEchoRecorder
 		const scripted = yield* makeScriptedLanguageModel([textTurn('Hello!')])
 		const layer = sessionBaseLayer(scripted.layer, layerEchoTool(recorder))
 

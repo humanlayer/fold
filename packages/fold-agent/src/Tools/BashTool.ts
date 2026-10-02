@@ -11,7 +11,7 @@
  * degrade to inline notes, never crash the run. Non-zero exit and timeout are typed model-visible
  * failures carrying the accumulated output; signal-killed commands are successes (pi semantics).
  */
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 
 import {
 	defaultMaxBytes,
@@ -19,7 +19,6 @@ import {
 	formatSize,
 	CurrentToolCall,
 	InterruptNote,
-	platformToolDependencies,
 	ToolEvents,
 	ToolResultFailure,
 	ToolResultText,
@@ -27,11 +26,11 @@ import {
 	utf8ByteLength,
 	type FoldTool,
 } from '@humanlayer/fold-core'
-import { Data, Duration, Effect, Fiber, FileSystem, Option, Path, Random, Ref, Schema, Semaphore, Stream } from 'effect'
+import { Data, Duration, Effect, Fiber, FileSystem, Option, Path, Ref, Schema, Semaphore, Stream } from 'effect'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 import { resolveToCwd } from '../Fs/PathResolve'
-import type { OutputStoreService } from '../OutputStore/OutputStore'
+import { OutputStore } from '../OutputStore/OutputStore'
 import { platformErrorMessage } from './ReadTool'
 
 /**
@@ -46,15 +45,15 @@ export const BashOutputDelta = Schema.Struct({
 })
 export type BashOutputDelta = typeof BashOutputDelta.Type
 
-const isBashOutputDelta = Schema.is(BashOutputDelta)
+const decodeBashOutputDeltaOption = Schema.decodeUnknownOption(BashOutputDelta)
 
 /** Decode one tool-progress payload as a bash output delta; null when it is something else. */
-export const decodeBashOutputDelta = (payload: unknown): BashOutputDelta | null =>
-	isBashOutputDelta(payload) ? payload : null
+export const decodeBashOutputDelta = (payload: Schema.Json): BashOutputDelta | null =>
+	Option.getOrNull(decodeBashOutputDeltaOption(payload))
 
 const BashParameters = Schema.Struct({
 	command: Schema.String.annotate({ description: 'Bash command to execute' }),
-	timeout_ms: Schema.optionalKey(Schema.Number).annotate({
+	timeout_ms: Schema.optionalKey(Schema.Finite).annotate({
 		description: 'Timeout in milliseconds (default 120000)',
 	}),
 	workdir: Schema.optionalKey(Schema.String).annotate({
@@ -93,10 +92,6 @@ const omittedNonTextOutputMessage = (stream: 'stdout' | 'stderr') =>
 export type BashToolOptions = {
 	/** Working directory for resolving relative paths. Defaults to `process.cwd()` at call time. */
 	readonly cwd?: string
-	/** Base directory for spill files holding full untruncated output. Defaults to `os.tmpdir()`. */
-	readonly spillDir?: string
-	/** Deterministic per-session output store. When absent, bash uses the legacy temp spill file. */
-	readonly outputStore?: OutputStoreService
 	/** Environment entries inherited by every Bash subprocess created by this tool. */
 	readonly processEnvironment?: Readonly<Record<string, string>>
 }
@@ -225,19 +220,31 @@ const killWithEscalation = (handle: ChildProcessSpawner.ChildProcessHandle): Eff
 	Effect.gen(function* () {
 		const graceful = yield* handle.kill({ killSignal: 'SIGTERM' }).pipe(
 			Effect.timeoutOption(killGrace),
-			Effect.catch(() => Effect.succeed(Option.some<void>(undefined))),
+			Effect.orElseSucceed(() => Option.some<void>(undefined)),
 		)
 
 		if (Option.isNone(graceful)) {
 			yield* handle.kill({ killSignal: 'SIGKILL' }).pipe(
 				Effect.timeoutOption(Duration.seconds(5)),
-				Effect.catch(() => Effect.succeed(Option.none<void>())),
+				Effect.orElseSucceed(() => Option.none<void>()),
 			)
 		}
 	})
 
+const validateTimeout = (timeoutMilliseconds: number): Effect.Effect<number, { readonly message: string }> => {
+	if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
+		return Effect.fail({ message: 'Invalid timeout_ms: must be a finite number of milliseconds' })
+	}
+	if (timeoutMilliseconds > maxTimeoutMilliseconds) {
+		return Effect.fail({ message: `Invalid timeout_ms: maximum is ${maxTimeoutMilliseconds} milliseconds` })
+	}
+	return Effect.succeed(timeoutMilliseconds)
+}
+
 /** Build the bash tool. Runs real processes; only spill-file IO goes through the FileSystem seam. */
-export const bashTool = (options?: BashToolOptions): FoldTool =>
+export const bashTool = (
+	options?: BashToolOptions,
+): FoldTool<FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner | OutputStore> =>
 	defineTool({
 		name: 'bash',
 		description:
@@ -254,7 +261,6 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 		parameters: BashParameters,
 		success: BashSuccess,
 		failure: BashFailure,
-		dependencies: platformToolDependencies,
 		handler: (params) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
@@ -263,20 +269,9 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const configuredCwd = yield* resolveToCwd(options?.cwd ?? process.cwd(), process.cwd())
 				const cwd =
 					params.workdir === undefined ? configuredCwd : yield* resolveToCwd(params.workdir, configuredCwd)
-				const timeoutMilliseconds = params.timeout_ms ?? defaultTimeoutMilliseconds
+				const timeoutMilliseconds = yield* validateTimeout(params.timeout_ms ?? defaultTimeoutMilliseconds)
 
-				if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
-					return yield* Effect.fail({
-						message: 'Invalid timeout_ms: must be a finite number of milliseconds',
-					})
-				}
-				if (timeoutMilliseconds > maxTimeoutMilliseconds) {
-					return yield* Effect.fail({
-						message: `Invalid timeout_ms: maximum is ${maxTimeoutMilliseconds} milliseconds`,
-					})
-				}
-
-				if (!(yield* fs.exists(cwd).pipe(Effect.catch(() => Effect.succeed(false))))) {
+				if (!(yield* fs.exists(cwd).pipe(Effect.orElseSucceed(() => false)))) {
 					return yield* Effect.fail({
 						message: `Working directory does not exist: ${cwd}\nCannot execute bash commands.`,
 					})
@@ -285,33 +280,19 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 				const events = yield* ToolEvents
 				const interruptNote = yield* InterruptNote
 				const currentToolCall = yield* CurrentToolCall
-				const outputStore = options?.outputStore
-				const spillRef = outputStore?.refFor(currentToolCall.toolCallId)
-				const spillToken = `${(yield* Random.next).toString(36).slice(2)}${(yield* Random.next).toString(36).slice(2)}`
-				const spillPath =
-					spillRef?.path ?? pathService.join(options?.spillDir ?? tmpdir(), `fold-bash-${spillToken}.log`)
+				// The full, untruncated output streams into the host's output store, one file per tool call.
+				const outputStore = yield* OutputStore
+				const spillPath = outputStore.refFor(currentToolCall.toolCallId).path
 				const accumulator = yield* makeAccumulator({
 					spillPath,
 					writeSpill: (path, chunk) =>
-						outputStore === undefined
-							? fs
-									.writeFileString(path, chunk, { flag: 'a' })
-									.pipe(
-										Effect.catch((error) =>
-											Effect.logWarning(
-												`could not persist bash output at ${path}: ${error.message}`,
-											),
-										),
-									)
-							: outputStore
-									.append(currentToolCall.toolCallId, chunk)
-									.pipe(
-										Effect.catch((error) =>
-											Effect.logWarning(
-												`could not persist bash output at ${path}: ${error.message}`,
-											),
-										),
-									),
+						outputStore
+							.append(currentToolCall.toolCallId, chunk)
+							.pipe(
+								Effect.catch((error) =>
+									Effect.logWarning(`could not persist bash output at ${path}: ${error.message}`),
+								),
+							),
 				})
 
 				// If this call is interrupted, the synthetic tool result points the model at the partial
@@ -402,7 +383,7 @@ export const bashTool = (options?: BashToolOptions): FoldTool =>
 					// null = killed by a signal (no exit code): pi treats that as success, not an error.
 					const awaitExit: Effect.Effect<number | null> = handle.exitCode.pipe(
 						Effect.map((code) => Number(code)),
-						Effect.catch(() => Effect.succeed(null)),
+						Effect.orElseSucceed(() => null),
 					)
 
 					const firstExit = yield* awaitExit.pipe(Effect.timeoutOption(Duration.millis(timeoutMilliseconds)))

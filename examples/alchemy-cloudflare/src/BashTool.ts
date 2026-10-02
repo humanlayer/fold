@@ -30,7 +30,7 @@ const BashParameters = Schema.Struct({
 			'Where to run the command: "shell" (default; fast, text commands and git only) or "container" ' +
 			'(full Linux: installs, builds, tests)',
 	}),
-	timeout_ms: Schema.optionalKey(Schema.Number).annotate({
+	timeout_ms: Schema.optionalKey(Schema.Finite).annotate({
 		description: `Timeout in milliseconds (default ${DEFAULT_TIMEOUT_MS}, maximum ${MAX_TIMEOUT_MS})`,
 	}),
 	workdir: Schema.optionalKey(Schema.String).annotate({

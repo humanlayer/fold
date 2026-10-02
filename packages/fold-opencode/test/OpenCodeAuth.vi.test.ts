@@ -1,10 +1,10 @@
 import { describe, it } from '@effect/vitest'
-import { Effect, Layer, Option } from 'effect'
+import { Effect, Layer } from 'effect'
 import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
 import { expect } from 'vitest'
 
-import type { OpenCodeAuthStore } from '../src/AuthStore'
-import { makeOpenCodeAuth } from '../src/OpenCodeAuth'
+import { OpenCodeAuthStore, type OpenCodeAuthStoreService } from '../src/AuthStore'
+import { layerOpenCodeAuth, OpenCodeAuth } from '../src/OpenCodeAuth'
 
 const response = (request: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unknown) =>
 	HttpClientResponse.fromWeb(
@@ -16,9 +16,9 @@ describe('OpenCode device OAuth', () => {
 		const saved: Array<string> = []
 		const paths: Array<string> = []
 		let polls = 0
-		const store: OpenCodeAuthStore = {
+		const store: OpenCodeAuthStoreService = {
 			path: '/tmp/auth.json',
-			load: Effect.succeed(Option.none()),
+			load: Effect.succeedNone,
 			save: (token) =>
 				Effect.sync(() => {
 					saved.push(token.access)
@@ -55,15 +55,7 @@ describe('OpenCode device OAuth', () => {
 			}),
 		)
 		return Effect.gen(function* () {
-			const auth = yield* makeOpenCodeAuth({
-				store,
-				server: 'https://console.test',
-				onDeviceCode: ({ url, userCode }) =>
-					Effect.sync(() => {
-						expect(url).toBe('https://console.test/activate')
-						expect(userCode).toBe('ABCD')
-					}),
-			})
+			const auth = yield* OpenCodeAuth
 			const token = yield* auth.authenticateDevice
 			expect(token.metadata?.orgID).toBe('org-a')
 			expect(saved).toEqual(['access'])
@@ -74,6 +66,18 @@ describe('OpenCode device OAuth', () => {
 				'/api/user',
 				'/api/orgs',
 			])
-		}).pipe(Effect.provide(Layer.succeed(HttpClient.HttpClient, client)))
+		}).pipe(
+			Effect.provide(
+				layerOpenCodeAuth({
+					server: 'https://console.test',
+					onDeviceCode: ({ url, userCode }) =>
+						Effect.sync(() => {
+							expect(url).toBe('https://console.test/activate')
+							expect(userCode).toBe('ABCD')
+						}),
+				}).pipe(Layer.provide(Layer.succeed(OpenCodeAuthStore, store))),
+			),
+			Effect.provideService(HttpClient.HttpClient, client),
+		)
 	})
 })

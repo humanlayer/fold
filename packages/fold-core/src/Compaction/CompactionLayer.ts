@@ -3,13 +3,14 @@
  * (D11). The live service is pure policy plus one summarization call: `shouldCompact` compares the
  * agent's last post-compaction API-reported usage against the model's usable budget, and `plan`
  * picks the keep-recent cut over the agent's projected conversation, serializes the replaced
- * history, runs the summarizer through the AMBIENT LanguageModel (each agent's own provisioned
- * model - subagents therefore summarize with their own model, D21), and returns the durable entry
- * payload. The session facade provides this service session-wide; the loop owns appends.
+ * history, runs the summarizer through the LanguageModel captured when the service is built (each
+ * agent's own provisioned model - subagents therefore summarize with their own model, D21), and returns
+ * the durable entry payload. Provisioning builds one service per agent runtime from the session's
+ * policy; the loop owns appends.
  */
 import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
-import { Effect, Predicate, Stream } from 'effect'
+import { Array as Arr, Effect, Layer, Predicate, Stream } from 'effect'
 import { LanguageModel, Prompt } from 'effect/unstable/ai'
 
 import { ModelCatalog } from '../Model/ModelCatalog'
@@ -37,25 +38,14 @@ import {
 	type CompactionPlan,
 	type CompactionPlanInput,
 	type CompactionService,
+	Compaction,
 } from './CompactionService'
 
 /** The enabled variant of {@link AutoCompactConfig}. */
 export type EnabledAutoCompactConfig = Extract<AutoCompactConfig, { readonly enabled: true }>
 
-const describeSummarizerError = (error: unknown): string => {
-	if (Predicate.isError(error)) return error.message
-
-	try {
-		return JSON.stringify(error)
-	} catch {
-		return String(error)
-	}
-}
-
 /** Split an agent's projection into the summarizable conversation and its current summary, if any. */
-const conversationOf = (
-	projected: ReadonlyArray<ProjectedMessage>,
-): { readonly conversation: ReadonlyArray<ProjectedMessage>; readonly previousSummary: string | null } => {
+const conversationOf = (projected: ReadonlyArray<ProjectedMessage>) => {
 	let previousSummary: string | null = null
 	const conversation: Array<ProjectedMessage> = []
 
@@ -75,8 +65,13 @@ const conversationOf = (
 	return { conversation, previousSummary }
 }
 
-/** Build the live Compaction service for one enabled config. */
-export const makeCompactionService = (config: EnabledAutoCompactConfig): CompactionService => {
+/**
+ * Build the live Compaction service for one enabled config. The summarizer LanguageModel and the
+ * session ModelCatalog are captured here, once, so the service's operations require nothing.
+ */
+export const makeCompactionService = Effect.fnUntraced(function* (config: EnabledAutoCompactConfig) {
+	const languageModel = yield* LanguageModel.LanguageModel
+	const modelCatalog = yield* ModelCatalog
 	const reserveTokens = config.reserveTokens ?? defaultReserveTokens
 	const summaryOutputFraction = 0.8
 	const turnPrefixOutputFraction = 0.5
@@ -91,7 +86,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 			if (config.contextWindow !== undefined) return config.contextWindow
 			if (input.model?.providerKind === 'codex') return defaultContextWindowFor(input.model.modelId)
 
-			const entry = input.model === null ? null : yield* (yield* ModelCatalog).lookup(input.model)
+			const entry = input.model === null ? null : yield* modelCatalog.lookup(input.model)
 
 			return entry?.contextWindow ?? defaultContextWindowFor(input.model?.modelId ?? null)
 		})
@@ -105,7 +100,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 
 	const modelOutputLimitFor = (input: CompactionCheckInput): Effect.Effect<number> =>
 		Effect.gen(function* () {
-			const entry = input.model === null ? null : yield* (yield* ModelCatalog).lookup(input.model)
+			const entry = input.model === null ? null : yield* modelCatalog.lookup(input.model)
 			return entry !== null && entry.maxOutputTokens > 0 ? entry.maxOutputTokens : maxOutputTokenBudget
 		})
 
@@ -113,11 +108,10 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 		input: CompactionPlanInput,
 		requestText: string,
 		outputFraction: number,
-	): Effect.Effect<string, CompactionSummarizeError, LanguageModel.LanguageModel> =>
+	): Effect.Effect<string, CompactionSummarizeError> =>
 		Effect.gen(function* () {
 			const modelOutputLimit = yield* modelOutputLimitFor(input)
 			const maxOutputTokens = Math.min(Math.floor(outputFraction * reserveTokens), modelOutputLimit)
-			const languageModel = yield* LanguageModel.LanguageModel
 			const baseRequest = Stream.runCollect(
 				languageModel.streamText({
 					prompt: Prompt.fromMessages([
@@ -137,7 +131,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				)
 			}
 			const request = configuredRequest.pipe(
-				Effect.mapError((error) => new CompactionSummarizeError({ message: describeSummarizerError(error) })),
+				Effect.mapError((error) => new CompactionSummarizeError({ message: error.message })),
 			)
 			const parts = yield* request
 			const summary = parts
@@ -205,7 +199,7 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				replacedMessages: discarded.length,
 				keptMessages: conversation.length - discarded.length,
 				splitTurn: cut.isSplitTurn,
-				summaryCalls: cut.isSplitTurn ? (toSummarize.length > 0 ? 2 : 1) : 1,
+				summaryCalls: cut.isSplitTurn ? (Arr.isArrayNonEmpty(toSummarize) ? 2 : 1) : 1,
 			})
 
 			const requestText = buildCompactionRequestText({
@@ -220,10 +214,9 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 				additionalInstructions: input.additionalInstructions ?? null,
 			})
 
-			const historySummary =
-				toSummarize.length > 0
-					? yield* summarize(input, requestText, summaryOutputFraction)
-					: 'No prior history.'
+			const historySummary = Arr.isArrayNonEmpty(toSummarize)
+				? yield* summarize(input, requestText, summaryOutputFraction)
+				: 'No prior history.'
 			const summary = cut.isSplitTurn
 				? `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${yield* summarize(
 						input,
@@ -247,13 +240,23 @@ export const makeCompactionService = (config: EnabledAutoCompactConfig): Compact
 		}),
 	)
 
-	return { enabled: true, shouldCompact, plan }
-}
+	const service: CompactionService = { enabled: true, shouldCompact, plan }
+	return service
+})
 
 /** Resolve an agent definition's automatic policy while retaining an explicit compaction planner. */
-export const compactionServiceFor = (config: AutoCompactConfig | undefined): CompactionService => {
-	const live = makeCompactionService(config?.enabled === true ? config : { enabled: true })
+export const compactionServiceFor = Effect.fnUntraced(function* (config: AutoCompactConfig | undefined) {
+	const live = yield* makeCompactionService(config?.enabled === true ? config : { enabled: true })
 	if (config?.enabled !== false) return live
 
-	return { ...live, enabled: false, shouldCompact: () => Effect.succeed(false) }
-}
+	const disabled: CompactionService = { ...live, enabled: false, shouldCompact: () => Effect.succeed(false) }
+	return disabled
+})
+
+/**
+ * The Compaction layer for one provisioned agent runtime: the session's policy over that runtime's own
+ * LanguageModel and the session ModelCatalog.
+ */
+export const compactionLayerFor = (
+	config: AutoCompactConfig | undefined,
+): Layer.Layer<never, never, LanguageModel.LanguageModel> => Layer.effect(Compaction, compactionServiceFor(config))

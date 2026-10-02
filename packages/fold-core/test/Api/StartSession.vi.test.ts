@@ -14,7 +14,6 @@ import {
 	defineTool,
 	defineToolState,
 	eventLogSource,
-	platformToolDependencies,
 	startSession,
 	EventLog,
 	layerInMemoryEventLog,
@@ -359,7 +358,7 @@ it.effect('runs a tool-calling session without a FileSystem when no descriptor d
 	}).pipe(Effect.scoped),
 )
 
-it.effect('tool handlers that declare platform services read the FileSystem the caller provided', () =>
+it.effect('a tool handler reads the FileSystem the session caller provided', () =>
 	Effect.gen(function* () {
 		const { model } = yield* scriptedModel(gptActiveModel, [
 			toolCallTurn([{ id: 'provider-call-1', name: 'read_note', params: {} }]),
@@ -369,7 +368,6 @@ it.effect('tool handlers that declare platform services read the FileSystem the 
 			name: 'read_note',
 			description: 'Reads the note file.',
 			success: Schema.String,
-			dependencies: platformToolDependencies,
 			handler: () =>
 				Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString('/note.txt')).pipe(Effect.orDie),
 		})
@@ -399,7 +397,6 @@ it.effect('tool handlers keep the FileSystem the session started with when a tur
 			name: 'read_note',
 			description: 'Reads the note file.',
 			success: Schema.String,
-			dependencies: platformToolDependencies,
 			handler: () =>
 				Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString('/note.txt')).pipe(Effect.orDie),
 		})
