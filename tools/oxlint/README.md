@@ -14,7 +14,8 @@ The `automation` rules that Fold used before this import (`no-ambient-nondetermi
 `no-manual-tag-comparison`, `no-manual-tagged-construction`, `no-service-option`,
 `no-shadowed-standard-array-static`, `no-silent-error-swallow`, `prefer-effect-match`,
 `prefer-option-from-nullable`, `prefer-tagged-error-handling`) are Fold adaptations; the rest are upstream
-source. `tools/typed/src/engine.ts` sets `followSymbolicLinks: false` so workspace symlink cycles in
+source. `no-manual-tag-comparison`, `no-manual-tagged-construction`, and `prefer-effect-match` are off: the stricter
+`anti-slop-effect` rules of the same names replace them. `tools/typed/src/engine.ts` sets `followSymbolicLinks: false` so workspace symlink cycles in
 `node_modules` do not break source exclusion.
 
 Keep `oxlint`, `@oxlint/plugins`, `oxlint-tsgolint`, and `@effect/tsgo` on versions `@effect/tsgo` lists as
