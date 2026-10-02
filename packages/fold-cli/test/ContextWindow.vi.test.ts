@@ -16,6 +16,10 @@ it('shows the Codex usable Astra window instead of the public API catalog window
 	expect(contextWindowLimitForDisplay(astra, 1_050_000)).toBe(258_400)
 })
 
+it('shows the same Codex usable window for GPT-6.1 Sol', () => {
+	expect(contextWindowLimitForDisplay({ ...astra, modelId: 'gpt-6.1-sol' }, 1_050_000)).toBe(258_400)
+})
+
 it('matches the Codex gauge percentage after excluding its baseline tokens', () => {
 	const limit = contextWindowLimitForDisplay(astra, 1_050_000)
 

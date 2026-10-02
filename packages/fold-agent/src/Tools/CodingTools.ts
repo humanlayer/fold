@@ -11,13 +11,10 @@ import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
 
 import { layerOutputStore, type OutputStore } from '../OutputStore/OutputStore'
-import { applyPatchTool } from './ApplyPatchTool'
 import { bashTool, type BashToolOptions } from './BashTool'
-import { editTool } from './EditTool'
+import { fileTools } from './FileTools'
 import { Photon } from './Image/Photon'
-import { readTool } from './ReadTool'
 import { webTools, type WebToolsOptions } from './WebTools'
-import { writeTool } from './WriteTool'
 
 /** Options for {@link codingTools}: the shared cwd plus bash output-spill configuration. */
 export type CodingToolsOptions = Pick<BashToolOptions, 'cwd' | 'processEnvironment'> & WebToolsOptions
@@ -37,14 +34,7 @@ export const codingTools = (
 		| Photon
 		| HttpClient.HttpClient
 	>
-> => [
-	readTool(options),
-	writeTool(options),
-	editTool(options),
-	applyPatchTool(options),
-	bashTool(options),
-	...webTools(options),
-]
+> => [...fileTools(options), bashTool(options), ...webTools(options)]
 
 /**
  * Every coding-tool host service on Node, for hosts that start sessions themselves: the Node platform,

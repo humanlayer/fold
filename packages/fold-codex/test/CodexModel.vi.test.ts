@@ -270,7 +270,7 @@ describe('codexModel defaults', () => {
 	it('omitting the model binds the default codex model id', () => {
 		const model = codexModel({})
 
-		expect(DEFAULT_CODEX_MODEL_ID).toBe('gpt-6-astra')
+		expect(DEFAULT_CODEX_MODEL_ID).toBe('gpt-6.1-sol')
 		expect(model.activeModel.modelId).toBe(DEFAULT_CODEX_MODEL_ID)
 		expect(model.activeModel.providerKind).toBe('codex')
 	})
@@ -279,8 +279,8 @@ describe('codexModel defaults', () => {
 		expect(codexModel({ model: 'gpt-5.5' }).activeModel.modelId).toBe('gpt-5.5')
 	})
 
-	it('preserves the canonical GPT-6 Sol and Luna ids and max reasoning', () => {
-		for (const modelId of ['gpt-6-sol', 'gpt-6-luna']) {
+	it('preserves the canonical GPT-6.1 Sol, GPT-6 Sol, and Luna ids and max reasoning', () => {
+		for (const modelId of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']) {
 			const model = codexModel({ model: modelId, reasoning: 'max' })
 
 			expect(model.activeModel.modelId).toBe(modelId)

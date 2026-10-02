@@ -14,9 +14,9 @@
 		"release:prepare": "bun run scripts/release/prepare.ts",
 		"release:validate": "bun run scripts/release/validate-manifest.ts",
 		"release:publish": "bun run scripts/release/publish.ts",
-		"typecheck": "bun run build:providers && bun run --parallel --if-present --filter './packages/*' typecheck",
-		"test": "bun run --parallel --if-present --filter './packages/*' test",
-		"test:watch": "bun run --parallel --if-present --filter './packages/*' test:watch",
+		"typecheck": "bun run build:providers && bun run --parallel --if-present --filter './packages/*' --filter './examples/*' typecheck",
+		"test": "bun run --parallel --if-present --filter './packages/*' --filter './examples/*' test",
+		"test:watch": "bun run --parallel --if-present --filter './packages/*' --filter './examples/*' test:watch",
 		"lint": "oxlint --type-aware && bun tools/typed/src/cli.ts check --config typed-lint.config.ts",
 		"lint:fix": "oxlint --type-aware --fix && bun tools/typed/src/cli.ts check --config typed-lint.config.ts",
 		"format": "oxfmt",
@@ -25,16 +25,22 @@
 	},
 	"workspaces": {
 		"packages": [
-			"packages/*"
+			"packages/*",
+			"examples/*"
 		],
 		"catalog": {
 			"@kitlangton/terminal-control": "0.3.1",
+			"alchemy": "2.0.0-beta.76",
+			"@cloudflare/computer": "https://github.com/K-Mistele/computer/releases/download/fold-91611593a1d7/cloudflare-computer-0.3.1.tgz",
+			"@platformatic/vfs": "0.4.0",
+			"@cloudflare/workers-types": "5.20260929.1",
 			"@opentui/core": "0.4.3",
 			"@opentui/keymap": "0.4.3",
 			"@opentui/solid": "0.4.3",
 			"solid-js": "1.9.12",
 			"effect": "4.0.0-rc.112",
 			"@effect/platform-node": "4.0.0-rc.112",
+			"@effect/platform-bun": "4.0.0-rc.112",
 			"@effect/vitest": "4.0.0-rc.112",
 			"@silvia-odwyer/photon-node": "0.3.4",
 			"turndown": "7.2.4",

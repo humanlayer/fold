@@ -605,9 +605,9 @@ it.effect('a Codex model uses the app context window instead of the public API c
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('GPT-6 Sol and Luna compact against the 272k Codex window instead of the public catalog', () =>
+it.effect('GPT-6.1 Sol, GPT-6 Sol, and Luna compact against the 272k Codex window instead of the public catalog', () =>
 	Effect.gen(function* () {
-		for (const modelId of ['gpt-6-sol', 'gpt-6-luna']) {
+		for (const modelId of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna']) {
 			const activeModel = { ...codexActiveModel, modelId }
 			const { model, scripted } = yield* scriptedModel(activeModel, [
 				textTurn(`noted ${'a'.repeat(120)}`, { inputTokens: 224_000 }),

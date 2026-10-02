@@ -293,6 +293,21 @@ const eventLogLayerFor = <R>(log: FoldEventLog<R>): Layer.Layer<EventLog, never,
 		source: ({ make }) => Layer.effect(EventLog, make),
 	})
 
+/**
+ * Run a tool's handler with the session's host services over whatever is in scope where the turn runs.
+ * Effect AI merges the turn's services over the toolkit's, so a host whose request handling carries its
+ * own FileSystem (Alchemy's Worker runtime provides Node's) would otherwise shadow the session's.
+ */
+const withHostServices = <R>(
+	contribution: SessionToolContribution,
+	hostServices: Context.Context<R>,
+): SessionToolContribution => ({
+	...contribution,
+	handler: (params) =>
+		// oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- the stored handler is erased by design
+		contribution.handler(params).pipe(Effect.updateContext((context) => Context.merge(context, hostServices))),
+})
+
 const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
 const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
 
@@ -401,7 +416,9 @@ const assembleSessionGraph = <R>(options: {
 					tool.init.pipe(
 						Effect.provideContext(hostServices),
 						Scope.provide(sessionScope),
-						Effect.map((contribution) => toolContributions.set(tool, contribution)),
+						Effect.map((contribution) =>
+							toolContributions.set(tool, withHostServices(contribution, hostServices)),
+						),
 					),
 				{ discard: true },
 			).pipe(Effect.asVoid)

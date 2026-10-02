@@ -386,3 +386,30 @@ it.effect('a tool handler reads the FileSystem the session caller provided', () 
 		),
 	),
 )
+
+it.effect('tool handlers keep the FileSystem the session started with when a turn runs under another', () =>
+	Effect.gen(function* () {
+		const { model } = yield* scriptedModel(gptActiveModel, [
+			toolCallTurn([{ id: 'provider-call-1', name: 'read_note', params: {} }]),
+			textTurn('done'),
+		])
+		const readNote = defineTool({
+			name: 'read_note',
+			description: 'Reads the note file.',
+			success: Schema.String,
+			handler: () =>
+				Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString('/note.txt')).pipe(Effect.orDie),
+		})
+		const noteFileSystem = (note: string) => FileSystem.makeNoop({ readFileString: () => Effect.succeed(note) })
+
+		const session = yield* startSession({ agent: defineAgent({ model, tools: [readNote] }) }).pipe(
+			Effect.provideService(FileSystem.FileSystem, noteFileSystem('from the session')),
+		)
+		// A host whose request handling carries its own FileSystem, as Alchemy's Worker runtime does.
+		yield* session
+			.send('read the note')
+			.pipe(Effect.provideService(FileSystem.FileSystem, noteFileSystem('from the turn')))
+
+		expect(firstToolResultPart(yield* session.entries).result).toBe('from the session')
+	}).pipe(Effect.scoped),
+)
