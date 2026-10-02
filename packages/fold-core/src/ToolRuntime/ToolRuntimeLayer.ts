@@ -4,7 +4,7 @@
  * per-call ToolState, ToolEvents, and StopController services while handlers run, then persists one durable
  * tool-result entry per call, including synthetic interruption results when a tool fiber is interrupted.
  */
-import { Data, Equal, Match, Predicate, Cause, Effect, Layer, Ref, Schema, Stream } from 'effect'
+import { Data, Equal, Match, Predicate, Cause, Effect, Layer, Ref, Schema, Stream, Struct } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
@@ -41,8 +41,6 @@ type PreparedToolCall = Data.TaggedEnum<{
 }>
 
 const PreparedToolCall = Data.taggedEnum<PreparedToolCall>()
-
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 type FinalToolOutput = {
 	readonly result: unknown
@@ -190,18 +188,16 @@ export const liveToolRuntimeLayer: Layer.Layer<
 			readonly executedInput?: unknown
 		}) {
 			const message = yield* encodedToolResultMessage(input)
-			const entryInput: Mutable<Parameters<(typeof LogEntryInputs)['tool-result']>[0]> = {
+			const entryInput = LogEntryInputs['tool-result']({
 				agentId: input.agentId,
 				parentAgentId: input.parentAgentId,
 				toolCallId: input.toolCallId,
 				messageId: yield* ids.makeMessageId,
 				message,
-			}
-			if (input.executedInput !== undefined) {
-				entryInput.executedInput = input.executedInput
-			}
+				...Struct.pick(input, ['executedInput']),
+			})
 
-			const entry = yield* eventLog.append(LogEntryInputs['tool-result'](entryInput)).pipe(Effect.orDie)
+			const entry = yield* eventLog.append(entryInput).pipe(Effect.orDie)
 
 			if (Predicate.isTagged(entry, 'tool-result')) return entry
 
@@ -443,32 +439,24 @@ export const liveToolRuntimeLayer: Layer.Layer<
 						output: handlerOutput,
 					})
 
-					const result: Mutable<ToolResultAppendInput> = {
+					const result: ToolResultAppendInput = {
 						result: finalOutput.result,
 						isFailure: finalOutput.isFailure,
 					}
-					if (!Equal.equals(input.prepared.original.params, input.prepared.params)) {
-						result.executedInput = input.prepared.params
-					}
-
-					return result
+					// The executed input is recorded only when a hook rewrote what the model sent.
+					return Equal.equals(input.prepared.original.params, input.prepared.params)
+						? result
+						: { ...result, executedInput: input.prepared.params }
 				})
 
-				const append = (result: ToolResultAppendInput) => {
-					const appendInput: Mutable<Parameters<typeof appendToolResultToEventLog>[0]> = {
+				const append = (result: ToolResultAppendInput) =>
+					appendToolResultToEventLog({
 						agentId: input.agentId,
 						parentAgentId: input.parentAgentId,
 						toolCallId,
 						toolName,
-						result: result.result,
-						isFailure: result.isFailure,
-					}
-					if (result.executedInput !== undefined) {
-						appendInput.executedInput = result.executedInput
-					}
-
-					return appendToolResultToEventLog(appendInput)
-				}
+						...result,
+					})
 
 				const runnable = output.pipe(
 					Effect.provideService(ToolState, toolState),

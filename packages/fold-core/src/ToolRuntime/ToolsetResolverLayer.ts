@@ -12,12 +12,12 @@ import { ToolsetResolver, type ResolveToolsetInput } from './ToolsetResolverServ
 import { Toolset } from './ToolsetService'
 
 /** Default family-exclusion policy: which installed tool names are hidden from each family (D17/D18). */
-export const defaultExcludedToolsByFamily: Record<ModelFamily, ReadonlyArray<string>> = {
+export const defaultExcludedToolsByFamily = {
 	claude: ['apply_patch'],
 	unknown: ['apply_patch'],
 	gpt: ['write', 'edit'],
 	codex: ['write', 'edit'],
-}
+} as const satisfies Record<ModelFamily, ReadonlyArray<string>>
 
 /** Options for the default ToolsetResolver implementation. */
 export type ToolsetResolverOptions = {

@@ -1,4 +1,4 @@
-import { Array as Arr, Data, Match, Predicate, type Schema } from 'effect'
+import { Array as Arr, Data, Match, Predicate, type Schema, Struct } from 'effect'
 
 import { encodedContentParts, encodedContentText, isPartOfType } from '../EventLog/MessageContent'
 import type {
@@ -73,8 +73,6 @@ export type ProjectedMessage =
 	| ProjectedCompactionSummary
 
 const ProjectedMessage = Data.taggedEnum<ProjectedMessage>()
-
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 /** Tool-owned key/value state for one agent namespace, built by folding tool_state entries in log order. */
 export type ToolStateProjection = Readonly<Record<string, Schema.Json>>
@@ -245,19 +243,19 @@ export const toolStateForAgent = (
 	agentId: AgentId,
 	namespace: string,
 ): ToolStateProjection => {
-	const state: Record<string, Schema.Json> = {}
+	const state = new Map<string, Schema.Json>()
 
 	for (const entry of ownEntriesForAgent(entries, agentId)) {
 		if (!Predicate.isTagged(entry, 'tool_state') || entry.namespace !== namespace) continue
 
 		if (entry.value === null) {
-			delete state[entry.key]
+			state.delete(entry.key)
 		} else {
-			state[entry.key] = entry.value
+			state.set(entry.key, entry.value)
 		}
 	}
 
-	return state
+	return Object.fromEntries(state)
 }
 
 const latestLeadingSystemMessage = (entries: ReadonlyArray<LogEntry>): SystemMessageLogEntry | null =>
@@ -386,17 +384,18 @@ export const messagesForAgent = (
 	}
 
 	if (compaction !== null) {
-		const summaryInput: Mutable<Parameters<(typeof ProjectedMessage)['compaction-summary']>[0]> = {
-			sourceSeq: compaction.seq,
-			compactionId: compaction.compactionId,
-			replacesThroughSeq: compaction.replacesThroughSeq,
-			summary: compaction.summary,
-			tokensBefore: compaction.tokensBefore,
-		}
-		if (compaction.postCompactionInstructions !== undefined) {
-			summaryInput.postCompactionInstructions = compaction.postCompactionInstructions
-		}
-		projected.push(ProjectedMessage['compaction-summary'](summaryInput))
+		projected.push(
+			ProjectedMessage['compaction-summary']({
+				sourceSeq: compaction.seq,
+				...Struct.pick(compaction, [
+					'compactionId',
+					'replacesThroughSeq',
+					'summary',
+					'tokensBefore',
+					'postCompactionInstructions',
+				]),
+			}),
+		)
 	}
 
 	for (const entry of visibleEntries) {

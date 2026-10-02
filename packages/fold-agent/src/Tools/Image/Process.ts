@@ -75,7 +75,7 @@ const encodeUnderCap = (image: PhotonImage): Effect.Effect<Option.Option<Encoded
 	})
 
 /** Fit width/height inside maxDimension x maxDimension, preserving aspect ratio. */
-const fitWithinMaxDimension = (width: number, height: number): { readonly width: number; readonly height: number } => {
+const fitWithinMaxDimension = (width: number, height: number) => {
 	let targetWidth = width
 	let targetHeight = height
 	if (targetWidth > maxDimension) {

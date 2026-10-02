@@ -12,10 +12,10 @@ export const FOLD_MODE_NAMES = ['default', 'rlm'] as const
 /** A selectable mode name (`default` = the full coding toolset, `rlm` = the delegating orchestrator). */
 export type FoldModeName = (typeof FOLD_MODE_NAMES)[number]
 
-const modesByName: Record<FoldModeName, FoldMode> = {
+const modesByName = {
 	default: defaultCodingMode,
 	rlm: rlmMode,
-}
+} as const satisfies Record<FoldModeName, FoldMode>
 
 /** Resolve a selectable mode name to its `FoldMode` value. */
 export const modeForName = (name: FoldModeName): FoldMode => modesByName[name]

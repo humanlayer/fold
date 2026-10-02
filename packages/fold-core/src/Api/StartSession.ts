@@ -42,6 +42,7 @@ import {
 	Scope,
 	Semaphore,
 	Stream,
+	Struct,
 } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
@@ -86,7 +87,7 @@ import {
 	type SteeringMode,
 } from '../Session/SessionControls'
 import { liveSessionLayer } from '../Session/SessionLayer'
-import { Session, type SessionService, type StartSessionInput, type StartedSession } from '../Session/SessionService'
+import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { StopConditions } from '../StopConditions/StopConditions'
 import { agentIdsFromEntries, resolveAgentIdRef } from '../Subagents/AgentIdRef'
@@ -105,8 +106,6 @@ import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { provisionAgentRuntime, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
-
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 /**
  * Options for {@link startSession}. `RA` is the host services the agent (its model and tools) needs, `RL`
@@ -947,24 +946,18 @@ export const startSession = <RA = never, RL = never, RP = never>(
 	Effect.gen(function* () {
 		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
 		const config = yield* Ref.get(graph.configRef)
-		const meta: Mutable<NonNullable<StartSessionInput['meta']>> = { ...options.meta }
-		if (options.agent.name !== undefined) {
-			meta.agentName = options.agent.name
-		}
-		const startInput: Mutable<StartSessionInput> = {
-			cwd: options.cwd ?? null,
-			model: options.agent.model.activeModel,
-			systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-			meta,
-		}
-		if (options.agent.promptCacheKey !== undefined) {
-			startInput.promptCacheKey = options.agent.promptCacheKey
-		}
-		if (options.sessionId !== undefined) {
-			startInput.sessionId = options.sessionId
-		}
-
-		const started = yield* graph.session.start(startInput).pipe(Effect.orDie)
+		const meta =
+			options.agent.name === undefined ? { ...options.meta } : { ...options.meta, agentName: options.agent.name }
+		const started = yield* graph.session
+			.start({
+				cwd: options.cwd ?? null,
+				model: options.agent.model.activeModel,
+				systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
+				meta,
+				...Struct.pick(options.agent, ['promptCacheKey']),
+				...Struct.pick(options, ['sessionId']),
+			})
+			.pipe(Effect.orDie)
 
 		return makeSessionHandle(graph, started)
 	})

@@ -9,8 +9,6 @@ import { Context, Effect, Layer, type Redacted, type Scope, Stream } from 'effec
 import { LanguageModel } from 'effect/unstable/ai'
 import { HttpClient } from 'effect/unstable/http'
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
 const anthropicDecoderModelFor = (modelId: string): string | null => {
 	const id = modelId.toLowerCase()
 	if (id.includes('opus')) return id === 'claude-opus-4-6' ? null : 'claude-opus-4-6'
@@ -66,12 +64,10 @@ export const openAiCompatibleLanguageModel = (connection: {
 	readonly apiKeyHeader: string | null
 	readonly baseUrl: string | null
 }): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient> => {
-	const clientOptions: Mutable<Parameters<typeof OpenAiClient.layer>[0]> = { apiKey: connection.apiKey }
-	if (connection.apiKeyHeader !== null) {
-		clientOptions.apiKeyHeader = connection.apiKeyHeader
-	}
-	if (connection.baseUrl !== null) {
-		clientOptions.apiUrl = connection.baseUrl
+	const clientOptions = {
+		apiKey: connection.apiKey,
+		apiKeyHeader: connection.apiKeyHeader ?? undefined,
+		apiUrl: connection.baseUrl ?? undefined,
 	}
 
 	return languageModelFrom(
@@ -85,12 +81,10 @@ export const anthropicLanguageModel = (connection: {
 	readonly apiKey: Redacted.Redacted<string>
 	readonly baseUrl: string | null
 }): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient> => {
-	const clientOptions: Mutable<Parameters<typeof AnthropicClient.layer>[0]> = {
+	const clientOptions = {
 		apiKey: connection.apiKey,
+		apiUrl: connection.baseUrl ?? undefined,
 		transformClient: relaxAnthropicResponseModel(connection.modelId),
-	}
-	if (connection.baseUrl !== null) {
-		clientOptions.apiUrl = connection.baseUrl
 	}
 
 	return languageModelFrom(

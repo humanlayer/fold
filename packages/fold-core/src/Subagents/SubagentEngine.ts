@@ -19,7 +19,7 @@
  * per-call CurrentAgent / CurrentToolCall / InterruptNote services), and the subagents they launch run
  * tools that may call them again. Continue runs from the session handle, with no tool call.
  */
-import { Array as Arr, Data, Match, Predicate, Cause, Effect, Exit, Fiber, Ref, Schema, Stream } from 'effect'
+import { Array as Arr, Data, Match, Predicate, Cause, Effect, Exit, Fiber, Ref, Schema, Stream, Struct } from 'effect'
 import { Prompt } from 'effect/unstable/ai'
 
 import type { FoldModel } from '../Api/ModelDescriptor'
@@ -56,13 +56,11 @@ import {
 import { agentIdsFromEntries, resolveAgentIdRef, shortAgentId } from './AgentIdRef'
 import type { AgentRegistry, RegisteredAgentType } from './AgentRegistry'
 import { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
-import type { ForkSubagentInput, SubagentResult, TurnCount } from './Schemas'
+import type { ForkSubagentInput, SubagentResult } from './Schemas'
 import { SessionAgents, type RealizedAgentTools } from './SessionAgents'
 import type { SubagentModelBinding } from './SubagentDefinition'
 
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
-
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
 
 /** Input for dispatching one fresh subagent of a registered type. */
 export type DispatchSubagentInput = {
@@ -162,11 +160,7 @@ const findAgentStarted = (entries: ReadonlyArray<LogEntry>, agentId: AgentId): A
 	) ?? null
 
 /** Count assistant turns for one subagent: this dispatch/resume (by toolCallId) and lifetime total. */
-const countAssistantTurns = (
-	entries: ReadonlyArray<LogEntry>,
-	agentId: AgentId,
-	toolCallId: ToolCallId,
-): { readonly thisRun: TurnCount; readonly total: TurnCount } => {
+const countAssistantTurns = (entries: ReadonlyArray<LogEntry>, agentId: AgentId, toolCallId: ToolCallId) => {
 	const own = entries.filter(
 		(entry): entry is AssistantMessageLogEntry =>
 			Predicate.isTagged(entry, 'assistant-message') && entry.agentId === agentId,
@@ -761,13 +755,9 @@ export const forkSubagent = Effect.fn('fold.subagents.fork')(function* (input: F
 			: yield* deriveChildPromptCacheKey(dispatcherSnapshot.promptCacheKey, subagentId)
 	const agentLabel = `fork of ${shortAgentId(dispatcher.agentId)}`
 	yield* interruptNote.set(interruptedSubagentNote(agentLabel, subagentId, 0))
-	const fork: Mutable<AgentFork> = { fromAgentId: dispatcher.agentId, atSeq: lastEntry.seq }
-	if (input.forkAgentDefinitionId !== null) {
-		fork.definitionId = input.forkAgentDefinitionId
-	}
-	if (input.history !== undefined) {
-		fork.history = input.history
-	}
+	const forkPoint = { fromAgentId: dispatcher.agentId, atSeq: lastEntry.seq, ...Struct.pick(input, ['history']) }
+	const fork =
+		input.forkAgentDefinitionId === null ? forkPoint : { ...forkPoint, definitionId: input.forkAgentDefinitionId }
 
 	return yield* runSubagentToResult({
 		subagentId,

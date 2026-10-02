@@ -76,14 +76,14 @@ export const supportsAdaptiveThinking = (modelId: string): boolean => {
  * ModelCatalog-driven per-model budgets and max_tokens fitting land (D23). The provider defaults
  * `max_tokens` to the model's max output, which comfortably exceeds these budgets.
  */
-export const defaultAnthropicThinkingBudgets: Record<Exclude<ReasoningLevel, 'off'>, number> = {
+export const defaultAnthropicThinkingBudgets = {
 	minimal: 1024,
 	low: 2048,
 	medium: 8192,
 	high: 16384,
 	xhigh: 16384,
 	max: 16384,
-}
+} as const satisfies Record<Exclude<ReasoningLevel, 'off'>, number>
 
 /**
  * Map one reasoning level onto an anthropic thinking setting for the given model: `off` disables

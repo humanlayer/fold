@@ -25,7 +25,7 @@ const skillFile = (name: string, description: string, body: string): string =>
 	`---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`
 
 /** Lay out a fake home + repo: one global skill, one repo skill that shadows a global duplicate. */
-const materializeSkillTree = (): { readonly home: string; readonly cwd: string } => {
+const materializeSkillTree = () => {
 	const root = mkdtempSync(join(tmpdir(), 'fold-skills-demo-'))
 	const home = join(root, 'home')
 	const repo = join(root, 'repo')

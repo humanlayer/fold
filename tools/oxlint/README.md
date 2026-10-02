@@ -31,7 +31,6 @@ its exemption in `.oxlintrc.jsonc`.
 | `automation/no-multiple-function-params`     | 283        | 59    |
 | `automation/no-single-use-private-functions` | 292        | 41    |
 | `automation/no-optional-function-parameters` | 104        | 22    |
-| `anti-slop/no-known-value-widening`          | 64         | 9     |
 | `automation/no-effect-asvoid`                | 15         | 1     |
 
 `anti-slop/no-comments`, `automation/no-comments`, and `automation/no-reexport-only-modules` (it only flags package

@@ -21,7 +21,7 @@ import { withFileMutationLocks } from '../Fs/MutationQueue'
 import { resolveToCwd } from '../Fs/PathResolve'
 import { platformErrorMessage } from './ReadTool'
 
-const verificationFailed = (detail: string): { message: string } => ({
+const verificationFailed = (detail: string) => ({
 	message: `apply_patch verification failed: ${detail}`,
 })
 

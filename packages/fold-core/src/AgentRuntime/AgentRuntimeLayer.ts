@@ -59,15 +59,9 @@ const encodeSystemMessage = Schema.encodeUnknownSync(Prompt.SystemMessage)
 
 const anthropicEphemeralCacheControl = { type: 'ephemeral' } as const
 
-type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
-
 const leadingSystemMessageFor = (content: string, cacheBreakpoint: boolean): Prompt.SystemMessage => {
-	const input: Mutable<Parameters<typeof Prompt.systemMessage>[0]> = { content }
-	if (cacheBreakpoint) {
-		input.options = { anthropic: { cacheControl: anthropicEphemeralCacheControl } }
-	}
-
-	return Prompt.systemMessage(input)
+	const options = cacheBreakpoint ? { anthropic: { cacheControl: anthropicEphemeralCacheControl } } : undefined
+	return Prompt.systemMessage({ content, options })
 }
 const encodeUserMessage = Schema.encodeUnknownSync(Prompt.UserMessage)
 const encodeAssistantMessage = Schema.encodeUnknownSync(Prompt.AssistantMessage)
@@ -243,7 +237,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					trigger,
 				})
 
-				const compactionInput: Mutable<Parameters<(typeof LogEntryInputs)['compaction']>[0]> = {
+				const compactionEntry = {
 					agentId: input.agentId,
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
@@ -253,10 +247,13 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					replacesThroughSeq: planned.success.replacesThroughSeq,
 					tokensBefore: planned.success.tokensBefore,
 				}
-				if (postCompactionInstructions !== null) {
-					compactionInput.postCompactionInstructions = postCompactionInstructions
-				}
-				const entry = yield* appendToEventLog(LogEntryInputs['compaction'](compactionInput))
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['compaction'](
+						postCompactionInstructions === null
+							? compactionEntry
+							: { ...compactionEntry, postCompactionInstructions },
+					),
+				)
 
 				if (Predicate.isTagged(entry, 'compaction')) return entry
 				return yield* Effect.die(new Error(`EventLog returned ${entry._tag} while appending compaction`))
@@ -543,7 +540,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// prompt block set once for the starting model; both are recorded durably.
 				const resolvedToolset = yield* toolsetResolver.resolve({ model: input.model })
 
-				const agentStartedInput: Mutable<Parameters<(typeof LogEntryInputs)['agent_started']>[0]> = {
+				const agentStarted = {
 					agentId: input.agentId,
 					parentAgentId: input.parentAgentId,
 					toolCallId: input.toolCallId,
@@ -554,10 +551,12 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 					fork: input.fork,
 					agentType: input.agentType,
 				}
-				if (input.promptCacheKey !== undefined && input.promptCacheKey !== null) {
-					agentStartedInput.promptCacheKey = input.promptCacheKey
-				}
-				const entry = yield* appendToEventLog(LogEntryInputs['agent_started'](agentStartedInput))
+				const promptCacheKey = input.promptCacheKey ?? null
+				const entry = yield* appendToEventLog(
+					LogEntryInputs['agent_started'](
+						promptCacheKey === null ? agentStarted : { ...agentStarted, promptCacheKey },
+					),
+				)
 
 				// A fork appends no leading system message: its projection folds the forked-from agent's
 				// history, leading blocks included, keeping the fork's prompt prefix byte-identical for

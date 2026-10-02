@@ -84,12 +84,8 @@ const validBaseUrl = (value: string): Effect.Effect<string, ProviderConfiguratio
 		),
 	)
 
-const resolveCredentials = (
-	input: ConfigureProviderInput,
-): Effect.Effect<
-	{ readonly apiKey: string | undefined; readonly apiKeyEnv: string | undefined },
-	ProviderConfigurationValidationError | ProviderConfigurationKindError
-> =>
+/** The connection's credential field: none for OAuth providers, otherwise exactly one of the two. */
+const resolveCredentials = (input: ConfigureProviderInput) =>
 	Effect.gen(function* () {
 		const oauth = input.kind === 'codex' || input.kind === 'opencode' || input.kind === 'xai'
 		const hasApiKey = input.apiKey !== undefined && input.apiKey.trim() !== ''
@@ -104,9 +100,10 @@ const resolveCredentials = (
 				field: 'apiKey',
 				message: 'supply exactly one of apiKey or apiKeyEnv',
 			})
-		const apiKey = !oauth && hasApiKey ? yield* required(input.apiKey ?? '', 'apiKey') : undefined
-		const apiKeyEnv = !oauth && hasApiKeyEnv ? yield* required(input.apiKeyEnv ?? '', 'apiKeyEnv') : undefined
-		return { apiKey, apiKeyEnv }
+		if (oauth) return {}
+		return hasApiKey
+			? { apiKey: yield* required(input.apiKey ?? '', 'apiKey') }
+			: { apiKeyEnv: yield* required(input.apiKeyEnv ?? '', 'apiKeyEnv') }
 	})
 
 const encodeConfigText = Schema.encodeEffect(Schema.fromJsonString(FoldConfig, { space: '\t' }))
@@ -157,7 +154,7 @@ export const configureProvider = (
 	Effect.gen(function* () {
 		const name = yield* required(input.name, 'name')
 		const baseUrl = yield* validBaseUrl(input.baseUrl)
-		const { apiKey, apiKeyEnv } = yield* resolveCredentials(input)
+		const credential = yield* resolveCredentials(input)
 		const defaultModel = Match.value(input.kind).pipe(
 			Match.when('codex', () => DEFAULT_CODEX_MODEL_ID),
 			Match.when('opencode', () => DEFAULT_OPENCODE_MODEL_ID),
@@ -168,19 +165,10 @@ export const configureProvider = (
 		const config = yield* loadFoldConfig(options)
 		const previousModels = config.providers[name]?.configuredModels ?? []
 		const configuredModels = model === undefined ? previousModels : [...new Set([...previousModels, model])]
-		const provider: {
-			kind: ProviderKind
-			baseUrl: string
-			apiKey?: string
-			apiKeyEnv?: string
-			configuredModels?: ReadonlyArray<string>
-		} = {
-			kind: input.kind,
-			baseUrl,
-		}
-		if (apiKey !== undefined) provider.apiKey = apiKey
-		if (apiKeyEnv !== undefined) provider.apiKeyEnv = apiKeyEnv
-		if (Arr.isReadonlyArrayNonEmpty(configuredModels)) provider.configuredModels = configuredModels
+		const connection = { kind: input.kind, baseUrl, ...credential }
+		const provider = Arr.isReadonlyArrayNonEmpty(configuredModels)
+			? { ...connection, configuredModels }
+			: connection
 		const updated: FoldConfig = { ...config, providers: { ...config.providers, [name]: provider } }
 
 		yield* writeConfig(updated, options)

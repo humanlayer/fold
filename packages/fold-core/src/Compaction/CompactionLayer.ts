@@ -45,9 +45,7 @@ import {
 export type EnabledAutoCompactConfig = Extract<AutoCompactConfig, { readonly enabled: true }>
 
 /** Split an agent's projection into the summarizable conversation and its current summary, if any. */
-const conversationOf = (
-	projected: ReadonlyArray<ProjectedMessage>,
-): { readonly conversation: ReadonlyArray<ProjectedMessage>; readonly previousSummary: string | null } => {
+const conversationOf = (projected: ReadonlyArray<ProjectedMessage>) => {
 	let previousSummary: string | null = null
 	const conversation: Array<ProjectedMessage> = []
 

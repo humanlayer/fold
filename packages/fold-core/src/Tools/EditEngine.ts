@@ -108,11 +108,7 @@ const applyReplacements = (content: string, replacements: ReadonlyArray<MatchedE
 const splitLinesWithEndings = (content: string): ReadonlyArray<string> => content.match(/[^\n]*\n|[^\n]+/g) ?? []
 
 /** Map a character span in the base content to the inclusive line range it touches. */
-const lineRangeFor = (
-	lineOffsets: ReadonlyArray<number>,
-	matchIndex: number,
-	matchLength: number,
-): { readonly first: number; readonly last: number } => {
+const lineRangeFor = (lineOffsets: ReadonlyArray<number>, matchIndex: number, matchLength: number) => {
 	let first = 0
 	let last = 0
 	for (let line = 0; line < lineOffsets.length; line += 1) {

@@ -24,9 +24,6 @@ import {
 	SessionId,
 	startSession,
 	type AgentDefinition,
-	type ResumeSessionOptions,
-	type StartSessionOptions,
-	type SwitchModelOptions,
 	type AutoCompactConfig,
 	type ModelCatalogEntry,
 	type ReasoningLevel,
@@ -37,7 +34,6 @@ import {
 	type FoldSession,
 	type FoldTool,
 	type Ids,
-	type LogSeq,
 } from '@humanlayer/fold-core'
 import {
 	Array as Arr,
@@ -49,19 +45,15 @@ import {
 	Option,
 	Schema,
 	Semaphore,
+	Struct,
 	type Scope,
 	type Path,
 } from 'effect'
 import type { HttpClient } from 'effect/unstable/http'
 import type { ChildProcessSpawner } from 'effect/unstable/process'
 
-import { loadModelCatalog, type LoadModelCatalogOptions } from '../Catalog/LoadCatalog'
-import {
-	agentModelsFromConfig,
-	type AgentModelsOptions,
-	type EnvLookup,
-	type RoleResolutionError,
-} from '../Config/AgentModels'
+import { loadModelCatalog } from '../Catalog/LoadCatalog'
+import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'
 import type { ConfigRole, ProfileModeName, RoleBinding, FoldConfig } from '../Config/ConfigSchema'
 import {
 	defaultFoldHome,
@@ -69,11 +61,10 @@ import {
 	type ConfigDecodeError,
 	type ConfigFileNotFoundError,
 	type ConfigParseError,
-	type LoadConfigOptions,
 } from '../Config/Load'
 import { rolesForDirectProviderSelection } from '../Config/ModelSelections'
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
-import { memoryPromptBlock, type AgentFilesOptions } from '../Memory/AgentFiles'
+import { memoryPromptBlock } from '../Memory/AgentFiles'
 import {
 	layerOutputStore,
 	sweepToolOutput,
@@ -86,7 +77,6 @@ import {
 	refreshSessionSummaryIndex,
 	sessionLogById,
 	type SessionLogRef,
-	type SessionLayoutOptions,
 } from '../Session/SessionLayout'
 import { generateSessionTitle } from '../Session/TitleGenerator'
 import type { Photon } from '../Tools/Image/Photon'
@@ -95,8 +85,6 @@ import { defaultCodingMode, type FoldMode } from './Mode'
 import { modeForName } from './ModeName'
 import { RPI_HINT_PROMPT } from './Rpi'
 import type { ModeModels } from './Subagents'
-
-type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] }
 
 type RolesBuilder = {
 	smart: RoleBinding
@@ -255,9 +243,7 @@ const resolveProfileSelection = (
 
 		let config: FoldConfig
 		if (opts.config === undefined) {
-			const configOptions: Mutable<LoadConfigOptions> = {}
-			if (opts.foldHome !== undefined) configOptions.foldHome = opts.foldHome
-			config = yield* loadFoldConfig(configOptions)
+			config = yield* loadFoldConfig(Struct.pick(opts, ['foldHome']))
 		} else {
 			config = opts.config
 		}
@@ -302,12 +288,8 @@ export const mergeModelSelection = (config: FoldConfig, base: RoleBinding, selec
 	const model = selection.model ?? (providerKindChanged ? undefined : base.model)
 	const reasoning = selection.reasoning ?? base.reasoning
 
-	const binding: { provider: string; model?: string; reasoning?: NonNullable<RoleBinding['reasoning']> } = {
-		provider,
-	}
-	if (model !== undefined) binding.model = model
-	if (reasoning !== undefined) binding.reasoning = reasoning
-	return binding
+	const withModel = model === undefined ? { provider } : { provider, model }
+	return reasoning === undefined ? withModel : { ...withModel, reasoning }
 }
 
 const withSelectedRoleBinding = (config: FoldConfig, role: ConfigRole, binding: RoleBinding): FoldConfig => ({
@@ -344,9 +326,7 @@ const resolveModeModels = (
 		const role = selection.role ?? mode.role
 		let config: FoldConfig
 		if (options.config === undefined) {
-			const configOptions: Mutable<LoadConfigOptions> = {}
-			if (options.foldHome !== undefined) configOptions.foldHome = options.foldHome
-			config = yield* loadFoldConfig(configOptions)
+			config = yield* loadFoldConfig(Struct.pick(options, ['foldHome']))
 		} else {
 			config = options.config
 		}
@@ -366,11 +346,14 @@ const resolveModeModels = (
 				mergeModelSelection(config, roleBindingFor(config, role), selection),
 			)
 		}
-		const modelOptions: Mutable<AgentModelsOptions> = { catalog }
-		if (options.env !== undefined) modelOptions.env = options.env
+		const modelOptions = { catalog, ...Struct.pick(options, ['env']) }
 		// OAuth providers read their credentials from the same fold home the CLI's login commands write to.
-		if (options.foldHome !== undefined) modelOptions.authStorePath = join(options.foldHome, 'auth.json')
-		const models = agentModelsFromConfig(selectedConfig, modelOptions)
+		const models = agentModelsFromConfig(
+			selectedConfig,
+			options.foldHome === undefined
+				? modelOptions
+				: { ...modelOptions, authStorePath: join(options.foldHome, 'auth.json') },
+		)
 
 		return {
 			primary: yield* models.resolve(role),
@@ -414,9 +397,7 @@ const buildAgentDefinition = (
 	FileSystem.FileSystem
 > =>
 	Effect.gen(function* () {
-		const memoryOptions: Mutable<AgentFilesOptions> = { cwd }
-		if (options.home !== undefined) memoryOptions.home = options.home
-		const memoryBlock = yield* memoryPromptBlock(memoryOptions)
+		const memoryBlock = yield* memoryPromptBlock({ cwd, ...Struct.pick(options, ['home']) })
 		// Effective RPI: the flag, or the mode's own default (RLM always carries the specialists).
 		const rpi = options.rpi === true || mode.rpiByDefault === true
 		const { extraTools = [] } = options
@@ -429,24 +410,14 @@ const buildAgentDefinition = (
 			Option.some(foldInfoBlock(options.foldHome ?? defaultFoldHome())),
 		])
 		const autoCompact = options.autoCompact ?? config?.compaction ?? defaultAutoCompact
-		const agentOptions: Mutable<
-			AgentDefinition<
-				| FileSystem.FileSystem
-				| Path.Path
-				| ChildProcessSpawner.ChildProcessSpawner
-				| OutputStore
-				| Photon
-				| HttpClient.HttpClient
-			>
-		> = {
+		const agent = {
 			name: options.name ?? mode.name,
 			model: models.primary,
 			tools,
 			autoCompact,
 			stopConditions: options.stopConditions ?? config?.stopConditions ?? defaultStopConditions,
 		}
-		if (Arr.isArrayNonEmpty(blocks)) agentOptions.systemPrompt = blocks
-		return defineAgent(agentOptions)
+		return defineAgent(Arr.isArrayNonEmpty(blocks) ? { ...agent, systemPrompt: blocks } : agent)
 	})
 
 /** The session's own output store, under `<foldHome>/tool-output/<sessionId>`. */
@@ -495,22 +466,11 @@ export const switchSessionMode = (
 		const config = yield* runtimeConfigFor(profiled)
 		const agent = yield* buildAgentDefinition(profiled, mode, models, cwd, config)
 
-		const switchOptions: Mutable<
-			SwitchModelOptions<
-				| FileSystem.FileSystem
-				| Path.Path
-				| ChildProcessSpawner.ChildProcessSpawner
-				| OutputStore
-				| Photon
-				| HttpClient.HttpClient
-			>
-		> = {
+		yield* session.switchModel(models.primary, {
 			reason: options.reason ?? `switch mode to ${mode.name}`,
 			profiles: sessionProfilesFor(models),
-		}
-		if (agent.systemPrompt !== undefined) switchOptions.systemPrompt = agent.systemPrompt
-		if (agent.tools !== undefined) switchOptions.tools = agent.tools
-		yield* session.switchModel(models.primary, switchOptions)
+			...Struct.pick(agent, ['systemPrompt', 'tools']),
+		})
 	})
 
 const withGeneratedTitles = <R>(
@@ -547,13 +507,13 @@ const withGeneratedTitles = <R>(
 												Effect.provideContext(titleServices),
 												Effect.flatMap((title) => {
 													const generatedThroughSeq = entries.at(-1)?.seq
-													const provenance: {
-														rootUserTurns: number
-														generatedThroughSeq?: LogSeq
-													} = { rootUserTurns: rootUsers.length }
-													if (generatedThroughSeq !== undefined)
-														provenance.generatedThroughSeq = generatedThroughSeq
-													const setTitle = session.setTitle(title, provenance)
+													const rootUserTurns = rootUsers.length
+													const setTitle = session.setTitle(
+														title,
+														generatedThroughSeq === undefined
+															? { rootUserTurns }
+															: { rootUserTurns, generatedThroughSeq },
+													)
 													return setTitle.pipe(
 														Effect.andThen(
 															refreshSessionSummaryIndex(session.sessionId, options).pipe(
@@ -579,9 +539,7 @@ const runtimeConfigFor = (
 	if (options.config !== undefined) return Effect.succeed(options.config)
 	if (options.model !== undefined) return Effect.succeed(null)
 
-	const configOptions: Mutable<LoadConfigOptions> = {}
-	if (options.foldHome !== undefined) configOptions.foldHome = options.foldHome
-	return loadFoldConfig(configOptions)
+	return loadFoldConfig(Struct.pick(options, ['foldHome']))
 }
 
 /** The catalog for a launch: the caller's (the CLI loads once), else a fresh load (never fails). */
@@ -590,9 +548,7 @@ const catalogFor = (
 ): Effect.Effect<ReadonlyArray<ModelCatalogEntry>, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
 	if (options.catalog !== undefined) return Effect.succeed(options.catalog)
 
-	const catalogOptions: Mutable<LoadModelCatalogOptions> = { foldHome: options.foldHome ?? defaultFoldHome() }
-	if (options.env !== undefined) catalogOptions.env = options.env
-	return loadModelCatalog(catalogOptions)
+	return loadModelCatalog({ foldHome: options.foldHome ?? defaultFoldHome(), ...Struct.pick(options, ['env']) })
 }
 
 /**
@@ -628,24 +584,13 @@ export const launchSession = (
 		const catalog = yield* catalogFor(opts)
 		const models = yield* resolveModeModels(opts, mode, catalog)
 		const config = yield* runtimeConfigFor(opts)
-		const prepareOptions: Mutable<SessionLayoutOptions> = { cwd }
-		if (opts.foldHome !== undefined) prepareOptions.foldHome = opts.foldHome
-		const prepared = yield* prepareSessionLog(prepareOptions)
+		const prepared = yield* prepareSessionLog({ cwd, ...Struct.pick(opts, ['foldHome']) })
 		yield* sweepToolOutput(opts.foldHome === undefined ? {} : { foldHome: opts.foldHome })
 		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
 
-		const startOptions: Mutable<
-			StartSessionOptions<
-				| FileSystem.FileSystem
-				| Path.Path
-				| ChildProcessSpawner.ChildProcessSpawner
-				| OutputStore
-				| Photon
-				| HttpClient.HttpClient,
-				FileSystem.FileSystem,
-				HttpClient.HttpClient | FileSystem.FileSystem
-			>
-		> = {
+		// The output store lives as long as the session, in the caller's scope.
+		const outputStore = yield* Layer.build(outputStoreFor(prepared.sessionId, opts))
+		const session = yield* startSession({
 			agent,
 			log: prepared.log,
 			cwd,
@@ -658,14 +603,9 @@ export const launchSession = (
 			profiles: sessionProfilesFor(models),
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
-		}
-		if (opts.steering !== undefined) startOptions.steering = opts.steering
-		// The output store lives as long as the session, in the caller's scope.
-		const outputStore = yield* Layer.build(outputStoreFor(prepared.sessionId, opts))
-		const session = yield* startSession(startOptions).pipe(Effect.provideContext(outputStore))
-		const titleOptions: { cwd: string; foldHome?: string } = { cwd }
-		if (opts.foldHome !== undefined) titleOptions.foldHome = opts.foldHome
-		return yield* withGeneratedTitles(session, models.fast, titleOptions)
+			...Struct.pick(opts, ['steering']),
+		}).pipe(Effect.provideContext(outputStore))
+		return yield* withGeneratedTitles(session, models.fast, { cwd, ...Struct.pick(opts, ['foldHome']) })
 	})
 
 const resumeFromLog = (
@@ -698,31 +638,17 @@ const resumeFromLog = (
 		yield* sweepToolOutput(options.foldHome === undefined ? {} : { foldHome: options.foldHome })
 		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
 
-		const resumeOptions: Mutable<
-			ResumeSessionOptions<
-				| FileSystem.FileSystem
-				| Path.Path
-				| ChildProcessSpawner.ChildProcessSpawner
-				| OutputStore
-				| Photon
-				| HttpClient.HttpClient,
-				FileSystem.FileSystem,
-				HttpClient.HttpClient | FileSystem.FileSystem
-			>
-		> = {
+		// The output store lives as long as the session, in the caller's scope.
+		const outputStore = yield* Layer.build(outputStoreFor(log.sessionId, options))
+		const session = yield* resumeSession({
 			agent,
 			log: jsonlEventLog(log.path),
 			profiles: sessionProfilesFor(models),
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
-		}
-		if (options.steering !== undefined) resumeOptions.steering = options.steering
-		// The output store lives as long as the session, in the caller's scope.
-		const outputStore = yield* Layer.build(outputStoreFor(log.sessionId, options))
-		const session = yield* resumeSession(resumeOptions).pipe(Effect.provideContext(outputStore))
-		const sessionLayoutOptions: { cwd: string; foldHome?: string } = { cwd }
-		if (options.foldHome !== undefined) sessionLayoutOptions.foldHome = options.foldHome
-		return yield* withGeneratedTitles(session, models.fast, sessionLayoutOptions)
+			...Struct.pick(options, ['steering']),
+		}).pipe(Effect.provideContext(outputStore))
+		return yield* withGeneratedTitles(session, models.fast, { cwd, ...Struct.pick(options, ['foldHome']) })
 	})
 
 /**
@@ -754,9 +680,7 @@ export const resumeLatestSession = (
 		const mode = modeFor(opts, profileMode)
 		const cwd = opts.cwd ?? process.cwd()
 
-		const sessionLayoutOptions: Mutable<SessionLayoutOptions> = { cwd }
-		if (opts.foldHome !== undefined) sessionLayoutOptions.foldHome = opts.foldHome
-		const latest = yield* latestSessionLog(sessionLayoutOptions)
+		const latest = yield* latestSessionLog({ cwd, ...Struct.pick(opts, ['foldHome']) })
 		if (latest === null) return yield* new NoSessionToResumeError({ cwd })
 
 		return yield* resumeFromLog(latest, opts, mode, cwd)
@@ -792,9 +716,7 @@ export const resumeSessionById = (
 		const mode = modeFor(opts, profileMode)
 		const cwd = opts.cwd ?? process.cwd()
 
-		const sessionLayoutOptions: Mutable<SessionLayoutOptions> = { cwd }
-		if (opts.foldHome !== undefined) sessionLayoutOptions.foldHome = opts.foldHome
-		const log = yield* sessionLogById(sessionId, sessionLayoutOptions)
+		const log = yield* sessionLogById(sessionId, { cwd, ...Struct.pick(opts, ['foldHome']) })
 		if (log === null) return yield* new SessionToResumeNotFoundError({ cwd, sessionId })
 
 		return yield* resumeFromLog(log, opts, mode, cwd)

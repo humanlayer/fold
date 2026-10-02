@@ -125,10 +125,7 @@ type DirectProviderSelection = {
 	readonly reasoning?: RoleBinding['reasoning']
 }
 
-const defaultModelsForProvider = (
-	config: FoldConfig,
-	selection: DirectProviderSelection,
-): Record<ConfigRole, string | undefined> => {
+const defaultModelsForProvider = (config: FoldConfig, selection: DirectProviderSelection) => {
 	const kind = config.providers[selection.provider]?.kind
 	if (kind === 'codex') return { orchestrator: DEFAULT_CODEX_MODEL_ID, smart: 'gpt-5.6-terra', fast: 'gpt-5.6-luna' }
 	if (kind === 'anthropic')

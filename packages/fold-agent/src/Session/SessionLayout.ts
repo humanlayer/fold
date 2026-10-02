@@ -24,12 +24,10 @@ import type {
 	SessionTitleLogEntry,
 	UserMessageLogEntry,
 } from '@humanlayer/fold-core'
-import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream } from 'effect'
+import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream, Struct } from 'effect'
 
 import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
-
-type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] }
 
 /** Options shared by the layout helpers. */
 export type SessionLayoutOptions = {
@@ -348,24 +346,11 @@ export const listSessionSummaries = (
 			(ref): Effect.Effect<SessionSummary | null, never, FileSystem.FileSystem> => {
 				const cached = index.get(ref.sessionId)
 				if (isCacheHit(cached, ref)) {
-					// Explicitly construct to ensure size conforms to SessionLogRef's optional semantics.
-					const summary = cached.summary
-					const cachedSummary: Mutable<SessionSummary> = {
-						sessionId: summary.sessionId,
-						path: ref.path,
-						mtimeMs: ref.mtimeMs,
-						title: summary.title,
-						status: summary.status,
-						turns: summary.turns,
-						providerId: summary.providerId,
-						modelId: summary.modelId,
-						model: summary.model,
-						contextTokens: summary.contextTokens,
-						mode: summary.mode,
-						rpi: summary.rpi,
-						profile: summary.profile,
+					// The index's summary, with the file facts (path, mtime, size) taken from the current listing.
+					const cachedSummary = {
+						...Struct.omit(cached.summary, ['size']),
+						...Struct.pick(ref, ['path', 'mtimeMs', 'size']),
 					}
-					if (ref.size !== undefined) cachedSummary.size = ref.size
 					return Effect.succeed(cachedSummary)
 				}
 				return loadSessionSummary(ref).pipe(

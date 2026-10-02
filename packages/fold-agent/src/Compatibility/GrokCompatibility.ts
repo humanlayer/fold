@@ -1,5 +1,5 @@
 import type { FoldSkills } from '@humanlayer/fold-core'
-import { Effect, type FileSystem, type Path } from 'effect'
+import { Effect, type FileSystem, type Path, Struct } from 'effect'
 
 import { loadGrokInstructions, renderGrokInstructions, type GrokInstructionSource } from './GrokInstructions'
 import { discoverGrokPluginSkillRoots, type GrokPluginDiagnostic } from './GrokPlugins'
@@ -19,20 +19,11 @@ export type GrokCompatibility = {
 export const loadGrokCompatibility = Effect.fn('fold.grok_compatibility.load')(function* (
 	options: GrokCompatibilityOptions,
 ) {
-	const pluginOptions: {
-		cwd: string
-		home?: string
-		grokHome?: string
-		projectRoot?: string
-		configuredPaths?: ReadonlyArray<string>
-	} = {
-		cwd: options.cwd,
-	}
-	if (options.home !== undefined) pluginOptions.home = options.home
-	if (options.grokHome !== undefined) pluginOptions.grokHome = options.grokHome
-	if (options.projectRoot !== undefined) pluginOptions.projectRoot = options.projectRoot
-	if (options.configuredPluginPaths !== undefined) pluginOptions.configuredPaths = options.configuredPluginPaths
-	const plugins = yield* discoverGrokPluginSkillRoots(pluginOptions)
+	const { configuredPluginPaths = [] } = options
+	const plugins = yield* discoverGrokPluginSkillRoots({
+		...Struct.pick(options, ['cwd', 'home', 'grokHome', 'projectRoot']),
+		configuredPaths: configuredPluginPaths,
+	})
 	const instructions = yield* loadGrokInstructions(options)
 	const { pluginPaths = [] } = options
 	const skills = grokSkills({ ...options, pluginPaths: [...pluginPaths, ...plugins.roots] })

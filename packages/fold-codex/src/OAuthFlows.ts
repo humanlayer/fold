@@ -407,7 +407,7 @@ export const runBrowserFlow = Effect.fn('fold.codexAuth.browserFlow')(function* 
 
 			const callback = yield* Deferred.make<string, CodexAuthError>()
 
-			const handleRequest = (rawUrl: string): { status: number; contentType: string; body: string } => {
+			const handleRequest = (rawUrl: string) => {
 				const url = new URL(rawUrl, `http://${hostname}:${port}`)
 
 				if (url.pathname === '/auth/callback') {

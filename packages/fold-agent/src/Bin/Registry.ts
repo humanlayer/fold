@@ -68,7 +68,7 @@ const releaseAsset = (input: {
 		url,
 		archive: input.archive,
 		pathInArchive: input.pathInArchive,
-		sha256: managedBinaryChecksums[url] ?? null,
+		sha256: managedBinaryChecksums.get(url) ?? null,
 	}
 }
 

@@ -36,11 +36,10 @@ const resolveExaUrl = (options?: WebSearchToolOptions): string => {
 	return url.toString()
 }
 
-const resolveParallelHeaders = (options?: WebSearchToolOptions): Record<string, string> => {
+const resolveParallelHeaders = (options?: WebSearchToolOptions) => {
 	const apiKey = options?.parallelApiKey ?? resolveEnv(options, 'PARALLEL_API_KEY')
-	const headers: { 'User-Agent': string; Authorization?: string } = { 'User-Agent': 'fold/1.0' }
-	if (apiKey !== undefined && apiKey.length > 0) headers.Authorization = `Bearer ${apiKey}`
-	return headers
+	const userAgent = { 'User-Agent': 'fold/1.0' }
+	return apiKey !== undefined && apiKey.length > 0 ? { ...userAgent, Authorization: `Bearer ${apiKey}` } : userAgent
 }
 
 const checksum = (text: string): number => {
