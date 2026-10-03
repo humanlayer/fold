@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/fold-core'
 import { Console, Effect, Layer } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { skillsFromDisk } from '../src/index'
 

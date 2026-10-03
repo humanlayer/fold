@@ -1,7 +1,7 @@
 /** Persistent, single-flight xAI OAuth credential service and authenticated HTTP decorator. */
 import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
 import { Clock, Context, Effect, Layer, Option, Semaphore } from 'effect'
-import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
+import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/http'
 
 import { XaiAuthStore, type XaiAuthStoreError, type XaiTokenData } from './AuthStore'
 import type { XaiBrowserFlowOptions, XaiDevicePrompt } from './OAuthFlows'

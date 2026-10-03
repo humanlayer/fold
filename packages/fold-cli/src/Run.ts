@@ -45,8 +45,8 @@ import {
 	Stream,
 	type Scope,
 } from 'effect'
-import type { HttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import type { HttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import { CredentialSummary, type OutputRenderer, type ResumeCommandFlag, type SessionHeader } from './Renderer'
 

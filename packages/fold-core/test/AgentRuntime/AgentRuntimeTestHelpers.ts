@@ -1,6 +1,6 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Layer } from 'effect'
-import type { LanguageModel, Tool } from 'effect/unstable/ai'
+import type { LanguageModel, Tool } from 'effect/ai'
 
 import {
 	AgentId,

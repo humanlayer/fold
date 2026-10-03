@@ -1,8 +1,8 @@
 import { assert, describe, it } from '@effect/vitest'
 import { OpenAiClient, OpenAiLanguageModel, OpenAiSchema } from '@humanlayer/effect-ai-openai'
 import { Config, Effect, Layer, Predicate, Redacted, Schema } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { LanguageModel, Prompt } from 'effect/ai'
+import { FetchHttpClient } from 'effect/http'
 
 const OpenAiResponse = {
 	id: 'resp_humanlayer_provider_test',

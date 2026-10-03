@@ -5,7 +5,7 @@
  * tool-result entry per call, including synthetic interruption results when a tool fiber is interrupted.
  */
 import { Data, Equal, Match, Predicate, Cause, Effect, Layer, Ref, Schema, Stream, Struct } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import { EventLog } from '../EventLog/EventLogService'
 import { LogEntryInputs, type LogEntry, type ToolResultLogEntry } from '../EventLog/Schemas'

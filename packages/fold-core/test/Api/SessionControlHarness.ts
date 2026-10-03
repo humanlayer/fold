@@ -6,8 +6,8 @@
  * requests serve ordinary scripted turns.
  */
 import { Predicate, Deferred, Effect, Ref, Schema, Stream } from 'effect'
-import { AiError, LanguageModel } from 'effect/unstable/ai'
-import type { Response } from 'effect/unstable/ai'
+import { AiError, LanguageModel } from 'effect/ai'
+import type { Response } from 'effect/ai'
 
 import { customModel, defineTool, type ActiveModel, type FoldModel, type FoldTool } from '../../src/index'
 import type { ScriptedTurn } from '../TestLayers/ScriptedLanguageModel'

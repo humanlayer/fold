@@ -1,7 +1,7 @@
 import type { AssistantMessageLogEntry, LogEntry, FoldModel, UserMessageLogEntry } from '@humanlayer/fold-core'
 import { encodedContentText, languageModelLayerFor } from '@humanlayer/fold-core'
 import { Predicate, Effect, Schema, type Scope } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/ai'
 
 const TitleResult = Schema.Struct({ title: Schema.String })
 const MAX_TRANSCRIPT_CHARS = 12_000

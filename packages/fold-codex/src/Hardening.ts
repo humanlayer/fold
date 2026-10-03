@@ -10,7 +10,7 @@
  * when one arrives, so consumer-side processing time never counts against the stream.
  */
 import { Data, Duration, Effect, Match, Option, Random, Stream } from 'effect'
-import { AiError } from 'effect/unstable/ai'
+import { AiError } from 'effect/ai'
 
 /** `AiError.module` value marking errors minted by this package. */
 export const CODEX_ERROR_MODULE = 'fold-codex'

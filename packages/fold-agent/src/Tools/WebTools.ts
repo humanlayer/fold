@@ -1,5 +1,5 @@
 import type { FoldTool } from '@humanlayer/fold-core'
-import type { HttpClient } from 'effect/unstable/http'
+import type { HttpClient } from 'effect/http'
 
 import type { Photon } from './Image/Photon'
 import { webFetchTool } from './WebFetchTool'

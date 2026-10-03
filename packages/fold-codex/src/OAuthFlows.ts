@@ -8,8 +8,9 @@
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 
-import { Clock, Crypto, Deferred, Duration, Effect, Encoding, Option, Result, Schedule, Schema } from 'effect'
-import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
+import { Clock, Crypto, Deferred, Duration, Effect, Option, Result, Schedule, Schema } from 'effect'
+import { Base64Url } from 'effect/encoding'
+import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/http'
 
 import { CodexTokenData } from './AuthStore'
 
@@ -101,7 +102,7 @@ const decodeJwtPayload = (token: string): Option.Option<string> => {
 	const payload = parts[1]
 	if (payload === undefined) return Option.none()
 
-	return Option.fromNullishOr(Result.getOrUndefined(Encoding.decodeBase64UrlString(payload)))
+	return Option.fromNullishOr(Result.getOrUndefined(Base64Url.decodeString(payload)))
 }
 
 /** Best-effort JWT claim parse - malformed tokens are `none`, never failures. */

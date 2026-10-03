@@ -1,6 +1,6 @@
 import { it, expect } from '@effect/vitest'
 import { Effect, Layer, Schema, Stream } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import {
 	EventLog,

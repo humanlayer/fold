@@ -4,7 +4,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { ManagedBinaries, Photon } from '@humanlayer/fold-agent'
 import { layerLiveIdFactory } from '@humanlayer/fold-core'
 import { Effect, Layer } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { main } from './Commands'
 

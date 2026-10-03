@@ -18,8 +18,8 @@ import {
 } from '@humanlayer/fold-agent'
 import { layerLiveIdFactory, lookupCatalogEntry, type FoldSession, type SessionId } from '@humanlayer/fold-core'
 import { Cause, Duration, Effect, type FileSystem, Layer, Match, Option, type Path, Scope } from 'effect'
-import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import { FetchHttpClient, type HttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 import { createSignal, type Accessor } from 'solid-js'
 
 import { contextUsedPercentForDisplay, contextWindowLimitForDisplay } from '../ContextWindow'

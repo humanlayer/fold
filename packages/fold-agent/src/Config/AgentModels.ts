@@ -19,7 +19,7 @@ import type { ActiveModel, ModelCatalogEntry, ReasoningLevel, FoldModel } from '
 import { DEFAULT_OPENCODE_MODEL_ID, openCodeModel } from '@humanlayer/fold-opencode'
 import { DEFAULT_XAI_MODEL_ID, xaiModel } from '@humanlayer/fold-xai'
 import { Effect, type FileSystem, Match, Redacted, Schema } from 'effect'
-import type { HttpClient } from 'effect/unstable/http'
+import type { HttpClient } from 'effect/http'
 
 import { ConfigRole, type ProviderConnection, type RoleBinding, type FoldConfig } from './ConfigSchema'
 

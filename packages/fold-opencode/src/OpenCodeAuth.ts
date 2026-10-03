@@ -3,7 +3,7 @@
  * MIT-licensed client implementation; see ../NOTICE and ../LICENSE.opencode.
  */
 import { Clock, Context, Duration, Effect, Layer, Match, Option, Schema, Semaphore } from 'effect'
-import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
+import { HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from 'effect/http'
 
 import { OpenCodeAuthStore, OpenCodeTokenData } from './AuthStore'
 

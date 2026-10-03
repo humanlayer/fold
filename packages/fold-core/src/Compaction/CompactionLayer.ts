@@ -11,7 +11,7 @@
 import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Array as Arr, Effect, Layer, Predicate, Stream } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
+import { LanguageModel, Prompt } from 'effect/ai'
 
 import { ModelCatalog } from '../Model/ModelCatalog'
 import { entriesForAgent, messagesForAgent, type ProjectedMessage } from '../Projection/Projection'

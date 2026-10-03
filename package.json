@@ -30,7 +30,7 @@
 		],
 		"catalog": {
 			"@kitlangton/terminal-control": "0.3.1",
-			"alchemy": "2.0.0-beta.76",
+			"alchemy": "2.0.0-beta.80",
 			"@cloudflare/computer": "https://github.com/K-Mistele/computer/releases/download/fold-91611593a1d7/cloudflare-computer-0.3.1.tgz",
 			"@platformatic/vfs": "0.4.0",
 			"@cloudflare/workers-types": "5.20260929.1",
@@ -38,10 +38,10 @@
 			"@opentui/keymap": "0.4.3",
 			"@opentui/solid": "0.4.3",
 			"solid-js": "1.9.12",
-			"effect": "4.0.0-rc.112",
-			"@effect/platform-node": "4.0.0-rc.112",
-			"@effect/platform-bun": "4.0.0-rc.112",
-			"@effect/vitest": "4.0.0-rc.112",
+			"effect": "4.0.0",
+			"@effect/platform-node": "4.0.0",
+			"@effect/platform-bun": "4.0.0",
+			"@effect/vitest": "4.0.0",
 			"@silvia-odwyer/photon-node": "0.3.4",
 			"turndown": "7.2.4",
 			"@types/turndown": "5.0.6",
@@ -54,7 +54,7 @@
 		}
 	},
 	"devDependencies": {
-		"@effect/tsgo": "0.47.0",
+		"@effect/tsgo": "0.48.0",
 		"@oxlint/plugins": "1.86.0",
 		"@types/bun": "catalog:",
 		"@types/node": "catalog:",

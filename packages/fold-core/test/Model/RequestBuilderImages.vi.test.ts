@@ -1,6 +1,7 @@
 import { expect, it } from '@effect/vitest'
-import { Effect, Encoding } from 'effect'
-import type { Prompt } from 'effect/unstable/ai'
+import { Effect } from 'effect'
+import type { Prompt } from 'effect/ai'
+import { Base64 } from 'effect/encoding'
 
 import {
 	buildPrompt,
@@ -71,7 +72,7 @@ it.effect('lowers multipart results to text and file parts inside the original t
 		const image = result[1]
 		if (image?.type !== 'file' || !(image.data instanceof Uint8Array)) throw new Error('expected image bytes')
 		expect(image.mediaType).toBe('image/png')
-		expect(Encoding.encodeBase64(image.data)).toBe(imageBase64)
+		expect(Base64.encode(image.data)).toBe(imageBase64)
 	}),
 )
 
@@ -92,7 +93,7 @@ it.effect('preserves multiple image parts in result order', () =>
 		if (!Array.isArray(result)) throw new Error('expected multipart Prompt content')
 		expect(
 			result.map((part) =>
-				part.type === 'file' && part.data instanceof Uint8Array ? Encoding.encodeBase64(part.data) : null,
+				part.type === 'file' && part.data instanceof Uint8Array ? Base64.encode(part.data) : null,
 			),
 		).toEqual(['Zmlyc3Q=', 'c2Vjb25k'])
 		expect(result.map((part) => (part.type === 'file' ? part.mediaType : null))).toEqual([

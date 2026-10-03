@@ -1,7 +1,7 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Effect, Layer, Ref, Stream } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
-import type { Tool } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
+import type { Tool } from 'effect/ai'
 
 import {
 	AgentId,

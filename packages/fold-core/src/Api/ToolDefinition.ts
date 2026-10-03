@@ -12,7 +12,7 @@
  * the same value across several agents' `tools` arrays shares one init (one scan, one snapshot).
  */
 import { Effect, Schema, type Scope } from 'effect'
-import { Tool } from 'effect/unstable/ai'
+import { Tool } from 'effect/ai'
 
 import type { AgentEvents } from '../AgentEvents/AgentEventsService'
 import type { EventLog } from '../EventLog/EventLogService'

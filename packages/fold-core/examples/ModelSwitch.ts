@@ -11,7 +11,7 @@
  * Run: OPENAI_API_KEY=... ANTHROPIC_API_KEY=... bun packages/fold-core/examples/ModelSwitch.ts
  */
 import { Console, Effect, Schema } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { anthropicModel, defineAgent, defineTool, openaiModel, startSession } from '../src/index'
 

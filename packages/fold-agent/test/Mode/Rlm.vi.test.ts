@@ -13,7 +13,7 @@ import {
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Effect, Stream } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/ai'
 
 import {
 	defaultCodingMode,

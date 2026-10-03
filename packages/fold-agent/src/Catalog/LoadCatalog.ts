@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path'
 
 import { ModelCatalogEntry } from '@humanlayer/fold-core'
 import { Array as Arr, Clock, Duration, Effect, FileSystem, Schema } from 'effect'
-import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { HttpClient, HttpClientResponse } from 'effect/http'
 
 import { bakedModelCatalog } from './BakedCatalog'
 import { decodeModelsDevModels, ModelsDevDecodeError, ModelsDevPayload } from './ModelsDevSchema'

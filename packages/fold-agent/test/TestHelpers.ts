@@ -25,8 +25,8 @@ import {
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Layer, type Path, PlatformError, Ref, Schema, type Scope } from 'effect'
-import { HttpClient, HttpClientError } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import { HttpClient, HttpClientError } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import { layerOutputStore, type OutputStore } from '../src/OutputStore/OutputStore'
 import { Photon } from '../src/Tools/Image/Photon'

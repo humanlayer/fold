@@ -19,9 +19,9 @@ import { customModel, resolveCodexReasoning } from '@humanlayer/fold-core'
 import type { ReasoningLevel, FoldModel } from '@humanlayer/fold-core'
 import { Array as Arr, Match, Context, Duration, Effect, Layer, Option, Schedule, Schema, Stream } from 'effect'
 import type { FileSystem, Scope } from 'effect'
-import { AiError, LanguageModel } from 'effect/unstable/ai'
-import { HttpClient } from 'effect/unstable/http'
-import type { HttpClientResponse } from 'effect/unstable/http'
+import { AiError, LanguageModel } from 'effect/ai'
+import { HttpClient } from 'effect/http'
+import type { HttpClientResponse } from 'effect/http'
 
 import { layerCodexAuthStore, type CodexAuthStoreOptions } from './AuthStore'
 import type { CodexIdentityOptions } from './CodexAuth'
@@ -271,7 +271,7 @@ const authLayerFor = (options: CodexModelOptions) =>
  */
 export const makeCodexLanguageModel = (
 	options: CodexModelOptions,
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+): Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
 	Layer.build(
 		Layer.effect(
 			LanguageModel.LanguageModel,

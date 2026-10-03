@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import * as NodeRuntime from '@effect/platform-node/NodeRuntime'
 import type { ModelCatalogEntry, ModelPricing } from '@humanlayer/fold-core'
 import { Array as Arr, Effect, Schema } from 'effect'
-import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/http'
 
 import { decodeModelsDevModels, ModelsDevPayload } from '../src/Catalog/ModelsDevSchema'
 import { modelCatalogEntriesFromModelsDev } from '../src/Catalog/Normalize'

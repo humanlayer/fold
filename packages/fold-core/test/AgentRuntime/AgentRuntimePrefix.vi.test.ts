@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Array as Arr, Effect, Predicate, Schema } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import { AgentRuntime } from '../../src/index'
 import { makeScriptedLanguageModel, textTurn } from '../TestLayers/ScriptedLanguageModel'

@@ -9,8 +9,9 @@ import { join } from 'node:path'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { CodexAuthStore, CodexTokenData, layerCodexAuthStore, makeCodexLanguageModel } from '@humanlayer/fold-codex'
-import { Effect, Encoding, Layer, Schema } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { Effect, Layer, Schema } from 'effect'
+import { Base64 } from 'effect/encoding'
+import { FetchHttpClient } from 'effect/http'
 
 import { type CapturedFetchRequest, makeCapturingFetch, runImageReadInference } from './SessionModelPathTestHarness'
 
@@ -89,7 +90,7 @@ it.effect('sends an actual image read as input_image with zero inference tools',
 		expect(promptFileParts).toHaveLength(1)
 		const promptImage = promptFileParts[0]
 		if (!(promptImage?.data instanceof Uint8Array)) throw new Error('expected decoded image bytes')
-		expect(Encoding.encodeBase64(promptImage.data)).toBe(fixture.sourceImageBase64)
+		expect(Base64.encode(promptImage.data)).toBe(fixture.sourceImageBase64)
 
 		// Text and image stay correlated in the native multipart function output.
 		const functionOutput = body.input.find((item) => item['type'] === 'function_call_output')

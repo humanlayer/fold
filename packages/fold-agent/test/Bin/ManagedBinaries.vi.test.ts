@@ -11,8 +11,8 @@ import { dirname, join } from 'node:path'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { ConfigProvider, Effect, FileSystem, Layer, Sink, Stream } from 'effect'
-import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import { HttpClient, HttpClientResponse } from 'effect/http'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import {
 	ensureManagedBinaries,

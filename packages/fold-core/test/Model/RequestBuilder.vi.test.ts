@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Result } from 'effect'
-import type { Prompt } from 'effect/unstable/ai'
+import type { Prompt } from 'effect/ai'
 
 import {
 	buildPrompt,

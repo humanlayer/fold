@@ -12,7 +12,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { customModel, defineAgent, layerLiveIdFactory, SessionId, startSession } from '@humanlayer/fold-core'
 import { Effect, Predicate, Stream } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/ai'
 
 import {
 	latestSessionLog,

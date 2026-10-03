@@ -18,7 +18,7 @@ import {
 	type ToolResultLogEntry,
 } from '@humanlayer/fold-core'
 import { Effect, Predicate, Schema, Stream } from 'effect'
-import { type LanguageModel, type Prompt, Toolkit } from 'effect/unstable/ai'
+import { type LanguageModel, type Prompt, Toolkit } from 'effect/ai'
 
 import { readTool } from '../../src/index'
 import { callTool, runHandler } from '../TestHelpers'
@@ -264,7 +264,7 @@ export const makeImageReadPromptFixture = makeTemporaryTestDirectory('fold-image
  * Run the exact model-call shape used by AgentRuntime: session-built prompt, streaming, an explicitly
  * empty active toolkit, and tool-call resolution disabled for runtime-owned settlement.
  */
-export const runImageReadInference = (model: LanguageModel.Service) =>
+export const runImageReadInference = (model: LanguageModel.LanguageModel) =>
 	Effect.gen(function* () {
 		const fixture = yield* makeImageReadPromptFixture
 		const emptyToolkit = yield* Toolkit.empty

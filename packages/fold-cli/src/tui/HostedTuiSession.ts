@@ -10,8 +10,8 @@ import {
 } from '@humanlayer/fold-agent'
 import { renderSkillContent, type FoldSession, type ModelCatalogEntry, type SessionId } from '@humanlayer/fold-core'
 import { Cause, Duration, Effect, type FileSystem, Layer, type Path, type Scope, Stream } from 'effect'
-import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import { FetchHttpClient, type HttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 import { batch, createSignal, type Accessor } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 

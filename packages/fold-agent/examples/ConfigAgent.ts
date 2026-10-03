@@ -11,7 +11,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
  */
 import { layerLiveIdFactory } from '@humanlayer/fold-core'
 import { Console, Effect, Layer } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { configInit, launchSession, loadFoldConfigOrNull, Photon } from '../src/index'
 

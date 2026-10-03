@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Effect, Layer, Predicate } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { CodexAuthStore, CodexTokenData, layerCodexAuthStore, makeCodexLanguageModel } from '../src/index'
 

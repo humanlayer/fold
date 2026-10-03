@@ -1,8 +1,8 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Layer, Schema } from 'effect'
-import { Tool, Toolkit } from 'effect/unstable/ai'
-import type { LanguageModel } from 'effect/unstable/ai'
+import { Tool, Toolkit } from 'effect/ai'
+import type { LanguageModel } from 'effect/ai'
 
 import {
 	AgentRuntime,

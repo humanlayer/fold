@@ -24,7 +24,7 @@ const REPO_NAME = /^(?!\.{1,2}$)[\w.-]+$/
  * `name` under `/workspace` (the URL's last path segment when absent).
  */
 export const Repo = Schema.Struct({
-	url: Schema.String.check(Schema.isStartsWith('https://')),
+	url: Schema.String.check(Schema.isStartingWith('https://')),
 	name: Schema.optionalKey(Schema.String),
 	ref: Schema.optionalKey(Schema.String),
 })

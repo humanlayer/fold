@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import { AgentId, HookRunner, type PreRequestHook } from '../../src'
 import { runWithHookRunner } from '../TestLayers/HookRunnerTestHarness'

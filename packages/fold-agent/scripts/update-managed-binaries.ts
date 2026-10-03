@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Array as Arr, Duration, Effect, Schema } from 'effect'
-import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/http'
 
 import { MANAGED_BINARY_PLATFORMS, managedBinaryRegistry } from '../src/Bin/Registry'
 

@@ -46,7 +46,7 @@ import {
 	type XaiAuthOptions,
 } from '@humanlayer/fold-xai'
 import { Array as Arr, Clock, Console, Effect, Layer, Match, Option, Schema } from 'effect'
-import { type CliError, Command, Flag } from 'effect/unstable/cli'
+import { type CliError, Command, Flag } from 'effect/cli'
 
 import { jsonOutputRenderer, promptOutputRenderer, type JsonOutputMode } from './Renderer'
 import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
@@ -120,16 +120,16 @@ export const parseResumeFlag = (raw: string): Effect.Effect<ResumeTarget, Invali
 }
 
 const optionalString = (name: string, description: string) =>
-	Flag.string(name).pipe(Flag.withDescription(description), Flag.optional)
+	Flag.String(name).pipe(Flag.withDescription(description), Flag.optional)
 
 const optionalChoice = <const Choices extends ReadonlyArray<string>>(
 	name: string,
 	choices: Choices,
 	description: string,
-) => Flag.choice(name, choices).pipe(Flag.withDescription(description), Flag.optional)
+) => Flag.Literals(name, choices).pipe(Flag.withDescription(description), Flag.optional)
 
 const optionalInteger = (name: string, description: string) =>
-	Flag.integer(name).pipe(Flag.withDescription(description), Flag.optional)
+	Flag.Int(name).pipe(Flag.withDescription(description), Flag.optional)
 
 const codexLoginFlow = optionalChoice(
 	'flow',
@@ -149,7 +149,7 @@ const commonFlags = {
 		FOLD_MODE_NAMES,
 		'Agent mode: default (full coding toolset) or rlm (orchestrator that delegates to subagents)',
 	),
-	rpi: Flag.boolean('rpi').pipe(
+	rpi: Flag.Boolean('rpi').pipe(
 		Flag.withDescription('Add the RPI specialist subagents (composable with any --mode)'),
 	),
 	reasoning: optionalChoice(
@@ -158,22 +158,22 @@ const commonFlags = {
 		'Reasoning level override',
 	),
 	cwd: optionalString('cwd', 'Project working directory (defaults to process.cwd())'),
-	foldHome: Flag.string('fold-home').pipe(
+	foldHome: Flag.String('fold-home').pipe(
 		Flag.withDescription('Fold home directory (defaults to ~/.fold)'),
 		Flag.optional,
 	),
-	noColor: Flag.boolean('no-color').pipe(Flag.withDescription('Disable ANSI colors')),
-	verbose: Flag.boolean('verbose').pipe(Flag.withDescription('Stream full tool output/progress')),
+	noColor: Flag.Boolean('no-color').pipe(Flag.withDescription('Disable ANSI colors')),
+	verbose: Flag.Boolean('verbose').pipe(Flag.withDescription('Stream full tool output/progress')),
 	output: optionalChoice(
 		'output',
 		['human', 'json', 'json-concise', 'json-verbose'] as const,
 		'Output format: human (default), json/json-concise (durable log rows), or json-verbose (rows + deltas)',
 	),
-	outputJson: Flag.boolean('output-json').pipe(
+	outputJson: Flag.Boolean('output-json').pipe(
 		Flag.withDescription('Alias for --output json (newline-delimited durable log rows on stdout)'),
 	),
-	autoCompact: Flag.boolean('auto-compact').pipe(Flag.withDescription('Enable auto-compaction for this session')),
-	disableAutoCompact: Flag.boolean('disable-auto-compact').pipe(
+	autoCompact: Flag.Boolean('auto-compact').pipe(Flag.withDescription('Enable auto-compaction for this session')),
+	disableAutoCompact: Flag.Boolean('disable-auto-compact').pipe(
 		Flag.withDescription('Disable auto-compaction even when config enables it'),
 	),
 	compactionThreshold: optionalInteger('compaction-threshold', 'Context usage in tokens that triggers compaction'),
@@ -518,13 +518,13 @@ const config = Command.make('config').pipe(
 				Command.make(
 					'add',
 					{
-						name: Flag.string('name').pipe(
+						name: Flag.String('name').pipe(
 							Flag.withDescription('Provider profile name used by --provider'),
 						),
-						kind: Flag.choice('kind', ['anthropic', 'openai-compat'] as const).pipe(
+						kind: Flag.Literals('kind', ['anthropic', 'openai-compat'] as const).pipe(
 							Flag.withDescription('Compatible API protocol'),
 						),
-						baseUrl: Flag.string('base-url').pipe(Flag.withDescription('Provider API base URL')),
+						baseUrl: Flag.String('base-url').pipe(Flag.withDescription('Provider API base URL')),
 						apiKey: optionalString(
 							'api-key',
 							'Inline API key (visible in process arguments; prefer --api-key-env)',
@@ -631,7 +631,7 @@ const openCodeCommands = Command.make('opencode').pipe(
 			{
 				provider: commonFlags.provider,
 				foldHome: commonFlags.foldHome,
-				noOpen: Flag.boolean('no-open').pipe(
+				noOpen: Flag.Boolean('no-open').pipe(
 					Flag.withDescription('Print the device authorization URL without opening it'),
 				),
 			},
@@ -642,7 +642,7 @@ const openCodeCommands = Command.make('opencode').pipe(
 			{
 				provider: commonFlags.provider,
 				foldHome: commonFlags.foldHome,
-				noOpen: Flag.boolean('no-open').pipe(
+				noOpen: Flag.Boolean('no-open').pipe(
 					Flag.withDescription('Print the device authorization URL without opening it'),
 				),
 			},
@@ -719,7 +719,7 @@ const xaiExplicitLoginCommand = (name: ResolvedCodexLoginFlow) =>
 		{
 			provider: commonFlags.provider,
 			foldHome: commonFlags.foldHome,
-			noOpen: Flag.boolean('no-open').pipe(
+			noOpen: Flag.Boolean('no-open').pipe(
 				Flag.withDescription('Print the authorization URL without opening it'),
 			),
 		},
@@ -734,7 +734,7 @@ const xaiCommands = Command.make('xai').pipe(
 			{
 				provider: commonFlags.provider,
 				foldHome: commonFlags.foldHome,
-				noOpen: Flag.boolean('no-open').pipe(
+				noOpen: Flag.Boolean('no-open').pipe(
 					Flag.withDescription('Print the authorization URL without opening it'),
 				),
 			},
@@ -792,15 +792,15 @@ const auth = Command.make('auth').pipe(
 						provider: commonFlags.provider,
 						foldHome: commonFlags.foldHome,
 						flow: codexLoginFlow,
-						device: Flag.boolean('device').pipe(
+						device: Flag.Boolean('device').pipe(
 							Flag.withDescription('Use the headless device-code flow (legacy alias for --flow device)'),
 						),
-						browser: Flag.boolean('browser').pipe(
+						browser: Flag.Boolean('browser').pipe(
 							Flag.withDescription(
 								'Use the loopback browser PKCE flow (legacy alias for --flow browser)',
 							),
 						),
-						noOpen: Flag.boolean('no-open').pipe(
+						noOpen: Flag.Boolean('no-open').pipe(
 							Flag.withDescription('Print the browser authorization URL without opening it'),
 						),
 					},
@@ -863,7 +863,7 @@ const auth = Command.make('auth').pipe(
 					{
 						provider: commonFlags.provider,
 						foldHome: commonFlags.foldHome,
-						refresh: Flag.boolean('refresh').pipe(
+						refresh: Flag.Boolean('refresh').pipe(
 							Flag.withDescription('Refresh an expired credential and persist the repaired token'),
 						),
 					},

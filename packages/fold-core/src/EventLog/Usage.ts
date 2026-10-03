@@ -1,5 +1,5 @@
 import { Schema } from 'effect'
-import type { Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/ai'
 
 /** Best-effort token count reported by a model provider. Providers may omit any usage field. */
 export const UsageTokenCount = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)).annotate({

@@ -9,8 +9,8 @@ import { join } from 'node:path'
 import { assert, it } from '@effect/vitest'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Effect, Layer, Redacted, Schema } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { LanguageModel } from 'effect/ai'
+import { FetchHttpClient } from 'effect/http'
 
 import { bashTool, editTool, readTool, writeTool } from '../../src/index'
 import {

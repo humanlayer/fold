@@ -5,7 +5,7 @@ Connects the Effect AI modules to any OpenAI-compatible API, with support for ch
 ## Installation
 
 ```sh
-npm install effect@4.0.0-rc.112 @humanlayer/effect-ai-openai-compat
+npm install effect@4.0.0 @humanlayer/effect-ai-openai-compat
 ```
 
 ## Documentation

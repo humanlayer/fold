@@ -5,7 +5,7 @@ An [OpenAI](https://openai.com) provider for the Effect AI modules. Includes a t
 ## Installation
 
 ```sh
-npm install effect@4.0.0-rc.112 @humanlayer/effect-ai-openai
+npm install effect@4.0.0 @humanlayer/effect-ai-openai
 ```
 
 ## Documentation
