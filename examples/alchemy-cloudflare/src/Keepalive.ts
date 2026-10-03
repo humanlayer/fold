@@ -1,8 +1,10 @@
 /**
- * Keeps a Durable Object from being evicted while work runs. A turn's model calls are outgoing fetches,
- * which do not count as activity, so a turn that outlives its caller could be evicted mid-run. Like the
- * Cloudflare Agents SDK's `keepAliveWhile`, each piece of work holds a lease, and while any lease is held
- * the object's alarm fires every {@link HEARTBEAT_MILLIS} and re-arms itself.
+ * Wakes a Durable Object that lost a running turn. Pending work - model calls, calls to the Computer, timers -
+ * keeps the object in memory without a connected client (compatibility date 2026-10-01 and later), but a
+ * deploy or crash can still end it mid-turn, and nothing else would wake it before the next message. So
+ * each piece of work holds a lease, and while any lease is held the object's alarm fires every
+ * {@link HEARTBEAT_MILLIS} and re-arms itself. An alarm that finds the object restarted wakes it, and the
+ * object continues the cut-off turn as it starts (see ChatSession).
  */
 import * as Cloudflare from 'alchemy/Cloudflare'
 import { Clock, Context, Effect, Layer, Ref } from 'effect'

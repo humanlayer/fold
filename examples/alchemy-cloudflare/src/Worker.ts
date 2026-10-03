@@ -13,7 +13,9 @@ export default Cloudflare.Worker(
 	'ChatWorker',
 	{
 		main: import.meta.url,
-		compatibility: { flags: ['nodejs_compat'], date: '2026-08-31' },
+		// 2026-10-01: pending calls to other Durable Objects, containers and timers keep a Durable Object in
+		// memory with no client connected, so a turn whose client has gone runs on.
+		compatibility: { flags: ['nodejs_compat'], date: '2026-10-01' },
 	},
 	Effect.gen(function* () {
 		return { fetch: yield* HttpRouter.toHttpEffect(ChatRoutes) }
