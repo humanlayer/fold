@@ -10,7 +10,9 @@ import { COMPUTER_WORKER_NAME } from './Contract'
 export const ComputerWorker = Cloudflare.Worker('ComputerWorker', {
 	name: COMPUTER_WORKER_NAME,
 	main: './src/computer/Computer.ts',
-	compatibility: { flags: ['nodejs_compat'], date: '2026-08-31' },
+	// 2026-10-01: pending calls to other Durable Objects, containers and timers keep a Durable Object in
+	// memory with no client connected, so a command whose caller has gone runs on.
+	compatibility: { flags: ['nodejs_compat'], date: '2026-10-01' },
 	env: {
 		// The Computer Durable Object with its container. Named COMPUTER_BINDING: the shell and the container
 		// call back into the Computer through this binding.
