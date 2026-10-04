@@ -1,7 +1,7 @@
 import { assert, it } from '@effect/vitest'
 import { Effect, Layer, Predicate, Schema } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { LanguageModel, Prompt } from 'effect/ai'
+import { FetchHttpClient } from 'effect/http'
 
 import {
 	languageModelLayerFor,

@@ -7,8 +7,8 @@
 import * as NodeServices from '@effect/platform-node/NodeServices'
 import type { FoldTool } from '@humanlayer/fold-core'
 import { type FileSystem, Layer, type Path } from 'effect'
-import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import { FetchHttpClient, type HttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import { layerOutputStore, type OutputStore } from '../OutputStore/OutputStore'
 import { bashTool, type BashToolOptions } from './BashTool'

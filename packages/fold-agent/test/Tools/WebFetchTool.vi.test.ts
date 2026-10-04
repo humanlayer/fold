@@ -11,7 +11,7 @@ import { it } from '@effect/vitest'
 import { ToolResultMultipart, ToolResultText } from '@humanlayer/fold-core'
 import { Effect, Schema } from 'effect'
 import { constVoid } from 'effect/Function'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 import { afterAll, beforeAll, expect } from 'vitest'
 
 import { webFetchTool } from '../../src/index'

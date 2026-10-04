@@ -5,7 +5,7 @@
  * before another model request.
  */
 import { Array as Arr, Context, Equal } from 'effect'
-import type { Prompt } from 'effect/unstable/ai'
+import type { Prompt } from 'effect/ai'
 
 /** Doom-loop detector configuration. Omitted means disabled. */
 export type DoomLoopStopCondition =

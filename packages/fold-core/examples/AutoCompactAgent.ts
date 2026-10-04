@@ -11,7 +11,7 @@
  * Run: OPENAI_API_KEY=... bun packages/fold-core/examples/AutoCompactAgent.ts
  */
 import { Predicate, Console, Effect } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { defineAgent, openaiModel, startSession, type CompactionLogEntry } from '../src/index'
 

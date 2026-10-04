@@ -23,7 +23,7 @@ import { layerXaiAuth, layerXaiAuthStore, XaiAuth, XaiAuthStore } from '@humanla
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import { Cause, Clock, Deferred, Effect, type FileSystem, Layer, Option, Schema, type Scope } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 import { batch, createEffect, createSignal, Show, type Accessor } from 'solid-js'
 
 import { TuiApp } from './App'

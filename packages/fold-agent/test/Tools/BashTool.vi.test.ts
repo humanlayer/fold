@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 import { expect, it } from '@effect/vitest'
 import { Duration, Effect, Fiber } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { bashTool, codingTools, decodeBashOutputDelta } from '../../src/index'
 import { handlerOf, makeAmbientServices, messageOf, outputOf, runHandler, tempDir } from '../TestHelpers'

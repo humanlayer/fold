@@ -12,7 +12,7 @@ Build deep Fold modules: a small, domain-shaped public interface hides descripto
 details, persistence, resource ownership, and workflow coordination. Keep expected failures in Effect's error channel,
 dependencies in `R`, resources in scopes, and external values at explicit schema boundaries.
 
-Fold is an Effect v4 (`4.0.0-rc.109`) Bun monorepo. Read the installed declarations first; when they do not settle an
+Fold is an Effect v4 (`4.0.0`) Bun monorepo. Read the installed declarations first; when they do not settle an
 API, read `~/projects/effect`, not Effect v3 documentation or examples.
 
 ## Fold's architecture

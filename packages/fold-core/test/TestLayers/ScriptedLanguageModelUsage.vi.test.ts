@@ -9,7 +9,7 @@
  */
 import { expect, it } from '@effect/vitest'
 import { Effect, Result, Stream } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/ai'
 
 import { failureTurn, makeScriptedLanguageModel, textTurn } from './ScriptedLanguageModel'
 

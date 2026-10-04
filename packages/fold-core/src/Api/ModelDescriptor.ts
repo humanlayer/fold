@@ -6,8 +6,8 @@
  */
 import { Data, Redacted } from 'effect'
 import type { Effect, Scope } from 'effect'
-import type { LanguageModel } from 'effect/unstable/ai'
-import type { HttpClient } from 'effect/unstable/http'
+import type { LanguageModel } from 'effect/ai'
+import type { HttpClient } from 'effect/http'
 
 import type { ActiveModel, OpenAiReasoningSummary, ReasoningLevel } from '../EventLog/Schemas'
 import { resolveAnthropicThinking, resolveOpenAiReasoning } from '../Model/ModelRequestSettings'
@@ -45,7 +45,7 @@ export type FoldModel<R = never> = {
 	 * Builds the model's LanguageModel service in the runtime's scope. `R` is the host services it needs
 	 * (an HttpClient for the built-in providers); `startSession` requires them from its caller.
 	 */
-	readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope | R>
+	readonly make: Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | R>
 }
 
 const redact = (apiKey: string | Redacted.Redacted<string>): Redacted.Redacted<string> =>
@@ -132,7 +132,7 @@ export type CustomModelOptions<R = never> = {
 	 * Builds the LanguageModel service implementation - the escape hatch for tests and custom providers.
 	 * Anything it needs from the host besides `Scope` becomes the model's `R`.
 	 */
-	readonly make: Effect.Effect<LanguageModel.Service, never, Scope.Scope | R>
+	readonly make: Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | R>
 }
 
 /**
@@ -145,5 +145,5 @@ export const customModel = <R = never>(options: CustomModelOptions<R>): FoldMode
 	// SAFETY: `Scope | R` and `Scope | Exclude<R, Scope>` are the same set of services; TypeScript cannot
 	// see that for a generic R.
 	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion, effecttsgo/unsafe-effect-type-assertion
-	make: options.make as Effect.Effect<LanguageModel.Service, never, Scope.Scope | Exclude<R, Scope.Scope>>,
+	make: options.make as Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | Exclude<R, Scope.Scope>>,
 })

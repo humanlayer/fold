@@ -1,6 +1,12 @@
 {
 	"compilerOptions": {
-		"plugins": [{ "name": "@effect/language-service" }],
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				// Effect 4.0.0 marks its ai, http and other moved modules unstable, and fold is built on them.
+				"diagnosticSeverity": { "unstableApiUsage": "off" }
+			}
+		],
 
 		"target": "ESNext",
 		"module": "ESNext",

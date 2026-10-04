@@ -8,7 +8,7 @@
 import { expect, it } from '@effect/vitest'
 import type { ModelCatalogEntry } from '@humanlayer/fold-core'
 import { Effect, FileSystem, Layer, Ref } from 'effect'
-import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { HttpClient, HttpClientResponse } from 'effect/http'
 
 import { bakedModelCatalog, loadModelCatalog, modelCatalogCachePath, FOLD_DISABLE_MODELS_FETCH } from '../../src/index'
 import { memoryFileSystem } from '../TestHelpers'

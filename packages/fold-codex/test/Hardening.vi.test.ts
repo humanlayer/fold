@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Deferred, Duration, Effect, Fiber, Option, Predicate, Stream } from 'effect'
+import { AiError } from 'effect/ai'
 import { TestClock } from 'effect/testing'
-import { AiError } from 'effect/unstable/ai'
 
 import { firstEventRetryDelayMs, hardenCodexStream, withStallTimeouts } from '../src/index'
 import type { CodexRetryOptions, StreamRetryInfo } from '../src/index'

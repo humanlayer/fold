@@ -1,6 +1,6 @@
 import { expect, it } from '@effect/vitest'
 import { Effect, Layer, Schema } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import {
 	AgentId,

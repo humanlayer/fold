@@ -8,7 +8,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
  */
 import { expect, it } from '@effect/vitest'
 import { Predicate, Cause, Context, Effect, Exit, Layer, Schema } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import {
 	defineAgent,

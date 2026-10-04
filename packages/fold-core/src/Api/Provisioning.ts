@@ -16,8 +16,8 @@
  */
 import { Array as Arr, Context, Effect, Layer } from 'effect'
 import type { Scope } from 'effect'
-import { LanguageModel, Toolkit } from 'effect/unstable/ai'
-import type { Tool } from 'effect/unstable/ai'
+import { LanguageModel, Toolkit } from 'effect/ai'
+import type { Tool } from 'effect/ai'
 
 import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
 import { AgentRuntime } from '../AgentRuntime/AgentRuntimeService'

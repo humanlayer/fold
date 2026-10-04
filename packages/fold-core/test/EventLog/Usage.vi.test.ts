@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import type { Response } from 'effect/unstable/ai'
+import type { Response } from 'effect/ai'
 
 import { usageFromResponseUsage } from '../../src/EventLog/Usage'
 

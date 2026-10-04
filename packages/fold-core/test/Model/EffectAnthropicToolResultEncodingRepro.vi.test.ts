@@ -2,8 +2,8 @@ import { assert, it } from '@effect/vitest'
 /** Regression coverage for patched @humanlayer/effect-ai-anthropic client tool-result encoding. */
 import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { Effect, Layer, Predicate, Redacted, Schema } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
-import { HttpClient, type HttpClientError, HttpClientResponse } from 'effect/unstable/http'
+import { LanguageModel, Prompt } from 'effect/ai'
+import { HttpClient, type HttpClientError, HttpClientResponse } from 'effect/http'
 
 const CapturedRequest = Schema.Struct({
 	messages: Schema.Array(
@@ -14,7 +14,7 @@ const CapturedRequest = Schema.Struct({
 	),
 })
 
-it.effect('passes strings through and emits multipart client tool results in Effect 4.0.0-rc.112', () =>
+it.effect('passes strings through and emits multipart client tool results in Effect 4.0.0', () =>
 	Effect.gen(function* () {
 		let requestBody: unknown = null
 		const preprocess: HttpClient.HttpClient.Preprocess<HttpClientError.HttpClientError, never> = Effect.succeed

@@ -47,7 +47,7 @@ import {
 	Stream,
 	SynchronizedRef,
 } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { bashTool } from './BashTool'
 import type { Message, WhenRunning } from './ChatSessions'
@@ -148,7 +148,7 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 	Effect.gen(function* () {
 		const state = yield* Cloudflare.DurableObjectState
 		// Read from the deploy environment and bound to the Worker as a secret. Missing, the deploy fails.
-		const apiKey = yield* Config.redacted('OPENAI_API_KEY').pipe(Effect.orDie)
+		const apiKey = yield* Config.Redacted('OPENAI_API_KEY').pipe(Effect.orDie)
 		const eventLogs = yield* DurableObjectEventLog
 		const keepalive = yield* Keepalive
 		const expiry = yield* SessionExpiry

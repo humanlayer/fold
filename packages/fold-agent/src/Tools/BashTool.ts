@@ -27,7 +27,7 @@ import {
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Data, Duration, Effect, Fiber, FileSystem, Option, Path, Ref, Schema, Semaphore, Stream } from 'effect'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import { resolveToCwd } from '../Fs/PathResolve'
 import { OutputStore } from '../OutputStore/OutputStore'

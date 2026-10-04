@@ -1,8 +1,8 @@
 import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Effect, Layer, Predicate, Redacted } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
-import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { LanguageModel, Prompt } from 'effect/ai'
+import { FetchHttpClient, HttpClient, HttpClientResponse } from 'effect/http'
 
 const fail = (message) => {
 	throw new Error(message)

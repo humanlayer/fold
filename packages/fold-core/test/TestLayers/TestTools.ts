@@ -1,5 +1,5 @@
 import { Effect, Ref, Schema } from 'effect'
-import { Tool, Toolkit } from 'effect/unstable/ai'
+import { Tool, Toolkit } from 'effect/ai'
 
 import { defineToolState, StopController, ToolEvents, ToolState } from '../../src/index'
 

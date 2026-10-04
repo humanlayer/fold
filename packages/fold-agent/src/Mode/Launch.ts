@@ -49,8 +49,8 @@ import {
 	type Scope,
 	type Path,
 } from 'effect'
-import type { HttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import type { HttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import { loadModelCatalog } from '../Catalog/LoadCatalog'
 import { agentModelsFromConfig, type EnvLookup, type RoleResolutionError } from '../Config/AgentModels'

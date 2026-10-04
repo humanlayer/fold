@@ -44,7 +44,7 @@ import {
 	Stream,
 	Struct,
 } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'

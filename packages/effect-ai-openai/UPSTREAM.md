@@ -5,11 +5,11 @@ This directory is a vendored source snapshot of the published Effect OpenAI prov
 
 | Field            | Value                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
-| Upstream package | `@effect/ai-openai@4.0.0-rc.112`                                                                  |
-| Source artifact  | `https://registry.npmjs.org/@effect/ai-openai/-/ai-openai-4.0.0-rc.112.tgz`                       |
-| npm integrity    | `sha512-j2X86xvgpAtNiusyESADHZn3PUzMVatE1zWXd0No2aybx/euKiVBVWZOtzq7ntJ5KvPHRBOFXTGPADdApQrwug==` |
-| Tarball SHA-256  | `26902ae06ec9118172f8033e84d4bffa19c0a6d3be56a42bc1147a6a131e4e43`                                |
-| Imported at      | `2026-09-03`                                                                                      |
+| Upstream package | `@effect/ai-openai@4.0.0`                                                                         |
+| Source artifact  | `https://registry.npmjs.org/@effect/ai-openai/-/ai-openai-4.0.0.tgz`                              |
+| npm integrity    | `sha512-WjLvyFW4urzXkNy+Ki1YQE912yOxMYHps5gbiPfiUDghuHz0hfA+jzprGL8vj4fTwZI56TIwkviKRqfQNwka7w==` |
+| Tarball SHA-256  | `6b261f75d60d41d47d71a5405fdd06e3af3ed0e3a754e54bbdd629c4001e403a`                                |
+| Imported at      | `2026-10-03`                                                                                      |
 | Imported inputs  | `src/**`, `README.md`, and `LICENSE`                                                              |
 | License          | MIT; copied to [`LICENSE`](./LICENSE)                                                             |
 

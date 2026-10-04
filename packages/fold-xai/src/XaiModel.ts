@@ -9,8 +9,8 @@ import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Context, Effect, Layer, Match, Option, Predicate, Schema, Stream } from 'effect'
 import type { FileSystem, Scope } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
-import { HttpClient } from 'effect/unstable/http'
+import { LanguageModel } from 'effect/ai'
+import { HttpClient } from 'effect/http'
 
 import { layerXaiAuthStore, type XaiAuthStoreOptions } from './AuthStore'
 import { layerXaiAuth, xaiAuthenticatedClient } from './XaiAuth'
@@ -85,7 +85,7 @@ const authLayerFor = (options: XaiModelOptions) =>
 /** Build xAI's stock OpenAI-compatible LanguageModel over the OAuth transport. */
 export const makeXaiLanguageModel = (
 	options: XaiModelOptions,
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+): Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
 	Layer.build(
 		Layer.effect(
 			LanguageModel.LanguageModel,

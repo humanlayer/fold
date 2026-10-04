@@ -8,7 +8,7 @@
  */
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { Predicate, Deferred, Effect, Ref, Schema, Stream } from 'effect'
-import { AiError, LanguageModel } from 'effect/unstable/ai'
+import { AiError, LanguageModel } from 'effect/ai'
 
 import {
 	dispatchSubagent,

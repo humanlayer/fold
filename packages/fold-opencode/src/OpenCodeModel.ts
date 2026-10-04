@@ -11,8 +11,8 @@ import { customModel, resolveOpenAiReasoning } from '@humanlayer/fold-core'
 import type { FoldModel, ReasoningLevel } from '@humanlayer/fold-core'
 import { Match, Context, Effect, Layer, Option, Schema } from 'effect'
 import type { FileSystem, Scope } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
-import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
+import { LanguageModel } from 'effect/ai'
+import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/http'
 
 import { layerOpenCodeAuthStore, type OpenCodeAuthStoreOptions } from './AuthStore'
 import { layerOpenCodeAuth, OPENCODE_CONSOLE_URL, OpenCodeAuth, openCodeAuthenticatedClient } from './OpenCodeAuth'
@@ -125,7 +125,7 @@ const fetchRemoteProviders = (authenticated: HttpClient.HttpClient, server: stri
 /** Construct the Effect LanguageModel backed by stored OpenCode OAuth credentials. */
 export const makeOpenCodeLanguageModel = (
 	options: OpenCodeModelOptions = {},
-): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
+): Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | HttpClient.HttpClient | FileSystem.FileSystem> =>
 	Layer.build(
 		Layer.effect(
 			LanguageModel.LanguageModel,

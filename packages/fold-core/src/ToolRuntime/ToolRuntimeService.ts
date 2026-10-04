@@ -6,7 +6,7 @@
  */
 import { Context } from 'effect'
 import type { Effect } from 'effect'
-import type { Prompt } from 'effect/unstable/ai'
+import type { Prompt } from 'effect/ai'
 
 import type { ToolResultLogEntry } from '../EventLog/Schemas'
 import type { AgentId } from '../Ids'

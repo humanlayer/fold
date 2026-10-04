@@ -13,7 +13,7 @@ import { arch, platform, release } from 'node:os'
 
 import * as NodeCrypto from '@effect/platform-node/NodeCrypto'
 import { Clock, Context, Effect, Layer, Option, Semaphore } from 'effect'
-import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/unstable/http'
+import { HttpClient, HttpClientError, HttpClientRequest } from 'effect/http'
 
 import { CodexAuthStore, type CodexAuthStoreError, type CodexTokenData } from './AuthStore'
 import type { BrowserFlowOptions, DeviceCodePrompt } from './OAuthFlows'

@@ -1,8 +1,8 @@
 import { it } from '@effect/vitest'
 import { webFetchToolContract, webSearchToolContract, type FoldTool } from '@humanlayer/fold-core'
 import { Effect, Fiber, Layer, Schema } from 'effect'
+import { FetchHttpClient, type HttpClient } from 'effect/http'
 import { TestClock } from 'effect/testing'
-import { FetchHttpClient, type HttpClient } from 'effect/unstable/http'
 import { expect } from 'vitest'
 
 import type { Photon } from '../../src/Tools/Image/Photon'

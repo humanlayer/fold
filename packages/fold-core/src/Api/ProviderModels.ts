@@ -6,8 +6,8 @@
 import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Context, Effect, Layer, type Redacted, type Scope, Stream } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
-import { HttpClient } from 'effect/unstable/http'
+import { LanguageModel } from 'effect/ai'
+import { HttpClient } from 'effect/http'
 
 const anthropicDecoderModelFor = (modelId: string): string | null => {
 	const id = modelId.toLowerCase()
@@ -54,7 +54,7 @@ const relaxAnthropicResponseModel = (modelId: string): ((client: HttpClient.Http
 /** Build the LanguageModel for one layer in the caller's scope. */
 const languageModelFrom = <E, R>(
 	layer: Layer.Layer<LanguageModel.LanguageModel, E, R>,
-): Effect.Effect<LanguageModel.Service, E, Scope.Scope | R> =>
+): Effect.Effect<LanguageModel.LanguageModel, E, Scope.Scope | R> =>
 	Layer.build(layer).pipe(Effect.map((context) => Context.get(context, LanguageModel.LanguageModel)))
 
 /** The LanguageModel for an OpenAI-compatible endpoint, over the host's HttpClient. */
@@ -63,7 +63,7 @@ export const openAiCompatibleLanguageModel = (connection: {
 	readonly apiKey: Redacted.Redacted<string>
 	readonly apiKeyHeader: string | null
 	readonly baseUrl: string | null
-}): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient> => {
+}): Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | HttpClient.HttpClient> => {
 	const clientOptions = {
 		apiKey: connection.apiKey,
 		apiKeyHeader: connection.apiKeyHeader ?? undefined,
@@ -80,7 +80,7 @@ export const anthropicLanguageModel = (connection: {
 	readonly modelId: string
 	readonly apiKey: Redacted.Redacted<string>
 	readonly baseUrl: string | null
-}): Effect.Effect<LanguageModel.Service, never, Scope.Scope | HttpClient.HttpClient> => {
+}): Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | HttpClient.HttpClient> => {
 	const clientOptions = {
 		apiKey: connection.apiKey,
 		apiUrl: connection.baseUrl ?? undefined,

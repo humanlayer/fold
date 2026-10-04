@@ -1,5 +1,5 @@
 import { Data, Schema } from 'effect'
-import { Prompt, Response } from 'effect/unstable/ai'
+import { Prompt, Response } from 'effect/ai'
 
 import { AgentId, CompactionId, EventId, MessageId, SessionId, StateId, ToolCallId } from '../Ids'
 import { ForkAgentDefinitionId } from '../Subagents/ForkAgentDefinition'

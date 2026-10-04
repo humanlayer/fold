@@ -7,7 +7,7 @@
  * `realPath` returns the path unchanged: fold only uses it to key its per-file write lock.
  */
 import type { RpcCallError } from 'alchemy'
-import { Effect, FileSystem, Option, PlatformError } from 'effect'
+import { ByteSize, Effect, FileSystem, Option, PlatformError } from 'effect'
 
 import type { FileInfo, ComputerResult } from './computer/Contract'
 
@@ -85,7 +85,7 @@ const toInfo = (info: FileInfo): FileSystem.File.Info => ({
 	uid: Option.none(),
 	gid: Option.none(),
 	rdev: Option.none(),
-	size: FileSystem.Size(info.size),
+	size: ByteSize.bytes(info.size),
 	blksize: Option.none(),
 	blocks: Option.none(),
 })

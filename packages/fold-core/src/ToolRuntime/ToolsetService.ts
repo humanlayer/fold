@@ -3,11 +3,30 @@
  * ToolRuntime live layer to execute tool handlers. The service keeps Effect AI's dynamic Toolkit boundary
  * contained so callers do not pass tool handlers around as arguments.
  */
-import { Context, type Effect, type Stream } from 'effect'
-import type { Tool, Toolkit } from 'effect/unstable/ai'
+import { Context, type Effect, type Schema, type Stream } from 'effect'
+import type { Tool, Toolkit } from 'effect/ai'
 
 import type { CurrentAgent, CurrentToolCall, InterruptNote, StopController, ToolEvents } from './ToolContextServices'
 import type { ToolState } from './ToolStateService'
+
+/** The services a tool handler may use, which ToolRuntime provides around each call. */
+export type ToolCallServices = ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote
+
+/**
+ * A tool erased for dispatch by name. Unlike Effect AI's `Tool.Any`, its schemas need no services to encode or
+ * decode, as none of fold's do, and its handler needs only {@link ToolCallServices}. With `Tool.Any` those
+ * services are unknown, and they reach every model request and handler call.
+ */
+export interface AnyTool extends Tool.Tool<
+	string,
+	{
+		readonly parameters: Schema.Codec<unknown, unknown>
+		readonly success: Schema.Codec<unknown, unknown>
+		readonly failure: Schema.Codec<unknown, unknown>
+		readonly failureMode: Tool.FailureMode
+	},
+	ToolCallServices
+> {}
 
 /** Type-erased handler output from Effect AI Toolkit. Preliminary outputs are UI/progress only. */
 export type ToolHandlerOutput = {
@@ -28,7 +47,7 @@ export type ToolsetService = {
 	 * `LanguageModel.streamText` with `disableToolCallResolution: true`, so the model sees the tool
 	 * schemas while tool execution stays owned by ToolRuntime.
 	 */
-	readonly withHandler: Effect.Effect<Toolkit.WithHandler<Record<string, Tool.Any>>>
+	readonly withHandler: Effect.Effect<Toolkit.WithHandler<Record<string, AnyTool>>>
 	/**
 	 * Run one named handler with model-supplied parameters and stream its toolkit outputs. Handler
 	 * streams may consume the ambient per-call services (ToolState, ToolEvents, StopController,
@@ -37,13 +56,7 @@ export type ToolsetService = {
 	readonly handle: (
 		name: string,
 		params: Tool.ParametersEncoded<Tool.Any>,
-	) => Effect.Effect<
-		Stream.Stream<
-			ToolHandlerOutput,
-			unknown,
-			ToolState | ToolEvents | StopController | CurrentAgent | CurrentToolCall | InterruptNote
-		>
-	>
+	) => Effect.Effect<Stream.Stream<ToolHandlerOutput, unknown, ToolCallServices>, never, ToolCallServices>
 }
 
 /** Active toolset shared by AgentRuntime and ToolRuntime. */

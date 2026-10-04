@@ -24,8 +24,8 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { Cache, Cause, Config, Context, Data, Duration, Effect, FileSystem, Layer, Option, Stream } from 'effect'
-import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
-import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
+import { HttpClient, HttpClientResponse } from 'effect/http'
+import { ChildProcess, ChildProcessSpawner } from 'effect/process'
 
 import { managedBinaryRegistry, type ManagedBinaryAsset, type ManagedBinaryDefinition } from './Registry'
 
@@ -151,7 +151,7 @@ const assetFileName = (url: string): string => {
 
 /** Read one optional environment value through `Config`; absent or empty reads as null. */
 const readEnv = (name: string): Effect.Effect<string | null> =>
-	Config.option(Config.string(name)).pipe(
+	Config.option(Config.String(name)).pipe(
 		Effect.map((value) =>
 			Option.getOrElse(
 				Option.filter(value, (text) => text !== ''),

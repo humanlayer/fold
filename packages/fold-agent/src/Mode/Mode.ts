@@ -13,8 +13,8 @@
  */
 import { skillTool, subagentTool, type FoldTool } from '@humanlayer/fold-core'
 import type { FileSystem, Path } from 'effect'
-import type { HttpClient } from 'effect/unstable/http'
-import type { ChildProcessSpawner } from 'effect/unstable/process'
+import type { HttpClient } from 'effect/http'
+import type { ChildProcessSpawner } from 'effect/process'
 
 import type { ConfigRole } from '../Config/ConfigSchema'
 import type { OutputStore } from '../OutputStore/OutputStore'

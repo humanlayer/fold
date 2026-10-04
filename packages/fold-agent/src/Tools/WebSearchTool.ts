@@ -7,7 +7,7 @@ import {
 	type FoldTool,
 } from '@humanlayer/fold-core'
 import { Data, Duration, Effect, Option, Schema } from 'effect'
-import { HttpClient, HttpClientRequest } from 'effect/unstable/http'
+import { HttpClient, HttpClientRequest } from 'effect/http'
 
 const defaultTimeoutMs = 25_000
 const maxNumResults = 20

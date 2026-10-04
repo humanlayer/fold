@@ -11,7 +11,7 @@
  * agent-finished entries, never service failures.
  */
 import { Array as Arr, Data, Effect, Layer, Predicate, Ref, Result, Schema, Stream } from 'effect'
-import { LanguageModel, Prompt, type Response, type Tool, type Toolkit } from 'effect/unstable/ai'
+import { LanguageModel, Prompt, type Response, type Toolkit } from 'effect/ai'
 
 import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import { CompactionArchiveAccess } from '../Compaction/CompactionArchiveAccess'
@@ -45,7 +45,7 @@ import { SystemPrompt } from '../SystemPrompt/SystemPromptService'
 import { StopController, type StopControllerService } from '../ToolRuntime/ToolContextServices'
 import { ToolRuntime } from '../ToolRuntime/ToolRuntimeService'
 import { ToolsetResolver } from '../ToolRuntime/ToolsetResolverService'
-import { Toolset } from '../ToolRuntime/ToolsetService'
+import { type AnyTool, Toolset } from '../ToolRuntime/ToolsetService'
 import {
 	AgentRuntime,
 	type AgentRuntimeService,
@@ -359,7 +359,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const activeToolEntries = Object.entries(withHandler.tools).filter(([name]) =>
 					runtimeState.activeTools.includes(name),
 				)
-				const toolkit: Toolkit.WithHandler<Record<string, Tool.Any>> = {
+				const toolkit: Toolkit.WithHandler<Record<string, AnyTool>> = {
 					tools: Object.fromEntries(activeToolEntries),
 					handle: withHandler.handle,
 				}

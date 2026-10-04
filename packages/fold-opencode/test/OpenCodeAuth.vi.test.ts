@@ -1,6 +1,6 @@
 import { describe, it } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
-import { HttpClient, HttpClientResponse } from 'effect/unstable/http'
+import { HttpClient, HttpClientResponse } from 'effect/http'
 import { expect } from 'vitest'
 
 import { OpenCodeAuthStore, type OpenCodeAuthStoreService } from '../src/AuthStore'

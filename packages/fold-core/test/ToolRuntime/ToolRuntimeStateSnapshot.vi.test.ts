@@ -1,7 +1,7 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
 import { Predicate, Deferred, Effect, Layer, Ref, Schema } from 'effect'
-import { Prompt, Tool, Toolkit } from 'effect/unstable/ai'
+import { Prompt, Tool, Toolkit } from 'effect/ai'
 
 import {
 	defineToolState,

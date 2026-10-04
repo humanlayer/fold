@@ -5,14 +5,14 @@
  * carries), and discovery lists a project's logs newest-first with the latest ready for
  * `resumeSession`.
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { customModel, defineAgent, layerLiveIdFactory, SessionId, startSession } from '@humanlayer/fold-core'
 import { Effect, Predicate, Stream } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/ai'
 
 import {
 	latestSessionLog,
@@ -169,7 +169,9 @@ it.effect('session summary index is a full fast path and latest valid record win
 			indexPath,
 			`${JSON.stringify({ ...cached, summary: { ...cached.summary, title: 'Latest Wins' } })}\n`,
 		)
-		const mtime = statSync(prepared.path).mtime
+		// Put back the time the cache recorded. Effect reads times in nanoseconds and drops the fraction of a
+		// millisecond, and `utimesSync` can store a time a hair early, so aim half a millisecond in.
+		const mtime = (built.mtimeMs + 0.5) / 1000
 		const source = readFileSync(prepared.path, 'utf8')
 		writeFileSync(prepared.path, 'x'.repeat(source.length))
 		utimesSync(prepared.path, mtime, mtime)

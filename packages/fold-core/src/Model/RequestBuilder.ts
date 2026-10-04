@@ -8,8 +8,9 @@
  * metadata into history. The assistant tool-call params stay exactly as decoded from the persisted
  * assistant message, keeping already-sent prompt bytes stable across turns.
  */
-import { Array as Arr, Effect, Encoding, Match, Option, Predicate, Schema } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Array as Arr, Effect, Match, Option, Predicate, Schema } from 'effect'
+import { Prompt } from 'effect/ai'
+import { Base64, type EncodingError } from 'effect/encoding'
 
 import type { ProjectedMessage, ProjectedToolResult } from '../Projection/Projection'
 import { ToolResultOutput } from '../Tools/ToolResultContent'
@@ -233,7 +234,7 @@ const markLatestUserSideCacheBreakpoint = (messages: ReadonlyArray<Prompt.Messag
 /** Convert a durable canonical result to provider-neutral live Prompt content. */
 const prepareToolResult = (
 	result: Prompt.ToolResultPart['result'],
-): Effect.Effect<Prompt.ToolResultPart['result'], Encoding.EncodingError> => {
+): Effect.Effect<Prompt.ToolResultPart['result'], EncodingError.EncodingError> => {
 	const decoded = decodeToolResultOutput(result)
 	if (Option.isNone(decoded)) return Effect.succeed(result)
 
@@ -247,7 +248,7 @@ const prepareToolResult = (
 						Match.tagsExhaustive({
 							'text-part': ({ text }) => Effect.succeed(Prompt.textPart({ text })),
 							'image-part': ({ data, mediaType, fileName }) =>
-								Effect.fromResult(Encoding.decodeBase64(data)).pipe(
+								Effect.fromResult(Base64.decode(data)).pipe(
 									Effect.map((bytes) => Prompt.filePart({ data: bytes, mediaType, fileName })),
 								),
 						}),
@@ -258,8 +259,10 @@ const prepareToolResult = (
 }
 
 /** Prepare each canonical result while retaining the surrounding tool message. */
-const prepareToolMessage = (message: Prompt.ToolMessage): Effect.Effect<Prompt.ToolMessage, Encoding.EncodingError> =>
-	Effect.forEach(message.content, (part): Effect.Effect<Prompt.ToolMessagePart, Encoding.EncodingError> =>
+const prepareToolMessage = (
+	message: Prompt.ToolMessage,
+): Effect.Effect<Prompt.ToolMessage, EncodingError.EncodingError> =>
+	Effect.forEach(message.content, (part): Effect.Effect<Prompt.ToolMessagePart, EncodingError.EncodingError> =>
 		part.type === 'tool-result'
 			? prepareToolResult(part.result).pipe(
 					Effect.map((result) =>

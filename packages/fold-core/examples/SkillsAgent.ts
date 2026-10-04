@@ -8,7 +8,7 @@
  * Run: ANTHROPIC_API_KEY=... bun packages/fold-core/examples/SkillsAgent.ts
  */
 import { Console, Effect } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { anthropicModel, defineAgent, skillsFromData, skillTool, startSession } from '../src/index'
 

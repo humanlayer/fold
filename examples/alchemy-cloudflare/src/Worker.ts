@@ -4,7 +4,7 @@
  */
 import * as Cloudflare from 'alchemy/Cloudflare'
 import { Effect } from 'effect'
-import { HttpRouter } from 'effect/unstable/http'
+import { HttpRouter } from 'effect/http'
 
 import { ChatRoutes } from './Api'
 import { ChatSessions } from './ChatSessions'

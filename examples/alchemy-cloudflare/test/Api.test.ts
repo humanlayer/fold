@@ -15,7 +15,7 @@ import {
 	type LogEntryInput,
 } from '@humanlayer/fold-core'
 import { Context, Effect, Layer, Predicate, Ref, Schema, Scope, Stream } from 'effect'
-import { HttpRouter } from 'effect/unstable/http'
+import { HttpRouter } from 'effect/http'
 import { expect } from 'vitest'
 
 import { ChatRoutes } from '../src/Api'

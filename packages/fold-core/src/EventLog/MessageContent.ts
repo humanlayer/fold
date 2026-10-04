@@ -5,7 +5,7 @@
  * the string/parts normalization lives in one place.
  */
 import { Match, Option, Schema } from 'effect'
-import type { Prompt } from 'effect/unstable/ai'
+import type { Prompt } from 'effect/ai'
 
 /** Content of a persisted user, assistant, or tool message. */
 export type EncodedMessageContent =

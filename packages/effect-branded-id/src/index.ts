@@ -125,7 +125,10 @@ const defaultBrandName = (prefix: string): string =>
 		.join('')}Id`
 
 /** Build the branded schema plus static helpers for one (prefix, brand) pair. */
-const makeBrandedIdSchema = <const Name extends string>(prefix: string, brand: Name) => {
+/** A brand name `Schema.brand` accepts: one literal name, not a union or the whole of `string`. */
+type SingleBrandName<Name extends string> = Parameters<typeof Schema.brand<Name>>[0]
+
+const makeBrandedIdSchema = <const Name extends string>(prefix: string, brand: SingleBrandName<Name>) => {
 	// Validation function that checks both prefix and CUID
 	const isValid = (input: string): boolean => parseId(input, prefix) !== null
 
@@ -148,7 +151,7 @@ const makeBrandedIdSchema = <const Name extends string>(prefix: string, brand: N
 	})
 
 	// String -> check with filter -> brand
-	const base = Schema.String.check(idFilter).pipe(Schema.brand(brand))
+	const base = Schema.String.check(idFilter).pipe(Schema.brand<Name>(brand))
 
 	// The schema's own branded Type. For any concrete brand this is exactly `BrandedId<Name>`;
 	// annotating against the schema type keeps `create`/`is` provable without assertions.
@@ -201,7 +204,10 @@ export function makeBrandedId<const Prefix extends string, const Name extends st
 	options: BrandedIdOptions<Name>,
 ): BrandedIdSchema<Name>
 export function makeBrandedId<const Prefix extends string>(prefix: Prefix): BrandedIdSchema<DefaultBrandName<Prefix>>
-export function makeBrandedId(prefix: string, options?: BrandedIdOptions<string>): BrandedIdSchema<string> {
+export function makeBrandedId<const Name extends string>(
+	prefix: string,
+	options?: BrandedIdOptions<Name>,
+): BrandedIdSchema<Name> {
 	// Validate prefix at schema creation time
 	if (!isValidPrefix(prefix)) {
 		throw new Error(
@@ -209,7 +215,11 @@ export function makeBrandedId(prefix: string, options?: BrandedIdOptions<string>
 		)
 	}
 
-	return makeBrandedIdSchema(prefix, options?.brand ?? defaultBrandName(prefix))
+	// SAFETY: `Schema.brand` only labels the type and keeps no name at runtime. Each overload fixes `Name` to the
+	// one literal brand this computes: the given `brand`, or the name derived from the prefix.
+	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
+	const brand = (options?.brand ?? defaultBrandName(prefix)) as SingleBrandName<Name>
+	return makeBrandedIdSchema<Name>(prefix, brand)
 }
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ import * as NodeServices from '@effect/platform-node/NodeServices'
 import { expect, it } from '@effect/vitest'
 import { customModel, layerLiveIdFactory, type ActiveModel, type FoldModel } from '@humanlayer/fold-core'
 import { Effect, Layer, Predicate, Stream } from 'effect'
-import { LanguageModel, type Response } from 'effect/unstable/ai'
+import { LanguageModel, type Response } from 'effect/ai'
 
 import {
 	DEFAULT_CODING_PROMPT,

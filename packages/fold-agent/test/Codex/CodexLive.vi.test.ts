@@ -12,7 +12,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { describe, expect, it } from '@effect/vitest'
 import { makeCodexLanguageModel } from '@humanlayer/fold-codex'
 import { Effect, Layer, Option, Schema, Stream } from 'effect'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { FetchHttpClient } from 'effect/http'
 
 import { expectedImageIdentification, runImageReadInference } from './SessionModelPathTestHarness'
 

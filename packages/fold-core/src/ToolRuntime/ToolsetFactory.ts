@@ -4,9 +4,9 @@
  * without needing to know the toolkit's specific TypeScript shape.
  */
 import { Effect, Layer, Stream } from 'effect'
-import type { Tool, Toolkit } from 'effect/unstable/ai'
+import type { Tool, Toolkit } from 'effect/ai'
 
-import { Toolset, type ToolHandlerOutput } from './ToolsetService'
+import { type AnyTool, Toolset, type ToolHandlerOutput } from './ToolsetService'
 
 /** Build a final failure output for a model-requested tool name that is not in the active Toolset. */
 const unavailableToolFailureOutput = (name: string, names: ReadonlyArray<string>): ToolHandlerOutput => ({
@@ -36,7 +36,7 @@ export const toolsetLayerFromToolkit = <Tools extends Record<string, Tool.Any>>(
 			// cannot express dynamic dispatch over a heterogeneous toolkit; the library erases internally
 			// for the same reason (Toolkit.ts: `handle: handle as any`). The one sanctioned assertion.
 			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion, automation/no-banned-type-assertions, anti-slop/no-chained-type-assertions
-			const withHandlers = (yield* toolkit) as unknown as Toolkit.WithHandler<Record<string, Tool.Any>>
+			const withHandlers = (yield* toolkit) as unknown as Toolkit.WithHandler<Record<string, AnyTool>>
 			const names = Object.keys(toolkit.tools)
 
 			return {

@@ -3,7 +3,7 @@ import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 
 import { Clock, Crypto, Deferred, Duration, Effect, Result, Schedule, Schema } from 'effect'
-import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
+import { HttpClient, HttpClientRequest, HttpClientResponse } from 'effect/http'
 
 import { XaiTokenData } from './AuthStore'
 

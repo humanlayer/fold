@@ -74,6 +74,8 @@
 		"effecttsgo/prefer-succeed-some-or-none": "error",
 		"effecttsgo/prefer-typed-schema-decoder": "error",
 		"effecttsgo/prefer-unsafe-constructor": "error",
+		// Effect 4.0.0 marks its ai, http and other moved modules unstable, and fold is built on them.
+		"effecttsgo/unstable-api-usage": "off",
 		"effecttsgo/promise-in-effect-success": "error",
 		"effecttsgo/provide-layer-succeed-to-provide-service": "error",
 		"effecttsgo/race-first-with-sleep-to-timeout": "error",

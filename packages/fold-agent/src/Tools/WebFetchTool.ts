@@ -10,8 +10,8 @@ import {
 	type ToolResultSuccess,
 } from '@humanlayer/fold-core'
 import { Duration, Effect, Option, Schema, Stream } from 'effect'
-import { Headers, HttpClient } from 'effect/unstable/http'
-import type { HttpClientResponse } from 'effect/unstable/http'
+import { Headers, HttpClient } from 'effect/http'
+import type { HttpClientResponse } from 'effect/http'
 import TurndownService from 'turndown'
 
 import { detectSupportedImageMimeType, imageSniffBytes } from './Image/Mime'

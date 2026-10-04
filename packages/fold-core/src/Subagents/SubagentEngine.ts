@@ -20,7 +20,7 @@
  * tools that may call them again. Continue runs from the session handle, with no tool call.
  */
 import { Array as Arr, Data, Match, Predicate, Cause, Effect, Exit, Fiber, Ref, Schema, Stream, Struct } from 'effect'
-import { Prompt } from 'effect/unstable/ai'
+import { Prompt } from 'effect/ai'
 
 import type { FoldModel } from '../Api/ModelDescriptor'
 import { provisionAgentRuntime } from '../Api/Provisioning'

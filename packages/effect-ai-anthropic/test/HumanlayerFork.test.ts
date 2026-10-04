@@ -1,8 +1,8 @@
 import { assert, describe, it } from '@effect/vitest'
 import { AnthropicClient, AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { Effect, Layer, Predicate, Redacted, Schema } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
-import { HttpClient, type HttpClientError, HttpClientResponse } from 'effect/unstable/http'
+import { LanguageModel, Prompt } from 'effect/ai'
+import { HttpClient, type HttpClientError, HttpClientResponse } from 'effect/http'
 
 const CapturedRequest = Schema.Struct({
 	messages: Schema.Array(

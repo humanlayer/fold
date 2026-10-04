@@ -5,8 +5,8 @@ import { assert, it } from '@effect/vitest'
  */
 import { OpenAiClient, OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Effect, Layer, Predicate, Redacted, Schema } from 'effect'
-import { LanguageModel, Prompt } from 'effect/unstable/ai'
-import { FetchHttpClient } from 'effect/unstable/http'
+import { LanguageModel, Prompt } from 'effect/ai'
+import { FetchHttpClient } from 'effect/http'
 
 import { type CapturedFetchRequest, makeCapturingFetch } from './SessionModelPathTestHarness'
 
@@ -32,7 +32,7 @@ const CapturedRequest = Schema.Struct({
 	input: Schema.Array(Schema.Record(Schema.String, Schema.Unknown)),
 })
 
-it.live('passes strings through and emits multipart client tool results in Effect 4.0.0-rc.112', () =>
+it.live('passes strings through and emits multipart client tool results in Effect 4.0.0', () =>
 	Effect.gen(function* () {
 		const stringResult = 'PLAIN_TEXT_SENTINEL\n'
 		const multipartResult = [

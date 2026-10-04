@@ -5,7 +5,7 @@ Bun monorepo. Packages live in `packages/*` and run TypeScript directly (no buil
 ## Stack
 
 - **Runtime / package manager:** Bun (`bun@1.3.14`)
-- **Framework:** Effect **v4** (`4.0.0-rc.109`)
+- **Framework:** Effect **v4** (`4.0.0`)
 - **Testing:** Vitest + `@effect/vitest`
 - **Lint / format:** oxlint + oxfmt (120 col, no semicolons)
 - **Effect editor tooling:** `@effect/tsgo` with the `@effect/language-service` TS plugin. `tsc` and oxlint are patched
@@ -32,8 +32,8 @@ packages reference them with `"<pkg>": "catalog:"`. Bump the version in the cata
 
 ## Effect v4 source (read this, not v3 docs)
 
-This repo targets **Effect v4 (release candidate)** — its API differs from the widely-documented v3. The v4
-source is the `effect` repo:
+This repo targets **Effect v4** — its API differs from the widely-documented v3, and from the v4 release
+candidates (e.g. `effect/unstable/http` became `effect/http`). The v4 source is the `effect` repo:
 
 - In Riptide worktree tasks it is checked out as a sibling at **`../effect`**.
 - Locally it lives at **`~/projects/effect`**.

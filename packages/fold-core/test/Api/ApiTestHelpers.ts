@@ -4,7 +4,7 @@
  * exactly what SDK callers write - with the scripted LanguageModel swapped in at the provider seam.
  */
 import { Context, Effect, Layer, Ref, Schema } from 'effect'
-import { LanguageModel } from 'effect/unstable/ai'
+import { LanguageModel } from 'effect/ai'
 
 import {
 	customModel,

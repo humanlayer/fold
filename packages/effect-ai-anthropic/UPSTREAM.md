@@ -5,11 +5,11 @@ This directory is a vendored source snapshot of the published Effect Anthropic p
 
 | Field            | Value                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
-| Upstream package | `@effect/ai-anthropic@4.0.0-rc.112`                                                               |
-| Source artifact  | `https://registry.npmjs.org/@effect/ai-anthropic/-/ai-anthropic-4.0.0-rc.112.tgz`                 |
-| npm integrity    | `sha512-2GQKD3IzfCJuS3DgeuBwUjEYk5iyOqgK5etQkYZ3Ho8IuL8BtGR9d8G5AIiRV0xkNy5DD4vGnDGSHxKWsW2TRg==` |
-| Tarball SHA-256  | `4a1bc081405cd7b11e7b4a2f4d1f5eb113b72270ed58043fbd7d104b29e473fc`                                |
-| Imported at      | `2026-09-03`                                                                                      |
+| Upstream package | `@effect/ai-anthropic@4.0.0`                                                                      |
+| Source artifact  | `https://registry.npmjs.org/@effect/ai-anthropic/-/ai-anthropic-4.0.0.tgz`                        |
+| npm integrity    | `sha512-/xZYmvRE9yDLKiz1pOIx0CVaB+o0zdJd6sTG9KQbFSkM+Ule0U/6yeN+Q6KD9I7Z73t3WxhK9Xmg1eqU6+IVmQ==` |
+| Tarball SHA-256  | `68969de51307457a74aea94273f05f7eab7b570f940ade95bf57b8847fe8e355`                                |
+| Imported at      | `2026-10-03`                                                                                      |
 | Imported inputs  | `src/**`, `README.md`, and `LICENSE`                                                              |
 | License          | MIT; copied to [`LICENSE`](./LICENSE)                                                             |
 
