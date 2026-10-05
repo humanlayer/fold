@@ -7,8 +7,8 @@
  * The agent reads and changes the repos' files through fold's file tools, runs commands in the workspace's
  * shell through {@link bashTool}, and loads skills from each repo's `.claude/skills` and `.agents/skills`.
  *
- * Every turn runs under a {@link Keepalive} lease so the object is not evicted mid-run. A turn can still
- * be cut off - a crash, a deploy - leaving the root's user message with no finished run after it. When a
+ * A turn can be cut off - a crash, a deploy - leaving the root's user message with no finished run after it.
+ * Every turn runs under a {@link Keepalive} lease, whose alarm wakes an object cut off this way; when a
  * written log activates in that state, the object nudges the root to continue.
  * Fold fills any tool call the cut left without a result, and the model can resume a cut-off subagent
  * by id itself. A turn that keeps getting cut off stops being nudged after {@link MAX_RESTART_NUDGES}.
