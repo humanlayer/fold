@@ -79,6 +79,20 @@ const assistantResultText = (message: Prompt.AssistantMessage): string | null =>
 	return text.length > 0 ? text : null
 }
 
+/**
+ * The tool as handed to `streamText`, which accepts any params while it reads the model's reply.
+ *
+ * With tool resolution disabled, `streamText` decodes each tool call's params against
+ * `tool.setParameters(Schema.toEncoded(tool.parametersSchema))`, so one bad call fails the whole reply and
+ * ends the run. Fold decodes params when it runs the tool (`toolkit.handle`), which turns a bad call into a
+ * failed tool result the model can fix. Only `setParameters` changes: providers build the tool's JSON
+ * schema from the unchanged `parametersSchema`, so the model sees the same schema.
+ */
+const acceptAnyParamsInReply = (tool: AnyTool): AnyTool =>
+	Object.assign(Object.create(Object.getPrototypeOf(tool)), tool, {
+		setParameters: () => tool.setParameters(Schema.Unknown),
+	})
+
 /** Live AgentRuntime layer wiring the EventLog, hooks, model, and tool settlement into the loop. */
 export const liveAgentRuntimeLayer: Layer.Layer<
 	AgentRuntime,
@@ -356,9 +370,9 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// toolkit is filtered to the projected active names, so a tools-change entry binds the very
 				// next request. Handlers stay untouched - settlement still executes against the full Toolset.
 				const withHandler = yield* toolset.withHandler
-				const activeToolEntries = Object.entries(withHandler.tools).filter(([name]) =>
-					runtimeState.activeTools.includes(name),
-				)
+				const activeToolEntries = Object.entries(withHandler.tools)
+					.filter(([name]) => runtimeState.activeTools.includes(name))
+					.map(([name, tool]) => [name, acceptAnyParamsInReply(tool)] as const)
 				const toolkit: Toolkit.WithHandler<Record<string, AnyTool>> = {
 					tools: Object.fromEntries(activeToolEntries),
 					handle: withHandler.handle,
