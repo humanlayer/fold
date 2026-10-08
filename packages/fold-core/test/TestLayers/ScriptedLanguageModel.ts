@@ -12,7 +12,7 @@
 import { AnthropicLanguageModel } from '@humanlayer/effect-ai-anthropic'
 import { OpenAiLanguageModel } from '@humanlayer/effect-ai-openai'
 import { Predicate, Effect, Layer, Ref, Stream } from 'effect'
-import { AiError, LanguageModel, type Prompt, type Response } from 'effect/ai'
+import { AiError, LanguageModel, type Prompt, type Response, type Tool } from 'effect/ai'
 
 /** Optional shaping for a scripted turn's finish part. */
 export type ScriptedFinishOptions = {
@@ -89,6 +89,8 @@ export type ScriptedRequest = {
 	readonly prompt: Prompt.Prompt
 	/** Tool names advertised to the model on this request. */
 	readonly toolNames: ReadonlyArray<string>
+	/** The tools as the provider received them, to build the schemas it advertises. */
+	readonly tools: ReadonlyArray<Tool.Any>
 	/** The OpenAI per-request Config in context at request time, or null when none was provided. */
 	readonly openAiConfig: typeof OpenAiLanguageModel.Config.Service | null
 	/** The Anthropic per-request Config in context at request time, or null when none was provided. */
@@ -136,6 +138,7 @@ export const makeScriptedLanguageModel = (turns: ReadonlyArray<ScriptedTurn>): E
 					{
 						prompt: options.prompt,
 						toolNames: options.tools.map((tool) => tool.name),
+						tools: options.tools,
 						openAiConfig: Predicate.isTagged(openAiConfig, 'Some') ? openAiConfig.value : null,
 						anthropicConfig: Predicate.isTagged(anthropicConfig, 'Some') ? anthropicConfig.value : null,
 					},
