@@ -2,10 +2,16 @@ export * from './Ids'
 export * from './AgentRuntime/AgentRuntimeLayer'
 export * from './AgentRuntime/AgentRuntimeService'
 export * from './Api/AgentDefinition'
-export * from './Api/EventLogDescriptor'
 export * from './Api/ModelDescriptor'
 export * from './Api/Provisioning'
-export * from './Api/StartSession'
+export {
+	type OpenSessionOptions,
+	type FoldSession,
+	type SwitchModelOptions,
+	type AgentTargetOptions,
+	type CompactOptions,
+	type InjectedSkillEntries,
+} from './Api/OpenSession'
 export * from './Api/ToolDefinition'
 export * from './Subagents/AgentIdRef'
 export * from './Subagents/AgentRegistry'

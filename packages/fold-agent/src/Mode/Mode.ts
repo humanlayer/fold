@@ -2,7 +2,7 @@
  * This file defines the `FoldMode` primitive (D27): a mode is a pre-baked composition of a primary
  * model role, a mode system prompt, and a tool roster - the thing a CLI/OpenTUI selects ("coding",
  * later "rlm"/"rpi"). Launch (Mode/Launch) turns a mode plus the loaded config and agentfiles into a
- * running `FoldSession` over fold-core's `startSession`/`resumeSession`.
+ * running `FoldSession` over fold-core's `Session.open`.
  *
  * `defaultCodingMode` is the batteries-included local coding agent: the full filesystem toolset (read,
  * write, edit, apply_patch, bash - the family policy advertises the right editing subset per model),

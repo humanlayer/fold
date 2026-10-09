@@ -1,15 +1,15 @@
 import { join } from 'node:path'
 
 /**
- * This file is the fold-agent composition root over fold-core's `startSession`/`resumeSession` (D27):
+ * This file is the fold-agent composition root over fold-core's `Session.open` (D27):
  * it turns a mode + the loaded `FoldConfig` + agentfiles into a running coding session, so the CLI and
  * OpenTUI (and callers) never assemble providers/tools/prompts by hand.
  *
  * `launchSession`: resolve the primary model (explicit `model`, else the config role for the mode),
  * load agentfiles for the cwd into a leading prompt block, build the mode's tool roster, prepare a
- * JSONL session log under the D5 layout, and `startSession`.
+ * JSONL session log under the D5 layout, and `Session.open`.
  *
- * `resumeLatestSession`: discover the newest session log for the cwd (D5) and `resumeSession` with a
+ * `resumeLatestSession`: discover the newest session log for the cwd (D5) and `Session.open` with a
  * FRESHLY rebuilt agent - agentfiles and the skills roster are re-read, so fold-core's resume path
  * writes exactly one epoch transition when they changed since the log was written (D17/D20/D22), and
  * nothing when they did not.
@@ -20,9 +20,8 @@ import { join } from 'node:path'
  */
 import {
 	defineAgent,
-	resumeSession,
+	Session,
 	SessionId,
-	startSession,
 	type AgentDefinition,
 	type AutoCompactConfig,
 	type ModelCatalogEntry,
@@ -63,7 +62,7 @@ import {
 	type ConfigParseError,
 } from '../Config/Load'
 import { rolesForDirectProviderSelection } from '../Config/ModelSelections'
-import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
+import { layerJsonl } from '../EventLog/JsonlLayer'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
 import {
 	layerOutputStore,
@@ -553,7 +552,7 @@ const catalogFor = (
 
 /**
  * Start a fresh coding session: resolve the model, load agentfiles, build the mode's tools, and
- * `startSession` over a JSONL log named by a freshly minted session id under the D5 layout.
+ * `Session.open` over a JSONL log named by a freshly minted session id under the D5 layout.
  */
 export const launchSession = (
 	options?: LaunchSessionOptions,
@@ -589,10 +588,11 @@ export const launchSession = (
 		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
 
 		// The output store lives as long as the session, in the caller's scope.
-		const outputStore = yield* Layer.build(outputStoreFor(prepared.sessionId, opts))
-		const session = yield* startSession({
+		const sessionServices = yield* Layer.build(
+			Layer.mergeAll(outputStoreFor(prepared.sessionId, opts), layerJsonl(prepared.path).pipe(Layer.orDie)),
+		)
+		const session = yield* Session.open({
 			agent,
-			log: prepared.log,
 			cwd,
 			sessionId: prepared.sessionId,
 			meta: {
@@ -604,7 +604,7 @@ export const launchSession = (
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
 			...Struct.pick(opts, ['steering']),
-		}).pipe(Effect.provideContext(outputStore))
+		}).pipe(Effect.provideContext(sessionServices))
 		return yield* withGeneratedTitles(session, models.fast, { cwd, ...Struct.pick(opts, ['foldHome']) })
 	})
 
@@ -639,15 +639,17 @@ const resumeFromLog = (
 		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
 
 		// The output store lives as long as the session, in the caller's scope.
-		const outputStore = yield* Layer.build(outputStoreFor(log.sessionId, options))
-		const session = yield* resumeSession({
+		const sessionServices = yield* Layer.build(
+			Layer.mergeAll(outputStoreFor(log.sessionId, options), layerJsonl(log.path).pipe(Layer.orDie)),
+		)
+		const session = yield* Session.open({
 			agent,
-			log: jsonlEventLog(log.path),
+			sessionId: log.sessionId,
 			profiles: sessionProfilesFor(models),
 			catalog,
 			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
 			...Struct.pick(options, ['steering']),
-		}).pipe(Effect.provideContext(outputStore))
+		}).pipe(Effect.provideContext(sessionServices))
 		return yield* withGeneratedTitles(session, models.fast, { cwd, ...Struct.pick(options, ['foldHome']) })
 	})
 

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { defineAgent, openaiModel, startSession } from '@humanlayer/fold-core'
+import { defineAgent, openaiModel, Session } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect, Layer } from 'effect'
 
 import { codingTools, layerCodingToolServices } from '../src/index'
@@ -29,7 +29,7 @@ const makeProgram = (apiKey: string) =>
 		const toolServices = yield* Layer.build(
 			layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
 		)
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'apply-patch-demo',
 				model: openaiModel({ model: modelId, apiKey, reasoning: 'medium' }),

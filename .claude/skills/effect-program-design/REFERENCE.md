@@ -17,20 +17,19 @@ conventions from another repository.
 
 Fold has two intentionally different interfaces:
 
-1. A host-facing descriptor interface, where consumers describe an agent, model, toolset, hooks, and event-log
-   backend without learning Fold's internal runtime graph.
+1. A host-facing descriptor interface for agents, models, tools, and hooks. Hosts select EventLog backends
+   through ordinary Layer composition; Session.open hides the internal runtime graph.
 2. An internal Effect interface, where `Context.Service` tags and `Layer` implementations express capabilities,
    resource requirements, and replaceable test seams.
 
 Keep the conversion in one direction at the facade/provisioning seam:
 
 ```text
-host descriptors -> provisioning -> Effect services/layers -> running session
+host agent descriptors + ambient EventLog -> Session.open/provisioning -> running session
 ```
 
-Do not expose layer construction to a host just because the implementation needs a provider client, tool runtime, or
-event log. Conversely, do not turn a capability that varies per runtime into a global singleton or a closure-captured
-ambient dependency.
+Do not expose internal provider-client or tool-runtime wiring. EventLog backend selection is deliberately
+layer-native at the host boundary. Do not turn a runtime-varying capability into a global singleton.
 
 ## A small service seam
 
@@ -100,3 +99,6 @@ it.effect('records an entry through the public service', () =>
 
 No `vi.mock`, `vi.spyOn`, module patching, or sleep-based timing. If the behavior cannot be tested by providing a
 layer, move the seam rather than patching the module under test.
+
+EventLog resources belong to the host's acquisition scope, while internal session graphs use session-fresh memo
+maps. Session.open adopts existing identity or initializes an empty log; it never rebuilds a supplied backend.

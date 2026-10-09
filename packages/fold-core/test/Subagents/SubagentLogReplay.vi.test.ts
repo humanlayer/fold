@@ -14,10 +14,9 @@ import {
 	defineForkAgent,
 	defineSubagent,
 	EventLog,
-	eventLogSource,
 	layerInMemoryEventLog,
 	shortAgentId,
-	startSession,
+	Session,
 	subagentTool,
 	type AgentId,
 	type UserMessageLogEntry,
@@ -26,12 +25,11 @@ import { claudeActiveModel, gptActiveModel, scriptedModel } from '../Api/ApiTest
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { renderedDriveResult, subagentStartedEntries } from './DriveHarness'
 
-it.effect("a new session over the same log resumes a prior session's subagent purely by replay", () =>
+it.effect('reopening the same log resumes its subagent purely by replay', () =>
 	Effect.gen(function* () {
 		// One log service outliving both sessions - the in-memory stand-in for a JSONL file on disk.
 		const logContext = yield* Layer.build(layerInMemoryEventLog)
 		const sharedLog = Context.get(logContext, EventLog)
-		const sharedLogSource = eventLogSource(Effect.succeed(sharedLog))
 
 		// --- session A: dispatch the researcher, then close the session entirely ---------------------
 		const dispatched = yield* Effect.scoped(
@@ -55,14 +53,13 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 					textTurn('root A done'),
 				])
 
-				const session = yield* startSession({
+				const session = yield* Session.open({
 					agent: defineAgent({
 						model: rootScripted.model,
 						systemPrompt: 'root',
 						tools: [subagentTool([researcher])],
 					}),
-					log: sharedLogSource,
-				})
+				}).pipe(Effect.provideService(EventLog, sharedLog))
 
 				const finished = yield* session.send('go')
 				expect(finished.outcome).toBe('completed')
@@ -95,22 +92,21 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 			textTurn('root B done'),
 		])
 
-		const sessionB = yield* startSession({
+		const sessionB = yield* Session.open({
 			agent: defineAgent({
 				model: rootBScripted.model,
 				systemPrompt: 'root',
 				tools: [subagentTool([researcherB])],
 			}),
-			log: sharedLogSource,
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		const finishedB = yield* sessionB.send('continue where we left off')
 		expect(finishedB.outcome).toBe('completed')
 
 		const entries = yield* sessionB.entries
 
-		// Two session_started rows (an honest restart marker), but still exactly ONE subagent start.
-		expect(entries.filter((entry) => Predicate.isTagged(entry, 'session_started'))).toHaveLength(2)
+		// Reopening preserves one session/root identity and exactly one subagent start.
+		expect(entries.filter((entry) => Predicate.isTagged(entry, 'session_started'))).toHaveLength(1)
 		expect(subagentStartedEntries(entries)).toHaveLength(1)
 
 		// The resumed model call reconstructed A's context purely from the log rows.
@@ -125,7 +121,8 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 		const rootStartedRows = entries.filter(
 			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId === null,
 		)
-		const rootB = rootStartedRows[1]
+		expect(rootStartedRows).toHaveLength(1)
+		const rootB = rootStartedRows[0]
 		if (!Predicate.isTagged(rootB, 'agent_started')) throw new Error("expected session B's root agent_started")
 		const researcherUserMessages = entries.filter(
 			(entry): entry is UserMessageLogEntry =>
@@ -135,7 +132,7 @@ it.effect("a new session over the same log resumes a prior session's subagent pu
 		expect(researcherUserMessages[1]?.parentAgentId).toBe(rootB.agentId)
 		expect(researcherUserMessages[1]?.toolCallId).not.toBe(researcherUserMessages[0]?.toolCallId)
 
-		// Turn totals fold across both sessions' rows: 1 this run, 2 lifetime.
+		// Turn totals fold across both activations' rows: 1 this run, 2 lifetime.
 		const rendered = renderedDriveResult(entries, 1)
 		expect(rendered).toContain(`agent_id: ${shortAgentId(dispatched.agentId)}`)
 		expect(rendered).toContain('turns: 1 this run (2 total)')
@@ -147,7 +144,6 @@ it.effect('replay restores a configured fork toolset before resuming the child',
 	Effect.gen(function* () {
 		const logContext = yield* Layer.build(layerInMemoryEventLog)
 		const sharedLog = Context.get(logContext, EventLog)
-		const sharedLogSource = eventLogSource(Effect.succeed(sharedLog))
 
 		const dispatched = yield* Effect.scoped(
 			Effect.gen(function* () {
@@ -163,13 +159,12 @@ it.effect('replay restores a configured fork toolset before resuming the child',
 					textTurn('child paused'),
 					textTurn('root A done'),
 				])
-				const session = yield* startSession({
+				const session = yield* Session.open({
 					agent: defineAgent({
 						model: scripted.model,
 						tools: [subagentTool([], { forkAgent: delegatingFork })],
 					}),
-					log: sharedLogSource,
-				})
+				}).pipe(Effect.provideService(EventLog, sharedLog))
 				yield* session.send('go')
 				const started = subagentStartedEntries(yield* session.entries)[0]
 				if (started === undefined) throw new Error('expected a configured fork')
@@ -191,10 +186,9 @@ it.effect('replay restores a configured fork toolset before resuming the child',
 			textTurn('child resumed'),
 			textTurn('root B done'),
 		])
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: scripted.model, tools: [subagentTool([], { forkAgent: delegatingFork })] }),
-			log: sharedLogSource,
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 		yield* session.send('resume')
 
 		const started = subagentStartedEntries(yield* session.entries)

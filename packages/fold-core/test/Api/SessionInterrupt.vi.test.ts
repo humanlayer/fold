@@ -8,7 +8,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Predicate, Deferred, Effect, Fiber } from 'effect'
 
-import { defineAgent, defineSubagent, shortAgentId, startSession, subagentTool } from '../../src/index'
+import { defineAgent, defineSubagent, shortAgentId, Session, subagentTool } from '../../src/index'
 import { makeHangOnceModel } from '../Subagents/DriveHarness'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from './ApiTestHelpers'
@@ -20,7 +20,7 @@ it.effect('interrupt discards partial assistant text, writes the root marker, an
 			textTurn('resumed cleanly'),
 		])
 
-		const session = yield* startSession({ agent: defineAgent({ model: partialHang.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: partialHang.model }) })
 
 		const sendFiber = yield* Effect.forkScoped(session.send('go'))
 		yield* partialHang.firstRequestStreaming
@@ -72,7 +72,7 @@ it.effect('a targeted subagent interrupt folds into the dispatcher, which keeps 
 			textTurn('root synthesized after the interruption'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 

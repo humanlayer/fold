@@ -7,6 +7,7 @@
 import { Context, type Effect, type Schema, type Stream } from 'effect'
 
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
+import { openSession, type OpenSessionOptions } from '../Api/OpenSession'
 import type { ActiveModel, AgentFinishedLogEntry, CompactionLogEntry, LogSeq } from '../EventLog/Schemas'
 import type { AgentId, SessionId } from '../Ids'
 import type { SessionAlreadyStartedError, SessionNotStartedError } from './Errors'
@@ -66,4 +67,9 @@ export type SessionService = {
 }
 
 /** Session service tag. One provided instance represents one session. */
-export class Session extends Context.Service<Session, SessionService>()('fold/Session') {}
+export class Session extends Context.Service<Session, SessionService>()('fold/Session') {
+	/** Initialize a fresh log or resume an existing one. The handle lives in the caller's scope. */
+	static open<RA = never, RP = never>(options: OpenSessionOptions<RA, RP>) {
+		return openSession(options)
+	}
+}

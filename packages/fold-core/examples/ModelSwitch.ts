@@ -13,7 +13,7 @@
 import { Console, Effect, Schema } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 
-import { anthropicModel, defineAgent, defineTool, openaiModel, startSession } from '../src/index'
+import { anthropicModel, defineAgent, defineTool, openaiModel, Session } from '../src/index'
 
 const openAiModelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
 const anthropicModelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
@@ -30,7 +30,7 @@ const echo = defineTool({
 
 const makeProgram = (openAiKey: string, anthropicKey: string) =>
 	Effect.gen(function* () {
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'model-switch-demo',
 				model: openaiModel({ model: openAiModelId, apiKey: openAiKey, reasoning: 'medium' }),

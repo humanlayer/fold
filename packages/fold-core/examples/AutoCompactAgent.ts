@@ -13,7 +13,7 @@
 import { Predicate, Console, Effect } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 
-import { defineAgent, openaiModel, startSession, type CompactionLogEntry } from '../src/index'
+import { defineAgent, openaiModel, Session, type CompactionLogEntry } from '../src/index'
 
 const modelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
 const apiKey = process.env.OPENAI_API_KEY
@@ -36,7 +36,7 @@ const briefing = [
 
 const makeProgram = (key: string) =>
 	Effect.gen(function* () {
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'auto-compact-demo',
 				model: openaiModel({ model: modelId, apiKey: key }),
