@@ -13,7 +13,7 @@ import {
 	defineAgent,
 	defineSubagent,
 	messagesForAgent,
-	startSession,
+	Session,
 	subagentTool,
 	type AgentStartedLogEntry,
 	type AutoCompactConfig,
@@ -66,7 +66,7 @@ it.effect('a dispatched subagent compacts its own context; the parent projection
 			textTurn('root synthesis'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				systemPrompt: 'You are the root agent.',
@@ -141,7 +141,7 @@ it.effect('a fork compacts history including the parent folded range without tou
 			textTurn('root closing words'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model,
 				systemPrompt: 'You are the root agent.',

@@ -6,7 +6,9 @@
  */
 import { it } from '@effect/vitest'
 import {
-	AgentId,
+	customModel,
+	defineAgent,
+	Session,
 	EventLog,
 	LogEntry,
 	SessionId,
@@ -15,6 +17,7 @@ import {
 	type LogEntryInput,
 } from '@humanlayer/fold-core'
 import { Context, Effect, Layer, Predicate, Ref, Schema, Scope, Stream } from 'effect'
+import { LanguageModel } from 'effect/ai'
 import { HttpRouter } from 'effect/http'
 import { expect } from 'vitest'
 
@@ -22,7 +25,22 @@ import { ChatRoutes } from '../src/Api'
 import { ChatSessions } from '../src/ChatSessions'
 import { RepoCloneError, repoName } from '../src/Workspace'
 
-const rootAgentId = AgentId.create()
+const apiTestAgent = defineAgent({
+	model: customModel({
+		activeModel: {
+			providerId: 'test',
+			providerKind: 'openai-compatible',
+			modelId: 'test',
+			role: null,
+			requestedReasoningLevel: 'off',
+			reasoning: { _tag: 'disabled' },
+		},
+		make: LanguageModel.make({
+			generateText: () => Effect.die('API test does not call a model'),
+			streamText: () => Stream.empty,
+		}),
+	}),
+})
 
 const layerInMemory = Layer.effect(
 	ChatSessions,
@@ -34,7 +52,7 @@ const layerInMemory = Layer.effect(
 			Effect.gen(function* () {
 				const existing = (yield* Ref.get(logs)).get(sessionId)
 				if (existing !== undefined) return existing
-				const opened = yield* Layer.build(layerInMemoryEventLog).pipe(
+				const opened = yield* Layer.build(layerInMemoryEventLog.pipe(Layer.fresh)).pipe(
 					Effect.map(Context.get(EventLog)),
 					Scope.provide(scope),
 				)
@@ -55,20 +73,20 @@ const layerInMemory = Layer.effect(
 						if (missing !== undefined) {
 							return yield* new RepoCloneError({ message: `Cloning ${repoName(missing)} failed` })
 						}
-						yield* appendOrDie(log, {
-							_tag: 'session_started',
-							agentId: null,
-							parentAgentId: null,
-							toolCallId: null,
-							cwd: '/workspace',
+						// Layer composition at the host boundary supplies the same log to Fold and RPC readers.
+						yield* Session.open({
+							agent: apiTestAgent,
 							sessionId,
-							rootAgentId,
+							cwd: '/workspace',
 							meta: { repos: repos.map(repoName) },
-						})
+						}).pipe(Effect.provideService(EventLog, log), Scope.provide(scope))
 					}
+					const identity = (yield* entriesOf(log)).find(Predicate.isTagged('session_started'))
+					if (identity === undefined || !Predicate.isTagged(identity, 'session_started'))
+						return yield* Effect.die('missing session identity')
 					const finished = yield* appendOrDie(log, {
 						_tag: 'agent-finished',
-						agentId: rootAgentId,
+						agentId: identity.rootAgentId,
 						parentAgentId: null,
 						toolCallId: null,
 						outcome: 'completed',
@@ -115,7 +133,8 @@ it.effect('the first message to a new id starts its session; GET /log replays it
 		})
 
 		const entries = yield* request('GET', `/sessions/${sessionId}/log`).pipe(Effect.flatMap(decodeEntries))
-		expect(entries.map((entry) => entry._tag)).toEqual(['session_started', 'agent-finished'])
+		expect(entries.filter(Predicate.isTagged('session_started'))).toHaveLength(1)
+		expect(entries.at(-1)?._tag).toBe('agent-finished')
 	}).pipe(Effect.scoped),
 )
 

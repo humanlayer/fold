@@ -13,10 +13,10 @@ import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { codexModel } from '@humanlayer/fold-codex'
-import { defineAgent, startSession } from '@humanlayer/fold-core'
+import { defineAgent, Session } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect, Layer } from 'effect'
 
-import { codingTools, jsonlEventLog, layerCodingToolServices } from '../src/index'
+import { codingTools, layerJsonl, layerCodingToolServices } from '../src/index'
 
 const modelId = process.env.FOLD_CODEX_MODEL ?? 'gpt-5.5'
 
@@ -27,9 +27,12 @@ const program = Effect.gen(function* () {
 
 	// The coding tools' services live as long as the session, in this program's scope.
 	const toolServices = yield* Layer.build(
-		layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
+		layerJsonl(logPath).pipe(
+			Layer.orDie,
+			Layer.provideMerge(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })),
+		),
 	)
-	const session = yield* startSession({
+	const session = yield* Session.open({
 		agent: defineAgent({
 			name: 'codex-demo',
 			model: codexModel({ model: modelId, reasoning: 'medium' }),
@@ -38,7 +41,6 @@ const program = Effect.gen(function* () {
 				'Use your tools to inspect and change files; keep answers short.',
 			tools: codingTools({ cwd: workspace }),
 		}),
-		log: jsonlEventLog(logPath),
 		cwd: workspace,
 	}).pipe(Effect.provideContext(toolServices))
 

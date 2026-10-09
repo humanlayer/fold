@@ -12,10 +12,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { anthropicModel, defineAgent, defineSubagent, startSession, subagentTool } from '@humanlayer/fold-core'
+import { anthropicModel, defineAgent, defineSubagent, Session, subagentTool } from '@humanlayer/fold-core'
 import { Predicate, Console, Effect, Layer } from 'effect'
 
-import { bashTool, jsonlEventLog, layerCodingToolServices, readTool } from '../src/index'
+import { bashTool, layerJsonl, layerCodingToolServices, readTool } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 const apiKey = process.env.ANTHROPIC_API_KEY
@@ -50,9 +50,12 @@ const makeProgram = (apiKey: string) =>
 		// The root is a pure orchestrator: its ONLY tool is the subagent tool over its roster.
 		// The coding tools' services live as long as the session, in this program's scope.
 		const toolServices = yield* Layer.build(
-			layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') }),
+			layerJsonl(logPath).pipe(
+				Layer.orDie,
+				Layer.provideMerge(layerCodingToolServices({ outputDirectory: join(workspace, 'tool-output') })),
+			),
 		)
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'subagents-demo',
 				model,
@@ -61,7 +64,6 @@ const makeProgram = (apiKey: string) =>
 					'to your subagents and synthesize short answers from their results.',
 				tools: [subagentTool([researcher])],
 			}),
-			log: jsonlEventLog(logPath),
 			cwd: workspace,
 		}).pipe(Effect.provideContext(toolServices))
 

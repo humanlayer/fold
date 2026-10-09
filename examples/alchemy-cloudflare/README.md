@@ -3,7 +3,7 @@
 A minimal fold chat host on Cloudflare, deployed with [Alchemy v2](https://alchemy.run/cloudflare/). Inference runs on OpenAI (`gpt-5.6-terra`, medium reasoning) through fold's `openaiModel`. Each fold session is one Durable Object, named by its `SessionId`, with a workspace of cloned repos in a second one of the same name.
 
 - `src/ChatSession.ts` — the Durable Object. It opens the fold log in its SQLite on activation; the first message clones its repos and starts the session, later activations resume it.
-- `src/DurableObjectEventLog.ts` — the service that opens fold's `EventLogService` over the object's SQLite.
+- `src/DurableObjectEventLog.ts` — an `EventLog`-producing layer over the object's SQLite.
 - `src/Keepalive.ts` — a 30s alarm heartbeat that keeps the object alive while a turn runs.
 - `src/SessionExpiry.ts` — deletes an idle session and its workspace; see below.
 - `src/ChatSessions.ts` — the service the routes require; its `layer` reaches each session's Durable Object.
@@ -55,3 +55,9 @@ The agent gets fold-agent's file tools on the workspace: `read`, plus `write` an
 - Clones go over HTTPS, public repos only. They run in the Durable Object through `isomorphic-git`, which fetches every file at the tip, so large repos clone slowly.
 
 - Replies arrive whole. `FoldSession.events` can stream deltas once a route forwards them.
+
+`ChatSession` builds the SQLite layer once per object activation into the explicit object-lifetime scope,
+inside Alchemy's returned runtime Effect (planning has no live SQLite handle). The same EventLog instance
+serves emptiness checks, `Session.open({ agent })`, and the `entries()` RPC. Workspace preparation still
+branches on an empty versus existing log; Fold itself automatically initializes or resumes it. The backend
+is not rebuilt for each RPC and does not end with the constructor/request scope.

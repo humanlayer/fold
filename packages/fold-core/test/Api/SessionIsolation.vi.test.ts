@@ -1,15 +1,15 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
- * Cross-session isolation: startSession builds with session-fresh memo maps, so two sessions started
+ * Cross-session isolation: Session.open builds with session-fresh memo maps, so two sessions started
  * inside one program never share module-level layers. This is the regression test for the v4
  * CurrentMemoMap hazard - it.effect runs under `Effect.provide`, so an ambient memo map is present in
  * the fiber context, which is exactly the environment where by-reference layer memoization would hand
  * both sessions one shared EventLog and one shared event spine.
  */
 import { expect, it } from '@effect/vitest'
-import { Predicate, Effect } from 'effect'
+import { Deferred, Fiber, Predicate, Effect, Stream } from 'effect'
 
-import { defineAgent, startSession, type SessionStartedLogEntry } from '../../src/index'
+import { defineAgent, Session, type SessionStartedLogEntry } from '../../src/index'
 import { textTurn } from '../TestLayers/ScriptedLanguageModel'
 import { gptActiveModel, scriptedModel } from './ApiTestHelpers'
 
@@ -18,10 +18,10 @@ it.effect('two sessions in one program share no log, ids, or model runtime', () 
 		const first = yield* scriptedModel(gptActiveModel, [textTurn('from session A')])
 		const second = yield* scriptedModel(gptActiveModel, [textTurn('from session B')])
 
-		const sessionA = yield* startSession({
+		const sessionA = yield* Session.open({
 			agent: defineAgent({ model: first.model, systemPrompt: 'Session A agent.' }),
 		})
-		const sessionB = yield* startSession({
+		const sessionB = yield* Session.open({
 			agent: defineAgent({ model: second.model, systemPrompt: 'Session B agent.' }),
 		})
 
@@ -57,5 +57,24 @@ it.effect('two sessions in one program share no log, ids, or model runtime', () 
 		// Sequence numbers restart per log - interleaving into one shared log would break this.
 		expect(entriesA.map((entry) => entry.seq)).toEqual(entriesA.map((_, index) => index))
 		expect(entriesB.map((entry) => entry.seq)).toEqual(entriesB.map((_, index) => index))
+		const eventIdsA = new Set(entriesA.map((entry) => entry.eventId))
+		expect(entriesB.some((entry) => eventIdsA.has(entry.eventId))).toBe(false)
+
+		// The first replayed event proves the subscription is attached before either live append.
+		const subscribed = yield* Deferred.make<void>()
+		const liveTitle = yield* Effect.forkChild(
+			sessionA.events().pipe(
+				Stream.tap(() => Deferred.succeed(subscribed, undefined)),
+				Stream.filter((event) => event.kind === 'log' && Predicate.isTagged(event.entry, 'session_title')),
+				Stream.take(1),
+				Stream.runCollect,
+			),
+		)
+		yield* Deferred.await(subscribed)
+		yield* sessionB.setTitle('session B title')
+		yield* sessionA.setTitle('session A title')
+		expect(yield* Fiber.join(liveTitle)).toMatchObject([
+			{ kind: 'log', entry: { _tag: 'session_title', title: 'session A title' } },
+		])
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

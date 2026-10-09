@@ -17,11 +17,13 @@ API, read `~/projects/effect`, not Effect v3 documentation or examples.
 
 ## Fold's architecture
 
-- **Public Fold APIs are descriptor-facing.** Hosts use `defineAgent`, model descriptors, tool descriptors, and
-  event-log descriptors without learning `Layer`, `Toolkit`, or runtime wiring. See `README.md` and
-  `packages/fold-core/src/Api/Provisioning.ts`.
+- **Agent APIs are descriptor-facing; event logs are layer-native.** Hosts use `defineAgent`, model and tool
+  descriptors. `Session.open({ agent })` initializes or resumes the ambient `EventLog`; absence means a fresh
+  isolated memory log. Custom logs are selected at the host composition root with `Layer`, never a session option.
+  See `README.md` and `packages/fold-core/src/Api/OpenSession.ts`.
 - **Provisioning owns lowering.** The provisioner turns descriptors into the required services and layers once per
-  runtime/session. Do not make callers build or pass Fold's internal clients, layers, toolsets, or runtime services.
+  runtime/session. Do not make callers build Fold's internal clients, toolsets, or runtime services. Host-owned
+  EventLog layers are the deliberate exception: supply them through the Effect environment.
 - **Services are internal capabilities.** Use `Context.Service` and `Layer` where a capability varies by runtime,
   implementation, or test seam. One implementation is enough when the seam is valuable for real tests.
 - **Event schemas are durable contracts.** Model persisted and wire-visible log entries with `Schema.TaggedStruct` and
@@ -62,8 +64,12 @@ API, read `~/projects/effect`, not Effect v3 documentation or examples.
   only when that separation improves locality.
 - Dependencies normally remain ambient in `R`. Yield them where the operation needs them rather than forwarding them
   through public signatures.
-- Build runtime-specific layer graphs at the provisioner/facade seam. Fold's agent provisioner owns memo-map and
-  scope semantics; callers do not recreate that graph.
+- Build internal runtime graphs at the provisioner/facade seam with fresh memo maps. Hosts own their EventLog
+  acquisition scope and cardinality: build once per session, share with that session's consumers, and keep it alive
+  for every handle/RPC use. Never put unrelated sessions under one shared EventLog. Session.open alone may use
+  Effect.serviceOption (documented lint exception); the internal graph requires EventLog directly.
+- Persisted-log acquisition and operation failures are infrastructure defects by Fold policy. Use Layer.orDie
+  at host acquisition and Effect.orDie at session operations; do not silently fall back to an empty log.
 - Acquire resources in a scope and make background work supervised/owned. Bound concurrency for unbounded fan-out and
   keep external calls outside authoritative transactions.
 - Use `Effect.fn` or `Effect.withSpan` for meaningful public or I/O operation boundaries when observability is
