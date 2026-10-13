@@ -45,11 +45,11 @@ import {
 	type XaiAuthError,
 	type XaiAuthOptions,
 } from '@humanlayer/fold-xai'
-import { Array as Arr, Clock, Console, Effect, Layer, Match, Option, Schema } from 'effect'
+import { Array as Arr, Clock, Console, Duration, Effect, Layer, Match, Option, Schema } from 'effect'
 import { type CliError, Command, Flag } from 'effect/cli'
 
 import { jsonOutputRenderer, promptOutputRenderer, type JsonOutputMode } from './Renderer'
-import { ResumeTarget, runPrompt, type CliSessionOptions } from './Run'
+import { ResumeTarget, runPrompt, type CliSessionOptions, type PromptRunOptions } from './Run'
 
 declare const FOLD_VERSION: string
 /** The release version the native build defines as a global; source runs have no such global. */
@@ -186,6 +186,10 @@ const commonFlags = {
 		'Keep this many recent tokens verbatim',
 	),
 	compactionPrompt: optionalString('compaction-prompt', 'Override the compaction summarization prompt'),
+	backgroundTimeout: optionalInteger(
+		'background-timeout',
+		'Seconds a --prompt run waits for background agents before stopping them (default 600)',
+	),
 }
 
 /** Decoded values of {@link commonFlags}, the root `fold` command's flag set. */
@@ -211,6 +215,7 @@ export type CommonFlagValues = {
 	readonly compactionReserveTokens: Option.Option<number>
 	readonly compactionKeepRecentTokens: Option.Option<number>
 	readonly compactionPrompt: Option.Option<string>
+	readonly backgroundTimeout: Option.Option<number>
 }
 
 const optionValue = <A>(option: Option.Option<A>): A | undefined => Option.getOrUndefined(option)
@@ -399,7 +404,10 @@ const run = Command.make('foldcode', commonFlags, (input) =>
 					? promptOutputRenderer({ colors: !input.noColor, verbose: input.verbose, catalog })
 					: jsonOutputRenderer({ mode: outputMode })
 
-			const finished = yield* runPrompt({ ...sessionOptions, prompt }, renderer)
+			const promptOptions: Mutable<PromptRunOptions> = { ...sessionOptions, prompt }
+			const backgroundTimeout = optionValue(input.backgroundTimeout)
+			if (backgroundTimeout !== undefined) promptOptions.backgroundTimeout = Duration.seconds(backgroundTimeout)
+			const finished = yield* runPrompt(promptOptions, renderer)
 			if (finished.outcome === 'completed') return
 
 			process.exitCode = finished.outcome === 'interrupted' ? 130 : 1

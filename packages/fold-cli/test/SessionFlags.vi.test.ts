@@ -29,6 +29,7 @@ const baseFlags: CommonFlagValues = {
 	compactionReserveTokens: Option.none(),
 	compactionKeepRecentTokens: Option.none(),
 	compactionPrompt: Option.none(),
+	backgroundTimeout: Option.none(),
 }
 
 it.effect('lowers --mode into the session options', () =>
