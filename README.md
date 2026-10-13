@@ -87,6 +87,30 @@ Existing log identity is authoritative. A conflicting `sessionId`, a nonempty lo
 history, or multiple session starts fails rather than silently initializing a new session. `cwd` and
 `meta` apply only to initialization; resumed model/prompt changes are recorded as configuration epochs.
 
+## Background subagents
+
+A `subagent` tool call with `run_in_background: true` returns as soon as the agent has started, so the
+calling agent can finish its turn while the subagent works. When the subagent finishes, fold writes a
+synthetic `<task-notification>` user message for the agent that launched it and, if the root agent is
+idle, starts a new root turn on it (a "wake"). Completions that arrive while the root is busy join that
+run as one coalesced follow-up.
+
+```ts
+import { agentControlTools, defineAgent, Session, subagentTool } from '@humanlayer/fold-core'
+
+const agent = defineAgent({ model, tools: [subagentTool([researcher]), ...agentControlTools()] })
+const session = yield * Session.open({ agent })
+yield * session.send('Investigate the three slow endpoints in parallel.')
+yield * session.awaitBackgroundIdle // background agents done, notification turns delivered
+const tasks = yield * session.backgroundTasks // status, usage, summary per task
+```
+
+`agentControlTools()` gives the model `list_agents`, `stop_agent`, and `send_message`. Hosts get
+`backgroundTasks`, `backgroundTaskChanges`, `stopTask(id)`, and `awaitBackgroundIdle`. `interrupt()` stops
+only the foreground turn; `stop()` and closing the session stop background agents too. The durable rows
+are `task_started` and `task_finished`; see [docs/background-subagents.md](docs/background-subagents.md)
+for the full behavior, events, and API.
+
 ### API migration
 
 This is a breaking API change: replace `startSession` / `resumeSession` with `Session.open` and remove
