@@ -1,4 +1,10 @@
-import type { AgentId, AgentStartedLogEntry, LogEntry } from '@humanlayer/fold-core'
+import type {
+	AgentId,
+	AgentStartedLogEntry,
+	LogEntry,
+	TaskFinishedLogEntry,
+	TaskStartedLogEntry,
+} from '@humanlayer/fold-core'
 
 export type SubagentStatus = 'running' | 'done' | 'error' | 'stopped' | 'interrupted'
 
@@ -9,6 +15,8 @@ export type SubagentView = {
 	readonly description: string
 	readonly prompt: string
 	readonly status: SubagentStatus
+	/** Launched with run_in_background: its launcher did not wait for it. */
+	readonly background: boolean
 	readonly turns: number
 	readonly tools: number
 	readonly entries: ReadonlyArray<LogEntry>
@@ -41,6 +49,17 @@ const dispatchDetails = (entries: ReadonlyArray<LogEntry>, toolCallId: string | 
 	return undefined
 }
 
+/** A background task's status from its latest run: running until that run's task_finished row lands. */
+const backgroundStatus = (
+	latestStart: TaskStartedLogEntry,
+	latestFinish: TaskFinishedLogEntry | undefined,
+): SubagentStatus => {
+	if (latestFinish === undefined || latestFinish.seq < latestStart.seq) return 'running'
+	if (latestFinish.status === 'completed') return 'done'
+	if (latestFinish.status === 'failed') return 'error'
+	return 'stopped'
+}
+
 export const subagentViews = (entries: ReadonlyArray<LogEntry>, rootAgentId: AgentId): ReadonlyArray<SubagentView> => {
 	const starts = entries.filter(
 		(entry): entry is AgentStartedLogEntry => entry._tag === 'agent_started' && entry.agentId !== rootAgentId,
@@ -54,18 +73,29 @@ export const subagentViews = (entries: ReadonlyArray<LogEntry>, rootAgentId: Age
 				(entry) => entry._tag === 'user-message' && (finish === undefined || entry.seq > finish.seq),
 			)
 			const details = dispatchDetails(entries, start.toolCallId)
+			const taskStart = own.filter((entry): entry is TaskStartedLogEntry => entry._tag === 'task_started').at(-1)
+			const taskFinish = own
+				.filter((entry): entry is TaskFinishedLogEntry => entry._tag === 'task_finished')
+				.at(-1)
+			const foregroundStatus: SubagentStatus =
+				continuing || finish === undefined
+					? 'running'
+					: finish.outcome === 'completed'
+						? 'done'
+						: finish.outcome
 			return {
 				agentId: start.agentId,
 				calledAt: start.ts,
 				type: start.agentType ?? (start.mode === 'fork' ? 'fork' : 'subagent'),
-				description: details?.description || 'delegated task',
+				description: taskStart?.description || details?.description || 'delegated task',
 				prompt: details?.prompt ?? '',
+				// Task rows refine how a background run ended; the agent's own rows still say whether it runs now
+				// (a finished background agent may be continued in the foreground).
 				status:
-					continuing || finish === undefined
-						? 'running'
-						: finish.outcome === 'completed'
-							? 'done'
-							: finish.outcome,
+					taskStart === undefined || foregroundStatus === 'running'
+						? foregroundStatus
+						: backgroundStatus(taskStart, taskFinish),
+				background: taskStart !== undefined,
 				turns: own.filter((entry) => entry._tag === 'assistant-message').length,
 				tools: own.reduce(
 					(count, entry) =>
@@ -117,6 +147,7 @@ export const metaCounts = (entries: ReadonlyArray<LogEntry>, agents: ReadonlyArr
 		toolCalls: [...toolCalls.entries()].sort((left, right) => right[1] - left[1]),
 		agentTypes: [...agentTypes.entries()].sort((left, right) => right[1] - left[1]),
 		running: agents.filter((agent) => agent.status === 'running').length,
+		background: agents.filter((agent) => agent.background && agent.status === 'running').length,
 		done: agents.filter((agent) => agent.status === 'done').length,
 		errors: agents.filter((agent) => agent.status === 'error').length,
 		stopped: agents.filter((agent) => agent.status === 'stopped').length,

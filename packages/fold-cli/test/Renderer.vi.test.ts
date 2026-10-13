@@ -525,3 +525,81 @@ it('responseCostUsd clamps the non-cached input component at zero', () => {
 	// Reported cache reads exceed the folded total: the uncached term clamps to 0, reads still bill.
 	expect(cost).toBeCloseTo((200 * 0.5) / 1_000_000, 10)
 })
+
+it.effect('prints background task start and finish lines, and a task-notification wake as a notification', () =>
+	Effect.gen(function* () {
+		const chunks: Array<string> = []
+		const renderer = humanOutputRenderer({
+			colors: false,
+			stdout: (text) =>
+				Effect.sync(() => {
+					chunks.push(text)
+				}),
+		})
+		const rootId = AgentId.make('agent_cccccccccccccccccccccccc')
+		const taskId = AgentId.make(`agent_ab12cd34${'0'.repeat(16)}`)
+		const toolCallId = ToolCallId.make('tool_call_cccccccccccccccccccccccc')
+		const envelope = {
+			eventId: EventId.create(),
+			ts: 1,
+			version: 1 as const,
+			agentId: taskId,
+			parentAgentId: rootId,
+			toolCallId,
+		}
+
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				...envelope,
+				_tag: 'task_started',
+				seq: 1,
+				taskType: 'subagent',
+				agentType: 'researcher',
+				description: 'find the loader',
+				prompt: 'look',
+				isBackgrounded: true,
+				runCount: 1,
+			},
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				...envelope,
+				_tag: 'task_finished',
+				seq: 2,
+				status: 'failed',
+				summary: null,
+				error: 'provider unavailable',
+				usage: { turns: 1, toolUses: 2, totalTokens: null },
+				durationMs: 5,
+				lastToolName: 'read',
+			},
+		})
+		yield* renderer.renderEvent({
+			kind: 'log',
+			entry: {
+				_tag: 'user-message',
+				seq: 3,
+				eventId: EventId.create(),
+				ts: 1,
+				version: 1,
+				agentId: rootId,
+				parentAgentId: null,
+				toolCallId: null,
+				messageId: MessageId.make('msg_cccccccccccccccccccccccc'),
+				message: {
+					role: 'user',
+					content: [{ type: 'text', text: '<task-notification>...</task-notification>' }],
+				},
+				origin: { _tag: 'task-notification', taskIds: [taskId] },
+			},
+		})
+
+		const output = chunks.join('')
+		expect(output).toContain('[background] agent_ab12 started: find the loader')
+		expect(output).toContain('[background] agent_ab12 failed (1 turn, 2 tool uses) - provider unavailable')
+		expect(output).toContain('[notification] background agent agent_ab12 finished')
+		expect(output).not.toContain('<task-notification>')
+	}),
+)

@@ -51,6 +51,8 @@ export type HostedTuiSession = {
 	readonly stop: () => void
 	readonly targetSubmit: (agentId: string, text: string, verb: RootInputVerb) => void
 	readonly targetInterrupt: (agentId: string) => void
+	/** Stop one running background agent; its launcher is notified. */
+	readonly stopTask: (agentId: string) => void
 	readonly injectSkill: (name: string, agentId: string | null) => void
 	readonly configureModels: (selection: ModelSelectionRequest) => void
 	readonly notify: (notice: string | null) => void
@@ -155,6 +157,25 @@ export const makeHostedTuiSession = (
 							Effect.sync(() => setTargetNotice({ agentId, text: failNotice(cause) })),
 						),
 					),
+			)
+		}
+		const stopTask = (agentId: string): void => {
+			setNotice(null)
+			setTargetNotice({ agentId, text: 'BACKGROUND AGENT STOP REQUESTED' })
+			run(
+				session.stopTask(agentId).pipe(
+					Effect.tap((stopped) =>
+						Effect.sync(() =>
+							setTargetNotice({
+								agentId,
+								text: stopped ? 'BACKGROUND AGENT STOPPED' : 'BACKGROUND AGENT NOT RUNNING',
+							}),
+						),
+					),
+					Effect.catchCause((cause) =>
+						Effect.sync(() => setTargetNotice({ agentId, text: failNotice(cause) })),
+					),
+				),
 			)
 		}
 		const injectSkill = (name: string, agentId: string | null): void => {
@@ -278,6 +299,7 @@ export const makeHostedTuiSession = (
 			stop,
 			targetSubmit,
 			targetInterrupt,
+			stopTask,
 			injectSkill,
 			configureModels,
 			notify: setNotice,
