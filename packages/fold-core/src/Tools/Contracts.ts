@@ -6,6 +6,7 @@
  * through write/edit, gpt/codex-family through apply_patch).
  */
 import { Schema } from 'effect'
+import { Tool } from 'effect/ai'
 
 import { ToolResultFailure, ToolResultSuccess, ToolResultText } from './ToolResultContent'
 import { defaultMaxLines, formatSize, defaultMaxBytes } from './Truncation'
@@ -304,7 +305,9 @@ export const subagentToolContract = {
 
 // --- background agent controls -----------------------------------------------------------------------
 
-const ListAgentsParameters = Schema.Struct({})
+// Tool.EmptyParams, not Schema.Struct({}): an empty struct also accepts arrays, so its JSON Schema
+// root is an anyOf, which OpenAI's strict tool schemas reject.
+const ListAgentsParameters = Tool.EmptyParams
 
 /** Contract for list_agents: the session's background agents with their status and latest result. */
 export const listAgentsToolContract = {

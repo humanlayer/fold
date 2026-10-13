@@ -177,6 +177,12 @@ type State = {
 	readonly inFlight: number
 	/** A wake run is waiting for the root's gate or running. */
 	readonly waking: boolean
+	/**
+	 * Runs that have not settled yet: launched, and their notification not yet queued. A run's
+	 * task_finished row lands before its scope closes and its notification is queued, so "no task is
+	 * running" alone would report idle in that window.
+	 */
+	readonly unsettled: ReadonlyArray<AgentId>
 }
 
 /** Per-run control state, kept only while the run's scope is open. */
@@ -365,7 +371,13 @@ export const layerBackgroundTasks: Layer.Layer<BackgroundTasks, never, EventLog 
 			const controls = yield* SessionControls
 			const agentEvents = yield* AgentEvents
 
-			const state = yield* SubscriptionRef.make<State>({ tasks: [], pending: [], inFlight: 0, waking: false })
+			const state = yield* SubscriptionRef.make<State>({
+				tasks: [],
+				pending: [],
+				inFlight: 0,
+				waking: false,
+				unsettled: [],
+			})
 			const activeRuns = yield* Ref.make<ReadonlyMap<AgentId, ActiveRun>>(new Map())
 			const kicks = yield* Queue.sliding<void>(1)
 
@@ -378,11 +390,6 @@ export const layerBackgroundTasks: Layer.Layer<BackgroundTasks, never, EventLog 
 			const getTask = (taskId: AgentId): Effect.Effect<BackgroundTask | null> =>
 				SubscriptionRef.get(state).pipe(
 					Effect.map((current) => current.tasks.find((task) => task.taskId === taskId) ?? null),
-				)
-
-			const enqueue = (notification: TaskNotification): Effect.Effect<void> =>
-				updateState((current) => ({ ...current, pending: [...current.pending, notification] })).pipe(
-					Effect.andThen(kick),
 				)
 
 			/** Fold the task agent's turns into live progress as they land, publishing each as a delta. */
@@ -502,7 +509,11 @@ export const layerBackgroundTasks: Layer.Layer<BackgroundTasks, never, EventLog 
 							return yield* Effect.die(new Error(`EventLog returned ${started._tag} for task_started`))
 						}
 						const task = taskFromStarted(started, previous ?? undefined)
-						yield* updateState((current) => ({ ...current, tasks: upsertTask(current.tasks, task) }))
+						yield* updateState((current) => ({
+							...current,
+							tasks: upsertTask(current.tasks, task),
+							unsettled: [...current.unsettled, task.taskId],
+						}))
 
 						const activeRun: ActiveRun = {
 							stopNotice: yield* Ref.make<TaskStopNotice>('notify'),
@@ -531,15 +542,28 @@ export const layerBackgroundTasks: Layer.Layer<BackgroundTasks, never, EventLog 
 								next.delete(task.taskId)
 								return next
 							})
-							const ended = yield* getTask(task.taskId)
-							if (ended !== null && notice !== 'silent') {
-								yield* enqueue({
-									taskId: ended.taskId,
-									parentAgentId: ended.parentAgentId,
-									text: renderTaskNotification(ended),
-									deferred: notice === 'defer',
-								})
-							}
+							// Queue the notification and mark the run settled in one update, so an idle check never
+							// sees the run finished with nothing queued for it.
+							yield* updateState((current) => {
+								const ended = current.tasks.find((candidate) => candidate.taskId === task.taskId)
+								const notification: ReadonlyArray<TaskNotification> =
+									ended === undefined || notice === 'silent'
+										? []
+										: [
+												{
+													taskId: ended.taskId,
+													parentAgentId: ended.parentAgentId,
+													text: renderTaskNotification(ended),
+													deferred: notice === 'defer',
+												},
+											]
+								return {
+									...current,
+									pending: [...current.pending, ...notification],
+									unsettled: current.unsettled.filter((taskId) => taskId !== task.taskId),
+								}
+							})
+							yield* kick
 							yield* Deferred.succeed(activeRun.settled, undefined)
 						}).pipe(Effect.forkIn(sessionScope))
 
@@ -766,6 +790,7 @@ export const layerBackgroundTasks: Layer.Layer<BackgroundTasks, never, EventLog 
 			const isIdle = (current: State): boolean =>
 				!current.waking &&
 				current.inFlight === 0 &&
+				Arr.isReadonlyArrayEmpty(current.unsettled) &&
 				current.tasks.every((task) => task.status !== 'running') &&
 				current.pending.every((notification) => notification.deferred)
 

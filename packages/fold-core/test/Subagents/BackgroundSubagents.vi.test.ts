@@ -503,3 +503,28 @@ it.effect('a background task whose launcher already finished notifies the root',
 		])
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
+
+it.effect('awaitBackgroundIdle does not resolve between a task finishing and its notification turn', () =>
+	Effect.gen(function* () {
+		const release = yield* Deferred.make<void>()
+		const child = yield* makeGatedModel(claudeActiveModel, [gatedTurn(textTurn('late result'), { gate: release })])
+		const root = yield* makeGatedModel(gptActiveModel, [
+			toolCallTurn([backgroundCall('provider-call-1', 'late task')]),
+			textTurn('launched'),
+			textTurn('relayed the late result'),
+		])
+		const session = yield* openBackgroundSession(root.model, child.model)
+		yield* session.send('go')
+
+		// Watching from before the run ends observes every intermediate state, including the one where
+		// task_finished has landed but the notification is not queued yet.
+		const idle = yield* Effect.forkScoped(session.awaitBackgroundIdle, { startImmediately: true })
+		yield* Effect.yieldNow
+		yield* Deferred.succeed(release, undefined)
+		yield* Fiber.join(idle)
+
+		const entries = yield* session.entries
+		expect(notificationMessages(entries)).toHaveLength(1)
+		expect(rootFinishedOutcomes(entries, session.rootAgentId).at(-1)?.resultText).toBe('relayed the late result')
+	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
