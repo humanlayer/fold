@@ -68,6 +68,7 @@ it('holds the file tools, skills, and subagents - and deliberately no bash', () 
 
 	expect(names).not.toContain('bash')
 	expect(names.filter((name) => name === 'subagent')).toHaveLength(1)
+	expect(names).toEqual(expect.arrayContaining(['list_agents', 'stop_agent', 'send_message']))
 	expect(names.filter((name) => name === 'skill')).toHaveLength(1)
 	expect(names).toContain('read')
 	expect(names).toContain('write')

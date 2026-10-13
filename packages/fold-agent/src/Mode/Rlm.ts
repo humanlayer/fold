@@ -8,7 +8,7 @@
  * The mode runs on the `orchestrator` config role, which falls back to `smart` when the config
  * declares no orchestrator binding (D25).
  */
-import { skillTool, subagentTool } from '@humanlayer/fold-core'
+import { agentControlTools, skillTool, subagentTool } from '@humanlayer/fold-core'
 
 import { skillsFromDisk } from '../Skills/DiskSkills'
 import { applyPatchTool } from '../Tools/ApplyPatchTool'
@@ -64,5 +64,6 @@ export const rlmMode: FoldMode = {
 		applyPatchTool({ cwd }),
 		skillTool(skillsFromDisk({ cwd })),
 		subagentTool(modeSubagents({ cwd, rpi })),
+		...agentControlTools(),
 	],
 }
