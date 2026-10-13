@@ -6,8 +6,10 @@ import {
 	CURRENT_LOG_ENTRY_VERSION,
 	EventId,
 	EventLogUnsupportedVersionError,
+	MessageId,
 	SessionId,
 	SUPPORTED_LOG_ENTRY_VERSIONS,
+	ToolCallId,
 	decodeStoredLogEntry,
 } from '../../src/index'
 
@@ -120,5 +122,79 @@ it.effect('rejects an unsupported event format without guessing its schema', () 
 			expect(error.seq).toBe(0)
 			expect(error.supportedVersions).toEqual([1])
 		}
+	}),
+)
+
+const legacyUserMessageEntry = () => ({
+	_tag: 'user-message',
+	seq: 2,
+	eventId: EventId.create(),
+	ts: 3,
+	agentId: AgentId.create(),
+	parentAgentId: null,
+	toolCallId: null,
+	messageId: MessageId.create(),
+	message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+})
+
+it.effect('decodes v1 user messages written before message origins existed', () =>
+	Effect.gen(function* () {
+		const entry = yield* decodeStoredLogEntry(legacyUserMessageEntry())
+
+		expect(entry._tag).toBe('user-message')
+		if (!Predicate.isTagged(entry, 'user-message')) throw new Error('expected a user-message')
+		expect(entry.origin).toBeUndefined()
+	}),
+)
+
+it.effect('decodes task-notification origins and background task lifecycle rows', () =>
+	Effect.gen(function* () {
+		const taskId = AgentId.create()
+		const parentAgentId = AgentId.create()
+		const toolCallId = ToolCallId.create()
+
+		const notification = yield* decodeStoredLogEntry({
+			...legacyUserMessageEntry(),
+			version: CURRENT_LOG_ENTRY_VERSION,
+			origin: { _tag: 'task-notification', taskIds: [taskId] },
+		})
+		if (!Predicate.isTagged(notification, 'user-message')) throw new Error('expected a user-message')
+		expect(notification.origin).toEqual({ _tag: 'task-notification', taskIds: [taskId] })
+
+		const started = yield* decodeStoredLogEntry({
+			_tag: 'task_started',
+			seq: 3,
+			eventId: EventId.create(),
+			ts: 4,
+			version: CURRENT_LOG_ENTRY_VERSION,
+			agentId: taskId,
+			parentAgentId,
+			toolCallId,
+			taskType: 'subagent',
+			agentType: 'researcher',
+			description: 'find it',
+			prompt: 'look',
+			isBackgrounded: true,
+			runCount: 1,
+		})
+		expect(started._tag).toBe('task_started')
+
+		const finished = yield* decodeStoredLogEntry({
+			_tag: 'task_finished',
+			seq: 4,
+			eventId: EventId.create(),
+			ts: 5,
+			agentId: taskId,
+			parentAgentId,
+			toolCallId,
+			status: 'completed',
+			summary: 'found it',
+			error: null,
+			usage: { turns: 1, toolUses: 2, totalTokens: null },
+			durationMs: 10,
+			lastToolName: 'read',
+		})
+		expect(finished._tag).toBe('task_finished')
+		expect(finished.version).toBe(1)
 	}),
 )

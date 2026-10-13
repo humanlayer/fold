@@ -339,6 +339,26 @@ export const SystemMessageLogEntry = Schema.TaggedStruct('system-message', {
 	.annotate({ identifier: 'SystemMessageLogEntry' })
 export type SystemMessageLogEntry = typeof SystemMessageLogEntry.Type
 
+/**
+ * Origin of a user message the runtime wrote on its own: a task notification delivered to the agent
+ * that launched one or more background tasks. The ids are the finished tasks' agent ids.
+ */
+export const TaskNotificationOrigin = Schema.TaggedStruct('task-notification', {
+	taskIds: Schema.Array(AgentId),
+}).annotate({ identifier: 'TaskNotificationOrigin' })
+export type TaskNotificationOrigin = typeof TaskNotificationOrigin.Type
+
+/**
+ * Why a user message exists when a person did not type it. Absent on ordinary user turns (and on every
+ * entry written before origins existed), so v1 logs decode unchanged. UIs use it to render synthetic
+ * messages as system rows; the model still sees the message text.
+ */
+export const UserMessageOrigin = Schema.Union([TaskNotificationOrigin]).annotate({
+	identifier: 'UserMessageOrigin',
+	discriminator: '_tag',
+})
+export type UserMessageOrigin = typeof UserMessageOrigin.Type
+
 /** Input for a user message log entry. */
 export const UserMessageLogEntryInput = Schema.TaggedStruct('user-message', {
 	agentId: AgentId,
@@ -346,6 +366,7 @@ export const UserMessageLogEntryInput = Schema.TaggedStruct('user-message', {
 	toolCallId: Schema.NullOr(ToolCallId),
 	messageId: MessageId,
 	message: UserMessageEncoded,
+	origin: Schema.optionalKey(UserMessageOrigin),
 })
 	.check(AgentRunContextFilter)
 	.annotate({ identifier: 'UserMessageLogEntryInput' })
@@ -359,6 +380,7 @@ export const UserMessageLogEntry = Schema.TaggedStruct('user-message', {
 	toolCallId: Schema.NullOr(ToolCallId),
 	messageId: MessageId,
 	message: UserMessageEncoded,
+	origin: Schema.optionalKey(UserMessageOrigin),
 })
 	.check(AgentRunContextFilter)
 	.annotate({ identifier: 'UserMessageLogEntry' })
@@ -638,6 +660,89 @@ export const ErrorLogEntry = Schema.TaggedStruct('error', {
 }).annotate({ identifier: 'ErrorLogEntry' })
 export type ErrorLogEntry = typeof ErrorLogEntry.Type
 
+/** What kind of work a background task runs. Only subagents today; the vocabulary may grow. */
+export const BackgroundTaskType = Schema.Literals(['subagent']).annotate({ identifier: 'BackgroundTaskType' })
+export type BackgroundTaskType = typeof BackgroundTaskType.Type
+
+/** How one run of a background task ended. A later run of the same task starts with a new task_started. */
+export const BackgroundTaskFinalStatus = Schema.Literals(['completed', 'failed', 'stopped']).annotate({
+	identifier: 'BackgroundTaskFinalStatus',
+})
+export type BackgroundTaskFinalStatus = typeof BackgroundTaskFinalStatus.Type
+
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+
+/** Work done by one background task run, folded from the task agent's own assistant messages. */
+export const BackgroundTaskUsage = Schema.Struct({
+	/** Assistant turns (model calls) in this run. */
+	turns: NonNegativeInt,
+	/** Tool calls the task agent made in this run. */
+	toolUses: NonNegativeInt,
+	/** Context size at the latest turn (input + output tokens), or null when the provider reported none. */
+	totalTokens: Schema.NullOr(NonNegativeInt),
+}).annotate({ identifier: 'BackgroundTaskUsage' })
+export type BackgroundTaskUsage = typeof BackgroundTaskUsage.Type
+
+const TaskStartedFields = {
+	/** The task id: the background agent's own id. */
+	agentId: AgentId,
+	/** The agent whose tool call launched (or resumed) this run, and is notified when it ends. */
+	parentAgentId: AgentId,
+	/** The launching tool call: the subagent call, or a send_message call that resumed the task. */
+	toolCallId: ToolCallId,
+	taskType: BackgroundTaskType,
+	/** Registry type name of the agent; null for forks. */
+	agentType: Schema.NullOr(Schema.String),
+	/** Short label for the task (the subagent call's description, or the agent type). */
+	description: Schema.String,
+	/** The message this run started with. */
+	prompt: Schema.String,
+	/** True when the run does not block its launcher. Foreground runs are not recorded as tasks today. */
+	isBackgrounded: Schema.Boolean,
+	/** 1 for the first run; each resume of the same task id increments it. */
+	runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+}
+
+/** Input for the durable start of one background task run. */
+export const TaskStartedLogEntryInput = Schema.TaggedStruct('task_started', TaskStartedFields).annotate({
+	identifier: 'TaskStartedLogEntryInput',
+})
+export type TaskStartedLogEntryInput = typeof TaskStartedLogEntryInput.Type
+
+/** Durable start of one background task run. Additive to v1: older runtimes never wrote it. */
+export const TaskStartedLogEntry = Schema.TaggedStruct('task_started', {
+	...CurrentStoredLogEntryEnvelope,
+	...TaskStartedFields,
+}).annotate({ identifier: 'TaskStartedLogEntry' })
+export type TaskStartedLogEntry = typeof TaskStartedLogEntry.Type
+
+const TaskFinishedFields = {
+	agentId: AgentId,
+	parentAgentId: AgentId,
+	toolCallId: ToolCallId,
+	status: BackgroundTaskFinalStatus,
+	/** The task agent's final assistant text for this run, or null when it produced none. */
+	summary: Schema.NullOr(Schema.String),
+	/** Model-visible error description; set when status is failed. */
+	error: Schema.NullOr(Schema.String),
+	usage: BackgroundTaskUsage,
+	durationMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+	lastToolName: Schema.NullOr(Schema.String),
+}
+
+/** Input for the durable end of one background task run. */
+export const TaskFinishedLogEntryInput = Schema.TaggedStruct('task_finished', TaskFinishedFields).annotate({
+	identifier: 'TaskFinishedLogEntryInput',
+})
+export type TaskFinishedLogEntryInput = typeof TaskFinishedLogEntryInput.Type
+
+/** Durable end of one background task run. Additive to v1: older runtimes never wrote it. */
+export const TaskFinishedLogEntry = Schema.TaggedStruct('task_finished', {
+	...CurrentStoredLogEntryEnvelope,
+	...TaskFinishedFields,
+}).annotate({ identifier: 'TaskFinishedLogEntry' })
+export type TaskFinishedLogEntry = typeof TaskFinishedLogEntry.Type
+
 /** Append-time log entry schema. `EventLog.append` assigns `seq` and `ts`. */
 export const LogEntryInput = Schema.Union([
 	SessionStartedLogEntryInput,
@@ -654,6 +759,8 @@ export const LogEntryInput = Schema.Union([
 	AgentFinishedLogEntryInput,
 	SessionTitleLogEntryInput,
 	ErrorLogEntryInput,
+	TaskStartedLogEntryInput,
+	TaskFinishedLogEntryInput,
 ]).annotate({ identifier: 'LogEntryInput', discriminator: '_tag' })
 export type LogEntryInput = typeof LogEntryInput.Type
 export const LogEntryInputs = Data.taggedEnum<LogEntryInput>()
@@ -674,6 +781,8 @@ export const LogEntryV1 = Schema.Union([
 	AgentFinishedLogEntry,
 	SessionTitleLogEntry,
 	ErrorLogEntry,
+	TaskStartedLogEntry,
+	TaskFinishedLogEntry,
 ]).annotate({ identifier: 'LogEntryV1', discriminator: '_tag' })
 export type LogEntryV1 = typeof LogEntryV1.Type
 

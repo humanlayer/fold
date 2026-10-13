@@ -8,7 +8,13 @@ import { Context, type Effect, type Schema, type Stream } from 'effect'
 
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
 import { openSession, type OpenSessionOptions } from '../Api/OpenSession'
-import type { ActiveModel, AgentFinishedLogEntry, CompactionLogEntry, LogSeq } from '../EventLog/Schemas'
+import type {
+	ActiveModel,
+	AgentFinishedLogEntry,
+	CompactionLogEntry,
+	LogSeq,
+	UserMessageOrigin,
+} from '../EventLog/Schemas'
 import type { AgentId, SessionId } from '../Ids'
 import type { SessionAlreadyStartedError, SessionNotStartedError } from './Errors'
 
@@ -39,6 +45,12 @@ export type SwitchSessionModelInput = {
 	readonly reason?: string | null
 }
 
+/** One root turn: the message text and, for runtime-written turns (task notifications), its origin. */
+export type SendSessionInput = {
+	readonly text: string
+	readonly origin?: UserMessageOrigin | undefined
+}
+
 export type CompactSessionOptions = {
 	readonly additionalInstructions?: string | null
 }
@@ -58,7 +70,7 @@ export type CompactSessionOptions = {
 export type SessionService = {
 	readonly start: (input: StartSessionInput) => Effect.Effect<StartedSession, SessionAlreadyStartedError>
 	readonly adopt: (input: StartedSession) => Effect.Effect<StartedSession, SessionAlreadyStartedError>
-	readonly send: (input: { readonly text: string }) => Effect.Effect<AgentFinishedLogEntry, SessionNotStartedError>
+	readonly send: (input: SendSessionInput) => Effect.Effect<AgentFinishedLogEntry, SessionNotStartedError>
 	readonly switchModel: (input: SwitchSessionModelInput) => Effect.Effect<void, SessionNotStartedError>
 	readonly compact: (
 		options?: CompactSessionOptions,

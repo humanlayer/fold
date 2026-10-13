@@ -17,6 +17,20 @@ export type DeltaPart =
 	| { readonly type: 'text-delta'; readonly id: string; readonly delta: string }
 	| { readonly type: 'reasoning-delta'; readonly id: string; readonly delta: string }
 	| { readonly type: 'tool-progress'; readonly toolName: string; readonly payload: Schema.Json }
+	/**
+	 * Live progress of one background task run, published on the task agent's envelope after each of
+	 * its turns. Latest wins; the durable `task_finished` row carries the final numbers.
+	 */
+	| {
+			readonly type: 'task-progress'
+			readonly taskId: AgentId
+			readonly turns: number
+			readonly toolUses: number
+			readonly totalTokens: number | null
+			readonly lastToolName: string | null
+			/** The task agent's latest assistant text, truncated: what it is doing right now. */
+			readonly progressSummary: string | null
+	  }
 
 /** One event on the merged session stream: a durable log row or an ephemeral delta. */
 export type FoldEvent =
