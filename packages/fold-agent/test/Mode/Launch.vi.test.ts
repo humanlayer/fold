@@ -1,6 +1,6 @@
 /**
  * Launch composition tests (D27): `launchSession` wires a resolved model + agentfiles + the mode's tool
- * roster into a real `startSession` over a JSONL log (D5 layout), and `resumeLatestSession` adopts the
+ * roster into a real `Session.open` over a JSONL log (D5 layout), and `resumeLatestSession` adopts the
  * newest log for the cwd. Uses a scripted `customModel` (no network) and real temp directories for the
  * workspace and fold home, so the JSONL persistence + agentfile discovery run end to end.
  */
@@ -80,7 +80,7 @@ const workspaceAndHome = (root: string): { readonly workspace: string; readonly 
 	return { workspace, foldHome }
 }
 
-it.effect('launchSession composes the model, agentfiles, and mode tools over startSession', () =>
+it.effect('launchSession composes the model, agentfiles, and mode tools over Session.open', () =>
 	Effect.gen(function* () {
 		const root = yield* tempDir
 		const { workspace, foldHome } = workspaceAndHome(root)
@@ -378,7 +378,7 @@ it.effect('launchSession wires session profiles end to end: role-bound roster st
 		yield* Effect.scoped(
 			Effect.gen(function* () {
 				// The default roster is role-bound ('smart'/'fast'), so the session starting AT ALL proves
-				// launchSession passed a covering profiles map through startSession's validation.
+				// launchSession passed a covering profiles map through Session.open's validation.
 				const session = yield* launchSession({ config, cwd: workspace, foldHome })
 				const started = (yield* session.entries).find((entry) => Predicate.isTagged(entry, 'agent_started'))
 				expect(started?._tag).toBe('agent_started')

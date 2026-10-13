@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
-import { anthropicModel, defineAgent, skillTool, startSession } from '@humanlayer/fold-core'
+import { anthropicModel, defineAgent, skillTool, Session } from '@humanlayer/fold-core'
 import { Console, Effect, Layer } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 
@@ -60,7 +60,7 @@ const makeProgram = (apiKey: string) =>
 		yield* Console.log(`fake home: ${home}`)
 		yield* Console.log(`fake cwd:  ${cwd}`)
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'disk-skills-demo',
 				model: anthropicModel({ model: modelId, apiKey, reasoning: 'medium' }),

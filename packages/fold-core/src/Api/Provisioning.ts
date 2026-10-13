@@ -1,6 +1,6 @@
 /**
  * This file owns agent-runtime provisioning - the one place a (model, tools, hooks) configuration
- * becomes a fully wired AgentRuntime. `startSession` provisions the root agent's runtime here (once at
+ * becomes a fully wired AgentRuntime. `Session.open` provisions the root agent's runtime here (once at
  * start, again on every model switch), and the subagent operations provision each subagent's runtime
  * here; both run inside the session's shared services, so every runtime shares the same EventLog, Ids,
  * AgentEvents spine, SystemPrompt, ModelRequestSettings, and ToolEventSink, while each provision gets its
@@ -10,7 +10,7 @@
  * - Every provision builds with a fresh `Layer.makeMemoMap`. v4 memoizes module-level layers by
  *   reference per memo map, so reusing a map would silently hand a new provision a previous
  *   provision's Toolset/ToolRuntime/AgentRuntime (the SessionIsolation regression).
- * - Every provision builds into the caller's ambient Scope. `startSession` provides the session scope
+ * - Every provision builds into the caller's ambient Scope. `Session.open` provides the session scope
  *   for root-agent provisions; a subagent provisions inside its dispatch call's scope, so its provider
  *   HTTP client releases when its dispatch returns instead of leaking for the session's lifetime.
  */
@@ -74,7 +74,7 @@ export type ProvisionAgentRuntimeInput = {
  * Provision one agent runtime into the ambient Scope: installed Toolset + family resolver + this
  * agent's HookRunner + ToolRuntime + the model's provider LanguageModel layer, built with a fresh memo
  * map. Everything else - the session's shared services and the host's - comes from the surroundings, so
- * this runs wherever those are present: `startSession` for the root agent, and the subagent operations,
+ * this runs wherever those are present: `Session.open` for the root agent, and the subagent operations,
  * which run inside a tool call.
  */
 export const provisionAgentRuntime = Effect.fnUntraced(function* (input: ProvisionAgentRuntimeInput) {
@@ -84,7 +84,7 @@ export const provisionAgentRuntime = Effect.fnUntraced(function* (input: Provisi
 	// Tool handlers run with the context their toolkit was built in (Effect AI merges it under each call's
 	// per-call services), so building here gives every handler the session's and the host's services.
 	const toolsetLayer = toolsetLayerFor(input.tools)
-	// SAFETY: every model reaching a session came through startSession, resumeSession, switchModel, or
+	// SAFETY: every model reaching a session came through Session.open, switchModel, or
 	// setProfile, whose types require the model's services to be among the session's host services - and
 	// the host services are part of the surroundings this runs in.
 	// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion

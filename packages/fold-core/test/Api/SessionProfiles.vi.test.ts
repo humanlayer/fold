@@ -1,6 +1,6 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
- * Facade tests for session profiles: `startSession({ profiles })` seeds the session-wide role->model
+ * Facade tests for session profiles: `Session.open({ profiles })` seeds the session-wide role->model
  * map and `FoldSession.setProfile` rebinds one role mid-session - children provision per dispatch, so
  * the swap binds the very NEXT dispatch of a role-bound type with no epoch machinery, while completed
  * runs keep their durable rows on the model that actually served them.

@@ -9,7 +9,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Fiber } from 'effect'
 
-import { defineAgent, defineSubagent, startSession, subagentTool, type UserMessageLogEntry } from '../../src/index'
+import { defineAgent, defineSubagent, Session, subagentTool, type UserMessageLogEntry } from '../../src/index'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from './ApiTestHelpers'
 import { makeGateTool } from './SessionControlHarness'
@@ -22,7 +22,7 @@ it.effect('steering a running root drains between turns, exactly where the model
 			textTurn('done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [gate.tool] }),
 		})
 
@@ -62,7 +62,7 @@ it.effect('one-at-a-time steering drains one message per turn boundary', () =>
 			textTurn('done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [firstGate.tool, secondGate.tool] }),
 		})
 
@@ -90,7 +90,7 @@ it.effect("steering mode 'all' drains the whole queue at one boundary", () =>
 			textTurn('done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [gate.tool] }),
 			steering: 'all',
 		})
@@ -111,7 +111,7 @@ it.effect("steering mode 'all' drains the whole queue at one boundary", () =>
 it.effect('steering an idle agent fails typed, pointing at send', () =>
 	Effect.gen(function* () {
 		const rootScripted = yield* scriptedModel(gptActiveModel, [])
-		const session = yield* startSession({ agent: defineAgent({ model: rootScripted.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: rootScripted.model }) })
 
 		const failure = yield* session.steer('too late').pipe(Effect.flip)
 		expect(failure._tag).toBe('AgentNotRunningError')
@@ -144,7 +144,7 @@ it.effect("steering a running subagent drains between the child's turns under th
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 

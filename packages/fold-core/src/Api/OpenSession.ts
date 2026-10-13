@@ -1,31 +1,8 @@
 /**
- * This file implements `startSession` and `resumeSession` - the ergonomic composition roots of the
- * public API. Callers describe an agent (model, prompt, tools, hooks) and optionally an event log
- * backend; this file lowers those descriptors into the internal service graph (EventLog, Ids,
- * AgentEvents, SystemPrompt, ModelRequestSettings, SessionControls, SessionAgents, and
- * per-provision Toolset + resolver + HookRunner + ToolRuntime + AgentRuntime, plus the Session facade)
- * and returns a running session handle. Per the composition-root ruling, this is the only place
- * descriptors become layers; no public signature accepts or returns one.
- *
- * System tools are ordinary members of `tools` (round-five ruling): the composition root walks tools
- * arrays from the root through every delegation tool's specialist and fork definitions, builds the
- * flat agent-definition registry, and runs each distinct tool value's `init` exactly once (the
- * skill tool's roster scan), collecting the realized tool and its leading-prompt block for every agent
- * listing that value.
- *
- * Session control (slice 2, D8/D9/D10): every run executes on a fiber the facade forks and registers
- * in SessionControls, so `interrupt` cancels the live fiber tree (uninterruptible finalizers write the
- * durable markers - the root's `agent-finished{interrupted}` here, subagent markers in the Subagents
- * engine, partial assistant text in the loop), `stop` raises the session-wide graceful-stop signal
- * every agent's loop observes at its batch boundaries, `steer` queues onto a running agent's steering
- * queue (drained between its turns), and `send` targets any agent - queueing a follow-up when the
- * target is running, continuing a finished subagent directly otherwise.
- *
- * Resume (slice 2): `resumeSession` ADOPTS an existing log - no new `session_started`/`agent_started`
- * rows; identity is recovered from the replayed `session_started`, and when the provided configuration
- * differs from the log's projected state (model binding - D17 ruling - or the composed leading blocks,
- * e.g. a changed skills roster - D20 rule), the facade writes one epoch transition before the first
- * send.
+ * Session.open initializes an empty log or adopts an existing session. Agent descriptors are lowered
+ * into a session-local service graph; EventLog is supplied by the host through layer composition.
+ * Without an ambient EventLog, each open allocates its own isolated in-memory log. Session resources
+ * belong to the caller's scope; host-provided log resources belong to the host's composition scope.
  */
 import {
 	Array as Arr,
@@ -37,6 +14,7 @@ import {
 	Fiber,
 	Layer,
 	Match,
+	Option,
 	Ref,
 	Schema,
 	Scope,
@@ -102,20 +80,15 @@ import { continueSubagent, type ContinueSubagentInput } from '../Subagents/Subag
 import { layerSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
 import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from './AgentDefinition'
-import { memoryEventLog, type FoldEventLog } from './EventLogDescriptor'
 import type { FoldModel } from './ModelDescriptor'
 import { provisionAgentRuntime, validateToolNames } from './Provisioning'
 import type { RealizedFoldTool, SessionToolContribution, FoldTool } from './ToolDefinition'
 
 /**
- * Options for {@link startSession}. `RA` is the host services the agent (its model and tools) needs, `RL`
- * the ones the log backend needs, and `RP` the ones the profile models need; the session requires all
- * of them from its caller.
+ * Options for Session.open. RA and RP are the host services needed by the agent and profile models.
  */
-export type StartSessionOptions<RA = never, RL = never, RP = never> = {
+export type OpenSessionOptions<RA = never, RP = never> = {
 	readonly agent: AgentDefinition<RA>
-	/** Event log backend for the session. Defaults to in-memory. */
-	readonly log?: FoldEventLog<RL>
 	/** Host working directory recorded on `session_started`; omit on hosts without a filesystem. */
 	readonly cwd?: string
 	readonly meta?: Readonly<Record<string, Schema.Json>>
@@ -124,29 +97,6 @@ export type StartSessionOptions<RA = never, RL = never, RP = never> = {
 	 * to a freshly minted id.
 	 */
 	readonly sessionId?: SessionId
-	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
-	readonly steering?: SteeringMode
-	/**
-	 * Initial role->model bindings for role-bound subagent types (profiles slice). Must cover every
-	 * role the roster names (`orchestrator` falls back to `smart`, D25); optional when every subagent
-	 * binds a concrete model. Rebind mid-session with {@link FoldSession.setProfile}.
-	 */
-	readonly profiles?: SessionProfiles<RP>
-	/**
-	 * Model catalog entries installed session-wide (D15): compaction resolves context windows through
-	 * them, and future consumers (cost projection, pickers) share the same data. Omitted means the
-	 * empty catalog - every consumer falls back to its interim defaults.
-	 */
-	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
-	/** Optional host-provided archive/log access guidance appended after compaction summaries. */
-	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}
-
-/** Options for {@link resumeSession}: the same agent configuration, over an existing log. */
-export type ResumeSessionOptions<RA = never, RL = never, RP = never> = {
-	readonly agent: AgentDefinition<RA>
-	/** The existing event log to adopt; the session continues exactly where the log left off. */
-	readonly log: FoldEventLog<RL>
 	/** How queued steering messages drain at a turn boundary (D8). Defaults to one-at-a-time. */
 	readonly steering?: SteeringMode
 	/**
@@ -286,13 +236,6 @@ type SessionAgentConfig<R> = {
 	readonly tools: ReadonlyArray<FoldTool<R>>
 }
 
-/** Lower the event log descriptor to its EventLog layer; the backend's own needs stay in the layer's `R`. */
-const eventLogLayerFor = <R>(log: FoldEventLog<R>): Layer.Layer<EventLog, never, Ids | R> =>
-	Match.valueTags(log, {
-		memory: () => layerInMemoryEventLogWithIds,
-		source: ({ make }) => Layer.effect(EventLog, make),
-	})
-
 /**
  * Run a tool's handler with the session's host services over whatever is in scope where the turn runs.
  * Effect AI merges the turn's services over the toolkit's, so a host whose request handling carries its
@@ -311,7 +254,7 @@ const withHostServices = <R>(
 const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
 const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
 
-/** Everything one assembled session shares between `startSession` and `resumeSession`. */
+/** The assembled service graph shared by initialization and adoption. */
 type SessionGraph<R> = {
 	readonly agent: AgentDefinition<R>
 	readonly session: SessionService
@@ -348,19 +291,18 @@ type SessionGraph<R> = {
 /**
  * Assemble one session's whole service graph - registry, tool contributions, shared services,
  * controls, and the delegating root runtime - without writing anything
- * durable. `startSession` follows with `session.start`; `resumeSession` follows with adoption.
+ * durable. Session.open follows with initialization or adoption.
  */
 const assembleSessionGraph = <R>(options: {
 	readonly agent: AgentDefinition<R>
-	readonly log?: FoldEventLog<R>
 	readonly steering?: SteeringMode
 	readonly profiles?: SessionProfiles<R>
 	readonly catalog?: ReadonlyArray<ModelCatalogEntry>
 	readonly compactionArchiveAccess?: CompactionArchiveAccessService
-}): Effect.Effect<SessionGraph<R>, never, Scope.Scope | R> =>
+}): Effect.Effect<SessionGraph<R>, never, Scope.Scope | EventLog | R> =>
 	Effect.gen(function* () {
 		const agent = options.agent
-		// The host services every tool and the log backend need, taken once from the caller - the way Effect
+		// The host services every tool needs, taken once from the caller - the way Effect
 		// AI's Toolkit hands its build context to handlers. Tools run later on the session's own fibers
 		// (including tools installed by a later switch), so the session carries these for them.
 		const hostServices = yield* Effect.context<R>()
@@ -386,7 +328,7 @@ const assembleSessionGraph = <R>(options: {
 			return yield* Effect.die(
 				new Error(
 					`subagent type "${entry.name}" binds model role "${entry.model}", but the session has no ` +
-						`covering binding: pass ${needed} to startSession/resumeSession`,
+						`covering binding: pass ${needed} to Session.open`,
 				),
 			)
 		}
@@ -486,11 +428,8 @@ const assembleSessionGraph = <R>(options: {
 		// carries its own agent's hook chains (D16/D21). Tool handlers get their declared platform
 		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
 		const idsLayer = layerLiveIdFactory
-		const infraLayer = Layer.mergeAll(
-			eventLogLayerFor(options.log ?? memoryEventLog()).pipe(Layer.provide(idsLayer)),
-			idsLayer,
-			liveAgentEventsLayer,
-		)
+		const eventLog = yield* EventLog
+		const infraLayer = Layer.mergeAll(Layer.succeed(EventLog, eventLog), idsLayer, liveAgentEventsLayer)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
 			Layer.succeedContext(hostServices),
@@ -518,7 +457,7 @@ const assembleSessionGraph = <R>(options: {
 		)
 		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
 		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
-		// would share module-level layers - the event log, the event spine - across sessions, and hand
+		// would share module-level layers - the event spine - across sessions, and hand
 		// every model switch the previous epoch's memoized runtime.
 		const sessionMemoMap = yield* Layer.makeMemoMap
 		const sessionServices = yield* Layer.buildWithMemoMap(servicesLayer, sessionMemoMap, sessionScope).pipe(
@@ -953,56 +892,83 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 }
 
 /**
- * Start one session for the given agent definition and return its running handle. The session lives in
- * the surrounding scope: closing the scope releases the log backend, event spine, and provisioned model
- * runtimes.
+ * Open one session. An empty log is initialized; a nonempty log must contain exactly one session's
+ * start and root-agent identity. Existing identity/metadata are preserved; configuration differences
+ * record an epoch transition. One supplied log must have at most one active session handle.
  */
-export const startSession = <RA = never, RL = never, RP = never>(
-	options: StartSessionOptions<RA, RL, RP>,
-): Effect.Effect<FoldSession<RA | RL | RP>, never, Scope.Scope | RA | RL | RP> =>
+export const openSession = <RA = never, RP = never>(
+	options: OpenSessionOptions<RA, RP>,
+): Effect.Effect<FoldSession<RA | RP>, never, Scope.Scope | RA | RP> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
-		const config = yield* Ref.get(graph.configRef)
-		const meta =
-			options.agent.name === undefined ? { ...options.meta } : { ...options.meta, agentName: options.agent.name }
-		const started = yield* graph.session
-			.start({
-				cwd: options.cwd ?? null,
-				model: options.agent.model.activeModel,
-				systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
-				meta,
-				...Struct.pick(options.agent, ['promptCacheKey']),
-				...Struct.pick(options, ['sessionId']),
-			})
-			.pipe(Effect.orDie)
-
-		return makeSessionHandle(graph, started)
+		// This is the intentional optional dependency boundary, not an optional internal capability.
+		// oxlint-disable-next-line automation/no-service-option
+		const supplied = yield* Effect.serviceOption(EventLog)
+		if (Option.isSome(supplied)) {
+			return yield* openWithLog(options).pipe(Effect.provideService(EventLog, supplied.value))
+		}
+		const scope = yield* Effect.scope
+		const memoMap = yield* Layer.makeMemoMap
+		const context = yield* Layer.buildWithMemoMap(
+			layerInMemoryEventLogWithIds.pipe(Layer.provide(layerLiveIdFactory)),
+			memoMap,
+			scope,
+		)
+		return yield* openWithLog(options).pipe(Effect.provideContext(context))
 	})
 
-/**
- * Resume an existing session log: ADOPT its identity (no new `session_started`/`agent_started` rows -
- * the replayed log is the state) and continue with the given agent configuration. When the projected
- * root state differs from the configuration - the model binding (D17 resume ruling) or the composed
- * leading blocks, e.g. a freshly scanned skills roster (D20 resume rule) - one durable epoch
- * transition is written before the first send.
- */
-export const resumeSession = <RA = never, RL = never, RP = never>(
-	options: ResumeSessionOptions<RA, RL, RP>,
-): Effect.Effect<FoldSession<RA | RL | RP>, never, Scope.Scope | RA | RL | RP> =>
+const openWithLog = <RA, RP>(
+	options: OpenSessionOptions<RA, RP>,
+): Effect.Effect<FoldSession<RA | RP>, never, Scope.Scope | EventLog | RA | RP> =>
 	Effect.gen(function* () {
-		const graph = yield* assembleSessionGraph<RA | RL | RP>(options)
-		const entries = yield* Stream.runCollect(graph.eventLog.entries()).pipe(
-			Effect.orDie,
-			Effect.map((collected): ReadonlyArray<LogEntry> => collected),
-		)
-
-		const sessionStarted = entries.find((entry) => Predicate.isTagged(entry, 'session_started'))
-		if (sessionStarted === undefined || !Predicate.isTagged(sessionStarted, 'session_started')) {
-			return yield* Effect.die(
-				new Error('cannot resume: the log has no session_started row (use startSession for a fresh log)'),
-			)
+		const eventLog = yield* EventLog
+		const entries = yield* Stream.runCollect(eventLog.entries()).pipe(Effect.orDie)
+		const sessionStarted = entries[0]
+		if (Arr.isReadonlyArrayNonEmpty(entries)) {
+			if (
+				sessionStarted === undefined ||
+				!Predicate.isTagged(sessionStarted, 'session_started') ||
+				entries.filter(Predicate.isTagged('session_started')).length !== 1 ||
+				entries.some((entry, index) => entry.seq !== index) ||
+				!entries.some(
+					(entry) =>
+						Predicate.isTagged(entry, 'agent_started') &&
+						entry.agentId === sessionStarted.rootAgentId &&
+						entry.parentAgentId === null,
+				)
+			) {
+				return yield* Effect.die(
+					new Error('cannot open: nonempty log must contain one session_started row and its root agent'),
+				)
+			}
+			if (options.sessionId !== undefined && options.sessionId !== sessionStarted.sessionId) {
+				return yield* Effect.die(
+					new Error('cannot open: supplied sessionId conflicts with the existing log identity'),
+				)
+			}
 		}
+		const graph = yield* assembleSessionGraph<RA | RP>(options)
+		if (sessionStarted === undefined) {
+			const config = yield* Ref.get(graph.configRef)
+			const meta =
+				options.agent.name === undefined
+					? { ...options.meta }
+					: { ...options.meta, agentName: options.agent.name }
+			const started = yield* graph.session
+				.start({
+					cwd: options.cwd ?? null,
+					model: options.agent.model.activeModel,
+					systemPrompt: graph.leadingPromptFor(config.systemPrompt, config.tools),
+					meta,
+					...Struct.pick(options.agent, ['promptCacheKey']),
+					...Struct.pick(options, ['sessionId']),
+				})
+				.pipe(Effect.orDie)
 
+			return makeSessionHandle(graph, started)
+		}
+		if (!Predicate.isTagged(sessionStarted, 'session_started')) {
+			return yield* Effect.die(new Error('cannot open: invalid session history'))
+		}
 		const identity: StartedSession = {
 			sessionId: sessionStarted.sessionId,
 			rootAgentId: sessionStarted.rootAgentId,

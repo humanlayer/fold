@@ -2,31 +2,30 @@
  * This file implements the D5 session layout and discovery: one JSONL log per session under
  * `~/.fold/sessions/<project-slug>/<sess_id>.jsonl`, where the slug is the escaped working directory
  * (pi-style), so "resume the latest session in this project" is a directory listing. `prepareSessionLog`
- * mints the session id UP FRONT (the file is named by it - `startSession({ sessionId })` records the
- * same id durably) and returns the ready log descriptor; `listSessionLogs`/`latestSessionLog` discover
+ * mints the session id UP FRONT (the file is named by it - `Session.open({ sessionId })` records the
+ * same id durably) and returns the log location; `listSessionLogs`/`latestSessionLog` discover
  * existing logs newest-first for the resume-latest path, while `sessionLogById` resolves an exact
  * `sess_*` id inside the current project's slug directory.
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
+import { EventLog, SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
 	AgentStartedLogEntry,
 	AssistantMessageLogEntry,
 	LogEntry,
-	FoldEventLog,
 	Ids,
 	ModelChangeLogEntry,
 	SessionStartedLogEntry,
 	SessionTitleLogEntry,
 	UserMessageLogEntry,
 } from '@humanlayer/fold-core'
-import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Stream, Struct } from 'effect'
+import { Predicate, Clock, Effect, Exit, FileSystem, Layer, Match, Option, Schema, Stream, Struct } from 'effect'
 
-import { jsonlEventLog } from '../EventLog/JsonlDescriptor'
+import { layerJsonl } from '../EventLog/JsonlLayer'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
 
 /** Options shared by the layout helpers. */
@@ -164,16 +163,12 @@ const loadSessionIndex = (
 
 /**
  * Mint a session id and prepare its log location: the directory exists, the path is derived from the
- * id, and the returned descriptor plugs straight into `startSession({ sessionId, log })` - so the
+ * id, and the host provides layerJsonl(path) around Session.open({ sessionId }), so the
  * durable `session_started.sessionId` and the filename agree (D5).
  */
 export const prepareSessionLog = (
 	options?: SessionLayoutOptions,
-): Effect.Effect<
-	{ readonly sessionId: SessionId; readonly path: string; readonly log: FoldEventLog<FileSystem.FileSystem> },
-	never,
-	Ids | FileSystem.FileSystem
-> =>
+): Effect.Effect<{ readonly sessionId: SessionId; readonly path: string }, never, Ids | FileSystem.FileSystem> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const sessionId = yield* makeSessionId
@@ -181,7 +176,7 @@ export const prepareSessionLog = (
 		yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.orDie)
 
 		const path = sessionLogPathFor(sessionId, options)
-		return { sessionId, path, log: jsonlEventLog(path) }
+		return { sessionId, path }
 	})
 
 /** Discover this project's session logs, newest first (by file mtime). */
@@ -310,18 +305,14 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 }
 
 const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | null, never, FileSystem.FileSystem> =>
-	Match.value(jsonlEventLog(ref.path)).pipe(
-		Match.tag('source', (descriptor) =>
-			Effect.exit(
-				Effect.scoped(
-					descriptor.make.pipe(
-						Effect.flatMap((eventLog) => Stream.runCollect(eventLog.entries())),
-						Effect.map((entries) => sessionSummary(ref, Array.from(entries))),
-					),
-				),
-			).pipe(Effect.map((exit) => (Exit.isSuccess(exit) ? exit.value : null))),
-		),
-		Match.orElse(() => Effect.succeed(null)),
+	Effect.gen(function* () {
+		const eventLog = yield* EventLog
+		const entries = yield* Stream.runCollect(eventLog.entries())
+		return sessionSummary(ref, Array.from(entries))
+	}).pipe(
+		Effect.provide(layerJsonl(ref.path).pipe(Layer.orDie)),
+		Effect.exit,
+		Effect.map((exit) => (Exit.isSuccess(exit) ? exit.value : null)),
 	)
 
 /** Check if a cached record is still valid for the given session log ref. */

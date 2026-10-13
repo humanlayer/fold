@@ -111,9 +111,9 @@ export type SessionToolContribution = {
 
 /**
  * One tool as configured on an agent, ready for the composition root to initialize. Built with
- * {@link defineTool} or a system-tool factory (`skillTool`, `subagentTool`); consumed by `startSession`
+ * {@link defineTool} or a system-tool factory (`skillTool`, `subagentTool`); consumed by `Session.open`
  * and by subagent definitions. `R` is every service the tool needs from the host - its handler's and its
- * init's - so an agent's type, and `startSession`'s, carry what the host must provide.
+ * init's - so an agent's type, and `Session.open`'s, carry what the host must provide.
  */
 export type FoldTool<R = never> = {
 	readonly name: string
@@ -225,7 +225,7 @@ export const defineTool = <
 			// AI decodes model-supplied params against `parameters` before invoking it, so it only ever receives
 			// `Params['Type']`. The runtime provides the per-call services around each call; the session's own
 			// services and the host services in `Services` come from the context the toolkit is built in, and
-			// `startSession` requires the host ones from its caller because this tool's type carries them.
+			// `Session.open` requires the host ones from its caller because this tool's type carries them.
 			// oxlint-disable-next-line typescript/consistent-type-assertions, automation/no-type-assertion
 			handler: handler as ErasedToolHandler,
 			promptBlock: null,

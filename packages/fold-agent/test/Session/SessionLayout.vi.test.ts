@@ -1,20 +1,21 @@
 /**
  * D5 session layout/discovery tests: the project slug is deterministic and filesystem-safe, prepared
  * logs live at `<foldHome>/sessions/<slug>/<sess_id>.jsonl` with the directory created, a prepared log
- * round-trips a real session (`startSession({ sessionId, log })` records the SAME id the filename
+ * round-trips a real session (`Session.open({ sessionId })` with a provided JSONL layer records the SAME id the filename
  * carries), and discovery lists a project's logs newest-first with the latest ready for
- * `resumeSession`.
+ * `Session.open`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
-import { customModel, defineAgent, layerLiveIdFactory, SessionId, startSession } from '@humanlayer/fold-core'
-import { Effect, Predicate, Stream } from 'effect'
+import { customModel, defineAgent, layerLiveIdFactory, SessionId, Session } from '@humanlayer/fold-core'
+import { Layer, Effect, Predicate, Stream } from 'effect'
 import { LanguageModel } from 'effect/ai'
 
 import {
+	layerJsonl,
 	latestSessionLog,
 	deleteSession,
 	listSessionLogs,
@@ -78,12 +79,11 @@ it.effect('a prepared log round-trips a session: the filename and session_starte
 			}),
 		})
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model }),
-			log: prepared.log,
 			sessionId: prepared.sessionId,
 			cwd,
-		})
+		}).pipe(Effect.provideContext(yield* Layer.build(layerJsonl(prepared.path).pipe(Layer.orDie))))
 		expect(session.sessionId).toBe(prepared.sessionId)
 
 		const entries = yield* session.entries
@@ -114,12 +114,11 @@ it.effect('session summaries expose first-message titles, turns, and the active 
 				streamText: () => Stream.empty,
 			}),
 		})
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model }),
-			log: prepared.log,
 			sessionId: prepared.sessionId,
 			cwd,
-		})
+		}).pipe(Effect.provideContext(yield* Layer.build(layerJsonl(prepared.path).pipe(Layer.orDie))))
 		yield* session.send('  Fix   the flaky picker test  ')
 		yield* session.setTitle('Repair Flaky Picker')
 
@@ -153,12 +152,11 @@ it.effect('session summary index is a full fast path and latest valid record win
 			},
 			make: LanguageModel.make({ generateText: () => Effect.die('unused'), streamText: () => Stream.empty }),
 		})
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model }),
-			log: prepared.log,
 			sessionId: prepared.sessionId,
 			cwd,
-		})
+		}).pipe(Effect.provideContext(yield* Layer.build(layerJsonl(prepared.path).pipe(Layer.orDie))))
 		yield* session.send('Cache picker summaries')
 		const [built] = yield* listSessionSummaries({ cwd, foldHome })
 		if (built === undefined) throw new Error('expected summary')
@@ -198,12 +196,11 @@ it.effect('missing, corrupt, and stale summary records rebuild only their source
 			},
 			make: LanguageModel.make({ generateText: () => Effect.die('unused'), streamText: () => Stream.empty }),
 		})
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model }),
-			log: prepared.log,
 			sessionId: prepared.sessionId,
 			cwd,
-		})
+		}).pipe(Effect.provideContext(yield* Layer.build(layerJsonl(prepared.path).pipe(Layer.orDie))))
 		yield* session.send('Original title')
 		const indexPath = join(sessionsDirFor({ cwd, foldHome }), 'index.jsonl')
 		writeFileSync(indexPath, '{corrupt cache row\n')

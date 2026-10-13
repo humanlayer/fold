@@ -29,7 +29,7 @@ export const systemPromptBlocks = (systemPrompt: SystemPromptInput | undefined):
 
 /**
  * Configuration for one agent, as plain data. Built with {@link defineAgent}. `R` is every host service
- * its tools need; `startSession` requires them from its caller.
+ * its tools need; `Session.open` requires them from its caller.
  */
 export type AgentDefinition<R = never> = {
 	/** Optional display name, recorded in `session_started` meta. */

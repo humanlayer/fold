@@ -17,7 +17,7 @@ import type { ProfileRole } from '../Session/Profiles'
 /**
  * How a subagent type's model is configured: a concrete model descriptor, or a profile role name
  * resolved through the session's profiles map at every dispatch/resume (profiles slice). Role-bound
- * types follow `FoldSession.setProfile` swaps on their very next run; `startSession`/`resumeSession`
+ * types follow `FoldSession.setProfile` swaps on their very next run; `Session.open`
  * must receive a `profiles` map covering every role the roster names (`orchestrator` falls back to
  * `smart`, D25).
  */

@@ -1,14 +1,14 @@
 /**
  * Minimal real-model example against the OpenAI API using the high-level API: describe the agent
  * (model, prompt, an inline tool), start a session, send one turn. All service wiring - event log,
- * toolset, hooks, system prompt, request settings, runtime layers - stays inside `startSession`.
+ * toolset, hooks, system prompt, request settings, runtime layers - stays inside `Session.open`.
  *
  * Run: OPENAI_API_KEY=... bun packages/fold-core/examples/OpenaiAgent.ts
  */
 import { Console, Effect, Schema } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 
-import { defineAgent, defineTool, openaiModel, startSession } from '../src/index'
+import { defineAgent, defineTool, openaiModel, Session } from '../src/index'
 
 const modelId = process.env.OPENAI_MODEL ?? 'gpt-5.5'
 const apiKey = process.env.OPENAI_API_KEY
@@ -23,7 +23,7 @@ const echo = defineTool({
 
 const makeProgram = (apiKey: string) =>
 	Effect.gen(function* () {
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'openai-demo',
 				model: openaiModel({ model: modelId, apiKey, reasoning: 'medium' }),

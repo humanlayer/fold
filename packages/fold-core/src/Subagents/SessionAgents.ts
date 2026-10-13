@@ -1,7 +1,7 @@
 /**
  * This file defines SessionAgents - how one session builds its agents: the flat registry of
  * dispatchable types, the tool contributions every agent's tools are realized against, the root
- * agent's current configuration, and the session-wide auto-compaction policy. `startSession` provides
+ * agent's current configuration, and the session-wide auto-compaction policy. `Session.open` provides
  * it with the other session services; agent provisioning and the subagent operations read it.
  */
 import { Context } from 'effect'

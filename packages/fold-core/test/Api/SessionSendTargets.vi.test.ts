@@ -14,10 +14,9 @@ import {
 	defineAgent,
 	defineSubagent,
 	EventLog,
-	eventLogSource,
 	layerInMemoryEventLog,
 	shortAgentId,
-	startSession,
+	Session,
 	subagentTool,
 	ToolCallId,
 	type UserMessageLogEntry,
@@ -36,7 +35,7 @@ it.effect('send while running joins the run as a follow-up; both senders get the
 			textTurn('follow-up answer'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [gate.tool] }),
 		})
 
@@ -72,7 +71,7 @@ it.effect('a follow-up the stopped run never consumed starts its own fresh run',
 			textTurn('fresh run answer'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [gate.tool] }),
 		})
 
@@ -119,7 +118,7 @@ it.effect('send targeting a finished subagent continues it directly under a null
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 
@@ -156,7 +155,7 @@ it.effect('send targeting a finished subagent continues it directly under a null
 it.effect('send to an unknown agent id fails typed', () =>
 	Effect.gen(function* () {
 		const rootScripted = yield* scriptedModel(gptActiveModel, [])
-		const session = yield* startSession({ agent: defineAgent({ model: rootScripted.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: rootScripted.model }) })
 
 		const failure = yield* session
 			.send('hello?', { agentId: AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa') })
@@ -189,7 +188,7 @@ it.effect('send targeting a finished subagent by its SHORT id continues it like 
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 
@@ -214,10 +213,9 @@ it.effect('send with an ambiguous short reference fails typed, naming the candid
 		const sharedLog = Context.get(logContext, EventLog)
 
 		const rootScripted = yield* scriptedModel(gptActiveModel, [])
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		yield* Effect.forEach(
 			[AgentId.make(`agent_abcdef11${'0'.repeat(16)}`), AgentId.make(`agent_abcdef22${'0'.repeat(16)}`)],

@@ -3,7 +3,7 @@
  * limits, reasoning support, vision support, and pricing, plus the lookup service the runtime
  * consults with the domain type callers already hold - an `ActiveModel`. Core owns only the contract
  * and the matching logic; `fold-agent` ships the models.dev-backed data source and hosts install the
- * entries session-wide through `startSession`/`resumeSession`.
+ * entries session-wide through `Session.open`.
  *
  * The service is a `Context.Reference` whose default is the empty catalog (`lookup` always null), so
  * low-level composition roots never mention it and every consumer degrades gracefully: compaction

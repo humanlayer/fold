@@ -13,7 +13,7 @@ import {
 	defineAgent,
 	defineSubagent,
 	defineTool,
-	startSession,
+	Session,
 	subagentTool,
 	type ActiveModel,
 	type AgentStartedLogEntry,
@@ -46,7 +46,7 @@ it.effect('switchModel continues the same log on a new provider and records the 
 		const first = yield* scriptedModel(gptActiveModel, [textTurn('from gpt')])
 		const second = yield* scriptedModel(claudeActiveModel, [textTurn('from claude')])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: first.model,
 				systemPrompt: 'Agent block.',
@@ -124,7 +124,7 @@ it.effect('switchModel can replace the agent prompt blocks, and the replacement 
 		const second = yield* scriptedModel(claudeActiveModel, [textTurn('two')])
 		const third = yield* scriptedModel({ ...gptActiveModel, modelId: 'gpt-scripted-2' }, [textTurn('three')])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: first.model,
 				systemPrompt: 'Original block.',
@@ -170,7 +170,7 @@ it.effect('switchModel can replace the installed tools; the new tool executes an
 			textTurn('lookup done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: first.model, systemPrompt: 'Agent block.', tools: [oldTool.tool] }),
 		})
 
@@ -210,7 +210,7 @@ it.effect('switchModel records thinking-change when the reasoning level changes 
 		const first = yield* scriptedModel(gptActiveModel, [textTurn('level off')])
 		const second = yield* scriptedModel(highGptModel, [textTurn('level high')])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: first.model, systemPrompt: 'Agent block.' }),
 		})
 
@@ -264,7 +264,7 @@ it.effect('switchModel preserves exact GPT-6 Sol and Luna ids in the durable tra
 		const luna: ActiveModel = { ...sol, modelId: 'gpt-6-luna' }
 		const first = yield* scriptedModel(sol, [textTurn('from sol')])
 		const second = yield* scriptedModel(luna, [textTurn('from luna')])
-		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: first.model }) })
 
 		yield* session.send('first turn')
 		yield* session.switchModel(second.model, { reason: 'switch canonical model' })
@@ -294,7 +294,7 @@ it.effect('switchModel preserves the exact GPT-6.1 Sol id in the durable transit
 		const sol61: ActiveModel = { ...astra, modelId: 'gpt-6.1-sol' }
 		const first = yield* scriptedModel(astra, [textTurn('from astra')])
 		const second = yield* scriptedModel(sol61, [textTurn('from gpt-6.1-sol')])
-		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: first.model }) })
 
 		yield* session.send('first turn')
 		yield* session.switchModel(second.model, { reason: 'switch to the new default' })
@@ -315,7 +315,7 @@ it.effect('switchModel rejects duplicate tool names in the replacement toolset a
 		const first = yield* scriptedModel(gptActiveModel, [textTurn('one')])
 		const second = yield* scriptedModel(claudeActiveModel, [])
 
-		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: first.model }) })
 		yield* session.send('turn one')
 
 		const exit = yield* session.switchModel(second.model, { tools: [echoTool, echoTool] }).pipe(Effect.exit)
@@ -336,7 +336,7 @@ it.effect('switchModel extends the subagent registry at the switch boundary', ()
 			model: specialistModel.model,
 		})
 
-		const session = yield* startSession({ agent: defineAgent({ model: first.model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model: first.model }) })
 		yield* session.send('turn one')
 		yield* session.switchModel(second.model, { tools: [subagentTool([specialist])], reason: 'new roster' })
 		yield* session.send('turn two')

@@ -10,7 +10,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Predicate, Cause, Effect, Exit } from 'effect'
 
-import { defineAgent, defineSubagent, startSession, subagentTool, type ModelChangeLogEntry } from '../../src/index'
+import { defineAgent, defineSubagent, Session, subagentTool, type ModelChangeLogEntry } from '../../src/index'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from '../Api/ApiTestHelpers'
 import { textTurn } from '../TestLayers/ScriptedLanguageModel'
 import { makeDriveSession, subagentStartedEntries } from './DriveHarness'
@@ -103,7 +103,7 @@ it.effect('a role-bound roster with no covering profile binding defects at sessi
 		const scripted = yield* scriptedModel(claudeActiveModel, [])
 		const researcher = defineSubagent({ name: 'researcher', description: 'explores', model: 'fast' })
 
-		const exit = yield* startSession({
+		const exit = yield* Session.open({
 			agent: defineAgent({ model: scripted.model, tools: [subagentTool([researcher])] }),
 		}).pipe(Effect.exit)
 
@@ -119,7 +119,7 @@ it.effect('an orchestrator binding is only covered by orchestrator or smart prof
 		const scripted = yield* scriptedModel(claudeActiveModel, [])
 		const planner = defineSubagent({ name: 'planner', description: 'plans', model: 'orchestrator' })
 
-		const exit = yield* startSession({
+		const exit = yield* Session.open({
 			agent: defineAgent({ model: scripted.model, tools: [subagentTool([planner])] }),
 			profiles: { fast: scripted.model },
 		}).pipe(Effect.exit)

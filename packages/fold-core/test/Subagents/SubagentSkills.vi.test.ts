@@ -14,7 +14,7 @@ import {
 	defineSubagent,
 	skillSource,
 	skillTool,
-	startSession,
+	Session,
 	subagentTool,
 	type SkillSourceService,
 	type UserMessageLogEntry,
@@ -61,7 +61,7 @@ it.effect('a shared skillTool value scans once; the preload rides the dispatcher
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				tools: [sharedSkillTool, subagentTool([researcher])],
@@ -114,7 +114,7 @@ it.effect('a dispatcher with no skillTool cannot preload: typed failure before a
 			textTurn('root recovered'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([worker])] }),
 		})
 

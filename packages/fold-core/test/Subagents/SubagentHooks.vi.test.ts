@@ -12,7 +12,7 @@ import {
 	defineAgent,
 	defineSubagent,
 	defineToolState,
-	startSession,
+	Session,
 	subagentTool,
 	toolStateForAgent,
 	type PreToolUseHook,
@@ -63,7 +63,7 @@ it.effect('root and subagent run their own hook chains, and hook state stays per
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				tools: [subagentTool([researcher])],

@@ -12,7 +12,7 @@ import {
 	defineAgent,
 	defineSubagent,
 	shortAgentId,
-	startSession,
+	Session,
 	subagentTool,
 	type AgentStartedLogEntry,
 	type ToolResultLogEntry,
@@ -47,7 +47,7 @@ it.effect('dispatches a fresh subagent on the shared log and renders its result'
 			textTurn('synthesized'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				systemPrompt: 'You are the root agent.',

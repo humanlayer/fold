@@ -18,7 +18,7 @@ import {
 	defineTool,
 	renderSubagentResult,
 	shortAgentId,
-	startSession,
+	Session,
 	subagentTool,
 	type AgentId,
 	type AgentStartedLogEntry,
@@ -86,7 +86,7 @@ const makeDriveSession = (input: {
 			]).flat(),
 		)
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				systemPrompt: 'root',

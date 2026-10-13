@@ -9,7 +9,7 @@
 import { Console, Effect, Schema } from 'effect'
 import { FetchHttpClient } from 'effect/http'
 
-import { anthropicModel, defineAgent, defineTool, startSession } from '../src/index'
+import { anthropicModel, defineAgent, defineTool, Session } from '../src/index'
 
 const modelId = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8'
 const apiKey = process.env.ANTHROPIC_API_KEY
@@ -24,7 +24,7 @@ const echo = defineTool({
 
 const makeProgram = (apiKey: string) =>
 	Effect.gen(function* () {
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'anthropic-demo',
 				model: anthropicModel({ model: modelId, apiKey, reasoning: 'medium' }),

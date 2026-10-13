@@ -36,14 +36,14 @@ const FoldModelProvider = Data.taggedEnum<FoldModelProvider>()
 /**
  * One model an agent can run on: the resolved ActiveModel snapshot recorded in the durable log plus the
  * provider connection used to reach it. Built with {@link openaiModel}, {@link anthropicModel}, or
- * {@link customModel}; consumed by `startSession` and `FoldSession.switchModel`.
+ * {@link customModel}; consumed by `Session.open` and `FoldSession.switchModel`.
  */
 export type FoldModel<R = never> = {
 	readonly activeModel: ActiveModel
 	readonly provider: FoldModelProvider
 	/**
 	 * Builds the model's LanguageModel service in the runtime's scope. `R` is the host services it needs
-	 * (an HttpClient for the built-in providers); `startSession` requires them from its caller.
+	 * (an HttpClient for the built-in providers); `Session.open` requires them from its caller.
 	 */
 	readonly make: Effect.Effect<LanguageModel.LanguageModel, never, Scope.Scope | R>
 }

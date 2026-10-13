@@ -22,7 +22,7 @@ export type ProfileRole = typeof ProfileRole.Type
 export const isProfileRole = Schema.is(ProfileRole)
 
 /**
- * A session's role->model bindings, as passed to `startSession`/`resumeSession`. A plain type, not a
+ * A session's role->model bindings, as passed to `Session.open`. A plain type, not a
  * schema: the values are full model descriptors carrying Redacted keys and provider Effects (the same
  * status as `FoldModel` itself); nothing durable is written from this map - role bindings resolve to
  * concrete models before any log row exists. `R` is the host services the bound models need.
@@ -60,7 +60,7 @@ export type ProfilesService = {
 /** Profiles service tag; one instance per session, shared by the facade and the subagent operations. */
 export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles') {}
 
-/** One session's profiles over the initial bindings from `startSession`/`resumeSession`. */
+/** One session's profiles over the initial bindings from `Session.open`. */
 export const layerProfiles = (initial: SessionProfiles<unknown>): Layer.Layer<Profiles> =>
 	Layer.effect(
 		Profiles,

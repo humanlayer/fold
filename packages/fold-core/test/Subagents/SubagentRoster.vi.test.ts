@@ -16,7 +16,7 @@ import {
 	defineSubagent,
 	defineTool,
 	renderSubagentResult,
-	startSession,
+	Session,
 	subagentTool,
 	withSubagentCapabilities,
 	type ForkAgentDefinition,
@@ -88,7 +88,7 @@ it.effect('nested rosters give depth; out-of-roster dispatch fails instructively
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				tools: [subagentTool([generalPurpose, researcher])],
@@ -127,7 +127,7 @@ it.effect('duplicate type names across distinct definitions defect at session st
 		const first = defineSubagent({ name: 'twin', description: 'one', model: scripted.model })
 		const second = defineSubagent({ name: 'twin', description: 'two', model: scripted.model })
 
-		const exit = yield* startSession({
+		const exit = yield* Session.open({
 			agent: defineAgent({ model: scripted.model, tools: [subagentTool([first, second])] }),
 		}).pipe(Effect.exit)
 
@@ -153,7 +153,7 @@ it.effect('the same definition shared by two rosters is one registry entry', () 
 		])
 
 		// `shared` is reachable through the root roster AND through middle's roster: one entry, no defect.
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				tools: [subagentTool([middle, shared])],
@@ -201,7 +201,7 @@ it.effect('host agent tools configure two fork generations structurally', () =>
 			textTurn('root done'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: scripted.model, tools: [hostAgentTool(delegatingFork)] }),
 		})
 		const finished = yield* session.send('go')
@@ -223,7 +223,7 @@ it.effect('duplicate fork agent definition ids defect at session start', () =>
 		const first = defineForkAgent({ id: 'duplicate', tools: [] })
 		const second = defineForkAgent({ id: 'duplicate', tools: [] })
 
-		const exit = yield* startSession({
+		const exit = yield* Session.open({
 			agent: defineAgent({
 				model: scripted.model,
 				tools: [subagentTool([], { forkAgent: first }), subagentTool([], { forkAgent: second })],

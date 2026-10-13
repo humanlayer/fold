@@ -320,7 +320,7 @@ export const makeCodexLanguageModel = (
 
 /**
  * Describe a model served by the ChatGPT Codex backend using stored Codex OAuth credentials. Plugs
- * into `startSession`/`switchModel` like any other model descriptor; the loop's per-request reasoning
+ * into `Session.open`/`switchModel` like any other model descriptor; the loop's per-request reasoning
  * and model-id binding work unchanged because the provider on top is the stock OpenAI one.
  */
 export const codexModel = (options: CodexModelOptions): FoldModel<HttpClient.HttpClient | FileSystem.FileSystem> => {

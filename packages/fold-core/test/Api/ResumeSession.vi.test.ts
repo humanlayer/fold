@@ -1,23 +1,21 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
- * Slice-2 resume tests: `resumeSession` ADOPTS an existing log - identity recovered from the replayed
+ * Slice-2 resume tests: `Session.open` ADOPTS an existing log - identity recovered from the replayed
  * `session_started`, no new session/agent rows - and the facade writes ONE epoch transition exactly
  * when the provided configuration no longer matches the log's projected root state: a different model
  * binding (D17 resume ruling) or different composed leading blocks (D20 resume rule - a changed skills
  * roster changes the block). An unchanged configuration writes nothing.
  */
 import { expect, it } from '@effect/vitest'
-import { Predicate, Cause, Context, Effect, Exit, Layer, Schema } from 'effect'
+import { Predicate, Context, Effect, Layer, Schema } from 'effect'
 import { Prompt } from 'effect/ai'
 
 import {
 	defineAgent,
 	EventLog,
-	eventLogSource,
 	layerInMemoryEventLog,
 	MessageId,
-	resumeSession,
-	startSession,
+	Session,
 	ToolCallId,
 	type ActiveModel,
 	type EventLogService,
@@ -36,10 +34,9 @@ const runFirstSession = (sharedLog: EventLogService, systemPrompt: string) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const scripted = yield* scriptedModel(claudeActiveModel, [textTurn('first answer')])
-			const session = yield* startSession({
+			const session = yield* Session.open({
 				agent: defineAgent({ model: scripted.model, systemPrompt }),
-				log: eventLogSource(Effect.succeed(sharedLog)),
-			})
+			}).pipe(Effect.provideService(EventLog, sharedLog))
 			const finished = yield* session.send('go')
 			expect(finished.outcome).toBe('completed')
 			return { sessionId: session.sessionId, rootAgentId: session.rootAgentId }
@@ -53,10 +50,9 @@ it.effect('resume adopts the log: same ids, no new rows, full continuity - and n
 
 		// Same model binding, same prompt: adoption must write NOTHING before the next send.
 		const resumedScripted = yield* scriptedModel(claudeActiveModel, [textTurn('second answer')])
-		const session = yield* resumeSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: resumedScripted.model, systemPrompt: 'You are the assistant.' }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		expect(session.sessionId).toBe(first.sessionId)
 		expect(session.rootAgentId).toBe(first.rootAgentId)
@@ -108,10 +104,9 @@ it.effect('resume supplies a request-local failed result for a persisted danglin
 		})
 
 		const resumedScripted = yield* scriptedModel(claudeActiveModel, [textTurn('recovered')])
-		const session = yield* resumeSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: resumedScripted.model, systemPrompt: 'You are the assistant.' }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		const finished = yield* session.send('continue')
 		expect(finished.resultText).toBe('recovered')
@@ -147,10 +142,9 @@ it.effect('resume with a different model binding writes one epoch transition (D1
 
 		// A different provider family: the transition re-renders the epoch for the new model.
 		const resumedScripted = yield* scriptedModel(gptActiveModel, [textTurn('answered by the new model')])
-		const session = yield* resumeSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: resumedScripted.model, systemPrompt: 'You are the assistant.' }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		const beforeSend = yield* session.entries
 		const modelChange = beforeSend.findLast((entry) => Predicate.isTagged(entry, 'model-change'))
@@ -182,19 +176,17 @@ it.effect('resume records exactly one durable transition from GPT-6 Sol to Luna'
 		yield* Effect.scoped(
 			Effect.gen(function* () {
 				const first = yield* scriptedModel(sol, [textTurn('first answer')])
-				const session = yield* startSession({
+				const session = yield* Session.open({
 					agent: defineAgent({ model: first.model, systemPrompt: 'You are the assistant.' }),
-					log: eventLogSource(Effect.succeed(sharedLog)),
-				})
+				}).pipe(Effect.provideService(EventLog, sharedLog))
 				yield* session.send('go')
 			}),
 		)
 
 		const resumed = yield* scriptedModel(luna, [textTurn('second answer')])
-		const session = yield* resumeSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: resumed.model, systemPrompt: 'You are the assistant.' }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 		const entries = yield* session.entries
 		const modelChanges = entries.filter((entry) => Predicate.isTagged(entry, 'model-change'))
 
@@ -213,10 +205,9 @@ it.effect('resume with changed leading blocks transitions too (D20 resume rule)'
 		// Same model binding; only the composed leading block set changed (the same comparison a
 		// freshly scanned, changed skills roster would trip).
 		const resumedScripted = yield* scriptedModel(claudeActiveModel, [textTurn('answered under v2')])
-		const session = yield* resumeSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: resumedScripted.model, systemPrompt: 'prompt v2' }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		const beforeSend = yield* session.entries
 		expect(beforeSend.some((entry) => Predicate.isTagged(entry, 'model-change'))).toBe(true)
@@ -231,17 +222,15 @@ it.effect('resume with changed leading blocks transitions too (D20 resume rule)'
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )
 
-it.effect('resuming an empty log is a defect with instructive guidance', () =>
+it.effect('opening an empty supplied log initializes it', () =>
 	Effect.gen(function* () {
 		const sharedLog = yield* makeSharedLog
 		const scripted = yield* scriptedModel(claudeActiveModel, [])
-
-		const exit = yield* resumeSession({
-			agent: defineAgent({ model: scripted.model }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		}).pipe(Effect.exit)
-
-		if (!Exit.isFailure(exit)) throw new Error('expected resume on an empty log to defect')
-		expect(String(Cause.squash(exit.cause))).toContain('no session_started')
+		const session = yield* Session.open({ agent: defineAgent({ model: scripted.model }) }).pipe(
+			Effect.provideService(EventLog, sharedLog),
+		)
+		const entries = yield* session.entries
+		expect(entries.filter(Predicate.isTagged('session_started'))).toHaveLength(1)
+		expect(entries.filter(Predicate.isTagged('agent_started'))).toHaveLength(1)
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
 )

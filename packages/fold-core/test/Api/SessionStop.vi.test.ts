@@ -9,7 +9,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 import { expect, it } from '@effect/vitest'
 import { Predicate, Effect, Fiber } from 'effect'
 
-import { defineAgent, defineSubagent, startSession, subagentTool } from '../../src/index'
+import { defineAgent, defineSubagent, Session, subagentTool } from '../../src/index'
 import { textTurn, toolCallTurn } from '../TestLayers/ScriptedLanguageModel'
 import { claudeActiveModel, gptActiveModel, scriptedModel } from './ApiTestHelpers'
 import { makeGateTool } from './SessionControlHarness'
@@ -22,7 +22,7 @@ it.effect('stop lets the in-flight batch finish, then ends the run with no furth
 			textTurn('never requested'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [gate.tool] }),
 		})
 
@@ -72,7 +72,7 @@ it.effect('stop reaches the whole tree: the running subagent stops, then its dis
 			textTurn('never requested (root)'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 

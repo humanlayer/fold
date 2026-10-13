@@ -15,10 +15,9 @@ import {
 	defineAgent,
 	defineSubagent,
 	EventLog,
-	eventLogSource,
 	layerInMemoryEventLog,
 	shortAgentId,
-	startSession,
+	Session,
 	subagentTool,
 	ToolCallId,
 	ToolResultText,
@@ -46,7 +45,7 @@ it.effect('presents the rendered subagent result to the parent model as plain te
 			]),
 			textTurn('parent synthesis'),
 		])
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 
@@ -102,7 +101,7 @@ it.effect('the model resumes a subagent through the tool wire by its SHORT id: f
 			textTurn('synthesized'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model: rootScripted.model,
 				systemPrompt: 'root',
@@ -190,7 +189,7 @@ it.effect('the public fork wire persists completed-history selection', () =>
 			textTurn('root complete'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, systemPrompt: 'root', tools: [subagentTool([])] }),
 		})
 
@@ -257,7 +256,7 @@ it.effect('malformed wire commands come back as instructive tool failures the mo
 			textTurn('gave up gracefully'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
 		})
 
@@ -301,10 +300,9 @@ it.effect('an ambiguous short agent_id comes back as an instructive failure nami
 			textTurn('understood, asking for more characters'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model: rootScripted.model, tools: [subagentTool([researcher])] }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		const rootStarted = (yield* session.entries).find(
 			(entry) => Predicate.isTagged(entry, 'agent_started') && entry.parentAgentId === null,

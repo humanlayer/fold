@@ -2,7 +2,7 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
  * Facade-level auto-compaction tests (D11): sessions configured with `autoCompact` compact at the
  * top-of-turn threshold and on reactive provider overflow, write durable `compaction` entries, and
- * keep running - all driven through `startSession`/`resumeSession` with scripted models, exactly as
+ * keep running - all driven through `Session.open` with scripted models, exactly as
  * SDK callers configure it. The summarization call runs on the session's own scripted model, so each
  * script interleaves the summarizer's response at the position the loop calls it.
  *
@@ -17,12 +17,10 @@ import { Predicate, Context, Effect, Layer } from 'effect'
 
 import {
 	defineAgent,
-	eventLogSource,
 	layerInMemoryEventLog,
 	messagesForAgent,
-	resumeSession,
+	Session,
 	runtimeForAgent,
-	startSession,
 	EventLog,
 	type AutoCompactConfig,
 	type CompactionArchiveAccessService,
@@ -76,7 +74,7 @@ it.effect('compacts mid-run at the threshold and keeps running; config from befo
 			instructions: ({ agentId }) => Effect.succeed(`<archive-access>agent=${agentId}</archive-access>`),
 		}
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model,
 				systemPrompt: 'You are the compaction demo agent.',
@@ -162,7 +160,7 @@ it.effect(
 				textTurn('third answer'),
 			])
 
-			const session = yield* startSession({
+			const session = yield* Session.open({
 				agent: defineAgent({ model, systemPrompt: 'Assistant.', autoCompact: compactConfig }),
 			})
 
@@ -228,7 +226,7 @@ it.effect('stale pre-compaction usage never re-triggers: no second compaction wi
 			textTurn('recovered fine'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: compactConfig }),
 		})
 
@@ -260,7 +258,7 @@ it.effect('enabled: false disables automatic compaction while leaving explicit c
 			textTurn('second'),
 			textTurn('manual summary'),
 		])
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: { enabled: false } }),
 		})
 
@@ -286,7 +284,7 @@ it.effect('automatic compaction is enabled when the definition omits autoCompact
 			textTurn('default policy summary'),
 			textTurn('second'),
 		])
-		const session = yield* startSession({ agent: defineAgent({ model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model }) })
 
 		yield* session.send('one')
 		const finished = yield* session.send('two')
@@ -303,7 +301,7 @@ it.effect('manual facade compaction delegates through the provisioned root runti
 			textTurn(`first answer ${'x'.repeat(120)}`),
 			textTurn('## Goal\n- manual compaction summary'),
 		])
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: compactConfig }),
 		})
 
@@ -332,7 +330,7 @@ it.effect('manual compaction appends host guidance to the standard instruction w
 			textTurn('first answer'),
 			textTurn('guided summary'),
 		])
-		const session = yield* startSession({ agent: defineAgent({ model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model }) })
 
 		yield* session.send('preserve the migration investigation')
 		const compacted = yield* session.compact({ additionalInstructions: 'Keep the failed migration command.' })
@@ -352,7 +350,7 @@ it.effect('Codex compaction omits the unsupported max output token override', ()
 			textTurn('first answer'),
 			textTurn('Codex summary'),
 		])
-		const session = yield* startSession({ agent: defineAgent({ model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model }) })
 
 		yield* session.send('preserve the investigation')
 		yield* session.compact()
@@ -369,7 +367,7 @@ it.effect('split-turn compaction separately summarizes a coherent discarded pref
 			textTurn(`kept suffix ${'z'.repeat(160)}`),
 			textTurn('original request and early tool progress'),
 		])
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, tools: [echoTool], autoCompact: compactConfig }),
 		})
 
@@ -404,7 +402,7 @@ it.effect('a configured compactionPrompt replaces the default instruction templa
 			textTurn('continuing'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model,
 				autoCompact: { ...compactConfig, compactionPrompt: 'Reply with a CUSTOM CHECKPOINT of the work.' },
@@ -437,7 +435,7 @@ it.effect('a summarizer failure degrades to a durable error note; the run procee
 			textTurn('answered anyway'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: compactConfig }),
 		})
 
@@ -470,7 +468,7 @@ it.effect('reactive overflow: compact and retry the turn once, then the run comp
 			textTurn('recovered answer'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: compactConfig }),
 		})
 
@@ -503,7 +501,7 @@ it.effect('overflow recovery runs once per run: a second overflow becomes the du
 			failureTurn('context_length_exceeded again'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: compactConfig }),
 		})
 
@@ -547,7 +545,7 @@ it.effect('a session-provided catalog supplies the compaction context window (no
 			textTurn('post-catalog-compaction answer'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model,
 				// No autoCompact.contextWindow: the window must come from the session catalog (10k ->
@@ -585,7 +583,7 @@ it.effect('a Codex model uses the app context window instead of the public API c
 			textTurn('post-codex-compaction answer'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, autoCompact: { enabled: true, keepRecentTokens: 10 } }),
 			catalog: [
 				{
@@ -615,7 +613,7 @@ it.effect('GPT-6.1 Sol, GPT-6 Sol, and Luna compact against the 272k Codex windo
 				textTurn(`${modelId} answer`),
 			])
 
-			const session = yield* startSession({
+			const session = yield* Session.open({
 				agent: defineAgent({ model, autoCompact: { enabled: true, keepRecentTokens: 10 } }),
 				catalog: [
 					{
@@ -644,7 +642,7 @@ it.effect('an explicit autoCompact.contextWindow beats the catalog entry', () =>
 			textTurn('override answer'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model,
 				// The explicit 10k window compacts on 7005 reported tokens; the catalog's 1M window
@@ -677,10 +675,9 @@ it.effect('a resumed log projects the compacted history: summary plus post-cut m
 					textTurn('## Goal\n- durable summary'),
 					textTurn('answer two'),
 				])
-				const session = yield* startSession({
+				const session = yield* Session.open({
 					agent: defineAgent({ model, systemPrompt: 'Assistant.', autoCompact: compactConfig }),
-					log: eventLogSource(Effect.succeed(sharedLog)),
-				})
+				}).pipe(Effect.provideService(EventLog, sharedLog))
 				yield* session.send('the secret phrase is xyzzy')
 				const finished = yield* session.send('next')
 				expect(finished.outcome).toBe('completed')
@@ -690,10 +687,9 @@ it.effect('a resumed log projects the compacted history: summary plus post-cut m
 		// Session B adopts the same log with the same configuration: replay rebuilds the compacted
 		// projection - the durable summary and the kept tail, not the replaced history.
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [textTurn('resumed answer')])
-		const session = yield* resumeSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, systemPrompt: 'Assistant.', autoCompact: compactConfig }),
-			log: eventLogSource(Effect.succeed(sharedLog)),
-		})
+		}).pipe(Effect.provideService(EventLog, sharedLog))
 
 		const finished = yield* session.send('continue')
 		const entries = yield* session.entries

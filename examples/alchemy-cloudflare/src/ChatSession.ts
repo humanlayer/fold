@@ -19,17 +19,16 @@
 import { skillsFromDisk } from '@humanlayer/fold-agent/skills'
 import { fileTools, Photon } from '@humanlayer/fold-agent/tools/files'
 import {
+	EventLog,
 	SessionId,
 	type AgentId,
 	type FoldSession,
 	type LogEntry,
 	type UserMessageLogEntry,
 	defineAgent,
-	eventLogSource,
 	openaiModel,
-	resumeSession,
+	Session,
 	skillTool,
-	startSession,
 } from '@humanlayer/fold-core'
 import * as Cloudflare from 'alchemy/Cloudflare'
 import {
@@ -52,7 +51,7 @@ import { FetchHttpClient } from 'effect/http'
 import { bashTool } from './BashTool'
 import type { Message, WhenRunning } from './ChatSessions'
 import { WORKSPACE_ROOT } from './computer/Contract'
-import { DurableObjectEventLog } from './DurableObjectEventLog'
+import { layerDurableObjectEventLog } from './DurableObjectEventLog'
 import { Keepalive } from './Keepalive'
 import { SessionExpiry } from './SessionExpiry'
 import { type Repo, Workspace } from './Workspace'
@@ -149,17 +148,20 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 		const state = yield* Cloudflare.DurableObjectState
 		// Read from the deploy environment and bound to the Worker as a secret. Missing, the deploy fails.
 		const apiKey = yield* Config.Redacted('OPENAI_API_KEY').pipe(Effect.orDie)
-		const eventLogs = yield* DurableObjectEventLog
 		const keepalive = yield* Keepalive
 		const expiry = yield* SessionExpiry
 		const workspace = yield* Workspace
 
-		// Alchemy runs this outer Effect once per class and the returned Effect once per object instance.
+		// Alchemy also evaluates the outer Effect during planning, without a live SQLite handle.
+		// Storage acquisition stays in the returned runtime-only Effect.
 		// oxlint-disable-next-line effecttsgo/return-effect-in-gen
 		return Effect.gen(function* () {
 			const sessionId = yield* Schema.decodeUnknownEffect(SessionId)(state.id.name)
-			const eventLog = yield* eventLogs.open
-			const log = eventLogSource(Effect.succeed(eventLog))
+			// This scope and backend outlive construction and every individual RPC call.
+			const scope = yield* Scope.make()
+			const memoMap = yield* Layer.makeMemoMap
+			const logContext = yield* Layer.buildWithMemoMap(layerDurableObjectEventLog, memoMap, scope)
+			const eventLog = yield* EventLog.pipe(Effect.provideContext(logContext))
 			const isEmpty = Option.isNone(yield* Stream.runHead(eventLog.entries()))
 
 			const fileSystem = workspace.fileSystem(sessionId)
@@ -176,19 +178,14 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 					],
 				})
 
-			// Never closed: the session lives as long as the object stays in memory, past every call's own
-			// scope. Opened on the first send, so reading an unknown id writes nothing.
-			const scope = yield* Scope.make()
-
 			// A new session clones its repos, starts its container in the background, then starts; a cut-off
 			// start leaves the log empty, so the next send clones them again from scratch.
 			const start = (repos: ReadonlyArray<Repo>) =>
 				Effect.gen(function* () {
 					const cloned = yield* workspace.prepare(sessionId, repos)
 					yield* Effect.forkIn(workspace.startContainer(sessionId), scope)
-					return yield* startSession({
+					return yield* Session.open({
 						agent: agentFor(cloned.map((repo) => repo.name)),
-						log,
 						sessionId,
 						cwd: WORKSPACE_ROOT,
 						meta: { repos: cloned },
@@ -204,7 +201,7 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 						Effect.orDie,
 					),
 				)
-				return yield* resumeSession({ agent: agentFor(repoNames), log })
+				return yield* Session.open({ agent: agentFor(repoNames), sessionId })
 			})
 
 			// Opened once, by whichever send or restart nudge comes first; `repos` only matter to a new session.
@@ -217,6 +214,7 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 							(isEmpty ? start(repos) : resume).pipe(
 								// fold hands these to the file tools, the skill loader, and the model.
 								Effect.provideService(FileSystem.FileSystem, fileSystem),
+								Effect.provideContext(logContext),
 								Effect.provide(Layer.mergeAll(Path.layer, FetchHttpClient.layer, Photon.layer)),
 								Scope.provide(scope),
 								Effect.map((session) => [session, Option.some(session)] as const),
@@ -259,5 +257,5 @@ export default class ChatSession extends Cloudflare.DurableObject<ChatSession>()
 					),
 			}
 		}).pipe(Effect.orDie)
-	}).pipe(Effect.provide([DurableObjectEventLog.layer, Keepalive.layer, SessionExpiry.layer, Workspace.layer])),
+	}).pipe(Effect.provide([Keepalive.layer, SessionExpiry.layer, Workspace.layer])),
 ) {}

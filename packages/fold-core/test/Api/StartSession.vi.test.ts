@@ -1,6 +1,6 @@
 import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
 /**
- * Facade tests: startSession lowers agent/log/model descriptors into the full runtime graph. Real
+ * Facade tests: Session.open lowers agent/model descriptors and adopts the ambient EventLog into the full runtime graph. Real
  * EventLog, projections, hook runner, tool runtime, and session facade run under scripted language
  * models - only descriptors appear in test setup, mirroring how SDK callers use the API. Model and
  * configuration switching is covered separately in SwitchModel.vi.test.ts, cross-session isolation in
@@ -13,8 +13,7 @@ import {
 	defineAgent,
 	defineTool,
 	defineToolState,
-	eventLogSource,
-	startSession,
+	Session,
 	EventLog,
 	layerInMemoryEventLog,
 	ToolEvents,
@@ -46,7 +45,7 @@ it.effect('runs a tool-calling turn end to end from descriptors only', () =>
 			textTurn('The tool echoed: hello facade'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				name: 'facade-demo',
 				model,
@@ -100,7 +99,7 @@ it.effect('runs a tool-free agent with defaults (memory log, no tools, no failur
 	Effect.gen(function* () {
 		const { model, scripted } = yield* scriptedModel(gptActiveModel, [textTurn('Just text.')])
 
-		const session = yield* startSession({ agent: defineAgent({ model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model }) })
 
 		const finished = yield* session.send('hi')
 		const requests = yield* scripted.requests
@@ -115,7 +114,7 @@ it.effect('runs a tool-free agent with defaults (memory log, no tools, no failur
 it.effect('injects a skill as a linked synthetic tool call and result without a user message', () =>
 	Effect.gen(function* () {
 		const { model } = yield* scriptedModel(gptActiveModel, [])
-		const session = yield* startSession({ agent: defineAgent({ model }) })
+		const session = yield* Session.open({ agent: defineAgent({ model }) })
 
 		const injected = yield* session.injectSkill('terminal-control', '<skill>terminal instructions</skill>')
 		const entries = yield* session.entries
@@ -173,7 +172,7 @@ it.effect('tool handlers reach ToolState and ToolEvents; session.events carries 
 			textTurn('Tool said hi'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, systemPrompt: 'You are a test agent.', tools: [progressTool] }),
 		})
 
@@ -249,7 +248,7 @@ it.effect('agent hooks run in the facade: a preToolUse deny replaces the result 
 			textTurn('Understood, the tool was denied.'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({
 				model,
 				systemPrompt: 'You are a test agent.',
@@ -285,7 +284,7 @@ it.effect('a typed handler failure returns to the model schema-encoded with isFa
 			textTurn('The tool failed, moving on.'),
 		])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, systemPrompt: 'You are a test agent.', tools: [flakyTool] }),
 		})
 
@@ -304,17 +303,16 @@ it.effect('a typed handler failure returns to the model schema-encoded with isFa
 
 // ── Log backends and descriptor validation ──────────────────────────────────
 
-it.effect('eventLogSource backs the session with a caller-supplied EventLog service', () =>
+it.effect('Session.open uses the host-supplied EventLog instance', () =>
 	Effect.gen(function* () {
 		const external = yield* Layer.build(layerInMemoryEventLog).pipe(
 			Effect.map((context) => Context.get(context, EventLog)),
 		)
 		const { model } = yield* scriptedModel(gptActiveModel, [textTurn('logged externally')])
 
-		const session = yield* startSession({
+		const session = yield* Session.open({
 			agent: defineAgent({ model, systemPrompt: 'You are a test agent.' }),
-			log: eventLogSource(Effect.succeed(external)),
-		})
+		}).pipe(Effect.provideService(EventLog, external))
 
 		yield* session.send('hi')
 
@@ -334,7 +332,7 @@ it.effect('rejects duplicate tool names as a defect', () =>
 	Effect.gen(function* () {
 		const { model } = yield* scriptedModel(gptActiveModel, [])
 
-		const exit = yield* startSession({
+		const exit = yield* Session.open({
 			agent: defineAgent({ model, tools: [echoTool, echoTool] }),
 		}).pipe(Effect.exit)
 
@@ -350,7 +348,7 @@ it.effect('runs a tool-calling session without a FileSystem when no descriptor d
 			textTurn('done'),
 		])
 
-		const session = yield* startSession({ agent: defineAgent({ model, tools: [echoTool] }) })
+		const session = yield* Session.open({ agent: defineAgent({ model, tools: [echoTool] }) })
 		const finished = yield* session.send('echo something')
 
 		expect(finished.outcome).toBe('completed')
@@ -372,7 +370,7 @@ it.effect('a tool handler reads the FileSystem the session caller provided', () 
 				Effect.flatMap(FileSystem.FileSystem, (fs) => fs.readFileString('/note.txt')).pipe(Effect.orDie),
 		})
 
-		const session = yield* startSession({ agent: defineAgent({ model, tools: [readNote] }) })
+		const session = yield* Session.open({ agent: defineAgent({ model, tools: [readNote] }) })
 		yield* session.send('read the note')
 
 		expect(firstToolResultPart(yield* session.entries).result).toBe('from the host')
@@ -402,7 +400,7 @@ it.effect('tool handlers keep the FileSystem the session started with when a tur
 		})
 		const noteFileSystem = (note: string) => FileSystem.makeNoop({ readFileString: () => Effect.succeed(note) })
 
-		const session = yield* startSession({ agent: defineAgent({ model, tools: [readNote] }) }).pipe(
+		const session = yield* Session.open({ agent: defineAgent({ model, tools: [readNote] }) }).pipe(
 			Effect.provideService(FileSystem.FileSystem, noteFileSystem('from the session')),
 		)
 		// A host whose request handling carries its own FileSystem, as Alchemy's Worker runtime does.

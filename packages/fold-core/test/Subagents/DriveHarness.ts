@@ -18,7 +18,7 @@ import {
 	defineAgent,
 	defineTool,
 	renderSubagentResult,
-	startSession,
+	Session,
 	subagentTool,
 	type ActiveModel,
 	type AgentId,
@@ -113,7 +113,7 @@ export const makeDriveSession = (input: {
 			systemPrompt: 'root',
 			tools: [makeDriveTool(instructions, roster), subagentTool(input.definitions)],
 		})
-		const session = yield* startSession(
+		const session = yield* Session.open(
 			input.profiles === undefined ? { agent } : { agent, profiles: input.profiles },
 		)
 

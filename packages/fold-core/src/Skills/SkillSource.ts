@@ -90,8 +90,8 @@ export type FoldSkills<R = never> = {
 export const skillsFromData = (skills: ReadonlyArray<SkillData>): FoldSkills => ({ make: skillSourceFromData(skills) })
 
 /**
- * Configure an agent's skills from a custom source implementation (the extension seam, mirroring
- * `eventLogSource`): fold-agent exposes its disk loader through this. A construction failure is an
+ * Configure an agent's skills from a custom source implementation: fold-agent exposes its disk
+ * loader through this. A construction failure is an
  * infrastructure defect.
  */
 export const skillSource = <E, R>(make: Effect.Effect<SkillSourceService, E, R>): FoldSkills<R> => ({
