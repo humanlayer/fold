@@ -21,6 +21,7 @@ import type { ModelRequestSettings } from '../Model/ModelRequestSettings'
 import type { Profiles } from '../Session/Profiles'
 import type { SessionControls } from '../Session/SessionControls'
 import type { SkillSourceService } from '../Skills/SkillSource'
+import type { BackgroundTasks } from '../Subagents/BackgroundTasks'
 import type { SessionAgents } from '../Subagents/SessionAgents'
 import type { SubagentToolCapabilities } from '../Subagents/SubagentTool'
 import type { SystemPrompt } from '../SystemPrompt/SystemPromptService'
@@ -61,6 +62,7 @@ export type ToolHandlerServices =
 	| SessionControls
 	| Profiles
 	| SessionAgents
+	| BackgroundTasks
 
 type ToolDependency =
 	| typeof ToolState

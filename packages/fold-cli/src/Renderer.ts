@@ -15,6 +15,7 @@ import {
 	usageOutputTotal,
 	type ActiveModel,
 	type AgentFinishedLogEntry,
+	type TaskFinishedLogEntry,
 	type AgentStartedLogEntry,
 	type AssistantMessageLogEntry,
 	type ModelChangeLogEntry,
@@ -104,6 +105,15 @@ const DeltaPart = Schema.Union([
 	Schema.Struct({ type: Schema.Literal('text-delta'), id: Schema.String, delta: Schema.String }),
 	Schema.Struct({ type: Schema.Literal('reasoning-delta'), id: Schema.String, delta: Schema.String }),
 	Schema.Struct({ type: Schema.Literal('tool-progress'), toolName: Schema.String, payload: Schema.Json }),
+	Schema.Struct({
+		type: Schema.Literal('task-progress'),
+		taskId: AgentId,
+		turns: Schema.Finite,
+		toolUses: Schema.Finite,
+		totalTokens: Schema.NullOr(Schema.Finite),
+		lastToolName: Schema.NullOr(Schema.String),
+		progressSummary: Schema.NullOr(Schema.String),
+	}),
 ])
 
 const FoldEventJson = Schema.fromJsonString(
@@ -300,6 +310,16 @@ const resumeCommand = (
 	return `foldcode ${flags.join(' ')}`
 }
 
+const taskStatusColor = (ansi: AnsiPalette, status: TaskFinishedLogEntry['status']): ((text: string) => string) =>
+	Match.value(status).pipe(
+		Match.when('completed', () => ansi.green),
+		Match.when('stopped', () => ansi.yellow),
+		Match.when('failed', () => ansi.red),
+		Match.exhaustive,
+	)
+
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`
+
 const outcomeColor = (ansi: AnsiPalette, outcome: AgentFinishedLogEntry['outcome']): ((text: string) => string) =>
 	Match.value(outcome).pipe(
 		Match.when('completed', () => ansi.green),
@@ -448,8 +468,31 @@ export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer =
 						)
 			},
 			'user-message': (message) => {
+				// A task-notification wake is runtime-written: show which agents it reports, not its XML.
+				if (message.origin !== undefined) {
+					const ids = message.origin.taskIds.map(displayAgentId).join(', ')
+					return renderAgentLine(
+						message.agentId,
+						`${label(ansi, 'notification')} background agent ${ids} finished`,
+					)
+				}
 				const text = encodedContentText(message.message.content)
 				return text.length === 0 ? Effect.void : renderAgentLine(message.agentId, `${ansi.cyan('>')} ${text}`)
+			},
+			task_started: (started) =>
+				renderAgentLine(
+					started.agentId,
+					`${label(ansi, 'background')} ${displayAgentId(started.agentId)} ` +
+						`${started.runCount > 1 ? 'resumed' : 'started'}: ${started.description}`,
+				),
+			task_finished: (finished) => {
+				const color = taskStatusColor(ansi, finished.status)
+				const work = `${plural(finished.usage.turns, 'turn')}, ${plural(finished.usage.toolUses, 'tool use')}`
+				const error = finished.error === null ? '' : ` - ${finished.error}`
+				return renderAgentLine(
+					finished.agentId,
+					`${label(ansi, 'background')} ${displayAgentId(finished.agentId)} ${color(finished.status)} (${work})${error}`,
+				)
 			},
 			'assistant-message': (message) => {
 				if (message.finish !== null) {
@@ -578,6 +621,9 @@ export const humanOutputRenderer = (options?: RendererOptions): OutputRenderer =
 						`${label(ansi, 'tool')} ${ansi.cyan(toolName)} ${truncate(jsonText(payload), verbose ? 2000 : 300)}`,
 					)
 				},
+
+				// Background progress is visible through the agent's own lines; the counts land on task_finished.
+				'task-progress': () => Effect.void,
 			}),
 		)
 	}

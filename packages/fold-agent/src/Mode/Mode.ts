@@ -6,12 +6,12 @@
  *
  * `defaultCodingMode` is the batteries-included local coding agent: the full filesystem toolset (read,
  * write, edit, apply_patch, bash - the family policy advertises the right editing subset per model),
- * the disk skill tool, and the default subagent roster (general-purpose, bash, researcher - see
- * Mode/Subagents). Other modes are just other `FoldMode` values (Mode/Rlm); Mode/ModeName maps the
+ * the disk skill tool, the default subagent roster (general-purpose, bash, researcher - see
+ * Mode/Subagents), and the background-agent controls (list_agents, stop_agent, send_message). Other modes are just other `FoldMode` values (Mode/Rlm); Mode/ModeName maps the
  * selectable names to them. RPI is not a mode: the `rpi` context flag appends the RPI specialist
  * roster to ANY mode's subagents (Mode/Rpi).
  */
-import { skillTool, subagentTool, type FoldTool } from '@humanlayer/fold-core'
+import { agentControlTools, skillTool, subagentTool, type FoldTool } from '@humanlayer/fold-core'
 import type { FileSystem, Path } from 'effect'
 import type { HttpClient } from 'effect/http'
 import type { ChildProcessSpawner } from 'effect/process'
@@ -74,6 +74,8 @@ export const DEFAULT_CODING_PROMPT: string =
 	'Delegate to a subagent when a step would burn context you need for the main task: researcher for ' +
 	'locating and explaining code, web-search-researcher for current web research, bash for running a ' +
 	'command and summarizing its output, and general-purpose for a self-contained multi-step task. Do simple work yourself. ' +
+	'Launch independent subagents with run_in_background when you can keep working meanwhile; each result ' +
+	'arrives later as a <task-notification> message, and list_agents, send_message, and stop_agent manage them. ' +
 	'Keep responses concise; let the tools do the work.'
 
 /** The batteries-included local coding agent: full filesystem toolset, disk skills, default subagents. */
@@ -85,5 +87,6 @@ export const defaultCodingMode: FoldMode = {
 		...codingTools({ cwd }),
 		skillTool(skillsFromDisk({ cwd })),
 		subagentTool(modeSubagents({ cwd, rpi })),
+		...agentControlTools(),
 	],
 }

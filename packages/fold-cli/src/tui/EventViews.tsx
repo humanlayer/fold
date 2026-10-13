@@ -51,6 +51,8 @@ export const rowVisual = (
 	switch (row.kind) {
 		case 'user':
 			return { glyph: '›', color: tactical.color.grid, dim: false }
+		case 'notification':
+			return { glyph: '◆', color: tactical.color.inject, dim: false }
 		case 'assistant':
 			return assistantVisual(row)
 		case 'reasoning':

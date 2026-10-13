@@ -15,6 +15,7 @@ import type {
 	AgentLaunchMode,
 	AgentStartedLogEntry,
 	CompactionLogEntry,
+	UserMessageOrigin,
 } from '../EventLog/Schemas'
 import type { AgentId, ToolCallId } from '../Ids'
 
@@ -47,6 +48,8 @@ export type RunAgentInput = {
 	 * messages carry a dispatch prompt followed by injected context such as a preloaded skill (D21).
 	 */
 	readonly messages: Arr.NonEmptyReadonlyArray<string>
+	/** Origin recorded on the initial user messages when the runtime, not a person, wrote them. */
+	readonly origin?: UserMessageOrigin | undefined
 }
 
 /** Input for switching one started agent to a different model (a new epoch - D17). */

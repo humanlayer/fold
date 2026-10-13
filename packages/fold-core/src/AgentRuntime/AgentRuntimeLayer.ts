@@ -26,6 +26,7 @@ import {
 	type CompactionLogEntry,
 	type LogEntry,
 	type LogEntryInput,
+	type UserMessageOrigin,
 } from '../EventLog/Schemas'
 import { usageFromResponseUsage } from '../EventLog/Usage'
 import { HookRunner } from '../HookRunner/HookRunnerService'
@@ -137,19 +138,24 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 			Effect.map((entries): ReadonlyArray<LogEntry> => entries),
 		)
 
-		const appendUserMessage = (input: RunAgentInput, text: string): Effect.Effect<void> =>
+		const appendUserMessage = (
+			input: RunAgentInput,
+			text: string,
+			origin: UserMessageOrigin | null = null,
+		): Effect.Effect<void> =>
 			ids.makeMessageId.pipe(
-				Effect.flatMap((messageId) =>
-					appendToEventLog(
-						LogEntryInputs['user-message']({
-							agentId: input.agentId,
-							parentAgentId: input.parentAgentId,
-							toolCallId: input.toolCallId,
-							messageId,
-							message: encodeUserMessage(Prompt.userMessage({ content: [Prompt.textPart({ text })] })),
-						}),
-					),
-				),
+				Effect.flatMap((messageId) => {
+					const envelope = {
+						agentId: input.agentId,
+						parentAgentId: input.parentAgentId,
+						toolCallId: input.toolCallId,
+						messageId,
+						message: encodeUserMessage(Prompt.userMessage({ content: [Prompt.textPart({ text })] })),
+					}
+					return appendToEventLog(
+						LogEntryInputs['user-message'](origin === null ? envelope : { ...envelope, origin }),
+					)
+				}),
 				Effect.asVoid,
 			)
 
@@ -323,8 +329,8 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// Drain queued steering before this turn's model call (D8): each steered message becomes an
 				// ordinary user-message right here, so the log records it exactly where the model saw it.
 				const steered = yield* sessionControls.drainSteering(input.agentId)
-				for (const text of steered) {
-					yield* appendUserMessage(input, text)
+				for (const message of steered) {
+					yield* appendUserMessage(input, message.text, message.origin)
 				}
 
 				const entriesBeforeCompaction = yield* collectEntries
@@ -506,8 +512,8 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				// complete naturally - each becomes an ordinary user-message and the run continues.
 				const followUps = yield* sessionControls.drainFollowUps(input.agentId)
 				if (Arr.isReadonlyArrayNonEmpty(followUps)) {
-					for (const text of followUps) {
-						yield* appendUserMessage(input, text)
+					for (const message of followUps) {
+						yield* appendUserMessage(input, message.text, message.origin)
 					}
 					return TurnResult.continue()
 				}
@@ -647,7 +653,7 @@ export const liveAgentRuntimeLayer: Layer.Layer<
 				const doomLoopRef = yield* Ref.make(initialDoomLoopState)
 
 				for (const text of input.messages) {
-					yield* appendUserMessage(input, text)
+					yield* appendUserMessage(input, text, input.origin ?? null)
 				}
 
 				while (true) {

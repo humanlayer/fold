@@ -1,7 +1,16 @@
-import { AgentId, type AgentStartedLogEntry, EventId, type LogEntry, MessageId } from '@humanlayer/fold-core'
+import {
+	AgentId,
+	type AgentStartedLogEntry,
+	EventId,
+	type LogEntry,
+	MessageId,
+	type TaskFinishedLogEntry,
+	type TaskStartedLogEntry,
+	ToolCallId,
+} from '@humanlayer/fold-core'
 import { describe, expect, it } from 'vitest'
 
-import { relativeSubagentTime, skillViews, subagentViews } from '../src/tui/Subagents'
+import { metaCounts, relativeSubagentTime, skillViews, subagentViews } from '../src/tui/Subagents'
 
 const startedEntry = (agentId: string, seq: number, ts: number): AgentStartedLogEntry => ({
 	_tag: 'agent_started',
@@ -84,5 +93,70 @@ describe('skillViews', () => {
 		]
 
 		expect(skillViews(entries, agentId).map((skill) => skill.name)).toEqual(['Alpha', 'middle', 'zebra'])
+	})
+})
+
+describe('background subagents in the rail', () => {
+	const rootAgentId = AgentId.make('agent_aaaaaaaaaaaaaaaaaaaaaaaa')
+	const started = startedEntry('agent_bbbbbbbbbbbbbbbbbbbbbbbb', 1, 1_000)
+	const toolCallId = ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa')
+	const taskStarted: TaskStartedLogEntry = {
+		_tag: 'task_started',
+		seq: 2,
+		eventId: EventId.create(),
+		ts: 1_000,
+		version: 1,
+		agentId: started.agentId,
+		parentAgentId: rootAgentId,
+		toolCallId,
+		taskType: 'subagent',
+		agentType: 'researcher',
+		description: 'find the loader',
+		prompt: 'look',
+		isBackgrounded: true,
+		runCount: 1,
+	}
+	const taskFinished: TaskFinishedLogEntry = {
+		_tag: 'task_finished',
+		seq: 4,
+		eventId: EventId.create(),
+		ts: 2_000,
+		version: 1,
+		agentId: started.agentId,
+		parentAgentId: rootAgentId,
+		toolCallId,
+		status: 'stopped',
+		summary: null,
+		error: null,
+		usage: { turns: 0, toolUses: 0, totalTokens: null },
+		durationMs: 1_000,
+		lastToolName: null,
+	}
+
+	it('marks background agents, counts the running ones, and takes the label from the task', () => {
+		const views = subagentViews([started, taskStarted], rootAgentId)
+		expect(views).toEqual([
+			expect.objectContaining({ background: true, status: 'running', description: 'find the loader' }),
+		])
+		expect(metaCounts([started, taskStarted], views).background).toBe(1)
+	})
+
+	it('reports how the background run ended', () => {
+		const finished: LogEntry = {
+			_tag: 'agent-finished',
+			seq: 3,
+			eventId: EventId.create(),
+			ts: 2_000,
+			version: 1,
+			agentId: started.agentId,
+			parentAgentId: rootAgentId,
+			toolCallId,
+			outcome: 'interrupted',
+			resultText: null,
+			reason: 'interrupted by the user',
+		}
+		const views = subagentViews([started, taskStarted, finished, taskFinished], rootAgentId)
+		expect(views.map((view) => view.status)).toEqual(['stopped'])
+		expect(metaCounts([], views).background).toBe(0)
 	})
 })

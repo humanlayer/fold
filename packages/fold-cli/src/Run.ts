@@ -36,6 +36,7 @@ import {
 	Predicate,
 	Cause,
 	Clock,
+	Duration,
 	Effect,
 	Exit,
 	Fiber,
@@ -80,7 +81,15 @@ export type CliSessionOptions = {
 /** Options for one non-interactive `--prompt` run. */
 export type PromptRunOptions = CliSessionOptions & {
 	readonly prompt: string
+	/**
+	 * How long the run waits for background agents (and the notification turns they trigger) after
+	 * the prompt's own turn ends, before stopping them. Defaults to {@link DEFAULT_BACKGROUND_TIMEOUT}.
+	 */
+	readonly backgroundTimeout?: Duration.Input
 }
+
+/** Default cap on a headless run's wait for background agents. */
+export const DEFAULT_BACKGROUND_TIMEOUT: Duration.Input = Duration.minutes(10)
 
 type OpenedSession = {
 	readonly session: FoldSession<
@@ -315,6 +324,7 @@ const withProcessSignals = <A, E, R>(
 	>,
 	renderer: OutputRenderer,
 	effect: Effect.Effect<A, E, R>,
+	onSignal: Effect.Effect<void> = session.interrupt(),
 ): Effect.Effect<A, E, R> =>
 	Effect.acquireUseRelease(
 		Effect.sync(() => {
@@ -323,9 +333,7 @@ const withProcessSignals = <A, E, R>(
 				if (fired) return
 				fired = true
 				Effect.runFork(
-					renderer
-						.renderNote('interrupt requested; saving session state')
-						.pipe(Effect.andThen(session.interrupt())),
+					renderer.renderNote('interrupt requested; saving session state').pipe(Effect.andThen(onSignal)),
 				)
 			}
 			process.on('SIGINT', handler)
@@ -376,6 +384,45 @@ const forkStartupEnsures = (
 		}),
 	).pipe(Effect.asVoid)
 
+/**
+ * After a headless prompt's own turn: wait until background agents have finished and every
+ * notification turn they triggered has run, then return the root's latest outcome. Agents still
+ * running after `timeout` are stopped (recorded `stopped`; no further turn). An interrupted prompt
+ * stops background agents at once instead of waiting.
+ */
+export const settleBackgroundWork = <R>(
+	session: FoldSession<R>,
+	renderer: Pick<OutputRenderer, 'renderNote'>,
+	sent: AgentFinishedLogEntry,
+	timeout: Duration.Input = DEFAULT_BACKGROUND_TIMEOUT,
+): Effect.Effect<AgentFinishedLogEntry> =>
+	Effect.gen(function* () {
+		if (sent.outcome === 'interrupted') {
+			yield* session.stop('the user interrupted the run')
+			return sent
+		}
+
+		const running = (yield* session.backgroundTasks).filter((task) => task.status === 'running').length
+		if (running > 0) {
+			yield* renderer.renderNote(`waiting for ${running} background agent${running === 1 ? '' : 's'} to finish`)
+		}
+		const settled = yield* session.awaitBackgroundIdle.pipe(Effect.timeoutOption(timeout))
+		if (Option.isNone(settled)) {
+			yield* renderer.renderNote(
+				`background agents still running after ${Duration.format(Duration.fromInputUnsafe(timeout))}; stopping them`,
+			)
+			yield* session.stop('background agents did not finish before the run timed out')
+			yield* session.awaitBackgroundIdle
+		}
+
+		const entries = yield* session.entries
+		const latest = entries.findLast(
+			(entry): entry is AgentFinishedLogEntry =>
+				Predicate.isTagged(entry, 'agent-finished') && entry.agentId === session.rootAgentId,
+		)
+		return latest ?? sent
+	})
+
 /** Open a session, print its header, and run one CI-friendly prompt. */
 export const runPrompt = (
 	options: PromptRunOptions,
@@ -398,7 +445,7 @@ export const runPrompt = (
 		yield* renderer.renderHeader(yield* sessionHeader(opened, options))
 		const renderFiber = yield* renderLiveEvents(opened.session, renderer)
 		yield* forkStartupEnsures(options, renderer)
-		const finished = yield* withProcessSignals(
+		const sent = yield* withProcessSignals(
 			opened.session,
 			renderer,
 			opened.session.send(options.prompt).pipe(
@@ -407,6 +454,14 @@ export const runPrompt = (
 					Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) ? opened.session.interrupt() : Effect.void,
 				),
 			),
+		)
+		// Background agents keep the run open: their notification turns are part of this prompt's answer.
+		// A signal while waiting stops them (an interrupt alone would leave them running).
+		const finished = yield* withProcessSignals(
+			opened.session,
+			renderer,
+			settleBackgroundWork(opened.session, renderer, sent, options.backgroundTimeout),
+			opened.session.stop('the user interrupted the run'),
 		)
 		yield* Effect.yieldNow
 		yield* renderer.renderFinish(finished)

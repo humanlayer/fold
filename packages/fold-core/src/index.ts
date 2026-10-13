@@ -13,8 +13,10 @@ export {
 	type InjectedSkillEntries,
 } from './Api/OpenSession'
 export * from './Api/ToolDefinition'
+export * from './Subagents/AgentControlTools'
 export * from './Subagents/AgentIdRef'
 export * from './Subagents/AgentRegistry'
+export * from './Subagents/BackgroundTasks'
 export * from './Subagents/Errors'
 export * from './Subagents/ForkAgentDefinition'
 export * from './Subagents/Schemas'

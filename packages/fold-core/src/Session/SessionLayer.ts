@@ -15,6 +15,7 @@ import { Ids } from '../Ids'
 import { SessionAlreadyStartedError, SessionNotStartedError } from './Errors'
 import {
 	Session,
+	type SendSessionInput,
 	type SessionService,
 	type StartedSession,
 	type StartSessionInput,
@@ -108,7 +109,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 			}),
 		)
 
-		const send: SessionService['send'] = Effect.fn('fold.session.send')((input: { readonly text: string }) =>
+		const send: SessionService['send'] = Effect.fn('fold.session.send')((input: SendSessionInput) =>
 			Effect.gen(function* () {
 				const started = yield* Ref.get(startedRef)
 
@@ -121,6 +122,7 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 					parentAgentId: null,
 					toolCallId: null,
 					messages: [input.text],
+					origin: input.origin,
 				})
 			}),
 		)

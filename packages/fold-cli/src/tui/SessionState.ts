@@ -39,7 +39,16 @@ export type SessionState = typeof SessionState.Type
 export const ConversationRow = Schema.Struct({
 	key: Schema.String,
 	seq: Schema.NullOr(LogSeq),
-	kind: Schema.Literals(['user', 'assistant', 'reasoning', 'tool-call', 'tool-result', 'compaction', 'error']),
+	kind: Schema.Literals([
+		'user',
+		'notification',
+		'assistant',
+		'reasoning',
+		'tool-call',
+		'tool-result',
+		'compaction',
+		'error',
+	]),
 	label: Schema.String,
 	text: Schema.String,
 	inputText: Schema.NullOr(Schema.String),
@@ -81,6 +90,8 @@ const isRootContent = Match.type<LogEntry>().pipe(
 		'tools-change': () => false,
 		'agent-finished': () => false,
 		session_title: () => false,
+		task_started: () => false,
+		task_finished: () => false,
 	}),
 	Match.exhaustive,
 )
@@ -209,6 +220,7 @@ export const reduceSessionEvent = (state: SessionState, event: FoldEvent, rootAg
 		case 'reasoning-delta':
 			return { ...appendTransient(state, 'reasoning', event.part.id, event.part.delta), status: 'RUNNING' }
 		case 'tool-progress':
+		case 'task-progress':
 			return state
 	}
 }
@@ -280,17 +292,47 @@ const sameText = (left: string | null, right: string | null): boolean => left ==
 
 const interruptedToolResultPrefix = '<system-information>The user interrupted the execution of this tool call.'
 
+/**
+ * The one-line form of a task-notification wake: each notification's `<summary>` (for example
+ * `Background agent "find the loader" completed`), joined. The full text stays available to inspect.
+ */
+export const taskNotificationSummary = (text: string): string => {
+	const summaries = [...text.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].flatMap((match) =>
+		match[1] === undefined ? [] : [match[1].trim()],
+	)
+	return summaries.length === 0 ? 'Background agent finished' : summaries.join(' · ')
+}
+
 const rowsForEntry = (
 	entry: LogEntry,
 	interruptedAssistantSeqs: ReadonlyArray<number>,
 ): ReadonlyArray<ConversationRow> =>
 	Match.value(entry).pipe(
 		Match.tags({
-			'user-message': ({ message, messageId, seq }): ReadonlyArray<ConversationRow> => {
+			'user-message': ({ message, messageId, seq, origin }): ReadonlyArray<ConversationRow> => {
 				const text =
 					typeof message.content === 'string'
 						? message.content
 						: message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('')
+				// A runtime-written task-notification wake renders as a system row, not as something the user typed.
+				if (origin !== undefined) {
+					return [
+						{
+							key: messageId,
+							seq,
+							kind: 'notification',
+							label: 'AGENTS',
+							text: taskNotificationSummary(text),
+							inputText: null,
+							executedInputText: null,
+							resultText: text,
+							toolName: null,
+							toolCallId: null,
+							status: 'none' as const,
+							isFailure: false,
+						},
+					]
+				}
 				return text.length === 0
 					? []
 					: [

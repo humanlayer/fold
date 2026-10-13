@@ -422,3 +422,98 @@ describe('TUI session reducer', () => {
 		)
 	})
 })
+
+describe('background tasks in the TUI reducer', () => {
+	const toolCallId = 'tool_call_aaaaaaaaaaaaaaaaaaaaaaaa'
+	const taskStarted = entry({
+		_tag: 'task_started',
+		seq: 1,
+		ts: 1,
+		agentId: childAgentId,
+		parentAgentId: rootAgentId,
+		toolCallId,
+		taskType: 'subagent',
+		agentType: 'researcher',
+		description: 'find the loader',
+		prompt: 'look',
+		isBackgrounded: true,
+		runCount: 1,
+	})
+	const taskFinished = entry({
+		_tag: 'task_finished',
+		seq: 2,
+		ts: 2,
+		agentId: childAgentId,
+		parentAgentId: rootAgentId,
+		toolCallId,
+		status: 'completed',
+		summary: 'found it',
+		error: null,
+		usage: { turns: 1, toolUses: 0, totalTokens: 15 },
+		durationMs: 1,
+		lastToolName: null,
+	})
+	const notification = entry({
+		_tag: 'user-message',
+		seq: 3,
+		ts: 3,
+		agentId: rootAgentId,
+		parentAgentId: null,
+		toolCallId: null,
+		messageId: 'msg_cccccccccccccccccccccccc',
+		message: {
+			role: 'user',
+			content: [
+				{
+					type: 'text',
+					text: '<task-notification>\n<summary>Background agent "find the loader" completed</summary>\n<result>\nfound it\n</result>\n</task-notification>',
+				},
+			],
+		},
+		origin: { _tag: 'task-notification', taskIds: [childAgentId] },
+	})
+
+	it('renders a task-notification wake as a notification row, not a user row', () => {
+		const state = makeSessionStateFromEntries([taskStarted, taskFinished, notification], rootAgentId)
+
+		expect(state.allEntries.map((candidate) => candidate._tag)).toEqual([
+			'task_started',
+			'task_finished',
+			'user-message',
+		])
+		expect(conversationRows(state)).toEqual([
+			expect.objectContaining({
+				kind: 'notification',
+				label: 'AGENTS',
+				text: 'Background agent "find the loader" completed',
+				resultText: expect.stringContaining('found it'),
+			}),
+		])
+		// The wake starts a root run.
+		expect(state.status).toBe('RUNNING')
+	})
+
+	it('ignores task-progress deltas', () => {
+		const state = makeSessionState(null)
+		const next = reduceSessionEvent(
+			state,
+			{
+				kind: 'delta',
+				agentId: rootAgentId,
+				parentAgentId: null,
+				toolCallId: null,
+				part: {
+					type: 'task-progress',
+					taskId: childAgentId,
+					turns: 1,
+					toolUses: 2,
+					totalTokens: null,
+					lastToolName: 'read',
+					progressSummary: null,
+				},
+			},
+			rootAgentId,
+		)
+		expect(next).toBe(state)
+	})
+})

@@ -63,6 +63,8 @@ export type TuiAppProps = {
 	readonly onStop?: () => void
 	readonly onTargetSubmit?: (agentId: string, text: string, verb: RootInputVerb) => void
 	readonly onTargetInterrupt?: (agentId: string) => void
+	/** Stop a running background agent (`x` on the selected subagent). */
+	readonly onStopTask?: (agentId: string) => void
 	readonly onInjectSkill?: (skill: string, agentId: string | null) => void
 	readonly initialSelectedAgentId?: string
 	readonly gitSnapshot?: Accessor<GitSnapshot>
@@ -222,8 +224,15 @@ export const TuiApp = (props: TuiAppProps) => {
 	)
 	const runningCount = createMemo(() => meta().running + (props.state().status === 'RUNNING' ? 1 : 0))
 	const sessionActivityLabel = createMemo(() => {
-		if (sessionActivity() === 'running') return runningCount() > 1 ? `${runningCount()} RUNNING` : 'RUNNING'
+		const background = meta().background > 0 ? ` · ${meta().background} BG` : ''
+		if (sessionActivity() === 'running')
+			return `${runningCount() > 1 ? `${runningCount()} RUNNING` : 'RUNNING'}${background}`
 		return sessionActivity().toUpperCase()
+	})
+	/** The focused subagent when it is a running background agent: the target of `x`. */
+	const stoppableAgent = createMemo(() => {
+		const agent = focusedAgent()
+		return agent !== undefined && agent.background && agent.status === 'running' ? agent : undefined
 	})
 	const reasoningLabel = createMemo(() => {
 		const level = props.state().reasoningLevel
@@ -696,6 +705,14 @@ export const TuiApp = (props: TuiAppProps) => {
 				return
 			case 'd':
 				toggleChanges()
+				return
+			case 'x': {
+				const agent = stoppableAgent()
+				if (agent === undefined) return
+				key.preventDefault()
+				props.onStopTask?.(agent.agentId)
+				return
+			}
 		}
 	})
 
@@ -1089,6 +1106,18 @@ export const TuiApp = (props: TuiAppProps) => {
 										^C INTERRUPT
 									</text>
 								</Show>
+								<Show when={stoppableAgent() !== undefined}>
+									<text
+										fg={tactical.color.textDim}
+										wrapMode="none"
+										onMouseDown={() => {
+											const agent = stoppableAgent()
+											if (agent !== undefined) props.onStopTask?.(agent.agentId)
+										}}
+									>
+										{' · X STOP'}
+									</text>
+								</Show>
 							</box>
 							<textarea
 								ref={(value: TextareaRenderable) => (targetEditor = value)}
@@ -1167,7 +1196,11 @@ export const TuiApp = (props: TuiAppProps) => {
 							SKILLS
 						</text>
 						<box flexGrow={1} />
-						<text fg={tactical.color.grid}>{meta().running} RUN</text>
+						<text fg={tactical.color.grid}>
+							{meta().background > 0
+								? `${meta().running} RUN · ${meta().background} BG`
+								: `${meta().running} RUN`}
+						</text>
 					</box>
 					<Show
 						when={railTab() === 'subagents'}
@@ -1238,9 +1271,27 @@ export const TuiApp = (props: TuiAppProps) => {
 												width={12}
 											/>
 										</box>
-										<text fg={tactical.color.textDim} paddingLeft={3} wrapMode="none" truncate>
-											{agent().type}
-										</text>
+										<box height={1} flexDirection="row" gap={1} paddingLeft={3}>
+											<Show when={agent().background}>
+												<text fg={tactical.color.inject} wrapMode="none">
+													BG
+												</text>
+											</Show>
+											<text flexGrow={1} fg={tactical.color.textDim} wrapMode="none" truncate>
+												{agent().type}
+											</text>
+											<Show
+												when={
+													agent().background &&
+													agent().status === 'running' &&
+													selectedAgentId() === agent().agentId
+												}
+											>
+												<text fg={tactical.color.textFaint} wrapMode="none">
+													X STOP
+												</text>
+											</Show>
+										</box>
 									</box>
 								)}
 							</Index>

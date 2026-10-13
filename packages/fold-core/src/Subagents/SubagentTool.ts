@@ -16,11 +16,19 @@ import type { SkillNotFoundError } from '../Skills/SkillSource'
 import { subagentToolContract } from '../Tools/Contracts'
 import { ToolResultFailure, ToolResultText } from '../Tools/ToolResultContent'
 import { shortAgentId } from './AgentIdRef'
+import type { BackgroundTask } from './BackgroundTasks'
 import type { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { ForkAgentDefinition } from './ForkAgentDefinition'
 import { parseSubagentCommand, type SubagentResult } from './Schemas'
 import { subagentsNeedingAll, type SubagentDefinition, type SubagentDefinitionServices } from './SubagentDefinition'
-import { dispatchSubagent, forkSubagent, resumeSubagent } from './SubagentEngine'
+import {
+	dispatchSubagent,
+	dispatchSubagentInBackground,
+	forkSubagent,
+	forkSubagentInBackground,
+	resumeSubagent,
+	resumeSubagentInBackground,
+} from './SubagentEngine'
 
 /** Runtime capabilities attached to a model-visible delegation tool. */
 export type SubagentToolCapabilities<R = never> = {
@@ -55,6 +63,16 @@ export const renderSubagentResult = (result: SubagentResult): string => {
 
 	return note === null ? `${header}\n\n${body}` : `${header}\n\n${body}\n${note}`
 }
+
+/**
+ * Render the receipt for a background launch: the agent id and how its result will arrive. The run
+ * keeps going after this tool call returns; its notification arrives as a later user message.
+ */
+export const renderBackgroundLaunch = (task: BackgroundTask): string =>
+	`Background agent ${task.runCount > 1 ? 'resumed' : 'started'}. agent_id: ${shortAgentId(task.taskId)}\n` +
+	`It is working in the background. You will be notified with a <task-notification> message when it ` +
+	`finishes, so do not poll for it. You know nothing about its results until then: do not report, assume, ` +
+	`or predict them. If the user asks before it arrives, say it is still running.`
 
 /** The system-information note appended for non-completed outcomes; null for clean completions. */
 const outcomeNoteFor = (result: SubagentResult): string | null =>
@@ -129,7 +147,8 @@ const rosterDescriptionSuffix = (agents: ReadonlyArray<SubagentDefinition<unknow
 	return (
 		`\n\nAvailable agent types:\n${listing}\n\n` +
 		`Pass exactly one of: agent (dispatch a fresh subagent of that type), agent_id (resume a previous ` +
-		`subagent with its context intact), or fork: true (launch a copy of your own context).`
+		`subagent with its context intact), or fork: true (launch a copy of your own context). Add ` +
+		`run_in_background: true to keep working while it runs.`
 	)
 }
 
@@ -162,47 +181,74 @@ export const subagentTool = <D extends SubagentDefinition<unknown>, RF = never>(
 					),
 				)
 
+				const renderResult = (result: SubagentResult) =>
+					ToolResultText.make({ text: renderSubagentResult(result) })
+				const renderLaunch = (task: BackgroundTask) =>
+					ToolResultText.make({ text: renderBackgroundLaunch(task) })
+
 				return yield* Match.value(command).pipe(
 					Match.tagsExhaustive({
-						dispatch: (dispatchCommand) =>
-							dispatchSubagent({
+						dispatch: (dispatchCommand) => {
+							const input = {
 								agent: dispatchCommand.agent,
 								prompt: dispatchCommand.prompt,
 								skill: dispatchCommand.skill,
 								allowedAgents,
-							}).pipe(
-								Effect.catchTags({
-									SubagentTypeNotInRosterError: (error) => Effect.fail(rosterFailure(error)),
-									SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
-								}),
-								Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
-							),
-						fork: (forkCommand) =>
-							forkSubagent({
+								description: dispatchCommand.description,
+							}
+							const failures = {
+								SubagentTypeNotInRosterError: (error: SubagentTypeNotInRosterError) =>
+									Effect.fail(rosterFailure(error)),
+								SkillNotFoundError: (error: SkillNotFoundError) =>
+									Effect.fail(skillFailure(error, allowedAgents)),
+							}
+							return dispatchCommand.background
+								? dispatchSubagentInBackground(input).pipe(
+										Effect.catchTags(failures),
+										Effect.map(renderLaunch),
+									)
+								: dispatchSubagent(input).pipe(Effect.catchTags(failures), Effect.map(renderResult))
+						},
+						fork: (forkCommand) => {
+							const input = {
 								prompt: forkCommand.prompt,
 								skill: forkCommand.skill,
 								forkAgentDefinitionId: options?.forkAgent?.id ?? null,
-								history: 'all',
-							}).pipe(
-								Effect.catchTag('SkillNotFoundError', (error) =>
+								history: 'all' as const,
+							}
+							const failures = {
+								SkillNotFoundError: (error: SkillNotFoundError) =>
 									Effect.fail(skillFailure(error, allowedAgents)),
-								),
-								Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
-							),
-						resume: (resumeCommand) =>
-							resumeSubagent({
+							}
+							return forkCommand.background
+								? forkSubagentInBackground({ ...input, description: forkCommand.description }).pipe(
+										Effect.catchTags(failures),
+										Effect.map(renderLaunch),
+									)
+								: forkSubagent(input).pipe(Effect.catchTags(failures), Effect.map(renderResult))
+						},
+						resume: (resumeCommand) => {
+							const input = {
 								agentId: resumeCommand.agentId,
 								prompt: resumeCommand.prompt,
 								skill: resumeCommand.skill,
-							}).pipe(
-								Effect.catchTags({
-									SubagentNotFoundError: (error) =>
-										Effect.fail(notFoundFailure(error, allowedAgents)),
-									SubagentBusyError: (error) => Effect.fail(busyFailure(error, allowedAgents)),
-									SkillNotFoundError: (error) => Effect.fail(skillFailure(error, allowedAgents)),
-								}),
-								Effect.map((result) => ToolResultText.make({ text: renderSubagentResult(result) })),
-							),
+								description: resumeCommand.description,
+							}
+							const failures = {
+								SubagentNotFoundError: (error: SubagentNotFoundError) =>
+									Effect.fail(notFoundFailure(error, allowedAgents)),
+								SubagentBusyError: (error: SubagentBusyError) =>
+									Effect.fail(busyFailure(error, allowedAgents)),
+								SkillNotFoundError: (error: SkillNotFoundError) =>
+									Effect.fail(skillFailure(error, allowedAgents)),
+							}
+							return resumeCommand.background
+								? resumeSubagentInBackground(input).pipe(
+										Effect.catchTags(failures),
+										Effect.map(renderLaunch),
+									)
+								: resumeSubagent(input).pipe(Effect.catchTags(failures), Effect.map(renderResult))
+						},
 					}),
 				)
 			}),

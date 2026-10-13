@@ -561,6 +561,7 @@ export const runTui = (
 											onStop={current().stop}
 											onTargetSubmit={current().targetSubmit}
 											onTargetInterrupt={current().targetInterrupt}
+											onStopTask={current().stopTask}
 											onInjectSkill={current().injectSkill}
 											toggles={toggles}
 											setToggles={setToggles}
