@@ -43,6 +43,7 @@ import {
 	type LogEntry,
 	type LogSeq,
 	type ToolResultLogEntry,
+	type UserMessageOrigin,
 } from '../EventLog/Schemas'
 import { Ids, layerLiveIdFactory, type AgentId, type IdsService, type SessionId } from '../Ids'
 import { ModelCatalog, modelCatalogFromEntries, type ModelCatalogEntry } from '../Model/ModelCatalog'
@@ -74,6 +75,13 @@ import {
 	collectAgentDefinitions,
 	type CollectedAgentDefinitions,
 } from '../Subagents/AgentRegistry'
+import {
+	BackgroundTasks,
+	isOwnedByBackgroundTask,
+	layerBackgroundTasks,
+	type BackgroundTask,
+	type BackgroundTasksService,
+} from '../Subagents/BackgroundTasks'
 import { type SubagentBusyError, SubagentNotFoundError } from '../Subagents/Errors'
 import { SessionAgents, type RealizedAgentTools, type RootAgentSnapshot } from '../Subagents/SessionAgents'
 import { continueSubagent, type ContinueSubagentInput } from '../Subagents/SubagentEngine'
@@ -184,18 +192,38 @@ export type FoldSession<R = never> = {
 	/**
 	 * Request a session-wide graceful stop (D9): every running agent finishes its in-flight tool batch,
 	 * appends the results, and ends its run with `agent-finished{stopped}` - no further model calls.
-	 * The signal clears when the next send begins.
+	 * Running background tasks are stopped too (interrupted, recorded `stopped`); their notifications
+	 * do not wake the root, and are delivered at the start of the root's next run instead. The signal
+	 * clears when the next send begins.
 	 */
 	readonly stop: (reason?: string) => Effect.Effect<void>
 	/**
-	 * Hard interrupt (D10). With no target, cancels every running agent's fiber tree (in-flight
-	 * inference, tools, hooks, and subagents); uninterruptible finalizers write the durable markers -
-	 * partial assistant text, interrupted tool results, subagent markers, and the terminal
-	 * `agent-finished{interrupted}` - so resume sees coherent, honest history. With a target agentId,
-	 * interrupts just that agent's run (a dispatched subagent's interruption folds into its
-	 * dispatcher's tool result; the dispatcher keeps running).
+	 * Hard interrupt (D10). With no target, cancels the foreground work: the root's run and every
+	 * running agent that is not a background task or beneath one (in-flight inference, tools, hooks,
+	 * and foreground subagents). Background tasks keep running and still notify the root when they
+	 * finish; use {@link stopTask} or {@link stop} to end them. Uninterruptible finalizers write the
+	 * durable markers - partial assistant text, interrupted tool results, subagent markers, and the
+	 * terminal `agent-finished{interrupted}` - so resume sees coherent, honest history. With a target
+	 * agentId, interrupts just that agent's run (a dispatched subagent's interruption folds into its
+	 * dispatcher's tool result; the dispatcher keeps running; a background task ends `stopped`).
 	 */
 	readonly interrupt: (options?: AgentTargetOptions) => Effect.Effect<void>
+	/** Every background task this session has run (running and finished), in first-launch order. */
+	readonly backgroundTasks: Effect.Effect<ReadonlyArray<BackgroundTask>>
+	/** The background task list now, then after every change (status, progress, notification). */
+	readonly backgroundTaskChanges: Stream.Stream<ReadonlyArray<BackgroundTask>>
+	/**
+	 * Stop one running background task by id (full or unique short reference): its run is interrupted,
+	 * recorded `task_finished{stopped}`, and its launcher is notified like any completion. Resolves
+	 * false when the task is not running.
+	 */
+	readonly stopTask: (taskId: AgentId | string) => Effect.Effect<boolean, SubagentNotFoundError>
+	/**
+	 * Resolve once background work has settled: no task is running, no task-notification wake is
+	 * scheduled or running, and no notification is waiting for delivery. Headless hosts await this
+	 * after `send` before exiting.
+	 */
+	readonly awaitBackgroundIdle: Effect.Effect<void>
 	/**
 	 * Switch the root agent to a different provider/model, optionally replacing its prompt blocks and
 	 * installed tools in the same transition. Durably records the epoch transition - `model-change`, the
@@ -226,6 +254,9 @@ export type FoldSession<R = never> = {
 		provenance?: { readonly generatedThroughSeq?: LogSeq; readonly rootUserTurns?: number },
 	) => Effect.Effect<void>
 }
+
+/** One wake's message: the coalesced notification text and its origin. */
+type WakeMessage = { readonly text: string; readonly origin: UserMessageOrigin | null }
 
 /** The switchable slice of a session's configuration, tracked so omitted switch options carry forward. */
 type SessionAgentConfig<R> = {
@@ -261,6 +292,8 @@ type SessionGraph<R> = {
 	readonly eventLog: EventLogService
 	readonly ids: IdsService
 	readonly controls: SessionControlsService
+	readonly backgroundTasks: BackgroundTasksService
+	readonly sessionScope: Scope.Scope
 	readonly systemPromptService: SystemPromptService
 	readonly continueSubagent: (
 		input: ContinueSubagentInput,
@@ -430,6 +463,9 @@ const assembleSessionGraph = <R>(options: {
 		const idsLayer = layerLiveIdFactory
 		const eventLog = yield* EventLog
 		const infraLayer = Layer.mergeAll(Layer.succeed(EventLog, eventLog), idsLayer, liveAgentEventsLayer)
+		const controlsLayer = layerSessionControls(
+			options.steering === undefined ? {} : { steeringMode: options.steering },
+		)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
 			Layer.succeedContext(hostServices),
@@ -450,7 +486,10 @@ const assembleSessionGraph = <R>(options: {
 			// entries build the empty catalog, which behaves exactly like the Reference default.
 			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
 			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
-			layerSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
+			controlsLayer,
+			// Background subagent runs: task scopes forked from this session scope, their durable task rows,
+			// and the delivery of their completions. Shares the session's one controls instance (memoized).
+			layerBackgroundTasks.pipe(Layer.provide(Layer.mergeAll(infraLayer, controlsLayer))),
 			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
 			// setProfile and the subagent operations' per-dispatch/resume resolution.
 			layerProfiles(initialProfiles),
@@ -504,6 +543,8 @@ const assembleSessionGraph = <R>(options: {
 			eventLog: Context.get(sessionServices, EventLog),
 			ids: Context.get(sessionServices, Ids),
 			controls: Context.get(sessionServices, SessionControls),
+			backgroundTasks: Context.get(sessionServices, BackgroundTasks),
+			sessionScope,
 			systemPromptService: Context.get(sessionServices, SystemPrompt),
 			continueSubagent: (input) => continueSubagent(input).pipe(Effect.provideContext(sessionServices)),
 			profiles: Context.get(sessionServices, Profiles),
@@ -536,9 +577,27 @@ const assembleSessionGraph = <R>(options: {
 		}
 	})
 
-/** Build the public handle over one assembled, started-or-adopted session. */
-const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession): FoldSession<R> => {
-	const { session, eventLog, ids, controls, continueSubagent, configRef, profiles } = graph
+/**
+ * Build the public handle over one assembled, started-or-adopted session, and start delivering
+ * background task notifications for it in the session scope.
+ */
+const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession): Effect.Effect<FoldSession<R>> =>
+	Effect.gen(function* () {
+		const handle = sessionHandle(graph, identity)
+		yield* graph.backgroundTasks
+			.serveNotifications({ rootAgentId: identity.rootAgentId, wake: handle.wake })
+			.pipe(Effect.forkIn(graph.sessionScope))
+		return handle.session
+	})
+
+/** The public handle plus the root wake it gives the notification server. */
+type SessionHandleParts<R> = {
+	readonly session: FoldSession<R>
+	readonly wake: (take: Effect.Effect<WakeMessage | null>) => Effect.Effect<void>
+}
+
+const sessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession): SessionHandleParts<R> => {
+	const { session, eventLog, ids, controls, backgroundTasks, continueSubagent, configRef, profiles } = graph
 	const rootAgentId = identity.rootAgentId
 
 	const collectEntries: Effect.Effect<ReadonlyArray<LogEntry>> = Stream.runCollect(eventLog.entries()).pipe(
@@ -617,43 +676,59 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 	// is mid-flight, and the durable epoch entries must land before the next send projects them.
 	const gate = Semaphore.makeUnsafe(1)
 
-	/** One root run on a registered fiber: interruptible externally, honest markers on teardown. */
-	const runRootSend = (text: string): Effect.Effect<AgentFinishedLogEntry> =>
+	/**
+	 * One root run on a registered fiber: interruptible externally, honest markers on teardown. Callers
+	 * hold the gate. `origin` marks a runtime-written turn (a task-notification wake).
+	 */
+	const runRootUnderGate = (text: string, origin?: UserMessageOrigin): Effect.Effect<AgentFinishedLogEntry> =>
+		Effect.gen(function* () {
+			// A new send clears a previous graceful-stop request (D9): stop targets current work.
+			yield* controls.clearSessionStop
+
+			const claimed = yield* controls.claimRunning(rootAgentId)
+			if (!claimed) {
+				return yield* Effect.die(new Error('root agent already running while the send gate was held'))
+			}
+
+			const entries = yield* collectEntries
+			const baselineSeq = entries.at(-1)?.seq
+			if (baselineSeq === undefined) {
+				return yield* Effect.die(new Error('send on an empty session log'))
+			}
+
+			const runFiber = yield* Effect.forkChild(
+				session
+					.send({ text, origin })
+					.pipe(
+						Effect.orDie,
+						Effect.onExit(writeRootInterruptMarker(baselineSeq)),
+						Effect.ensuring(controls.releaseRunning(rootAgentId)),
+					),
+			)
+			yield* controls.setRunningFiber(rootAgentId, runFiber)
+			// The root is running now: queued task notifications become follow-ups of this run.
+			yield* backgroundTasks.nudge
+
+			const exit = yield* Fiber.await(runFiber)
+			if (Exit.isSuccess(exit)) return exit.value
+			if (Cause.hasInterrupts(exit.cause)) {
+				// The marker finalizer already wrote the durable interrupted outcome; return it.
+				return yield* lastFinishedFor(rootAgentId)
+			}
+			return yield* Effect.failCause(exit.cause)
+		})
+
+	const runRootSend = (text: string): Effect.Effect<AgentFinishedLogEntry> => gate.withPermit(runRootUnderGate(text))
+
+	/** A task-notification wake: take the queued notifications at the gate and run the root on them. */
+	const wake = (take: Effect.Effect<WakeMessage | null>): Effect.Effect<void> =>
 		gate.withPermit(
-			Effect.gen(function* () {
-				// A new send clears a previous graceful-stop request (D9): stop targets current work.
-				yield* controls.clearSessionStop
-
-				const claimed = yield* controls.claimRunning(rootAgentId)
-				if (!claimed) {
-					return yield* Effect.die(new Error('root agent already running while the send gate was held'))
-				}
-
-				const entries = yield* collectEntries
-				const baselineSeq = entries.at(-1)?.seq
-				if (baselineSeq === undefined) {
-					return yield* Effect.die(new Error('send on an empty session log'))
-				}
-
-				const runFiber = yield* Effect.forkChild(
-					session
-						.send({ text })
-						.pipe(
-							Effect.orDie,
-							Effect.onExit(writeRootInterruptMarker(baselineSeq)),
-							Effect.ensuring(controls.releaseRunning(rootAgentId)),
-						),
-				)
-				yield* controls.setRunningFiber(rootAgentId, runFiber)
-
-				const exit = yield* Fiber.await(runFiber)
-				if (Exit.isSuccess(exit)) return exit.value
-				if (Cause.hasInterrupts(exit.cause)) {
-					// The marker finalizer already wrote the durable interrupted outcome; return it.
-					return yield* lastFinishedFor(rootAgentId)
-				}
-				return yield* Effect.failCause(exit.cause)
-			}),
+			take.pipe(
+				Effect.flatMap((message) =>
+					message === null ? Effect.void : runRootUnderGate(message.text, message.origin ?? undefined),
+				),
+				Effect.asVoid,
+			),
 		)
 
 	const send = (
@@ -778,18 +853,36 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 			return { call, result }
 		})
 
+	// Background tasks stop first, with deferred notices, so none of them can end gracefully on the stop
+	// signal and wake the root with an ordinary notification.
 	const stop = (reason?: string): Effect.Effect<void> =>
-		controls.requestSessionStop(reason ?? 'the user requested a stop')
+		backgroundTasks
+			.stopAll('defer')
+			.pipe(Effect.andThen(controls.requestSessionStop(reason ?? 'the user requested a stop')))
+
+	/** Interrupt the foreground: every running agent that is not a background task or beneath one. */
+	const interruptForeground: Effect.Effect<void> = Effect.gen(function* () {
+		const running = yield* controls.runningAgentIds
+		const liveTasks = new Set(
+			(yield* backgroundTasks.list).filter((task) => task.status === 'running').map((task) => task.taskId),
+		)
+		const entries = liveTasks.size === 0 ? [] : yield* collectEntries
+		const foreground = running.filter((agentId) => !isOwnedByBackgroundTask(entries, agentId, liveTasks))
+		yield* Effect.forEach(foreground, (agentId) => controls.interruptRunning(agentId), { discard: true })
+	})
 
 	const interrupt = (options?: AgentTargetOptions): Effect.Effect<void> =>
 		options?.agentId === undefined
-			? controls.interruptAllRunning
+			? interruptForeground
 			: resolveTarget(options.agentId).pipe(
 					Effect.flatMap((target) => controls.interruptRunning(target)),
 					// An unresolvable target is not running by definition - same no-op as an idle full id.
 					Effect.catchTag('SubagentNotFoundError', () => Effect.succeed(false)),
 					Effect.asVoid,
 				)
+
+	const stopTask = (taskId: AgentId | string): Effect.Effect<boolean, SubagentNotFoundError> =>
+		resolveTarget(taskId).pipe(Effect.flatMap((target) => backgroundTasks.stop(target, 'notify')))
 
 	const switchModel = (model: FoldModel<R>, switchOptions?: SwitchModelOptions<R>): Effect.Effect<void> =>
 		gate.withPermit(
@@ -875,19 +968,26 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 			.pipe(Effect.asVoid, Effect.orDie)
 
 	return {
-		sessionId: identity.sessionId,
-		rootAgentId,
-		send,
-		steer,
-		injectSkill,
-		stop,
-		interrupt,
-		switchModel,
-		compact,
-		setProfile,
-		events: (fromSeq?: LogSeq) => session.events(fromSeq),
-		entries: collectEntries,
-		setTitle,
+		session: {
+			sessionId: identity.sessionId,
+			rootAgentId,
+			send,
+			steer,
+			injectSkill,
+			stop,
+			interrupt,
+			backgroundTasks: backgroundTasks.list,
+			backgroundTaskChanges: backgroundTasks.changes,
+			stopTask,
+			awaitBackgroundIdle: backgroundTasks.awaitIdle,
+			switchModel,
+			compact,
+			setProfile,
+			events: (fromSeq?: LogSeq) => session.events(fromSeq),
+			entries: collectEntries,
+			setTitle,
+		},
+		wake,
 	}
 }
 
@@ -964,7 +1064,7 @@ const openWithLog = <RA, RP>(
 				})
 				.pipe(Effect.orDie)
 
-			return makeSessionHandle(graph, started)
+			return yield* makeSessionHandle(graph, started)
 		}
 		if (!Predicate.isTagged(sessionStarted, 'session_started')) {
 			return yield* Effect.die(new Error('cannot open: invalid session history'))
@@ -974,6 +1074,8 @@ const openWithLog = <RA, RP>(
 			rootAgentId: sessionStarted.rootAgentId,
 		}
 		yield* graph.session.adopt(identity).pipe(Effect.orDie)
+		// Rebuild the background task registry; runs the previous process left open are recorded stopped.
+		yield* graph.backgroundTasks.hydrate(entries)
 
 		// D17 resume ruling + D20 resume roster rule: one epoch transition iff the configuration no
 		// longer matches the log's projected root state - the model binding, or the leading block set
@@ -1009,5 +1111,5 @@ const openWithLog = <RA, RP>(
 				.pipe(Effect.orDie)
 		}
 
-		return makeSessionHandle(graph, identity)
+		return yield* makeSessionHandle(graph, identity)
 	})

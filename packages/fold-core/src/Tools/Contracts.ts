@@ -273,6 +273,14 @@ const SubagentParameters = Schema.Struct({
 	skill: Schema.optionalKey(Schema.String).annotate({
 		description: 'Optional skill name (from your available skills) to preload into the subagent after the prompt.',
 	}),
+	run_in_background: Schema.optionalKey(Schema.Boolean).annotate({
+		description:
+			'Run the subagent in the background. The call returns at once with its agent_id, and you are ' +
+			'notified with a <task-notification> message when it finishes - do not poll for it, and do not ' +
+			'guess its results before then. Use it when other work can usefully proceed meanwhile (for ' +
+			'example several independent investigations launched together); leave it unset when your very ' +
+			'next step depends on the result. Works with agent, agent_id, and fork.',
+	}),
 })
 
 const SubagentSuccess = ToolResultText
@@ -294,6 +302,62 @@ export const subagentToolContract = {
 	failure: SubagentFailure,
 } satisfies ToolContract<typeof SubagentParameters, typeof SubagentSuccess, typeof SubagentFailure>
 
+// --- background agent controls -----------------------------------------------------------------------
+
+const ListAgentsParameters = Schema.Struct({})
+
+/** Contract for list_agents: the session's background agents with their status and latest result. */
+export const listAgentsToolContract = {
+	name: 'list_agents',
+	description:
+		"List the background agents in this session - running and finished - with each one's agent_id, " +
+		'status, description, progress, and the start of its result. Use it when you need to know what is ' +
+		'still running; you do not need it to learn about completions, which arrive as <task-notification> ' +
+		'messages on their own.',
+	parameters: ListAgentsParameters,
+	success: ToolResultText,
+	failure: ToolResultFailure,
+} satisfies ToolContract<typeof ListAgentsParameters, typeof ToolResultText, typeof ToolResultFailure>
+
+const StopAgentParameters = Schema.Struct({
+	agent_id: Schema.String.annotate({
+		description: 'The agent_id of the running background agent to stop (from its launch receipt or list_agents).',
+	}),
+})
+
+/** Contract for stop_agent: stop one running background agent; its context is kept. */
+export const stopAgentToolContract = {
+	name: 'stop_agent',
+	description:
+		'Stop a running background agent. Its work so far is kept, and send_message can continue it later. ' +
+		'Use it when the agent is no longer needed or is going in the wrong direction.',
+	parameters: StopAgentParameters,
+	success: ToolResultText,
+	failure: ToolResultFailure,
+} satisfies ToolContract<typeof StopAgentParameters, typeof ToolResultText, typeof ToolResultFailure>
+
+const SendMessageParameters = Schema.Struct({
+	agent_id: Schema.String.annotate({
+		description: 'The agent_id of the subagent to message (from its launch receipt, result, or list_agents).',
+	}),
+	message: Schema.String.annotate({
+		description: 'The message the agent sees next.',
+	}),
+})
+
+/** Contract for send_message: steer a running subagent, or continue a finished one in the background. */
+export const sendMessageToolContract = {
+	name: 'send_message',
+	description:
+		'Send a message to a subagent by agent_id. If it is running, it reads the message after its current ' +
+		'step. If it has finished (or was stopped), it continues in the background with its full context ' +
+		'and the message as its next input, and you are notified with a <task-notification> when it ' +
+		'finishes again.',
+	parameters: SendMessageParameters,
+	success: ToolResultText,
+	failure: ToolResultFailure,
+} satisfies ToolContract<typeof SendMessageParameters, typeof ToolResultText, typeof ToolResultFailure>
+
 /**
  * The isomorphic built-in toolkit: every core tool contract, without handlers (D18). Platform packages
  * bind handlers with `defineTool({ ...contract, handler })`; hosts on other substrates (browser,
@@ -308,4 +372,7 @@ export const builtinToolContracts = {
 	web_search: webSearchToolContract,
 	skill: skillToolContract,
 	subagent: subagentToolContract,
+	list_agents: listAgentsToolContract,
+	stop_agent: stopAgentToolContract,
+	send_message: sendMessageToolContract,
 } as const

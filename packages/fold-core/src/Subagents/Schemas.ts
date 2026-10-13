@@ -49,14 +49,19 @@ export const DispatchSubagentCommand = Schema.TaggedStruct('dispatch', {
 	}),
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
+	/** Launch as a background task: the call returns once the agent has started. */
+	background: Schema.Boolean,
 }).annotate({ identifier: 'DispatchSubagentCommand' })
 export type DispatchSubagentCommand = typeof DispatchSubagentCommand.Type
 
 /** Resume a previously dispatched subagent by reference: its full id or a unique short prefix. */
 export const ResumeSubagentCommand = Schema.TaggedStruct('resume', {
 	agentId: AgentIdRef,
+	description: Schema.optionalKey(Schema.String),
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
+	/** Resume as a background task: the call returns once the agent has restarted. */
+	background: Schema.Boolean,
 }).annotate({ identifier: 'ResumeSubagentCommand' })
 export type ResumeSubagentCommand = typeof ResumeSubagentCommand.Type
 
@@ -67,6 +72,8 @@ export const ForkSubagentCommand = Schema.TaggedStruct('fork', {
 	}),
 	prompt: Schema.String,
 	skill: Schema.NullOr(Schema.String),
+	/** Launch the fork as a background task. */
+	background: Schema.Boolean,
 }).annotate({ identifier: 'ForkSubagentCommand' })
 export type ForkSubagentCommand = typeof ForkSubagentCommand.Type
 
@@ -99,6 +106,7 @@ export type SubagentToolWireParameters = {
 	readonly agent?: string
 	readonly agent_id?: string
 	readonly fork?: boolean
+	readonly run_in_background?: boolean
 }
 
 const nonEmptyOptionalString = (value: string | undefined): string | undefined =>
@@ -133,33 +141,15 @@ export const parseSubagentCommand = (
 			})
 		}
 
+		// Optional keys stay absent (not undefined) on the parsed command.
+		const label = description === undefined ? {} : { description }
+		const background = params.run_in_background === true
+
 		if (agent !== undefined) {
-			if (description === undefined) {
-				return DispatchSubagentCommand.make({
-					agent,
-					prompt: params.prompt,
-					skill,
-				})
-			}
-			return DispatchSubagentCommand.make({
-				agent,
-				description,
-				prompt: params.prompt,
-				skill,
-			})
+			return DispatchSubagentCommand.make({ agent, ...label, prompt: params.prompt, skill, background })
 		}
 		if (params.fork === true) {
-			if (description === undefined) {
-				return ForkSubagentCommand.make({
-					prompt: params.prompt,
-					skill,
-				})
-			}
-			return ForkSubagentCommand.make({
-				description,
-				prompt: params.prompt,
-				skill,
-			})
+			return ForkSubagentCommand.make({ ...label, prompt: params.prompt, skill, background })
 		}
 
 		const agentId = yield* decodeAgentIdRef(agentIdRef).pipe(
@@ -173,5 +163,5 @@ export const parseSubagentCommand = (
 			),
 		)
 
-		return ResumeSubagentCommand.make({ agentId, prompt: params.prompt, skill })
+		return ResumeSubagentCommand.make({ agentId, ...label, prompt: params.prompt, skill, background })
 	})

@@ -55,6 +55,7 @@ import {
 } from '../ToolRuntime/ToolContextServices'
 import { agentIdsFromEntries, resolveAgentIdRef, shortAgentId } from './AgentIdRef'
 import type { AgentRegistry, RegisteredAgentType } from './AgentRegistry'
+import { BackgroundTasks, type BackgroundTask } from './BackgroundTasks'
 import { SubagentBusyError, SubagentNotFoundError, SubagentTypeNotInRosterError } from './Errors'
 import type { ForkSubagentInput, SubagentResult } from './Schemas'
 import { SessionAgents, type RealizedAgentTools } from './SessionAgents'
@@ -71,6 +72,8 @@ export type DispatchSubagentInput = {
 	readonly skill: string | null
 	/** The executing subagentTool value's roster (from its closure) - the dispatch authority (§1a). */
 	readonly allowedAgents: ReadonlyArray<string>
+	/** Short label recorded on a background task; defaults to the agent type name. */
+	readonly description?: string | undefined
 }
 
 /**
@@ -82,6 +85,14 @@ export type ResumeSubagentInput = {
 	readonly agentId: AgentId | string
 	readonly prompt: string
 	readonly skill: string | null
+	/** Short label recorded on a background task; defaults to the task's previous label. */
+	readonly description?: string | undefined
+}
+
+/** Input for forking the executing agent into the background (fork input plus a task label). */
+export type ForkSubagentInBackgroundInput = ForkSubagentInput & {
+	/** Short label recorded on the background task; defaults to "fork of <caller>". */
+	readonly description?: string | undefined
 }
 
 /** Input for continuing a finished subagent directly from the SDK (D8 `send(message, { agentId })`). */
@@ -468,57 +479,69 @@ const watchSubagentTurns = Effect.fnUntraced(function* (params: LaunchSubagentPa
 })
 
 /**
- * Run one subagent launch/resume to its result: claim the id, provision this agent's runtime into the
- * dispatch scope, write the start (or resume transition), fork the run fiber, await its Exit, and fold.
- * The dispatch scope closing (dispatcher interrupted) interrupts the run fiber; the onExit finalizer
- * then writes the durable markers before the interruption propagates.
+ * Prepare one subagent launch/resume inside the ambient scope: claim the id (Busy when it is already
+ * running), provision this agent's runtime into the scope, and write the start (or resume transition).
+ * Returns the run effect, carrying the uninterruptible exit markers. Foreground calls fork it into the
+ * dispatch scope; background launches fork it into the task's own scope.
+ */
+const prepareSubagentRun = (params: LaunchSubagentParams) =>
+	Effect.gen(function* () {
+		yield* holdRunningSubagent(params.subagentId)
+
+		const agentRuntimeForSubagent = yield* provisionAgentRuntime({
+			model: params.model,
+			tools: params.tools,
+			hooks: params.hooks,
+		})
+
+		if (SubagentLaunch.$is('start')(params.launch)) {
+			yield* agentRuntimeForSubagent.start({
+				agentId: params.subagentId,
+				parentAgentId: params.parentAgentId,
+				toolCallId: params.toolCallId,
+				mode: params.mode,
+				fork: params.fork,
+				skill: params.skillParam,
+				agentType: params.agentTypeName,
+				model: params.model.activeModel,
+				promptCacheKey: params.promptCacheKey,
+				systemPrompt: params.systemPrompt,
+			})
+		} else if (params.launch.modelTransition !== null) {
+			yield* agentRuntimeForSubagent.switchModel({
+				agentId: params.subagentId,
+				parentAgentId: params.parentAgentId,
+				toolCallId: params.toolCallId,
+				model: params.model.activeModel,
+				systemPrompt: params.launch.modelTransition.systemPrompt,
+				reason: 'resume: the configured model for this agent changed since it last ran',
+			})
+		}
+
+		const markerServices = yield* Effect.context<EventLog | Ids>()
+		const run: Effect.Effect<AgentFinishedLogEntry> = agentRuntimeForSubagent
+			.run({
+				agentId: params.subagentId,
+				parentAgentId: params.parentAgentId,
+				toolCallId: params.toolCallId,
+				messages: params.messages,
+			})
+			.pipe(Effect.onExit(writeSubagentExitMarkers(params)), Effect.provideContext(markerServices))
+		return { run }
+	})
+
+/**
+ * Run one subagent launch/resume to its result: prepare it in the dispatch scope, fork the run fiber,
+ * await its Exit, and fold. The dispatch scope closing (dispatcher interrupted) interrupts the run
+ * fiber; the onExit finalizer then writes the durable markers before the interruption propagates.
  */
 const runSubagentToResult = (params: LaunchSubagentParams) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const controls = yield* SessionControls
-			yield* holdRunningSubagent(params.subagentId)
+			const { run } = yield* prepareSubagentRun(params)
 
-			const agentRuntimeForSubagent = yield* provisionAgentRuntime({
-				model: params.model,
-				tools: params.tools,
-				hooks: params.hooks,
-			})
-
-			if (SubagentLaunch.$is('start')(params.launch)) {
-				yield* agentRuntimeForSubagent.start({
-					agentId: params.subagentId,
-					parentAgentId: params.parentAgentId,
-					toolCallId: params.toolCallId,
-					mode: params.mode,
-					fork: params.fork,
-					skill: params.skillParam,
-					agentType: params.agentTypeName,
-					model: params.model.activeModel,
-					promptCacheKey: params.promptCacheKey,
-					systemPrompt: params.systemPrompt,
-				})
-			} else if (params.launch.modelTransition !== null) {
-				yield* agentRuntimeForSubagent.switchModel({
-					agentId: params.subagentId,
-					parentAgentId: params.parentAgentId,
-					toolCallId: params.toolCallId,
-					model: params.model.activeModel,
-					systemPrompt: params.launch.modelTransition.systemPrompt,
-					reason: 'resume: the configured model for this agent changed since it last ran',
-				})
-			}
-
-			const subagentRunFiber = yield* Effect.forkScoped(
-				agentRuntimeForSubagent
-					.run({
-						agentId: params.subagentId,
-						parentAgentId: params.parentAgentId,
-						toolCallId: params.toolCallId,
-						messages: params.messages,
-					})
-					.pipe(Effect.onExit(writeSubagentExitMarkers(params))),
-			)
+			const subagentRunFiber = yield* Effect.forkScoped(run)
 			// Closing the dispatch scope interrupts the subagent and awaits its exit finalizers, so the
 			// durable interrupt/error markers land before the dispatch call returns.
 			yield* Effect.addFinalizer(() => Fiber.interrupt(subagentRunFiber))
@@ -530,6 +553,28 @@ const runSubagentToResult = (params: LaunchSubagentParams) =>
 
 			return subagentResultFromExit(params, exit, entries)
 		}),
+	)
+
+/**
+ * Launch one subagent launch/resume as a background task: the run lives in a task scope owned by the
+ * session, so the dispatching tool call returns as soon as the agent has started.
+ */
+const launchSubagentInBackground = (
+	params: LaunchSubagentParams,
+	task: { readonly description: string; readonly prompt: string },
+) =>
+	BackgroundTasks.use((tasks) =>
+		tasks.launch(
+			{
+				taskId: params.subagentId,
+				parentAgentId: params.parentAgentId,
+				toolCallId: params.toolCallId,
+				agentType: params.agentTypeName,
+				description: task.description,
+				prompt: task.prompt,
+			},
+			prepareSubagentRun(params),
+		),
 	)
 
 /** A fresh id can never be running; a Busy claim failure on one is an engine bug. */
@@ -654,8 +699,8 @@ export const continueSubagent = Effect.fn('fold.subagents.continue')(function* (
 	)
 })
 
-/** Dispatch one fresh subagent of a registered type from inside the executing subagent tool call. */
-export const dispatchSubagent = Effect.fn('fold.subagents.dispatch')(function* (input: DispatchSubagentInput) {
+/** Resolve one fresh dispatch of a registered type into its launch parameters. */
+const resolveDispatch = Effect.fnUntraced(function* (input: DispatchSubagentInput) {
 	if (!input.allowedAgents.includes(input.agent)) {
 		return yield* new SubagentTypeNotInRosterError({
 			requested: input.agent,
@@ -694,7 +739,7 @@ export const dispatchSubagent = Effect.fn('fold.subagents.dispatch')(function* (
 
 	const realized = agents.realizeTools(entry.tools)
 
-	return yield* runSubagentToResult({
+	const params: LaunchSubagentParams = {
 		subagentId,
 		agentTypeName: entry.name,
 		agentLabel: entry.name,
@@ -712,11 +757,29 @@ export const dispatchSubagent = Effect.fn('fold.subagents.dispatch')(function* (
 		messages: preloaded === null ? [input.prompt] : [input.prompt, preloaded],
 		launch: SubagentLaunch.start(),
 		interruptNote,
+	}
+	return params
+})
+
+/** Dispatch one fresh subagent of a registered type from inside the executing subagent tool call. */
+export const dispatchSubagent = Effect.fn('fold.subagents.dispatch')(function* (input: DispatchSubagentInput) {
+	const params = yield* resolveDispatch(input)
+	return yield* runSubagentToResult(params).pipe(Effect.catchTag('SubagentBusyError', dieOnBusy))
+})
+
+/** Dispatch one fresh subagent as a background task; returns once it has started. */
+export const dispatchSubagentInBackground = Effect.fn('fold.subagents.dispatch_background')(function* (
+	input: DispatchSubagentInput,
+) {
+	const params = yield* resolveDispatch(input)
+	return yield* launchSubagentInBackground(params, {
+		description: input.description ?? input.agent,
+		prompt: input.prompt,
 	}).pipe(Effect.catchTag('SubagentBusyError', dieOnBusy))
 })
 
-/** Fork the executing agent: a new subagent over a copy of the caller's context. */
-export const forkSubagent = Effect.fn('fold.subagents.fork')(function* (input: ForkSubagentInput) {
+/** Resolve one fork of the executing agent into its launch parameters. */
+const resolveFork = Effect.fnUntraced(function* (input: ForkSubagentInput) {
 	const agents = yield* SessionAgents
 	const ids = yield* Ids
 	const dispatcher = yield* CurrentAgent
@@ -759,7 +822,7 @@ export const forkSubagent = Effect.fn('fold.subagents.fork')(function* (input: F
 	const fork =
 		input.forkAgentDefinitionId === null ? forkPoint : { ...forkPoint, definitionId: input.forkAgentDefinitionId }
 
-	return yield* runSubagentToResult({
+	const params: LaunchSubagentParams = {
 		subagentId,
 		agentTypeName: null,
 		agentLabel,
@@ -777,11 +840,29 @@ export const forkSubagent = Effect.fn('fold.subagents.fork')(function* (input: F
 		messages: preloaded === null ? [input.prompt] : [input.prompt, preloaded],
 		launch: SubagentLaunch.start(),
 		interruptNote,
+	}
+	return params
+})
+
+/** Fork the executing agent: a new subagent over a copy of the caller's context. */
+export const forkSubagent = Effect.fn('fold.subagents.fork')(function* (input: ForkSubagentInput) {
+	const params = yield* resolveFork(input)
+	return yield* runSubagentToResult(params).pipe(Effect.catchTag('SubagentBusyError', dieOnBusy))
+})
+
+/** Fork the executing agent into a background task; returns once the fork has started. */
+export const forkSubagentInBackground = Effect.fn('fold.subagents.fork_background')(function* (
+	input: ForkSubagentInBackgroundInput,
+) {
+	const params = yield* resolveFork(input)
+	return yield* launchSubagentInBackground(params, {
+		description: input.description ?? params.agentLabel,
+		prompt: input.prompt,
 	}).pipe(Effect.catchTag('SubagentBusyError', dieOnBusy))
 })
 
-/** Resume a previously launched subagent by reference, from inside the executing subagent tool call. */
-export const resumeSubagent = Effect.fn('fold.subagents.resume')(function* (input: ResumeSubagentInput) {
+/** Resolve one resume by reference into its launch parameters. */
+const resolveResume = Effect.fnUntraced(function* (input: ResumeSubagentInput) {
 	const agents = yield* SessionAgents
 	const dispatcher = yield* CurrentAgent
 	const currentCall = yield* CurrentToolCall
@@ -831,7 +912,7 @@ export const resumeSubagent = Effect.fn('fold.subagents.resume')(function* (inpu
 	const agentLabel = started.agentType ?? `subagent ${shortAgentId(agentId)}`
 	yield* interruptNote.set(interruptedSubagentNote(agentLabel, agentId, 0))
 
-	return yield* runSubagentToResult({
+	const params: LaunchSubagentParams = {
 		subagentId: agentId,
 		agentTypeName: started.agentType,
 		agentLabel,
@@ -848,5 +929,29 @@ export const resumeSubagent = Effect.fn('fold.subagents.resume')(function* (inpu
 		messages: preloaded === null ? [input.prompt] : [input.prompt, preloaded],
 		launch: SubagentLaunch.resume({ modelTransition }),
 		interruptNote,
+	}
+	return params
+})
+
+/** Resume a previously launched subagent by reference, from inside the executing subagent tool call. */
+export const resumeSubagent = Effect.fn('fold.subagents.resume')(function* (input: ResumeSubagentInput) {
+	const params = yield* resolveResume(input)
+	return yield* runSubagentToResult(params)
+})
+
+/**
+ * Resume a previously launched subagent by reference as a background task; returns once it has
+ * started. Busy when the agent is running (including as a background task).
+ */
+export const resumeSubagentInBackground = Effect.fn('fold.subagents.resume_background')(function* (
+	input: ResumeSubagentInput,
+) {
+	const params = yield* resolveResume(input)
+	const previous = yield* BackgroundTasks.use((tasks) => tasks.get(params.subagentId))
+	return yield* launchSubagentInBackground(params, {
+		description: input.description ?? previous?.description ?? params.agentLabel,
+		prompt: input.prompt,
 	})
 })
+
+export type { BackgroundTask }
