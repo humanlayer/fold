@@ -413,28 +413,3 @@ export const sessionLogById = (
 			size: Number(info.size),
 		}
 	})
-
-/** Rebuild and append one authoritative summary after session metadata changes. */
-export const refreshSessionSummaryIndex = (
-	sessionId: SessionId,
-	options?: SessionLayoutOptions,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
-	sessionLogById(sessionId, options).pipe(
-		Effect.flatMap((ref) => {
-			if (ref === null) return Effect.void
-			return loadSessionSummary(ref).pipe(
-				Effect.flatMap((summary) =>
-					summary === null
-						? Effect.void
-						: appendSessionIndexRecord(
-								SummaryIndexRecord.make({
-									sourceMtimeMs: ref.mtimeMs,
-									sourceSize: ref.size ?? 0,
-									summary,
-								}),
-								options,
-							),
-				),
-			)
-		}),
-	)

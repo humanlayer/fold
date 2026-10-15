@@ -65,13 +65,7 @@ import { rolesForDirectProviderSelection } from '../Config/ModelSelections'
 import { layerJsonl } from '../EventLog/JsonlLayer'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
 import { sweepToolOutput, toolOutputSessionDirFor, OutputStore } from '../OutputStore/OutputStore'
-import {
-	latestSessionLog,
-	prepareSessionLog,
-	refreshSessionSummaryIndex,
-	sessionLogById,
-	type SessionLogRef,
-} from '../Session/SessionLayout'
+import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
 import { SessionTitleGenerator } from '../Session/TitleGenerator'
 import type { Photon } from '../Tools/Image/Photon'
 import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
@@ -467,14 +461,9 @@ export const switchSessionMode = (
 		})
 	})
 
-const withGeneratedTitles = <R>(
-	session: FoldSession<R>,
-	options: { readonly cwd: string; readonly foldHome?: string },
-): Effect.Effect<FoldSession<R>, never, SessionTitleGenerator | FileSystem.FileSystem> =>
+const withGeneratedTitles = <R>(session: FoldSession<R>): Effect.Effect<FoldSession<R>, never, SessionTitleGenerator> =>
 	Effect.gen(function* () {
 		const titles = yield* SessionTitleGenerator
-		// The summary index refresh runs after later sends, which run without this service, so take it now.
-		const indexServices = yield* Effect.context<FileSystem.FileSystem>()
 		return yield* Semaphore.make(1).pipe(
 			Effect.map((titleLock) => ({
 				...session,
@@ -501,18 +490,13 @@ const withGeneratedTitles = <R>(
 												Effect.flatMap((title) => {
 													const generatedThroughSeq = entries.at(-1)?.seq
 													const rootUserTurns = rootUsers.length
-													const setTitle = session.setTitle(
+													// The title append changes the log, so the next summary listing
+													// rebuilds this session's index record from it.
+													return session.setTitle(
 														title,
 														generatedThroughSeq === undefined
 															? { rootUserTurns }
 															: { rootUserTurns, generatedThroughSeq },
-													)
-													return setTitle.pipe(
-														Effect.andThen(
-															refreshSessionSummaryIndex(session.sessionId, options).pipe(
-																Effect.provideContext(indexServices),
-															),
-														),
 													)
 												}),
 											)
@@ -604,7 +588,7 @@ export const launchSession = (
 				compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
 				...Struct.pick(opts, ['steering']),
 			})
-			return yield* withGeneratedTitles(session, { cwd, ...Struct.pick(opts, ['foldHome']) })
+			return yield* withGeneratedTitles(session)
 		}).pipe(Effect.provideContext(sessionServices))
 	})
 
@@ -655,7 +639,7 @@ const resumeFromLog = (
 				compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
 				...Struct.pick(options, ['steering']),
 			})
-			return yield* withGeneratedTitles(session, { cwd, ...Struct.pick(options, ['foldHome']) })
+			return yield* withGeneratedTitles(session)
 		}).pipe(Effect.provideContext(sessionServices))
 	})
 
