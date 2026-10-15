@@ -179,323 +179,334 @@ const readHostEnvironment: Effect.Effect<HostEnvironment> = Effect.gen(function*
 	}
 })
 
-const makeManagedBinaries = (registry: ReadonlyArray<ManagedBinaryDefinition>) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-		const http = yield* HttpClient.HttpClient
-		const environment = yield* readHostEnvironment
-
-		/** Fetch one release asset's bytes, with a 30s timeout. */
-		const downloadAsset = (url: string): Effect.Effect<Uint8Array, BinaryDownloadError> =>
-			http.get(url).pipe(
-				Effect.flatMap(HttpClientResponse.filterStatusOk),
-				Effect.flatMap((response) => response.arrayBuffer),
-				Effect.map((buffer) => new Uint8Array(buffer)),
-				Effect.catchTag('HttpClientError', (error) =>
-					Effect.fail(new BinaryDownloadError({ message: `GET ${url}: ${error.message}` })),
-				),
-				Effect.timeoutOrElse({
-					duration: Duration.millis(downloadTimeoutMillis),
-					orElse: () =>
-						Effect.fail(
-							new BinaryDownloadError({
-								message: `GET ${url} timed out after ${downloadTimeoutMillis}ms`,
-							}),
-						),
-				}),
-			)
-
-		/** Run one helper command to completion; a non-zero exit fails with its stderr. */
-		const exec = (command: string, args: ReadonlyArray<string>): Effect.Effect<string, BinaryExecError> => {
-			const label = `${command} ${args.join(' ')}`
-			return Effect.gen(function* () {
-				const handle = yield* spawner.spawn(ChildProcess.make(command, args))
-				const [stdout, stderr, exitCode] = yield* Effect.all(
-					[
-						handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
-						handle.stderr.pipe(Stream.decodeText(), Stream.mkString),
-						handle.exitCode,
-					],
-					{ concurrency: 'unbounded' },
-				)
-				if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
-					const trimmed = stderr.trim()
-					return yield* new BinaryExecError({
-						message: `${label}: exited with code ${exitCode}${trimmed === '' ? '' : ` (${trimmed.slice(0, 400)})`}`,
-					})
-				}
-				return stdout
-			}).pipe(
-				Effect.scoped,
-				Effect.catchTag('PlatformError', (error) =>
-					Effect.fail(new BinaryExecError({ message: `${label}: ${error.message}` })),
-				),
-				Effect.timeoutOrElse({
-					duration: Duration.millis(execTimeoutMillis),
-					orElse: () =>
-						Effect.fail(
-							new BinaryExecError({ message: `${label}: timed out after ${execTimeoutMillis}ms` }),
-						),
-				}),
-			)
-		}
-
-		/**
-		 * Whether one candidate path is an executable regular file. Off Windows, any execute bit
-		 * counts (the FileSystem service has no X_OK check); on Windows, PATHEXT already decides.
-		 */
-		const isExecutableFile = (path: string, platform: string): Effect.Effect<boolean> =>
-			fs.stat(path).pipe(
-				Effect.map((info) => info.type === 'File' && (platform === 'win32' || (info.mode & 0o111) !== 0)),
-				Effect.catchTag('PlatformError', () => Effect.succeed(false)),
-			)
-
-		/**
-		 * Locate one command on PATH. A manual scan beats shelling out to `command -v`, which also
-		 * matches shell builtins and functions.
-		 */
-		const which = (context: ResolveContext, name: string): Effect.Effect<string | null> =>
-			Effect.gen(function* () {
-				for (const directory of context.pathEntries) {
-					for (const extension of context.executableExtensions) {
-						const candidate = join(directory, `${name}${extension}`)
-						if (yield* isExecutableFile(candidate, context.platform)) return candidate
-					}
-				}
-				return null
-			})
-
-		/**
-		 * Whether a resolved system binary satisfies the definition's version floor. Unparseable output
-		 * or a failing `--version` counts as NOT satisfying it: falling through to the managed install is
-		 * safe (the managed copy shadows nothing - `<foldHome>/bin` is PREPENDED to PATH) and self-healing.
-		 */
-		const satisfiesMinVersion = (binaryPath: string, minVersion: string): Effect.Effect<boolean> =>
-			Effect.gen(function* () {
-				const floor = parseBinaryVersion(minVersion)
-				if (floor === null) return true
-
-				const output = yield* exec(binaryPath, ['--version']).pipe(Effect.option)
-				if (Option.isNone(output)) return false
-				const version = parseBinaryVersion(output.value)
-
-				return version !== null && versionAtLeast(version, floor)
-			})
-
-		/**
-		 * Extract one archive into a directory. tar.gz goes straight to the system `tar`; zip tries
-		 * `unzip` first and falls back to `tar xf` (bsdtar on macOS and Windows System32 reads zip
-		 * archives; GNU tar does not, hence the unzip-first order).
-		 */
-		const extractArchive = (
-			asset: ManagedBinaryAsset,
-			archivePath: string,
-			extractDir: string,
-		): Effect.Effect<void, BinaryExecError> => {
-			if (asset.archive === 'tar.gz') {
-				return exec('tar', ['xzf', archivePath, '-C', extractDir]).pipe(Effect.asVoid)
-			}
-
-			return exec('unzip', ['-q', '-o', archivePath, '-d', extractDir]).pipe(
-				Effect.catchTag('BinaryExecError', (unzipError) =>
-					exec('tar', ['xf', archivePath, '-C', extractDir]).pipe(
-						Effect.mapError(
-							(tarError) =>
-								new BinaryExecError({ message: `${unzipError.message}; ${tarError.message}` }),
-						),
-					),
-				),
-				Effect.asVoid,
-			)
-		}
-
-		/**
-		 * Download, verify, extract, and install one binary. Verification happens on the in-memory
-		 * bytes BEFORE anything is written, so a bad digest never leaves a file behind; the rename out
-		 * of a temp directory under `<foldHome>/bin` keeps the final write atomic on one filesystem.
-		 */
-		const installFromAsset = (
-			context: ResolveContext,
-			definition: ManagedBinaryDefinition,
-			asset: ManagedBinaryAsset,
-			installPath: string,
-		) =>
-			Effect.gen(function* () {
-				const bytes = yield* downloadAsset(asset.url)
-
-				if (asset.sha256 !== null) {
-					const digest = sha256Hex(bytes)
-					if (digest !== asset.sha256) {
-						return yield* new BinaryInstallError({
-							message: `sha256 mismatch for ${asset.url}: expected ${asset.sha256}, downloaded ${digest}`,
-						})
-					}
-				}
-
-				const binDir = managedBinDir(context.foldHome)
-				yield* fs.makeDirectory(binDir, { recursive: true })
-				yield* Effect.gen(function* () {
-					const extractDir = yield* fs.makeTempDirectoryScoped({
-						directory: binDir,
-						prefix: `.tmp-${definition.name}-`,
-					})
-					const archivePath = join(extractDir, assetFileName(asset.url))
-					yield* fs.writeFile(archivePath, bytes)
-					yield* extractArchive(asset, archivePath, extractDir)
-
-					const extractedPath = join(extractDir, asset.pathInArchive)
-					const present = yield* fs.exists(extractedPath).pipe(Effect.orElseSucceed(() => false))
-					if (!present) {
-						return yield* new BinaryInstallError({
-							message: `${assetFileName(asset.url)} did not contain ${asset.pathInArchive}`,
-						})
-					}
-
-					yield* fs.rename(extractedPath, installPath)
-					yield* fs.chmod(installPath, 0o755)
-				}).pipe(Effect.scoped)
-			})
-
-		/** Resolve one binary through the system -> managed -> download ladder. Failures propagate typed. */
-		const resolveOne = (context: ResolveContext, definition: ManagedBinaryDefinition) =>
-			Effect.gen(function* () {
-				const resolveSystem = Effect.gen(function* () {
-					for (const systemName of definition.systemNames) {
-						const found = yield* which(context, systemName)
-						if (found === null) continue
-						if (definition.minVersion !== null) {
-							const usable = yield* satisfiesMinVersion(found, definition.minVersion)
-							if (!usable) continue
-						}
-
-						return {
-							name: definition.name,
-							resolution: 'system' as const,
-							path: found,
-							detail: `system binary "${systemName}" on PATH`,
-						}
-					}
-
-					return null
-				})
-
-				if (!context.requireManagedInstall) {
-					const system = yield* resolveSystem
-					if (system !== null) return system
-				}
-
-				const binDir = managedBinDir(context.foldHome)
-				const installPath = join(binDir, installedFileName(definition, context.platform))
-				const installed = yield* fs.exists(installPath).pipe(Effect.orElseSucceed(() => false))
-				if (installed) {
-					return {
-						name: definition.name,
-						resolution: 'managed' as const,
-						path: installPath,
-						detail: `already installed in ${binDir}`,
-					}
-				}
-
-				if (context.requireManagedInstall) {
-					const system = yield* resolveSystem
-					if (system !== null && context.disableDownloads) return system
-				}
-
-				if (context.disableDownloads) {
-					return {
-						name: definition.name,
-						resolution: 'unavailable' as const,
-						path: null,
-						detail: `binary downloads disabled; not found on PATH or in ${binDir}`,
-					}
-				}
-
-				const asset = definition.assetFor(context.platform, context.arch)
-				if (asset === null) {
-					return {
-						name: definition.name,
-						resolution: 'unavailable' as const,
-						path: null,
-						detail: `no pinned ${definition.name} asset for ${context.platform}-${context.arch}`,
-					}
-				}
-
-				yield* installFromAsset(context, definition, asset, installPath)
-
-				return {
-					name: definition.name,
-					resolution: 'installed-now' as const,
-					path: installPath,
-					detail: `downloaded ${definition.name} ${definition.version} from ${definition.repo}`,
-				}
-			})
-
-		/**
-		 * One binary's resolution, degraded to `unavailable` on ANY failure or defect. This is the
-		 * best-effort boundary, so it deliberately catches the whole cause and keeps the message.
-		 */
-		const resolveOneNeverFailing = (
-			context: ResolveContext,
-			definition: ManagedBinaryDefinition,
-		): Effect.Effect<ManagedBinaryStatus> =>
-			resolveOne(context, definition).pipe(
-				Effect.catchCause((cause) =>
-					// Debug level: this runs in the background under the TUI, where console warnings would
-					// corrupt the screen. `fold bin status|install` print each status's detail instead.
-					Effect.logDebug(`could not resolve managed binary ${definition.name}`, cause).pipe(
-						Effect.as({
-							name: definition.name,
-							resolution: 'unavailable' as const,
-							path: null,
-							detail: Cause.prettyErrors(cause)[0]?.message ?? 'unknown failure',
-						}),
-					),
-				),
-			)
-
-		/** One full pass over the registry, every binary resolved concurrently. */
-		const resolveAll = (key: EnsureKey): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>> =>
-			Effect.gen(function* () {
-				const context: ResolveContext = {
-					...environment,
-					...key,
-					disableDownloads: key.disableDownloads || environment.downloadsKillSwitch,
-				}
-				return yield* Effect.forEach(registry, (definition) => resolveOneNeverFailing(context, definition), {
-					concurrency: Math.max(registry.length, 1),
-				})
-			})
-
-		// Keys are (foldHome, mode) pairs: a handful per process.
-		const passes = yield* Cache.make<EnsureKey, ReadonlyArray<ManagedBinaryStatus>>({
-			capacity: 64,
-			lookup: resolveAll,
-		})
-
-		const ensure = Effect.fn('ManagedBinaries.ensure')(function* (options: EnsureManagedBinariesOptions) {
-			const key: EnsureKey = {
-				foldHome: options.foldHome,
-				disableDownloads: options.disableDownloads === true,
-				requireManagedInstall: options.requireManagedInstall === true,
-			}
-			const resolved = options.memoize === false ? yield* resolveAll(key) : yield* Cache.get(passes, key)
-			return resolved
-		})
-
-		return ManagedBinaries.of({ ensure })
-	})
+/** The per-process managed-binary resolver's interface. */
+export type ManagedBinariesService = {
+	readonly ensure: (options: EnsureManagedBinariesOptions) => Effect.Effect<ReadonlyArray<ManagedBinaryStatus>>
+}
 
 /**
  * The per-process managed-binary resolver. `ensure` never fails; see the file header for the
  * resolution ladder.
  */
-export class ManagedBinaries extends Context.Service<
-	ManagedBinaries,
+export class ManagedBinaries extends Context.Service<ManagedBinaries, ManagedBinariesService>()(
+	'fold-agent/Bin/ManagedBinaries',
 	{
-		readonly ensure: (options: EnsureManagedBinariesOptions) => Effect.Effect<ReadonlyArray<ManagedBinaryStatus>>
-	}
->()('fold-agent/Bin/ManagedBinaries') {
+		make: (registry: ReadonlyArray<ManagedBinaryDefinition>) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem
+				const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+				const http = yield* HttpClient.HttpClient
+				const environment = yield* readHostEnvironment
+
+				/** Fetch one release asset's bytes, with a 30s timeout. */
+				const downloadAsset = (url: string): Effect.Effect<Uint8Array, BinaryDownloadError> =>
+					http.get(url).pipe(
+						Effect.flatMap(HttpClientResponse.filterStatusOk),
+						Effect.flatMap((response) => response.arrayBuffer),
+						Effect.map((buffer) => new Uint8Array(buffer)),
+						Effect.catchTag('HttpClientError', (error) =>
+							Effect.fail(new BinaryDownloadError({ message: `GET ${url}: ${error.message}` })),
+						),
+						Effect.timeoutOrElse({
+							duration: Duration.millis(downloadTimeoutMillis),
+							orElse: () =>
+								Effect.fail(
+									new BinaryDownloadError({
+										message: `GET ${url} timed out after ${downloadTimeoutMillis}ms`,
+									}),
+								),
+						}),
+					)
+
+				/** Run one helper command to completion; a non-zero exit fails with its stderr. */
+				const exec = (command: string, args: ReadonlyArray<string>): Effect.Effect<string, BinaryExecError> => {
+					const label = `${command} ${args.join(' ')}`
+					return Effect.gen(function* () {
+						const handle = yield* spawner.spawn(ChildProcess.make(command, args))
+						const [stdout, stderr, exitCode] = yield* Effect.all(
+							[
+								handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
+								handle.stderr.pipe(Stream.decodeText(), Stream.mkString),
+								handle.exitCode,
+							],
+							{ concurrency: 'unbounded' },
+						)
+						if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
+							const trimmed = stderr.trim()
+							return yield* new BinaryExecError({
+								message: `${label}: exited with code ${exitCode}${trimmed === '' ? '' : ` (${trimmed.slice(0, 400)})`}`,
+							})
+						}
+						return stdout
+					}).pipe(
+						Effect.scoped,
+						Effect.catchTag('PlatformError', (error) =>
+							Effect.fail(new BinaryExecError({ message: `${label}: ${error.message}` })),
+						),
+						Effect.timeoutOrElse({
+							duration: Duration.millis(execTimeoutMillis),
+							orElse: () =>
+								Effect.fail(
+									new BinaryExecError({
+										message: `${label}: timed out after ${execTimeoutMillis}ms`,
+									}),
+								),
+						}),
+					)
+				}
+
+				/**
+				 * Whether one candidate path is an executable regular file. Off Windows, any execute bit
+				 * counts (the FileSystem service has no X_OK check); on Windows, PATHEXT already decides.
+				 */
+				const isExecutableFile = (path: string, platform: string): Effect.Effect<boolean> =>
+					fs.stat(path).pipe(
+						Effect.map(
+							(info) => info.type === 'File' && (platform === 'win32' || (info.mode & 0o111) !== 0),
+						),
+						Effect.catchTag('PlatformError', () => Effect.succeed(false)),
+					)
+
+				/**
+				 * Locate one command on PATH. A manual scan beats shelling out to `command -v`, which also
+				 * matches shell builtins and functions.
+				 */
+				const which = (context: ResolveContext, name: string): Effect.Effect<string | null> =>
+					Effect.gen(function* () {
+						for (const directory of context.pathEntries) {
+							for (const extension of context.executableExtensions) {
+								const candidate = join(directory, `${name}${extension}`)
+								if (yield* isExecutableFile(candidate, context.platform)) return candidate
+							}
+						}
+						return null
+					})
+
+				/**
+				 * Whether a resolved system binary satisfies the definition's version floor. Unparseable output
+				 * or a failing `--version` counts as NOT satisfying it: falling through to the managed install is
+				 * safe (the managed copy shadows nothing - `<foldHome>/bin` is PREPENDED to PATH) and self-healing.
+				 */
+				const satisfiesMinVersion = (binaryPath: string, minVersion: string): Effect.Effect<boolean> =>
+					Effect.gen(function* () {
+						const floor = parseBinaryVersion(minVersion)
+						if (floor === null) return true
+
+						const output = yield* exec(binaryPath, ['--version']).pipe(Effect.option)
+						if (Option.isNone(output)) return false
+						const version = parseBinaryVersion(output.value)
+
+						return version !== null && versionAtLeast(version, floor)
+					})
+
+				/**
+				 * Extract one archive into a directory. tar.gz goes straight to the system `tar`; zip tries
+				 * `unzip` first and falls back to `tar xf` (bsdtar on macOS and Windows System32 reads zip
+				 * archives; GNU tar does not, hence the unzip-first order).
+				 */
+				const extractArchive = (
+					asset: ManagedBinaryAsset,
+					archivePath: string,
+					extractDir: string,
+				): Effect.Effect<void, BinaryExecError> => {
+					if (asset.archive === 'tar.gz') {
+						return exec('tar', ['xzf', archivePath, '-C', extractDir]).pipe(Effect.asVoid)
+					}
+
+					return exec('unzip', ['-q', '-o', archivePath, '-d', extractDir]).pipe(
+						Effect.catchTag('BinaryExecError', (unzipError) =>
+							exec('tar', ['xf', archivePath, '-C', extractDir]).pipe(
+								Effect.mapError(
+									(tarError) =>
+										new BinaryExecError({ message: `${unzipError.message}; ${tarError.message}` }),
+								),
+							),
+						),
+						Effect.asVoid,
+					)
+				}
+
+				/**
+				 * Download, verify, extract, and install one binary. Verification happens on the in-memory
+				 * bytes BEFORE anything is written, so a bad digest never leaves a file behind; the rename out
+				 * of a temp directory under `<foldHome>/bin` keeps the final write atomic on one filesystem.
+				 */
+				const installFromAsset = (
+					context: ResolveContext,
+					definition: ManagedBinaryDefinition,
+					asset: ManagedBinaryAsset,
+					installPath: string,
+				) =>
+					Effect.gen(function* () {
+						const bytes = yield* downloadAsset(asset.url)
+
+						if (asset.sha256 !== null) {
+							const digest = sha256Hex(bytes)
+							if (digest !== asset.sha256) {
+								return yield* new BinaryInstallError({
+									message: `sha256 mismatch for ${asset.url}: expected ${asset.sha256}, downloaded ${digest}`,
+								})
+							}
+						}
+
+						const binDir = managedBinDir(context.foldHome)
+						yield* fs.makeDirectory(binDir, { recursive: true })
+						yield* Effect.gen(function* () {
+							const extractDir = yield* fs.makeTempDirectoryScoped({
+								directory: binDir,
+								prefix: `.tmp-${definition.name}-`,
+							})
+							const archivePath = join(extractDir, assetFileName(asset.url))
+							yield* fs.writeFile(archivePath, bytes)
+							yield* extractArchive(asset, archivePath, extractDir)
+
+							const extractedPath = join(extractDir, asset.pathInArchive)
+							const present = yield* fs.exists(extractedPath).pipe(Effect.orElseSucceed(() => false))
+							if (!present) {
+								return yield* new BinaryInstallError({
+									message: `${assetFileName(asset.url)} did not contain ${asset.pathInArchive}`,
+								})
+							}
+
+							yield* fs.rename(extractedPath, installPath)
+							yield* fs.chmod(installPath, 0o755)
+						}).pipe(Effect.scoped)
+					})
+
+				/** Resolve one binary through the system -> managed -> download ladder. Failures propagate typed. */
+				const resolveOne = (context: ResolveContext, definition: ManagedBinaryDefinition) =>
+					Effect.gen(function* () {
+						const resolveSystem = Effect.gen(function* () {
+							for (const systemName of definition.systemNames) {
+								const found = yield* which(context, systemName)
+								if (found === null) continue
+								if (definition.minVersion !== null) {
+									const usable = yield* satisfiesMinVersion(found, definition.minVersion)
+									if (!usable) continue
+								}
+
+								return {
+									name: definition.name,
+									resolution: 'system' as const,
+									path: found,
+									detail: `system binary "${systemName}" on PATH`,
+								}
+							}
+
+							return null
+						})
+
+						if (!context.requireManagedInstall) {
+							const system = yield* resolveSystem
+							if (system !== null) return system
+						}
+
+						const binDir = managedBinDir(context.foldHome)
+						const installPath = join(binDir, installedFileName(definition, context.platform))
+						const installed = yield* fs.exists(installPath).pipe(Effect.orElseSucceed(() => false))
+						if (installed) {
+							return {
+								name: definition.name,
+								resolution: 'managed' as const,
+								path: installPath,
+								detail: `already installed in ${binDir}`,
+							}
+						}
+
+						if (context.requireManagedInstall) {
+							const system = yield* resolveSystem
+							if (system !== null && context.disableDownloads) return system
+						}
+
+						if (context.disableDownloads) {
+							return {
+								name: definition.name,
+								resolution: 'unavailable' as const,
+								path: null,
+								detail: `binary downloads disabled; not found on PATH or in ${binDir}`,
+							}
+						}
+
+						const asset = definition.assetFor(context.platform, context.arch)
+						if (asset === null) {
+							return {
+								name: definition.name,
+								resolution: 'unavailable' as const,
+								path: null,
+								detail: `no pinned ${definition.name} asset for ${context.platform}-${context.arch}`,
+							}
+						}
+
+						yield* installFromAsset(context, definition, asset, installPath)
+
+						return {
+							name: definition.name,
+							resolution: 'installed-now' as const,
+							path: installPath,
+							detail: `downloaded ${definition.name} ${definition.version} from ${definition.repo}`,
+						}
+					})
+
+				/**
+				 * One binary's resolution, degraded to `unavailable` on ANY failure or defect. This is the
+				 * best-effort boundary, so it deliberately catches the whole cause and keeps the message.
+				 */
+				const resolveOneNeverFailing = (
+					context: ResolveContext,
+					definition: ManagedBinaryDefinition,
+				): Effect.Effect<ManagedBinaryStatus> =>
+					resolveOne(context, definition).pipe(
+						Effect.catchCause((cause) =>
+							// Debug level: this runs in the background under the TUI, where console warnings would
+							// corrupt the screen. `fold bin status|install` print each status's detail instead.
+							Effect.logDebug(`could not resolve managed binary ${definition.name}`, cause).pipe(
+								Effect.as({
+									name: definition.name,
+									resolution: 'unavailable' as const,
+									path: null,
+									detail: Cause.prettyErrors(cause)[0]?.message ?? 'unknown failure',
+								}),
+							),
+						),
+					)
+
+				/** One full pass over the registry, every binary resolved concurrently. */
+				const resolveAll = (key: EnsureKey): Effect.Effect<ReadonlyArray<ManagedBinaryStatus>> =>
+					Effect.gen(function* () {
+						const context: ResolveContext = {
+							...environment,
+							...key,
+							disableDownloads: key.disableDownloads || environment.downloadsKillSwitch,
+						}
+						return yield* Effect.forEach(
+							registry,
+							(definition) => resolveOneNeverFailing(context, definition),
+							{
+								concurrency: Math.max(registry.length, 1),
+							},
+						)
+					})
+
+				// Keys are (foldHome, mode) pairs: a handful per process.
+				const passes = yield* Cache.make<EnsureKey, ReadonlyArray<ManagedBinaryStatus>>({
+					capacity: 64,
+					lookup: resolveAll,
+				})
+
+				const ensure = Effect.fn('ManagedBinaries.ensure')(function* (options: EnsureManagedBinariesOptions) {
+					const key: EnsureKey = {
+						foldHome: options.foldHome,
+						disableDownloads: options.disableDownloads === true,
+						requireManagedInstall: options.requireManagedInstall === true,
+					}
+					const resolved = options.memoize === false ? yield* resolveAll(key) : yield* Cache.get(passes, key)
+					return resolved
+				})
+
+				return { ensure }
+			}),
+	},
+) {
 	/** A resolver over a given registry (tests pass a small one). */
 	static readonly layerWith = (
 		registry: ReadonlyArray<ManagedBinaryDefinition>,
@@ -503,7 +514,7 @@ export class ManagedBinaries extends Context.Service<
 		ManagedBinaries,
 		never,
 		FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient
-	> => Layer.effect(ManagedBinaries, makeManagedBinaries(registry))
+	> => Layer.effect(this, this.make(registry))
 
 	/** The resolver over fold's pinned {@link managedBinaryRegistry}. */
 	static readonly layer = ManagedBinaries.layerWith(managedBinaryRegistry)

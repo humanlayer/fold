@@ -58,12 +58,9 @@ export type ProfilesService = {
 }
 
 /** Profiles service tag; one instance per session, shared by the facade and the subagent operations. */
-export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles') {}
-
-/** One session's profiles over the initial bindings from `Session.open`. */
-export const layerProfiles = (initial: SessionProfiles<unknown>): Layer.Layer<Profiles> =>
-	Layer.effect(
-		Profiles,
+export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles', {
+	/** One session's profiles over the initial bindings from `Session.open`. */
+	make: (initial: SessionProfiles<unknown>) =>
 		Effect.gen(function* () {
 			const state = yield* Ref.make<SessionProfiles<unknown>>(initial)
 
@@ -93,4 +90,6 @@ export const layerProfiles = (initial: SessionProfiles<unknown>): Layer.Layer<Pr
 
 			return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }
 		}),
-	)
+}) {
+	static readonly layer = (initial: SessionProfiles<unknown>) => Layer.effect(this, this.make(initial))
+}

@@ -5,7 +5,7 @@ import { LanguageModel, type Response } from 'effect/ai'
 
 import {
 	fallbackSessionTitle,
-	generateSessionTitle,
+	SessionTitleGenerator,
 	normalizeSessionTitle,
 	titleTranscript,
 } from '../../src/Session/TitleGenerator'
@@ -88,14 +88,22 @@ describe('session title generation inputs', () => {
 					{ type: 'text', text: '{"title":"Harden Concurrent Session Titles"}' },
 				]),
 			)
-			expect(yield* generateSessionTitle(entries, root, model)).toBe('Harden Concurrent Session Titles')
+			expect(
+				yield* SessionTitleGenerator.use((titles) => titles.generate(entries, root)).pipe(
+					Effect.provide(SessionTitleGenerator.layer(model)),
+				),
+			).toBe('Harden Concurrent Session Titles')
 		}),
 	)
 
 	it.effect('falls back nonfatally when the structured model call fails', () =>
 		Effect.gen(function* () {
 			const model = modelWith(() => Effect.die(new Error('provider unavailable')))
-			expect(yield* generateSessionTitle(entries, root, model)).toBe('Fix the session title cache')
+			expect(
+				yield* SessionTitleGenerator.use((titles) => titles.generate(entries, root)).pipe(
+					Effect.provide(SessionTitleGenerator.layer(model)),
+				),
+			).toBe('Fix the session title cache')
 		}),
 	)
 })

@@ -95,22 +95,22 @@ const unavailable = (error: PhotonError): PhotonService => ({
 	encodeJpeg: () => Effect.fail(error),
 })
 
-export class Photon extends Context.Service<Photon, PhotonService>()('fold-agent/Tools/Image/Photon') {
-	/** Load photon once; a load failure yields a service whose operations fail with `unavailable`. */
-	static readonly layer = Layer.effect(
-		Photon,
-		Effect.tryPromise({
-			try: () => import('@silvia-odwyer/photon-node'),
-			catch: (cause) => new PhotonError({ reason: 'unavailable', cause }),
-		}).pipe(
-			Effect.map(fromModule),
-			Effect.catchTag('PhotonError', (error) =>
-				Effect.logWarning('photon image library unavailable; images will be omitted', error.cause).pipe(
-					Effect.as(unavailable(error)),
-				),
+export class Photon extends Context.Service<Photon, PhotonService>()('fold-agent/Tools/Image/Photon', {
+	/** Load photon; a load failure yields a service whose operations fail with `unavailable`. */
+	make: Effect.tryPromise({
+		try: () => import('@silvia-odwyer/photon-node'),
+		catch: (cause) => new PhotonError({ reason: 'unavailable', cause }),
+	}).pipe(
+		Effect.map(fromModule),
+		Effect.catchTag('PhotonError', (error) =>
+			Effect.logWarning('photon image library unavailable; images will be omitted', error.cause).pipe(
+				Effect.as(unavailable(error)),
 			),
 		),
-	)
+	),
+}) {
+	/** Load photon once per layer build. */
+	static readonly layer = Layer.effect(this, this.make)
 
 	/** A photon that failed to load with `cause`: every operation fails with reason `unavailable`. */
 	static readonly layerUnavailable = (cause: unknown): Layer.Layer<Photon> =>

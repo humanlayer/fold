@@ -3,8 +3,9 @@
  * per-call ToolEvents and StopController services, tool handlers consume them for progress and cooperative
  * stopping, and session-level code provides ToolEventSink to receive annotated progress events.
  */
-import { Context, Effect, type Schema } from 'effect'
+import { Context, Effect, Layer, type Schema } from 'effect'
 
+import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import type { AgentId, ToolCallId } from '../Ids'
 
 /** UI/progress event emitted by a running tool. This is not the durable final tool result. */
@@ -23,7 +24,29 @@ export type ToolEventSinkService = {
 }
 
 /** Sink used by ToolRuntime to publish UI/progress events. */
-export class ToolEventSink extends Context.Service<ToolEventSink, ToolEventSinkService>()('fold/ToolEventSink') {}
+export class ToolEventSink extends Context.Service<ToolEventSink, ToolEventSinkService>()('fold/ToolEventSink', {
+	/**
+	 * Republish each ToolRuntime progress event as an AgentEvents `tool-progress` delta. This is the seam
+	 * that lifts ephemeral tool progress into the merged session event stream, keeping ToolRuntime unaware
+	 * of AgentEvents.
+	 */
+	make: Effect.gen(function* () {
+		const agentEvents = yield* AgentEvents
+
+		return {
+			emit: (event) =>
+				agentEvents.publish({
+					kind: 'delta',
+					agentId: event.agentId,
+					parentAgentId: event.parentAgentId,
+					toolCallId: event.toolCallId,
+					part: { type: 'tool-progress', toolName: event.toolName, payload: event.payload },
+				}),
+		}
+	}),
+}) {
+	static readonly layer = Layer.effect(this, this.make)
+}
 
 /** No-op event sink for tests that do not assert tool progress. */
 export const noopToolEventSink: ToolEventSinkService = {

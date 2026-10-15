@@ -107,21 +107,16 @@ const encodeJsonlLine = (entry: LogEntry): Effect.Effect<string, EventLogInvalid
 		return `${line}\n`
 	})
 
-const loadEntries = (
-	fs: FileSystem.FileSystem,
+/** Read and decode every entry in one JSONL session log; a missing file has no entries. */
+export const readJsonlEntries = (
 	filePath: string,
 ): Effect.Effect<
 	ReadonlyArray<LogEntry>,
-	EventLogCorruptEntryError | EventLogUnsupportedVersionError | EventLogUnavailableError
+	EventLogCorruptEntryError | EventLogUnsupportedVersionError | EventLogUnavailableError,
+	FileSystem.FileSystem
 > =>
 	Effect.gen(function* () {
-		yield* fs
-			.makeDirectory(dirname(filePath), { recursive: true })
-			.pipe(
-				Effect.mapError((cause) =>
-					unavailableError('entries', `Unable to create EventLog directory for ${filePath}`, false, cause),
-				),
-			)
+		const fs = yield* FileSystem.FileSystem
 		const exists = yield* fs
 			.exists(filePath)
 			.pipe(
@@ -182,7 +177,19 @@ export const layerJsonlWithIds = (
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
 			const ids = yield* Ids
-			const initialEntries = yield* loadEntries(fs, filePath)
+			yield* fs
+				.makeDirectory(dirname(filePath), { recursive: true })
+				.pipe(
+					Effect.mapError((cause) =>
+						unavailableError(
+							'entries',
+							`Unable to create EventLog directory for ${filePath}`,
+							false,
+							cause,
+						),
+					),
+				)
+			const initialEntries = yield* readJsonlEntries(filePath)
 			const entriesRef = yield* Ref.make<ReadonlyArray<LogEntry>>(initialEntries)
 			const pubsub = yield* PubSub.unbounded<LogEntry>()
 			const appendLock = yield* Semaphore.make(1)

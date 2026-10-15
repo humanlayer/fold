@@ -24,7 +24,7 @@ import {
 } from 'effect'
 import { Prompt } from 'effect/ai'
 
-import { toolEventSinkLayerFromAgentEvents, liveAgentEventsLayer } from '../AgentEvents/AgentEventsLayer'
+import { AgentEvents } from '../AgentEvents/AgentEventsService'
 import type { FoldEvent } from '../AgentEvents/AgentEventsService'
 import { AgentRuntime, type AgentRuntimeService } from '../AgentRuntime/AgentRuntimeService'
 import {
@@ -51,20 +51,13 @@ import { runtimeForAgent } from '../Projection/Projection'
 import { AgentNotRunningError } from '../Session/Errors'
 import {
 	isProfileRole,
-	layerProfiles,
 	profileModelFor,
 	Profiles,
 	type ProfileRole,
 	type ProfilesService,
 	type SessionProfiles,
 } from '../Session/Profiles'
-import {
-	layerSessionControls,
-	SessionControls,
-	type SessionControlsService,
-	type SteeringMode,
-} from '../Session/SessionControls'
-import { liveSessionLayer } from '../Session/SessionLayer'
+import { SessionControls, type SessionControlsService, type SteeringMode } from '../Session/SessionControls'
 import { Session, type SessionService, type StartedSession } from '../Session/SessionService'
 import type { SkillSourceService } from '../Skills/SkillSource'
 import { StopConditions } from '../StopConditions/StopConditions'
@@ -79,6 +72,7 @@ import { SessionAgents, type RealizedAgentTools, type RootAgentSnapshot } from '
 import { continueSubagent, type ContinueSubagentInput } from '../Subagents/SubagentEngine'
 import { layerSystemPrompt } from '../SystemPrompt/SystemPromptLayer'
 import { SystemPrompt, type SystemPromptService } from '../SystemPrompt/SystemPromptService'
+import { ToolEventSink } from '../ToolRuntime/ToolContextServices'
 import { systemPromptBlocks, type AgentDefinition, type SystemPromptInput } from './AgentDefinition'
 import type { FoldModel } from './ModelDescriptor'
 import { provisionAgentRuntime, validateToolNames } from './Provisioning'
@@ -254,6 +248,15 @@ const withHostServices = <R>(
 const activeModelsEquivalent = Schema.toEquivalence(Schema.NullOr(ActiveModel))
 const promptBlocksEquivalent = Schema.toEquivalence(Schema.Array(Schema.String))
 
+/**
+ * One provisioned root runtime and the scope its resources live in. The scope is a child of the session
+ * scope, so a model switch can release the replaced runtime without waiting for the session to close.
+ */
+type ProvisionedRootRuntime = {
+	readonly runtime: AgentRuntimeService
+	readonly scope: Scope.Closeable
+}
+
 /** The assembled service graph shared by initialization and adoption. */
 type SessionGraph<R> = {
 	readonly agent: AgentDefinition<R>
@@ -279,9 +282,9 @@ type SessionGraph<R> = {
 	readonly provisionRootRuntime: (
 		model: FoldModel<R>,
 		tools: ReadonlyArray<FoldTool<R>>,
-	) => Effect.Effect<AgentRuntimeService>
-	readonly setProvisionedRuntime: (runtime: AgentRuntimeService) => Effect.Effect<void>
-	readonly currentProvisionedRuntime: Effect.Effect<AgentRuntimeService>
+	) => Effect.Effect<ProvisionedRootRuntime>
+	readonly setProvisionedRuntime: (provisioned: ProvisionedRootRuntime) => Effect.Effect<void>
+	readonly currentProvisionedRuntime: Effect.Effect<ProvisionedRootRuntime>
 	readonly leadingPromptFor: (
 		systemPrompt: ReadonlyArray<string>,
 		tools: ReadonlyArray<FoldTool<unknown>>,
@@ -429,13 +432,13 @@ const assembleSessionGraph = <R>(options: {
 		// services from this graph too: Effect AI hands each handler the context its toolkit was built in.
 		const idsLayer = layerLiveIdFactory
 		const eventLog = yield* EventLog
-		const infraLayer = Layer.mergeAll(Layer.succeed(EventLog, eventLog), idsLayer, liveAgentEventsLayer)
+		const infraLayer = Layer.mergeAll(Layer.succeed(EventLog, eventLog), idsLayer, AgentEvents.layer)
 		const servicesLayer = Layer.mergeAll(
 			infraLayer,
 			Layer.succeedContext(hostServices),
 			layerSystemPrompt(agent.basePrompts === undefined ? {} : { basePrompts: agent.basePrompts }),
 			liveModelRequestSettingsLayer,
-			toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(infraLayer)),
+			ToolEventSink.layer.pipe(Layer.provide(infraLayer)),
 			// How this session builds agents: the subagent operations and every provision read it.
 			Layer.succeed(SessionAgents, {
 				registry,
@@ -450,10 +453,10 @@ const assembleSessionGraph = <R>(options: {
 			// entries build the empty catalog, which behaves exactly like the Reference default.
 			Layer.succeed(ModelCatalog, modelCatalogFromEntries(options.catalog ?? [])),
 			Layer.succeed(StopConditions, agent.stopConditions ?? {}),
-			layerSessionControls(options.steering === undefined ? {} : { steeringMode: options.steering }),
+			SessionControls.layer(options.steering === undefined ? {} : { steeringMode: options.steering }),
 			// Session-wide role->model bindings (profiles slice): one mutable map shared by the facade's
 			// setProfile and the subagent operations' per-dispatch/resume resolution.
-			layerProfiles(initialProfiles),
+			Profiles.layer(initialProfiles),
 		)
 		// Builds use session-fresh memo maps, never the ambient CurrentMemoMap: layers are memoized by
 		// reference per memo map, and under `Effect.provide` (any app or test harness) the ambient map
@@ -469,29 +472,40 @@ const assembleSessionGraph = <R>(options: {
 		// HookRunner, the ToolRuntime executing against it, and the AgentRuntime bound to the model's
 		// provider (Provisioning.ts owns the fresh-memo-map and ambient-scope invariants). The delegating
 		// runtime below lets the Session service survive swaps (interim AgentModels seam - D15). Root
-		// provisions target the session scope explicitly: switchModel runs later, from the caller's own
-		// scope, and the provisioned provider client must outlive that caller. The session handle is the
-		// edge where host code calls in with nothing around it, so it runs these inside the session's
-		// services.
+		// provisions target a child of the session scope explicitly: switchModel runs later, from the
+		// caller's own scope, and the provisioned provider client must outlive that caller. Each root
+		// runtime gets its own child so a switch can release the runtime it replaces (see switchModel).
+		// The session handle is the edge where host code calls in with nothing around it, so it runs
+		// these inside the session's services.
 		const provisionRootRuntime = (
 			model: FoldModel<R>,
 			tools: ReadonlyArray<FoldTool<R>>,
-		): Effect.Effect<AgentRuntimeService> =>
-			provisionAgentRuntime({ model, tools: realizeAgentTools(tools).tools, hooks: rootHooks }).pipe(
-				Scope.provide(sessionScope),
-				Effect.provideContext(sessionServices),
-			)
+		): Effect.Effect<ProvisionedRootRuntime> =>
+			Effect.gen(function* () {
+				const scope = yield* Scope.fork(sessionScope)
+				const runtime = yield* provisionAgentRuntime({
+					model,
+					tools: realizeAgentTools(tools).tools,
+					hooks: rootHooks,
+				}).pipe(
+					Scope.provide(scope),
+					Effect.provideContext(sessionServices),
+					Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
+				)
+				return { runtime, scope }
+			})
 
 		const runtimeRef = yield* Ref.make(yield* provisionRootRuntime(agent.model, rootTools))
+		const currentRuntime = Ref.get(runtimeRef).pipe(Effect.map((provisioned) => provisioned.runtime))
 		const delegatingRuntime: AgentRuntimeService = {
-			start: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.start(input))),
-			run: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.run(input))),
-			switchModel: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.switchModel(input))),
-			compact: (input) => Ref.get(runtimeRef).pipe(Effect.flatMap((runtime) => runtime.compact(input))),
+			start: (input) => currentRuntime.pipe(Effect.flatMap((runtime) => runtime.start(input))),
+			run: (input) => currentRuntime.pipe(Effect.flatMap((runtime) => runtime.run(input))),
+			switchModel: (input) => currentRuntime.pipe(Effect.flatMap((runtime) => runtime.switchModel(input))),
+			compact: (input) => currentRuntime.pipe(Effect.flatMap((runtime) => runtime.compact(input))),
 		}
 
 		const sessionContext = yield* Layer.buildWithMemoMap(
-			liveSessionLayer.pipe(
+			Session.layer.pipe(
 				Layer.provide(Layer.mergeAll(sessionServicesLayer, Layer.succeed(AgentRuntime, delegatingRuntime))),
 			),
 			sessionMemoMap,
@@ -530,7 +544,7 @@ const assembleSessionGraph = <R>(options: {
 			ensureToolContributions,
 			collectNewSubagentDefinitions: (tools) => collectAgentDefinitions(tools),
 			provisionRootRuntime,
-			setProvisionedRuntime: (runtime) => Ref.set(runtimeRef, runtime),
+			setProvisionedRuntime: (provisioned) => Ref.set(runtimeRef, provisioned),
 			currentProvisionedRuntime: Ref.get(runtimeRef),
 			leadingPromptFor,
 		}
@@ -847,8 +861,12 @@ const makeSessionHandle = <R>(graph: SessionGraph<R>, identity: StartedSession):
 					.pipe(Effect.orDie, Effect.exit)
 				if (Exit.isFailure(transition)) {
 					yield* graph.setProvisionedRuntime(previousRuntime)
+					yield* Scope.close(nextRuntime.scope, transition)
 					return yield* Effect.failCause(transition.cause)
 				}
+				// The replaced runtime is idle (root runs hold the same gate), so release its provider
+				// client and layers now rather than at session close.
+				yield* Scope.close(previousRuntime.scope, Exit.void)
 				graph.extendSubagentRegistry(introduced)
 				yield* profiles.replace(candidateProfiles)
 				yield* Ref.set(configRef, next)

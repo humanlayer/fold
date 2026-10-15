@@ -7,11 +7,12 @@ import * as NodeFileSystem from '@effect/platform-node/NodeFileSystem'
  * log and the requests the scripted per-epoch models actually received.
  */
 import { expect, it } from '@effect/vitest'
-import { Predicate, Effect, Schema } from 'effect'
+import { Predicate, Effect, Exit, Ref, Schema, Scope } from 'effect'
 
 import {
 	defineAgent,
 	defineSubagent,
+	customModel,
 	defineTool,
 	Session,
 	subagentTool,
@@ -349,4 +350,38 @@ it.effect('switchModel extends the subagent registry at the switch boundary', ()
 			reason: 'new roster',
 		})
 	}).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+)
+
+it.effect('switchModel releases the replaced runtime and keeps the new one until the session closes', () =>
+	Effect.gen(function* () {
+		const released = yield* Ref.make<ReadonlyArray<string>>([])
+		/** A scripted model whose provider resource records its release. */
+		const releasingModel = (label: string, activeModel: ActiveModel, text: string) =>
+			scriptedModel(activeModel, [textTurn(text)]).pipe(
+				Effect.map(({ model }) =>
+					customModel({
+						activeModel,
+						make: Effect.addFinalizer(() => Ref.update(released, (labels) => [...labels, label])).pipe(
+							Effect.andThen(model.make),
+						),
+					}),
+				),
+			)
+		const first = yield* releasingModel('first', gptActiveModel, 'from gpt')
+		const second = yield* releasingModel('second', claudeActiveModel, 'from claude')
+		const sessionScope = yield* Scope.make()
+
+		const session = yield* Session.open({ agent: defineAgent({ model: first }) }).pipe(Scope.provide(sessionScope))
+		yield* session.send('first turn')
+		expect(yield* Ref.get(released)).toEqual([])
+
+		yield* session.switchModel(second)
+		expect(yield* Ref.get(released)).toEqual(['first'])
+
+		const turnTwo = yield* session.send('second turn')
+		expect(turnTwo.resultText).toBe('from claude')
+
+		yield* Scope.close(sessionScope, Exit.void)
+		expect(yield* Ref.get(released)).toEqual(['first', 'second'])
+	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )

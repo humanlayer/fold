@@ -1,11 +1,11 @@
 /**
- * This file defines the SkillSource service (D20) - the isomorphic seam skills load through: `list`
+ * This file defines the SkillSource seam (D20) - the isomorphic seam skills load through: `list`
  * returns the metadata roster, `load` returns full content (progressive disclosure). Core ships the
  * from-data implementation for hosts that pass skills in (browser/workers/presets); fold-agent ships the
  * disk loader. Public configuration goes through descriptors ({@link skillsFromData} /
  * {@link skillSource}) so no service or layer appears in caller signatures.
  */
-import { Context, Effect, Schema } from 'effect'
+import { Effect, Schema } from 'effect'
 
 import { skillDescriptionProblem, skillNameProblem, type Skill, type SkillMeta } from './Schemas'
 
@@ -26,9 +26,6 @@ export type SkillSourceService = {
 	readonly list: Effect.Effect<ReadonlyArray<SkillMeta>, SkillSourceError>
 	readonly load: (name: string) => Effect.Effect<Skill, SkillNotFoundError | SkillSourceError>
 }
-
-/** SkillSource service tag for advanced/low-level composition. */
-export class SkillSource extends Context.Service<SkillSource, SkillSourceService>()('fold/SkillSource') {}
 
 /** Input for one data-backed skill. `baseDir` is for hosts mirroring on-disk skills. */
 export type SkillData = {

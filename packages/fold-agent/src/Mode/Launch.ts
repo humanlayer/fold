@@ -64,20 +64,9 @@ import {
 import { rolesForDirectProviderSelection } from '../Config/ModelSelections'
 import { layerJsonl } from '../EventLog/JsonlLayer'
 import { memoryPromptBlock } from '../Memory/AgentFiles'
-import {
-	layerOutputStore,
-	sweepToolOutput,
-	toolOutputSessionDirFor,
-	type OutputStore,
-} from '../OutputStore/OutputStore'
-import {
-	latestSessionLog,
-	prepareSessionLog,
-	refreshSessionSummaryIndex,
-	sessionLogById,
-	type SessionLogRef,
-} from '../Session/SessionLayout'
-import { generateSessionTitle } from '../Session/TitleGenerator'
+import { sweepToolOutput, toolOutputSessionDirFor, OutputStore } from '../OutputStore/OutputStore'
+import { latestSessionLog, prepareSessionLog, sessionLogById, type SessionLogRef } from '../Session/SessionLayout'
+import { SessionTitleGenerator } from '../Session/TitleGenerator'
 import type { Photon } from '../Tools/Image/Photon'
 import { compactionArchiveAccessFor } from './CompactionArchiveAccess'
 import { defaultCodingMode, type FoldMode } from './Mode'
@@ -421,7 +410,7 @@ const buildAgentDefinition = (
 
 /** The session's own output store, under `<foldHome>/tool-output/<sessionId>`. */
 const outputStoreFor = (sessionId: SessionId, options: LaunchSessionOptions) =>
-	layerOutputStore({
+	OutputStore.layer({
 		directory: toolOutputSessionDirFor(
 			options.foldHome === undefined ? { sessionId } : { sessionId, foldHome: options.foldHome },
 		),
@@ -472,14 +461,9 @@ export const switchSessionMode = (
 		})
 	})
 
-const withGeneratedTitles = <R>(
-	session: FoldSession<R>,
-	model: FoldModel<HttpClient.HttpClient | FileSystem.FileSystem>,
-	options: { readonly cwd: string; readonly foldHome?: string },
-): Effect.Effect<FoldSession<R>, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
+const withGeneratedTitles = <R>(session: FoldSession<R>): Effect.Effect<FoldSession<R>, never, SessionTitleGenerator> =>
 	Effect.gen(function* () {
-		// Titles are generated after later sends, which run without these services, so take them now.
-		const titleServices = yield* Effect.context<FileSystem.FileSystem | HttpClient.HttpClient>()
+		const titles = yield* SessionTitleGenerator
 		return yield* Semaphore.make(1).pipe(
 			Effect.map((titleLock) => ({
 				...session,
@@ -502,23 +486,17 @@ const withGeneratedTitles = <R>(
 											)
 											const generatedTurns = lastTitle?.rootUserTurns ?? 0
 											if (rootUsers.length <= generatedTurns) return Effect.void
-											return generateSessionTitle(entries, session.rootAgentId, model).pipe(
-												Effect.provideContext(titleServices),
+											return titles.generate(entries, session.rootAgentId).pipe(
 												Effect.flatMap((title) => {
 													const generatedThroughSeq = entries.at(-1)?.seq
 													const rootUserTurns = rootUsers.length
-													const setTitle = session.setTitle(
+													// The title append changes the log, so the next summary listing
+													// rebuilds this session's index record from it.
+													return session.setTitle(
 														title,
 														generatedThroughSeq === undefined
 															? { rootUserTurns }
 															: { rootUserTurns, generatedThroughSeq },
-													)
-													return setTitle.pipe(
-														Effect.andThen(
-															refreshSessionSummaryIndex(session.sessionId, options).pipe(
-																Effect.provideContext(titleServices),
-															),
-														),
 													)
 												}),
 											)
@@ -587,25 +565,31 @@ export const launchSession = (
 		yield* sweepToolOutput(opts.foldHome === undefined ? {} : { foldHome: opts.foldHome })
 		const agent = yield* buildAgentDefinition(opts, mode, models, cwd, config)
 
-		// The output store lives as long as the session, in the caller's scope.
+		// The session's own services live as long as the session, in the caller's scope.
 		const sessionServices = yield* Layer.build(
-			Layer.mergeAll(outputStoreFor(prepared.sessionId, opts), layerJsonl(prepared.path).pipe(Layer.orDie)),
+			Layer.mergeAll(
+				outputStoreFor(prepared.sessionId, opts),
+				layerJsonl(prepared.path).pipe(Layer.orDie),
+				SessionTitleGenerator.layer(models.fast),
+			),
 		)
-		const session = yield* Session.open({
-			agent,
-			cwd,
-			sessionId: prepared.sessionId,
-			meta: {
-				mode: mode.name,
-				rpi: opts.rpi === true || mode.rpiByDefault === true,
-				profile: opts.profile ?? 'default',
-			},
-			profiles: sessionProfilesFor(models),
-			catalog,
-			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
-			...Struct.pick(opts, ['steering']),
+		return yield* Effect.gen(function* () {
+			const session = yield* Session.open({
+				agent,
+				cwd,
+				sessionId: prepared.sessionId,
+				meta: {
+					mode: mode.name,
+					rpi: opts.rpi === true || mode.rpiByDefault === true,
+					profile: opts.profile ?? 'default',
+				},
+				profiles: sessionProfilesFor(models),
+				catalog,
+				compactionArchiveAccess: compactionArchiveAccessFor({ logPath: prepared.path, modeName: mode.name }),
+				...Struct.pick(opts, ['steering']),
+			})
+			return yield* withGeneratedTitles(session)
 		}).pipe(Effect.provideContext(sessionServices))
-		return yield* withGeneratedTitles(session, models.fast, { cwd, ...Struct.pick(opts, ['foldHome']) })
 	})
 
 const resumeFromLog = (
@@ -638,19 +622,25 @@ const resumeFromLog = (
 		yield* sweepToolOutput(options.foldHome === undefined ? {} : { foldHome: options.foldHome })
 		const agent = yield* buildAgentDefinition(options, mode, models, cwd, config)
 
-		// The output store lives as long as the session, in the caller's scope.
+		// The session's own services live as long as the session, in the caller's scope.
 		const sessionServices = yield* Layer.build(
-			Layer.mergeAll(outputStoreFor(log.sessionId, options), layerJsonl(log.path).pipe(Layer.orDie)),
+			Layer.mergeAll(
+				outputStoreFor(log.sessionId, options),
+				layerJsonl(log.path).pipe(Layer.orDie),
+				SessionTitleGenerator.layer(models.fast),
+			),
 		)
-		const session = yield* Session.open({
-			agent,
-			sessionId: log.sessionId,
-			profiles: sessionProfilesFor(models),
-			catalog,
-			compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
-			...Struct.pick(options, ['steering']),
+		return yield* Effect.gen(function* () {
+			const session = yield* Session.open({
+				agent,
+				sessionId: log.sessionId,
+				profiles: sessionProfilesFor(models),
+				catalog,
+				compactionArchiveAccess: compactionArchiveAccessFor({ logPath: log.path, modeName: mode.name }),
+				...Struct.pick(options, ['steering']),
+			})
+			return yield* withGeneratedTitles(session)
 		}).pipe(Effect.provideContext(sessionServices))
-		return yield* withGeneratedTitles(session, models.fast, { cwd, ...Struct.pick(options, ['foldHome']) })
 	})
 
 /**

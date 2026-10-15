@@ -50,9 +50,6 @@ export type OutputStoreService = {
 	readonly read: (ref: OutputStoreRef, options?: OutputStoreReadOptions) => Effect.Effect<string, OutputStoreError>
 }
 
-/** Where tools store their full output. The host provides it; the bash tool asks for it. */
-export class OutputStore extends Context.Service<OutputStore, OutputStoreService>()('fold-agent/OutputStore') {}
-
 /** Root directory for all stored tool output. */
 export const toolOutputRootFor = (options?: { readonly foldHome?: string }): string =>
 	join(options?.foldHome ?? defaultFoldHome(), 'tool-output')
@@ -96,11 +93,10 @@ const lineSlice = (content: string, options?: OutputStoreReadOptions): string =>
 }
 
 /** A file-backed OutputStore writing one file per tool call into `directory`. */
-export const layerOutputStore = (options: {
-	readonly directory: string
-}): Layer.Layer<OutputStore, never, FileSystem.FileSystem> =>
-	Layer.effect(
-		OutputStore,
+/** Where tools store their full output. The host provides it; the bash tool asks for it. */
+export class OutputStore extends Context.Service<OutputStore, OutputStoreService>()('fold-agent/OutputStore', {
+	/** A file-backed OutputStore writing one file per tool call into `directory`. */
+	make: (options: { readonly directory: string }) =>
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
 			const directory = options.directory
@@ -147,7 +143,10 @@ export const layerOutputStore = (options: {
 
 			return { directory, refFor, prepare, append, read }
 		}),
-	)
+}) {
+	/** A file-backed OutputStore writing into `options.directory`. */
+	static readonly layer = (options: { readonly directory: string }) => Layer.effect(this, this.make(options))
+}
 
 /**
  * Best-effort retention sweep over every session's stored output under `<foldHome>/tool-output`: files

@@ -10,7 +10,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { EventLog, SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
+import { SessionId, encodedContentText, makeSessionId, usageInputTotal } from '@humanlayer/fold-core'
 import type {
 	ActiveModel,
 	AgentFinishedLogEntry,
@@ -23,9 +23,9 @@ import type {
 	SessionTitleLogEntry,
 	UserMessageLogEntry,
 } from '@humanlayer/fold-core'
-import { Predicate, Clock, Effect, Exit, FileSystem, Layer, Match, Option, Schema, Stream, Struct } from 'effect'
+import { Predicate, Clock, Effect, Exit, FileSystem, Match, Option, Schema, Struct } from 'effect'
 
-import { layerJsonl } from '../EventLog/JsonlLayer'
+import { readJsonlEntries } from '../EventLog/JsonlLayer'
 import { toolOutputSessionDirFor } from '../OutputStore/OutputStore'
 
 /** Options shared by the layout helpers. */
@@ -305,12 +305,8 @@ const sessionSummary = (ref: SessionLogRef, entries: ReadonlyArray<LogEntry>): S
 }
 
 const loadSessionSummary = (ref: SessionLogRef): Effect.Effect<SessionSummary | null, never, FileSystem.FileSystem> =>
-	Effect.gen(function* () {
-		const eventLog = yield* EventLog
-		const entries = yield* Stream.runCollect(eventLog.entries())
-		return sessionSummary(ref, Array.from(entries))
-	}).pipe(
-		Effect.provide(layerJsonl(ref.path).pipe(Layer.orDie)),
+	readJsonlEntries(ref.path).pipe(
+		Effect.map((entries) => sessionSummary(ref, entries)),
 		Effect.exit,
 		Effect.map((exit) => (Exit.isSuccess(exit) ? exit.value : null)),
 	)
@@ -417,28 +413,3 @@ export const sessionLogById = (
 			size: Number(info.size),
 		}
 	})
-
-/** Rebuild and append one authoritative summary after session metadata changes. */
-export const refreshSessionSummaryIndex = (
-	sessionId: SessionId,
-	options?: SessionLayoutOptions,
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
-	sessionLogById(sessionId, options).pipe(
-		Effect.flatMap((ref) => {
-			if (ref === null) return Effect.void
-			return loadSessionSummary(ref).pipe(
-				Effect.flatMap((summary) =>
-					summary === null
-						? Effect.void
-						: appendSessionIndexRecord(
-								SummaryIndexRecord.make({
-									sourceMtimeMs: ref.mtimeMs,
-									sourceSize: ref.size ?? 0,
-									summary,
-								}),
-								options,
-							),
-				),
-			)
-		}),
-	)

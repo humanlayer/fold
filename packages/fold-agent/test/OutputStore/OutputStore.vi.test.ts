@@ -6,7 +6,6 @@ import { SessionId, ToolCallId } from '@humanlayer/fold-core'
 import { Effect } from 'effect'
 
 import {
-	layerOutputStore,
 	OutputStore,
 	sweepToolOutput,
 	toolOutputPathFor,
@@ -30,7 +29,9 @@ it.effect('stores tool output at a deterministic session/tool-call path', () =>
 			expect(second.path).toBe(expectedPath)
 			expect(yield* store.read(first)).toBe('one\ntwo\nthree')
 			expect(yield* store.read(first, { offset: 2, limit: 1 })).toBe('two')
-		}).pipe(Effect.provide(layerOutputStore({ directory: toolOutputSessionDirFor({ sessionId, foldHome: root }) })))
+		}).pipe(
+			Effect.provide(OutputStore.layer({ directory: toolOutputSessionDirFor({ sessionId, foldHome: root }) })),
+		)
 	}).pipe(Effect.provide(NodeFileSystem.layer)),
 )
 
@@ -43,7 +44,9 @@ it.live('sweeps old stored output files best-effort', () =>
 		const ref = yield* Effect.gen(function* () {
 			const store = yield* OutputStore
 			return yield* store.append(toolCallId, 'old output')
-		}).pipe(Effect.provide(layerOutputStore({ directory: toolOutputSessionDirFor({ sessionId, foldHome: root }) })))
+		}).pipe(
+			Effect.provide(OutputStore.layer({ directory: toolOutputSessionDirFor({ sessionId, foldHome: root }) })),
+		)
 		const old = new Date(0)
 		utimesSync(ref.path, old, old)
 		expect(existsSync(ref.path)).toBe(true)

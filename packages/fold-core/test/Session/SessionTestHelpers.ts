@@ -3,17 +3,17 @@ import { Layer } from 'effect'
 import type { LanguageModel, Tool } from 'effect/ai'
 
 import {
+	Session,
+	HookRunner,
+	AgentEvents,
+	ToolEventSink,
+	AgentRuntime,
+	ToolRuntime,
+	SessionControls,
 	layerDefaultSystemPrompt,
 	layerInMemoryEventLog,
-	liveAgentEventsLayer,
-	liveAgentRuntimeLayer,
 	liveModelRequestSettingsLayer,
-	liveSessionLayer,
-	liveToolRuntimeLayer,
-	layerHookRunner,
-	layerSessionControls,
 	layerToolsetResolver,
-	toolEventSinkLayerFromAgentEvents,
 	toolsetLayerFromToolkit,
 	type HookConfig,
 	type StartSessionInput,
@@ -36,11 +36,11 @@ export const startSessionInput = (overrides?: Partial<StartSessionInput>): Start
 /**
  * Real Session over the real AgentRuntime, ToolRuntime, EventLog, projections, live HookRunner, and live
  * AgentEvents. Mirrors `agentRuntimeBaseLayer` sharing discipline: one `layerInMemoryEventLog` reference,
- * one `layerDeterministicRuntime` reference, and one `liveAgentEventsLayer` reference are shared across the
+ * one `layerDeterministicRuntime` reference, and one `AgentEvents.layer` reference are shared across the
  * whole graph so Effect layer memoization builds a single EventLog, clock/ids, and AgentEvents PubSub.
  *
  * Two differences from `agentRuntimeBaseLayer`: `ToolEventSink` is bridged into AgentEvents (so tool
- * progress reaches `Session.events`), and `liveSessionLayer` is merged on top so tests can reach `Session`,
+ * progress reaches `Session.events`), and `Session.layer` is merged on top so tests can reach `Session`,
  * `EventLog`, and `AgentEvents`.
  */
 export const sessionBaseLayer = (
@@ -50,7 +50,7 @@ export const sessionBaseLayer = (
 ) => {
 	const memoryLayer = layerInMemoryEventLog
 	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
-	const agentEventsLayer = liveAgentEventsLayer
+	const agentEventsLayer = AgentEvents.layer
 	const hookDeps = Layer.mergeAll(memoryLayer, idsLayer)
 	const toolsetLayer = toolsetLayerFromToolkit(TestToolkit).pipe(Layer.provide(toolHandlerLayer))
 
@@ -62,17 +62,15 @@ export const sessionBaseLayer = (
 		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 		layerDefaultSystemPrompt,
 		liveModelRequestSettingsLayer,
-		layerHookRunner(hooks).pipe(Layer.provide(hookDeps)),
-		toolEventSinkLayerFromAgentEvents.pipe(Layer.provide(agentEventsLayer)),
-		layerSessionControls(),
+		HookRunner.layer(hooks).pipe(Layer.provide(hookDeps)),
+		ToolEventSink.layer.pipe(Layer.provide(agentEventsLayer)),
+		SessionControls.layer(),
 		NodeFileSystem.layer,
 	)
 
-	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))
+	const toolRuntimeLayer = ToolRuntime.layer.pipe(Layer.provideMerge(sharedLayer))
 
-	const agentRuntimeLayer = liveAgentRuntimeLayer.pipe(
-		Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)),
-	)
+	const agentRuntimeLayer = AgentRuntime.layer.pipe(Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)))
 
-	return liveSessionLayer.pipe(Layer.provideMerge(agentRuntimeLayer))
+	return Session.layer.pipe(Layer.provideMerge(agentRuntimeLayer))
 }

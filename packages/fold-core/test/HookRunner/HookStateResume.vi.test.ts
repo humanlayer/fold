@@ -7,7 +7,6 @@ import {
 	EventLog,
 	HookRunner,
 	layerInMemoryEventLog,
-	layerHookRunner,
 	StateId,
 	StopController,
 	ToolCallId,
@@ -48,7 +47,7 @@ it.effect('a hook reproduces its state from tool_state entries already persisted
 			layerInMemoryEventLog,
 			layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
 		)
-		const layer = Layer.mergeAll(layerHookRunner(config).pipe(Layer.provide(infra)), infra)
+		const layer = Layer.mergeAll(HookRunner.layer(config).pipe(Layer.provide(infra)), infra)
 
 		const result = yield* Effect.gen(function* () {
 			// Seed the log directly, as if a previous process had persisted hook state before shutdown.

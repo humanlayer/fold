@@ -28,7 +28,7 @@ import { Effect, FileSystem, Layer, type Path, PlatformError, Ref, Schema, type 
 import { HttpClient, HttpClientError } from 'effect/http'
 import type { ChildProcessSpawner } from 'effect/process'
 
-import { layerOutputStore, type OutputStore } from '../src/OutputStore/OutputStore'
+import { OutputStore } from '../src/OutputStore/OutputStore'
 import { Photon } from '../src/Tools/Image/Photon'
 
 /** A scoped temp directory on the real filesystem, removed when the scope closes. */
@@ -86,7 +86,7 @@ export const makeAmbientServices: Effect.Effect<
 				toolCallId: ToolCallId.make('tool_call_aaaaaaaaaaaaaaaaaaaaaaaa'),
 			}),
 			Layer.succeed(InterruptNote, { set: (text) => Ref.set(note, text) }),
-			layerOutputStore({ directory: outputDirectory }).pipe(Layer.provide(NodeFileSystem.layer)),
+			OutputStore.layer({ directory: outputDirectory }).pipe(Layer.provide(NodeFileSystem.layer)),
 			Photon.layer,
 		),
 		emitted: Ref.get(events),

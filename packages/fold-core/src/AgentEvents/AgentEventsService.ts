@@ -3,8 +3,12 @@
  * carries the merged `FoldEvent` shape that Session exposes: durable `log` rows (folded in by
  * Session.events from the EventLog) and ephemeral `delta` fragments (streaming text/reasoning and tool
  * progress) that are published live and never persisted. AgentEvents itself only holds the delta side.
+ *
+ * The live AgentEvents service runs over an unbounded PubSub. Publishing is live-only: a subscriber sees
+ * only events published while its subscription is active, which is correct because deltas are ephemeral.
+ * Durable log rows reach Session.events through the EventLog subscribe merge, not through this service.
  */
-import { Context, type Effect, type Schema, type Stream } from 'effect'
+import { Context, Effect, type Schema, Stream, Layer, PubSub } from 'effect'
 
 import type { LogEntry } from '../EventLog/Schemas'
 import type { AgentId, ToolCallId } from '../Ids'
@@ -38,5 +42,21 @@ export type AgentEventsService = {
 	readonly subscribe: Stream.Stream<FoldEvent>
 }
 
-/** Ephemeral event spine. One provided instance represents one session, mirroring EventLog. */
-export class AgentEvents extends Context.Service<AgentEvents, AgentEventsService>()('fold/AgentEvents') {}
+/** AgentEvents service tag. */
+export class AgentEvents extends Context.Service<AgentEvents, AgentEventsService>()('fold/AgentEvents', {
+	/** Backed by an unbounded, live-only PubSub of ephemeral events. */
+	make: Effect.gen(function* () {
+		const pubsub = yield* PubSub.unbounded<FoldEvent>()
+
+		const service: AgentEventsService = {
+			publish: Effect.fn('fold.agent_events.publish')((event) =>
+				PubSub.publish(pubsub, event).pipe(Effect.asVoid),
+			),
+			subscribe: Stream.fromPubSub(pubsub),
+		}
+
+		return service
+	}),
+}) {
+	static readonly layer = Layer.effect(this, this.make)
+}

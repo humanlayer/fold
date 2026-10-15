@@ -6,7 +6,6 @@ import {
 	defineToolState,
 	HookRunner,
 	layerInMemoryEventLog,
-	layerHookRunner,
 	StopController,
 	ToolCallId,
 	type HookConfig,
@@ -32,7 +31,7 @@ const hookScopeLayer = (config: HookConfig) => {
 		layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 }),
 	)
 
-	return Layer.mergeAll(layerHookRunner(config).pipe(Layer.provide(infra)), infra)
+	return Layer.mergeAll(HookRunner.layer(config).pipe(Layer.provide(infra)), infra)
 }
 
 describe('HookRunner hook scope services', () => {

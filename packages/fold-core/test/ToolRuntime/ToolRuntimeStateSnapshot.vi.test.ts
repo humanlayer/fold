@@ -6,11 +6,9 @@ import { Prompt, Tool, Toolkit } from 'effect/ai'
 import {
 	defineToolState,
 	type EventLog,
-	type HookRunner,
+	HookRunner,
 	type Ids,
 	layerInMemoryEventLog,
-	liveToolRuntimeLayer,
-	layerHookRunner,
 	ToolCallId,
 	ToolRuntime,
 	ToolState,
@@ -52,7 +50,7 @@ const probeRuntimeLayer = (
 	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
 	const hookDeps = Layer.mergeAll(memoryLayer, idsLayer)
 
-	return liveToolRuntimeLayer.pipe(
+	return ToolRuntime.layer.pipe(
 		Layer.provideMerge(
 			Layer.mergeAll(
 				memoryLayer,
@@ -161,7 +159,7 @@ describe('ToolRuntime handler state snapshots', () => {
 
 			// The hook shares state with the tool because both use the same ProbeState definition, not
 			// because of any name match - the hook name deliberately differs from the declared namespace.
-			const hookLayer = layerHookRunner({
+			const hookLayer = HookRunner.layer({
 				preToolUse: [
 					{
 						name: 'probe-seed',

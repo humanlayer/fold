@@ -4,12 +4,12 @@ import { Prompt } from 'effect/ai'
 import type { Tool } from 'effect/ai'
 
 import {
+	ToolRuntime,
 	AgentId,
 	EventLog,
 	type HookRunner,
 	type Ids,
 	layerInMemoryEventLog,
-	liveToolRuntimeLayer,
 	noopToolEventSink,
 	ToolCallId,
 	ToolEventSink,
@@ -64,7 +64,7 @@ export const toolRuntimeBaseLayer = (
 	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
 	const hookDeps = Layer.mergeAll(memoryLayer, idsLayer)
 
-	return liveToolRuntimeLayer.pipe(
+	return ToolRuntime.layer.pipe(
 		Layer.provideMerge(
 			Layer.mergeAll(
 				memoryLayer,
