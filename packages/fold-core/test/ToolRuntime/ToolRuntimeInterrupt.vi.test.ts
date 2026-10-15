@@ -3,13 +3,7 @@ import { expect, it } from '@effect/vitest'
 import { Predicate, Deferred, Effect, Fiber, Layer, Schema } from 'effect'
 import { Prompt, Tool, Toolkit } from 'effect/ai'
 
-import {
-	layerInMemoryEventLog,
-	liveToolRuntimeLayer,
-	messagesForAgent,
-	ToolRuntime,
-	toolsetLayerFromToolkit,
-} from '../../src/index'
+import { layerInMemoryEventLog, messagesForAgent, ToolRuntime, toolsetLayerFromToolkit } from '../../src/index'
 import { layerDeterministicRuntime } from '../TestLayers/DeterministicRuntime'
 import { hookRunnerNoop } from '../TestLayers/NoOpHookRunner'
 import { agentId, collectEntries, layerNoopToolEvents, toolCallId } from './ToolRuntimeTestHelpers'
@@ -51,7 +45,7 @@ it.effect('writes a synthetic interrupted tool-result when a running tool fiber 
 					}),
 			}),
 		)
-		const layer = liveToolRuntimeLayer.pipe(
+		const layer = ToolRuntime.layer.pipe(
 			Layer.provideMerge(
 				Layer.mergeAll(
 					layerInMemoryEventLog,

@@ -5,16 +5,15 @@ import { Tool, Toolkit } from 'effect/ai'
 import type { LanguageModel } from 'effect/ai'
 
 import {
+	HookRunner,
+	AgentEvents,
+	ToolRuntime,
+	SessionControls,
 	AgentRuntime,
 	EventLog,
 	layerDefaultSystemPrompt,
 	layerInMemoryEventLog,
-	liveAgentEventsLayer,
-	liveAgentRuntimeLayer,
 	liveModelRequestSettingsLayer,
-	liveToolRuntimeLayer,
-	layerHookRunner,
-	layerSessionControls,
 	layerSystemPrompt,
 	layerToolsetResolver,
 	noopToolEventSink,
@@ -182,20 +181,20 @@ const familyAgentLayer = (
 	const sharedLayer = Layer.mergeAll(
 		memoryLayer,
 		idsLayer,
-		liveAgentEventsLayer,
+		AgentEvents.layer,
 		toolsetLayer,
 		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 		systemPromptLayer,
 		liveModelRequestSettingsLayer,
-		layerHookRunner({}).pipe(Layer.provide(Layer.mergeAll(memoryLayer, idsLayer))),
+		HookRunner.layer({}).pipe(Layer.provide(Layer.mergeAll(memoryLayer, idsLayer))),
 		Layer.succeed(ToolEventSink, noopToolEventSink),
-		layerSessionControls(),
+		SessionControls.layer(),
 		NodeFileSystem.layer,
 	)
 
-	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))
+	const toolRuntimeLayer = ToolRuntime.layer.pipe(Layer.provideMerge(sharedLayer))
 
-	return liveAgentRuntimeLayer.pipe(Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)))
+	return AgentRuntime.layer.pipe(Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)))
 }
 
 const codexModel: ActiveModel = {

@@ -3,15 +3,15 @@ import { Layer } from 'effect'
 import type { LanguageModel, Tool } from 'effect/ai'
 
 import {
+	HookRunner,
+	AgentEvents,
+	AgentRuntime,
+	ToolRuntime,
+	SessionControls,
 	AgentId,
 	layerDefaultSystemPrompt,
 	layerInMemoryEventLog,
-	liveAgentEventsLayer,
-	liveAgentRuntimeLayer,
 	liveModelRequestSettingsLayer,
-	liveToolRuntimeLayer,
-	layerHookRunner,
-	layerSessionControls,
 	layerToolsetResolver,
 	noopToolEventSink,
 	StopConditions,
@@ -73,7 +73,7 @@ export const agentRuntimeBaseLayer = (
 ) => {
 	const memoryLayer = layerInMemoryEventLog
 	const idsLayer = layerDeterministicRuntime({ startMillis: 1_000, stepMillis: 0 })
-	const agentEventsLayer = liveAgentEventsLayer
+	const agentEventsLayer = AgentEvents.layer
 	const hookDeps = Layer.mergeAll(memoryLayer, idsLayer)
 	const toolsetLayer = toolsetLayerFromToolkit(TestToolkit).pipe(Layer.provide(toolHandlerLayer))
 
@@ -85,14 +85,14 @@ export const agentRuntimeBaseLayer = (
 		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
 		layerDefaultSystemPrompt,
 		liveModelRequestSettingsLayer,
-		layerHookRunner(hooks).pipe(Layer.provide(hookDeps)),
+		HookRunner.layer(hooks).pipe(Layer.provide(hookDeps)),
 		Layer.succeed(ToolEventSink, noopToolEventSink),
 		Layer.succeed(StopConditions, stopConditions),
-		layerSessionControls(),
+		SessionControls.layer(),
 		NodeFileSystem.layer,
 	)
 
-	const toolRuntimeLayer = liveToolRuntimeLayer.pipe(Layer.provideMerge(sharedLayer))
+	const toolRuntimeLayer = ToolRuntime.layer.pipe(Layer.provideMerge(sharedLayer))
 
-	return liveAgentRuntimeLayer.pipe(Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)))
+	return AgentRuntime.layer.pipe(Layer.provideMerge(Layer.mergeAll(toolRuntimeLayer, modelLayer)))
 }

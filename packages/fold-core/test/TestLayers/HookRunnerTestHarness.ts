@@ -1,9 +1,8 @@
 import { Effect, Layer } from 'effect'
 
 import {
-	type HookRunner,
+	HookRunner,
 	layerInMemoryEventLog,
-	layerHookRunner,
 	StopController,
 	type HookConfig,
 	type StopControllerService,
@@ -23,7 +22,7 @@ export const runWithHookRunner = <A, E>(
 	effect.pipe(
 		Effect.provideService(StopController, stopController),
 		Effect.provide(
-			layerHookRunner(config).pipe(
+			HookRunner.layer(config).pipe(
 				Layer.provide(
 					Layer.mergeAll(
 						layerInMemoryEventLog,

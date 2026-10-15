@@ -19,13 +19,12 @@ import type { Scope } from 'effect'
 import { LanguageModel, Toolkit } from 'effect/ai'
 import type { Tool } from 'effect/ai'
 
-import { liveAgentRuntimeLayer } from '../AgentRuntime/AgentRuntimeLayer'
 import { AgentRuntime } from '../AgentRuntime/AgentRuntimeService'
 import { compactionLayerFor } from '../Compaction/CompactionLayer'
-import { layerHookRunner } from '../HookRunner/HookRunnerLayer'
+import { HookRunner } from '../HookRunner/HookRunnerService'
 import type { HookConfig } from '../HookRunner/Types'
 import { SessionAgents } from '../Subagents/SessionAgents'
-import { liveToolRuntimeLayer } from '../ToolRuntime/ToolRuntimeLayer'
+import { ToolRuntime } from '../ToolRuntime/ToolRuntimeService'
 import { toolsetLayerFromToolkit } from '../ToolRuntime/ToolsetFactory'
 import { layerToolsetResolver } from '../ToolRuntime/ToolsetResolverLayer'
 import type { FoldModel } from './ModelDescriptor'
@@ -93,16 +92,16 @@ export const provisionAgentRuntime = Effect.fnUntraced(function* (input: Provisi
 	const epochServicesLayer = Layer.mergeAll(
 		toolsetLayer,
 		layerToolsetResolver().pipe(Layer.provide(toolsetLayer)),
-		layerHookRunner(input.hooks),
+		HookRunner.layer(input.hooks),
 	)
 	// Compaction summarizes with this runtime's own model and resolves limits through the session
 	// ModelCatalog; both are captured when the layer is built.
 	const compactionLayer = compactionLayerFor(autoCompact).pipe(Layer.provide(languageModelLayer))
 	const context = yield* Layer.buildWithMemoMap(
-		liveAgentRuntimeLayer.pipe(
+		AgentRuntime.layer.pipe(
 			Layer.provide(
 				Layer.mergeAll(
-					liveToolRuntimeLayer.pipe(Layer.provideMerge(epochServicesLayer)),
+					ToolRuntime.layer.pipe(Layer.provideMerge(epochServicesLayer)),
 					languageModelLayer,
 					compactionLayer,
 				),

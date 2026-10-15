@@ -93,59 +93,56 @@ const lineSlice = (content: string, options?: OutputStoreReadOptions): string =>
 }
 
 /** A file-backed OutputStore writing one file per tool call into `directory`. */
-const makeOutputStore = (options: {
-	readonly directory: string
-}): Effect.Effect<OutputStoreService, never, FileSystem.FileSystem> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const directory = options.directory
-
-		const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
-			new OutputStoreRef({ toolCallId, path: join(directory, `${toolCallId}.txt`) })
-
-		const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-			const ref = refFor(toolCallId)
-			return fs.makeDirectory(directory, { recursive: true }).pipe(
-				Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
-				Effect.as(ref),
-				Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
-				Effect.tapError(logStoreError),
-				Effect.withSpan('output_store.prepare', { attributes: { toolCallId, path: ref.path } }),
-			)
-		}
-
-		const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-			const ref = refFor(toolCallId)
-			return fs.makeDirectory(directory, { recursive: true }).pipe(
-				Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
-				Effect.as(ref),
-				Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
-				Effect.tapError(logStoreError),
-				Effect.withSpan('output_store.append', {
-					attributes: { toolCallId, path: ref.path, bytes: chunk.length },
-				}),
-			)
-		}
-
-		const read = (
-			ref: OutputStoreRef,
-			readOptions?: OutputStoreReadOptions,
-		): Effect.Effect<string, OutputStoreError> =>
-			fs.readFileString(ref.path).pipe(
-				Effect.map((content) => lineSlice(content, readOptions)),
-				Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
-				Effect.tapError(logStoreError),
-				Effect.withSpan('output_store.read', {
-					attributes: { toolCallId: ref.toolCallId, path: ref.path },
-				}),
-			)
-
-		return { directory, refFor, prepare, append, read }
-	})
-
 /** Where tools store their full output. The host provides it; the bash tool asks for it. */
 export class OutputStore extends Context.Service<OutputStore, OutputStoreService>()('fold-agent/OutputStore', {
-	make: makeOutputStore,
+	/** A file-backed OutputStore writing one file per tool call into `directory`. */
+	make: (options: { readonly directory: string }) =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const directory = options.directory
+
+			const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
+				new OutputStoreRef({ toolCallId, path: join(directory, `${toolCallId}.txt`) })
+
+			const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+				const ref = refFor(toolCallId)
+				return fs.makeDirectory(directory, { recursive: true }).pipe(
+					Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
+					Effect.as(ref),
+					Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
+					Effect.tapError(logStoreError),
+					Effect.withSpan('output_store.prepare', { attributes: { toolCallId, path: ref.path } }),
+				)
+			}
+
+			const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+				const ref = refFor(toolCallId)
+				return fs.makeDirectory(directory, { recursive: true }).pipe(
+					Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
+					Effect.as(ref),
+					Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
+					Effect.tapError(logStoreError),
+					Effect.withSpan('output_store.append', {
+						attributes: { toolCallId, path: ref.path, bytes: chunk.length },
+					}),
+				)
+			}
+
+			const read = (
+				ref: OutputStoreRef,
+				readOptions?: OutputStoreReadOptions,
+			): Effect.Effect<string, OutputStoreError> =>
+				fs.readFileString(ref.path).pipe(
+					Effect.map((content) => lineSlice(content, readOptions)),
+					Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
+					Effect.tapError(logStoreError),
+					Effect.withSpan('output_store.read', {
+						attributes: { toolCallId: ref.toolCallId, path: ref.path },
+					}),
+				)
+
+			return { directory, refFor, prepare, append, read }
+		}),
 }) {
 	/** A file-backed OutputStore writing into `options.directory`. */
 	static readonly layer = (options: { readonly directory: string }) => Layer.effect(this, this.make(options))
