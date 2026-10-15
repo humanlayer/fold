@@ -50,9 +50,6 @@ export type OutputStoreService = {
 	readonly read: (ref: OutputStoreRef, options?: OutputStoreReadOptions) => Effect.Effect<string, OutputStoreError>
 }
 
-/** Where tools store their full output. The host provides it; the bash tool asks for it. */
-export class OutputStore extends Context.Service<OutputStore, OutputStoreService>()('fold-agent/OutputStore') {}
-
 /** Root directory for all stored tool output. */
 export const toolOutputRootFor = (options?: { readonly foldHome?: string }): string =>
 	join(options?.foldHome ?? defaultFoldHome(), 'tool-output')
@@ -96,58 +93,63 @@ const lineSlice = (content: string, options?: OutputStoreReadOptions): string =>
 }
 
 /** A file-backed OutputStore writing one file per tool call into `directory`. */
-export const layerOutputStore = (options: {
+const makeOutputStore = (options: {
 	readonly directory: string
-}): Layer.Layer<OutputStore, never, FileSystem.FileSystem> =>
-	Layer.effect(
-		OutputStore,
-		Effect.gen(function* () {
-			const fs = yield* FileSystem.FileSystem
-			const directory = options.directory
+}): Effect.Effect<OutputStoreService, never, FileSystem.FileSystem> =>
+	Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const directory = options.directory
 
-			const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
-				new OutputStoreRef({ toolCallId, path: join(directory, `${toolCallId}.txt`) })
+		const refFor = (toolCallId: ToolCallId): OutputStoreRef =>
+			new OutputStoreRef({ toolCallId, path: join(directory, `${toolCallId}.txt`) })
 
-			const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-				const ref = refFor(toolCallId)
-				return fs.makeDirectory(directory, { recursive: true }).pipe(
-					Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
-					Effect.as(ref),
-					Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
-					Effect.tapError(logStoreError),
-					Effect.withSpan('output_store.prepare', { attributes: { toolCallId, path: ref.path } }),
-				)
-			}
+		const prepare = (toolCallId: ToolCallId): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+			const ref = refFor(toolCallId)
+			return fs.makeDirectory(directory, { recursive: true }).pipe(
+				Effect.andThen(fs.writeFileString(ref.path, '', { flag: 'a' })),
+				Effect.as(ref),
+				Effect.mapError((cause) => fileOperationError({ operation: 'prepare', path: ref.path, cause })),
+				Effect.tapError(logStoreError),
+				Effect.withSpan('output_store.prepare', { attributes: { toolCallId, path: ref.path } }),
+			)
+		}
 
-			const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
-				const ref = refFor(toolCallId)
-				return fs.makeDirectory(directory, { recursive: true }).pipe(
-					Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
-					Effect.as(ref),
-					Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
-					Effect.tapError(logStoreError),
-					Effect.withSpan('output_store.append', {
-						attributes: { toolCallId, path: ref.path, bytes: chunk.length },
-					}),
-				)
-			}
+		const append = (toolCallId: ToolCallId, chunk: string): Effect.Effect<OutputStoreRef, OutputStoreError> => {
+			const ref = refFor(toolCallId)
+			return fs.makeDirectory(directory, { recursive: true }).pipe(
+				Effect.andThen(fs.writeFileString(ref.path, chunk, { flag: 'a' })),
+				Effect.as(ref),
+				Effect.mapError((cause) => fileOperationError({ operation: 'append', path: ref.path, cause })),
+				Effect.tapError(logStoreError),
+				Effect.withSpan('output_store.append', {
+					attributes: { toolCallId, path: ref.path, bytes: chunk.length },
+				}),
+			)
+		}
 
-			const read = (
-				ref: OutputStoreRef,
-				readOptions?: OutputStoreReadOptions,
-			): Effect.Effect<string, OutputStoreError> =>
-				fs.readFileString(ref.path).pipe(
-					Effect.map((content) => lineSlice(content, readOptions)),
-					Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
-					Effect.tapError(logStoreError),
-					Effect.withSpan('output_store.read', {
-						attributes: { toolCallId: ref.toolCallId, path: ref.path },
-					}),
-				)
+		const read = (
+			ref: OutputStoreRef,
+			readOptions?: OutputStoreReadOptions,
+		): Effect.Effect<string, OutputStoreError> =>
+			fs.readFileString(ref.path).pipe(
+				Effect.map((content) => lineSlice(content, readOptions)),
+				Effect.mapError((cause) => fileOperationError({ operation: 'read', path: ref.path, cause })),
+				Effect.tapError(logStoreError),
+				Effect.withSpan('output_store.read', {
+					attributes: { toolCallId: ref.toolCallId, path: ref.path },
+				}),
+			)
 
-			return { directory, refFor, prepare, append, read }
-		}),
-	)
+		return { directory, refFor, prepare, append, read }
+	})
+
+/** Where tools store their full output. The host provides it; the bash tool asks for it. */
+export class OutputStore extends Context.Service<OutputStore, OutputStoreService>()('fold-agent/OutputStore', {
+	make: makeOutputStore,
+}) {
+	/** A file-backed OutputStore writing into `options.directory`. */
+	static readonly layer = (options: { readonly directory: string }) => Layer.effect(this, this.make(options))
+}
 
 /**
  * Best-effort retention sweep over every session's stored output under `<foldHome>/tool-output`: files

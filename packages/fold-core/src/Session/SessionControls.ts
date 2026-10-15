@@ -87,154 +87,150 @@ const notRunning = (agentId: AgentId): AgentNotRunningError =>
 	})
 
 /** One session's controls. `steeringMode` fixes how steering queues drain (D8). */
-export const layerSessionControls = (options?: {
+export const makeSessionControls = (options?: {
 	readonly steeringMode?: SteeringMode
-}): Layer.Layer<SessionControls> =>
-	Layer.effect(
-		SessionControls,
-		Effect.gen(function* () {
-			const steeringMode = options?.steeringMode ?? 'one-at-a-time'
+}): Effect.Effect<SessionControlsService> =>
+	Effect.gen(function* () {
+		const steeringMode = options?.steeringMode ?? 'one-at-a-time'
 
-			const running = yield* SynchronizedRef.make<ReadonlyMap<AgentId, RunningAgentRecord>>(new Map())
-			const steering = yield* Ref.make<ReadonlyMap<AgentId, ReadonlyArray<string>>>(new Map())
-			const followUps = yield* Ref.make<ReadonlyMap<AgentId, ReadonlyArray<FollowUpEntry>>>(new Map())
-			const stopReason = yield* Ref.make<string | null>(null)
+		const running = yield* SynchronizedRef.make<ReadonlyMap<AgentId, RunningAgentRecord>>(new Map())
+		const steering = yield* Ref.make<ReadonlyMap<AgentId, ReadonlyArray<string>>>(new Map())
+		const followUps = yield* Ref.make<ReadonlyMap<AgentId, ReadonlyArray<FollowUpEntry>>>(new Map())
+		const stopReason = yield* Ref.make<string | null>(null)
 
-			const claimRunning = (agentId: AgentId): Effect.Effect<boolean> =>
-				SynchronizedRef.modifyEffect(running, (current) =>
-					current.has(agentId)
-						? Effect.succeed([false, current] as const)
-						: Effect.succeed([true, new Map(current).set(agentId, { fiber: null })] as const),
-				)
-
-			const setRunningFiber = (
-				agentId: AgentId,
-				fiber: Fiber.Fiber<AgentFinishedLogEntry>,
-			): Effect.Effect<void> =>
-				SynchronizedRef.modifyEffect(running, (current) => {
-					const record = current.get(agentId)
-					if (record === undefined) return Effect.succeed([undefined, current] as const)
-					return Effect.succeed([undefined, new Map(current).set(agentId, { ...record, fiber })] as const)
-				})
-
-			/** Abandon one agent's queued follow-ups: resolve every ticket false and clear the queue. */
-			const abandonFollowUps = (agentId: AgentId): Effect.Effect<void> =>
-				Effect.gen(function* () {
-					const queued = yield* Ref.modify(followUps, (current) => {
-						const entries = current.get(agentId) ?? []
-						const next = new Map(current)
-						next.delete(agentId)
-						return [entries, next] as const
-					})
-					yield* Effect.forEach(queued, (entry) => Deferred.succeed(entry.consumed, false), { discard: true })
-				})
-
-			const releaseRunning = (agentId: AgentId): Effect.Effect<void> =>
-				Effect.gen(function* () {
-					yield* SynchronizedRef.modifyEffect(running, (current) => {
-						const next = new Map(current)
-						next.delete(agentId)
-						return Effect.succeed([undefined, next] as const)
-					})
-					yield* Ref.update(steering, (current) => {
-						const next = new Map(current)
-						next.delete(agentId)
-						return next
-					})
-					yield* abandonFollowUps(agentId)
-				})
-
-			const isRunning = (agentId: AgentId): Effect.Effect<boolean> =>
-				SynchronizedRef.get(running).pipe(Effect.map((current) => current.has(agentId)))
-
-			const awaitRunning = (agentId: AgentId): Effect.Effect<Exit.Exit<AgentFinishedLogEntry> | null> =>
-				SynchronizedRef.get(running).pipe(
-					Effect.flatMap((current) => {
-						const fiber = current.get(agentId)?.fiber ?? null
-						return fiber === null ? Effect.succeed(null) : Fiber.await(fiber)
-					}),
-				)
-
-			const interruptRunning = (agentId: AgentId): Effect.Effect<boolean> =>
-				SynchronizedRef.get(running).pipe(
-					Effect.flatMap((current) => {
-						const fiber = current.get(agentId)?.fiber ?? null
-						return fiber === null ? Effect.succeed(false) : Fiber.interrupt(fiber).pipe(Effect.as(true))
-					}),
-				)
-
-			const interruptAllRunning: Effect.Effect<void> = SynchronizedRef.get(running).pipe(
-				Effect.flatMap((current) =>
-					Effect.forEach([...current.keys()], (agentId) => interruptRunning(agentId), { discard: true }),
-				),
+		const claimRunning = (agentId: AgentId): Effect.Effect<boolean> =>
+			SynchronizedRef.modifyEffect(running, (current) =>
+				current.has(agentId)
+					? Effect.succeed([false, current] as const)
+					: Effect.succeed([true, new Map(current).set(agentId, { fiber: null })] as const),
 			)
 
-			const steer = (agentId: AgentId, text: string): Effect.Effect<void, AgentNotRunningError> =>
-				Effect.gen(function* () {
-					if (!(yield* isRunning(agentId))) return yield* notRunning(agentId)
-					yield* Ref.update(steering, (current) => {
-						const queued = current.get(agentId) ?? []
-						return new Map(current).set(agentId, [...queued, text])
-					})
-				})
+		const setRunningFiber = (agentId: AgentId, fiber: Fiber.Fiber<AgentFinishedLogEntry>): Effect.Effect<void> =>
+			SynchronizedRef.modifyEffect(running, (current) => {
+				const record = current.get(agentId)
+				if (record === undefined) return Effect.succeed([undefined, current] as const)
+				return Effect.succeed([undefined, new Map(current).set(agentId, { ...record, fiber })] as const)
+			})
 
-			const drainSteering = (agentId: AgentId): Effect.Effect<ReadonlyArray<string>> =>
-				Ref.modify(steering, (current) => {
-					const queued = current.get(agentId) ?? []
-					if (Arr.isReadonlyArrayEmpty(queued)) return [[], current] as const
-
-					const drained = steeringMode === 'all' ? queued : queued.slice(0, 1)
-					const remaining = steeringMode === 'all' ? [] : queued.slice(1)
+		/** Abandon one agent's queued follow-ups: resolve every ticket false and clear the queue. */
+		const abandonFollowUps = (agentId: AgentId): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				const queued = yield* Ref.modify(followUps, (current) => {
+					const entries = current.get(agentId) ?? []
 					const next = new Map(current)
-					if (Arr.isReadonlyArrayEmpty(remaining)) next.delete(agentId)
-					else next.set(agentId, remaining)
-					return [drained, next] as const
+					next.delete(agentId)
+					return [entries, next] as const
 				})
+				yield* Effect.forEach(queued, (entry) => Deferred.succeed(entry.consumed, false), { discard: true })
+			})
 
-			const pushFollowUp = (
-				agentId: AgentId,
-				text: string,
-			): Effect.Effect<FollowUpTicket, AgentNotRunningError> =>
-				Effect.gen(function* () {
-					if (!(yield* isRunning(agentId))) return yield* notRunning(agentId)
-					const consumed = yield* Deferred.make<boolean>()
-					yield* Ref.update(followUps, (current) => {
-						const queued = current.get(agentId) ?? []
-						return new Map(current).set(agentId, [...queued, { text, consumed }])
-					})
-					return { consumed: Deferred.await(consumed) }
+		const releaseRunning = (agentId: AgentId): Effect.Effect<void> =>
+			Effect.gen(function* () {
+				yield* SynchronizedRef.modifyEffect(running, (current) => {
+					const next = new Map(current)
+					next.delete(agentId)
+					return Effect.succeed([undefined, next] as const)
 				})
-
-			const drainFollowUps = (agentId: AgentId): Effect.Effect<ReadonlyArray<string>> =>
-				Effect.gen(function* () {
-					const queued = yield* Ref.modify(followUps, (current) => {
-						const entries = current.get(agentId) ?? []
-						const next = new Map(current)
-						next.delete(agentId)
-						return [entries, next] as const
-					})
-					yield* Effect.forEach(queued, (entry) => Deferred.succeed(entry.consumed, true), { discard: true })
-					return queued.map((entry) => entry.text)
+				yield* Ref.update(steering, (current) => {
+					const next = new Map(current)
+					next.delete(agentId)
+					return next
 				})
+				yield* abandonFollowUps(agentId)
+			})
 
-			const requestSessionStop = (reason: string): Effect.Effect<void> =>
-				Ref.update(stopReason, (current) => current ?? reason)
+		const isRunning = (agentId: AgentId): Effect.Effect<boolean> =>
+			SynchronizedRef.get(running).pipe(Effect.map((current) => current.has(agentId)))
 
-			return {
-				claimRunning,
-				setRunningFiber,
-				releaseRunning,
-				isRunning,
-				awaitRunning,
-				interruptRunning,
-				interruptAllRunning,
-				steer,
-				drainSteering,
-				pushFollowUp,
-				drainFollowUps,
-				requestSessionStop,
-				sessionStopReason: Ref.get(stopReason),
-				clearSessionStop: Ref.set(stopReason, null),
-			}
-		}),
-	)
+		const awaitRunning = (agentId: AgentId): Effect.Effect<Exit.Exit<AgentFinishedLogEntry> | null> =>
+			SynchronizedRef.get(running).pipe(
+				Effect.flatMap((current) => {
+					const fiber = current.get(agentId)?.fiber ?? null
+					return fiber === null ? Effect.succeed(null) : Fiber.await(fiber)
+				}),
+			)
+
+		const interruptRunning = (agentId: AgentId): Effect.Effect<boolean> =>
+			SynchronizedRef.get(running).pipe(
+				Effect.flatMap((current) => {
+					const fiber = current.get(agentId)?.fiber ?? null
+					return fiber === null ? Effect.succeed(false) : Fiber.interrupt(fiber).pipe(Effect.as(true))
+				}),
+			)
+
+		const interruptAllRunning: Effect.Effect<void> = SynchronizedRef.get(running).pipe(
+			Effect.flatMap((current) =>
+				Effect.forEach([...current.keys()], (agentId) => interruptRunning(agentId), { discard: true }),
+			),
+		)
+
+		const steer = (agentId: AgentId, text: string): Effect.Effect<void, AgentNotRunningError> =>
+			Effect.gen(function* () {
+				if (!(yield* isRunning(agentId))) return yield* notRunning(agentId)
+				yield* Ref.update(steering, (current) => {
+					const queued = current.get(agentId) ?? []
+					return new Map(current).set(agentId, [...queued, text])
+				})
+			})
+
+		const drainSteering = (agentId: AgentId): Effect.Effect<ReadonlyArray<string>> =>
+			Ref.modify(steering, (current) => {
+				const queued = current.get(agentId) ?? []
+				if (Arr.isReadonlyArrayEmpty(queued)) return [[], current] as const
+
+				const drained = steeringMode === 'all' ? queued : queued.slice(0, 1)
+				const remaining = steeringMode === 'all' ? [] : queued.slice(1)
+				const next = new Map(current)
+				if (Arr.isReadonlyArrayEmpty(remaining)) next.delete(agentId)
+				else next.set(agentId, remaining)
+				return [drained, next] as const
+			})
+
+		const pushFollowUp = (agentId: AgentId, text: string): Effect.Effect<FollowUpTicket, AgentNotRunningError> =>
+			Effect.gen(function* () {
+				if (!(yield* isRunning(agentId))) return yield* notRunning(agentId)
+				const consumed = yield* Deferred.make<boolean>()
+				yield* Ref.update(followUps, (current) => {
+					const queued = current.get(agentId) ?? []
+					return new Map(current).set(agentId, [...queued, { text, consumed }])
+				})
+				return { consumed: Deferred.await(consumed) }
+			})
+
+		const drainFollowUps = (agentId: AgentId): Effect.Effect<ReadonlyArray<string>> =>
+			Effect.gen(function* () {
+				const queued = yield* Ref.modify(followUps, (current) => {
+					const entries = current.get(agentId) ?? []
+					const next = new Map(current)
+					next.delete(agentId)
+					return [entries, next] as const
+				})
+				yield* Effect.forEach(queued, (entry) => Deferred.succeed(entry.consumed, true), { discard: true })
+				return queued.map((entry) => entry.text)
+			})
+
+		const requestSessionStop = (reason: string): Effect.Effect<void> =>
+			Ref.update(stopReason, (current) => current ?? reason)
+
+		return {
+			claimRunning,
+			setRunningFiber,
+			releaseRunning,
+			isRunning,
+			awaitRunning,
+			interruptRunning,
+			interruptAllRunning,
+			steer,
+			drainSteering,
+			pushFollowUp,
+			drainFollowUps,
+			requestSessionStop,
+			sessionStopReason: Ref.get(stopReason),
+			clearSessionStop: Ref.set(stopReason, null),
+		}
+	})
+
+/** The layer over {@link makeSessionControls}. */
+export const layerSessionControls = (options?: {
+	readonly steeringMode?: SteeringMode
+}): Layer.Layer<SessionControls> => Layer.effect(SessionControls, makeSessionControls(options))

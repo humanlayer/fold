@@ -61,36 +61,37 @@ export type ProfilesService = {
 export class Profiles extends Context.Service<Profiles, ProfilesService>()('fold/Profiles') {}
 
 /** One session's profiles over the initial bindings from `Session.open`. */
+export const makeProfiles = (initial: SessionProfiles<unknown>): Effect.Effect<ProfilesService> =>
+	Effect.gen(function* () {
+		const state = yield* Ref.make<SessionProfiles<unknown>>(initial)
+
+		const resolve = (role: ProfileRole): Effect.Effect<FoldModel<unknown>> =>
+			Ref.get(state).pipe(
+				Effect.flatMap((profiles) => {
+					const model = profileModelFor(profiles, role)
+					return model === undefined
+						? Effect.die(
+								new Error(
+									`profile role "${role}" has no bound model - session-start validation should have rejected this roster`,
+								),
+							)
+						: Effect.succeed(model)
+				}),
+			)
+
+		const set = (role: ProfileRole, model: FoldModel<unknown>): Effect.Effect<void> =>
+			Ref.update(state, (profiles) =>
+				Match.value(role).pipe(
+					Match.when('smart', () => ({ ...profiles, smart: model })),
+					Match.when('fast', () => ({ ...profiles, fast: model })),
+					Match.when('orchestrator', () => ({ ...profiles, orchestrator: model })),
+					Match.exhaustive,
+				),
+			)
+
+		return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }
+	})
+
+/** The layer over {@link makeProfiles}. */
 export const layerProfiles = (initial: SessionProfiles<unknown>): Layer.Layer<Profiles> =>
-	Layer.effect(
-		Profiles,
-		Effect.gen(function* () {
-			const state = yield* Ref.make<SessionProfiles<unknown>>(initial)
-
-			const resolve = (role: ProfileRole): Effect.Effect<FoldModel<unknown>> =>
-				Ref.get(state).pipe(
-					Effect.flatMap((profiles) => {
-						const model = profileModelFor(profiles, role)
-						return model === undefined
-							? Effect.die(
-									new Error(
-										`profile role "${role}" has no bound model - session-start validation should have rejected this roster`,
-									),
-								)
-							: Effect.succeed(model)
-					}),
-				)
-
-			const set = (role: ProfileRole, model: FoldModel<unknown>): Effect.Effect<void> =>
-				Ref.update(state, (profiles) =>
-					Match.value(role).pipe(
-						Match.when('smart', () => ({ ...profiles, smart: model })),
-						Match.when('fast', () => ({ ...profiles, fast: model })),
-						Match.when('orchestrator', () => ({ ...profiles, orchestrator: model })),
-						Match.exhaustive,
-					),
-				)
-
-			return { resolve, set, replace: (profiles) => Ref.set(state, profiles), snapshot: Ref.get(state) }
-		}),
-	)
+	Layer.effect(Profiles, makeProfiles(initial))

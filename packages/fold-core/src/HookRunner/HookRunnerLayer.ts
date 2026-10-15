@@ -87,142 +87,143 @@ const provideHookState =
 		})
 
 /** Build a HookRunner layer from hook configuration data. */
+export const makeHookRunner = (hooks: HookConfig): Effect.Effect<HookRunnerService, never, EventLog | Ids> =>
+	Effect.gen(function* () {
+		const eventLog = yield* EventLog
+		const ids = yield* Ids
+		const withHookState = provideHookState(eventLog, ids)
+
+		const runPreRequestHook = (hook: PreRequestHook, input: PreRequestHookInput) =>
+			catchHookExecutionError(
+				withHookState(hook.handler(input), { ...input, toolCallId: null }).pipe(
+					Effect.withSpan('fold.hook_runner.pre_request.hook', {
+						attributes: { hookName: hook.name, ...preRequestSpanAttributes(input) },
+					}),
+				),
+				'preRequest',
+				hook.name,
+			)
+
+		const runPreToolUseHook = (hook: PreToolUseHook, input: PreToolUseHookInput) =>
+			catchHookExecutionError(
+				withHookState(hook.handler(input), input).pipe(
+					Effect.withSpan('fold.hook_runner.pre_tool_use.hook', {
+						attributes: { hookName: hook.name, ...preToolUseSpanAttributes(input) },
+					}),
+				),
+				'preToolUse',
+				hook.name,
+			)
+
+		const runPostToolUseHook = (hook: PostToolUseHook, input: PostToolUseHookInput) =>
+			catchHookExecutionError(
+				withHookState(hook.handler(input), input).pipe(
+					Effect.withSpan('fold.hook_runner.post_tool_use.hook', {
+						attributes: { hookName: hook.name, ...postToolUseSpanAttributes(input) },
+					}),
+				),
+				'postToolUse',
+				hook.name,
+			)
+
+		const runOnCompleteHook = (hook: OnCompleteHook, input: OnCompleteHookInput) =>
+			catchHookExecutionError(
+				withHookState(hook.handler(input), { ...input, toolCallId: null }).pipe(
+					Effect.withSpan('fold.hook_runner.on_complete.hook', {
+						attributes: { hookName: hook.name, ...onCompleteSpanAttributes(input) },
+					}),
+				),
+				'onComplete',
+				hook.name,
+			)
+
+		const service: HookRunnerService = {
+			preRequest: (input) =>
+				Effect.gen(function* () {
+					let prompt = input.prompt
+					let changed = false
+
+					for (const hook of hooks.preRequest ?? []) {
+						const decision = yield* runPreRequestHook(hook, { ...input, prompt })
+
+						if (Predicate.isTagged(decision, 'changed')) {
+							prompt = decision.prompt
+							changed = true
+						}
+					}
+
+					return changed ? HookDecision.changed({ prompt }) : HookDecision.unchanged()
+				}).pipe(
+					Effect.withSpan('fold.hook_runner.pre_request', {
+						attributes: preRequestSpanAttributes(input),
+					}),
+				),
+
+			preToolUse: (input) =>
+				Effect.gen(function* () {
+					let params = input.params
+
+					for (const hook of hooks.preToolUse ?? []) {
+						if (!isHookConfiguredForTool(hook, input.toolName)) continue
+
+						const decision = yield* runPreToolUseHook(hook, { ...input, params })
+
+						if (Predicate.isTagged(decision, 'replaceResult')) return decision
+
+						params = decision.params
+					}
+
+					return HookDecision.continue({ params })
+				}).pipe(
+					Effect.withSpan('fold.hook_runner.pre_tool_use', {
+						attributes: preToolUseSpanAttributes(input),
+					}),
+				),
+
+			postToolUse: (input) =>
+				Effect.gen(function* () {
+					let result = input.result
+					let isFailure = input.isFailure
+					let replaced = false
+
+					for (const hook of hooks.postToolUse ?? []) {
+						if (!isHookConfiguredForTool(hook, input.toolName)) continue
+
+						const decision = yield* runPostToolUseHook(hook, { ...input, result, isFailure })
+
+						if (Predicate.isTagged(decision, 'replace')) {
+							result = decision.result
+							isFailure = decision.isFailure
+							replaced = true
+						}
+					}
+
+					return replaced ? HookDecision.replace({ result, isFailure }) : HookDecision.keep()
+				}).pipe(
+					Effect.withSpan('fold.hook_runner.post_tool_use', {
+						attributes: postToolUseSpanAttributes(input),
+					}),
+				),
+
+			onComplete: (input) =>
+				Effect.gen(function* () {
+					for (const hook of hooks.onComplete ?? []) {
+						const decision = yield* runOnCompleteHook(hook, input)
+
+						if (Predicate.isTagged(decision, 'continueWith')) return decision
+					}
+
+					return HookDecision.complete()
+				}).pipe(
+					Effect.withSpan('fold.hook_runner.on_complete', {
+						attributes: onCompleteSpanAttributes(input),
+					}),
+				),
+		}
+
+		return service
+	})
+
+/** The layer over {@link makeHookRunner}. */
 export const layerHookRunner = (hooks: HookConfig): Layer.Layer<HookRunner, never, EventLog | Ids> =>
-	Layer.effect(
-		HookRunner,
-		Effect.gen(function* () {
-			const eventLog = yield* EventLog
-			const ids = yield* Ids
-			const withHookState = provideHookState(eventLog, ids)
-
-			const runPreRequestHook = (hook: PreRequestHook, input: PreRequestHookInput) =>
-				catchHookExecutionError(
-					withHookState(hook.handler(input), { ...input, toolCallId: null }).pipe(
-						Effect.withSpan('fold.hook_runner.pre_request.hook', {
-							attributes: { hookName: hook.name, ...preRequestSpanAttributes(input) },
-						}),
-					),
-					'preRequest',
-					hook.name,
-				)
-
-			const runPreToolUseHook = (hook: PreToolUseHook, input: PreToolUseHookInput) =>
-				catchHookExecutionError(
-					withHookState(hook.handler(input), input).pipe(
-						Effect.withSpan('fold.hook_runner.pre_tool_use.hook', {
-							attributes: { hookName: hook.name, ...preToolUseSpanAttributes(input) },
-						}),
-					),
-					'preToolUse',
-					hook.name,
-				)
-
-			const runPostToolUseHook = (hook: PostToolUseHook, input: PostToolUseHookInput) =>
-				catchHookExecutionError(
-					withHookState(hook.handler(input), input).pipe(
-						Effect.withSpan('fold.hook_runner.post_tool_use.hook', {
-							attributes: { hookName: hook.name, ...postToolUseSpanAttributes(input) },
-						}),
-					),
-					'postToolUse',
-					hook.name,
-				)
-
-			const runOnCompleteHook = (hook: OnCompleteHook, input: OnCompleteHookInput) =>
-				catchHookExecutionError(
-					withHookState(hook.handler(input), { ...input, toolCallId: null }).pipe(
-						Effect.withSpan('fold.hook_runner.on_complete.hook', {
-							attributes: { hookName: hook.name, ...onCompleteSpanAttributes(input) },
-						}),
-					),
-					'onComplete',
-					hook.name,
-				)
-
-			const service: HookRunnerService = {
-				preRequest: (input) =>
-					Effect.gen(function* () {
-						let prompt = input.prompt
-						let changed = false
-
-						for (const hook of hooks.preRequest ?? []) {
-							const decision = yield* runPreRequestHook(hook, { ...input, prompt })
-
-							if (Predicate.isTagged(decision, 'changed')) {
-								prompt = decision.prompt
-								changed = true
-							}
-						}
-
-						return changed ? HookDecision.changed({ prompt }) : HookDecision.unchanged()
-					}).pipe(
-						Effect.withSpan('fold.hook_runner.pre_request', {
-							attributes: preRequestSpanAttributes(input),
-						}),
-					),
-
-				preToolUse: (input) =>
-					Effect.gen(function* () {
-						let params = input.params
-
-						for (const hook of hooks.preToolUse ?? []) {
-							if (!isHookConfiguredForTool(hook, input.toolName)) continue
-
-							const decision = yield* runPreToolUseHook(hook, { ...input, params })
-
-							if (Predicate.isTagged(decision, 'replaceResult')) return decision
-
-							params = decision.params
-						}
-
-						return HookDecision.continue({ params })
-					}).pipe(
-						Effect.withSpan('fold.hook_runner.pre_tool_use', {
-							attributes: preToolUseSpanAttributes(input),
-						}),
-					),
-
-				postToolUse: (input) =>
-					Effect.gen(function* () {
-						let result = input.result
-						let isFailure = input.isFailure
-						let replaced = false
-
-						for (const hook of hooks.postToolUse ?? []) {
-							if (!isHookConfiguredForTool(hook, input.toolName)) continue
-
-							const decision = yield* runPostToolUseHook(hook, { ...input, result, isFailure })
-
-							if (Predicate.isTagged(decision, 'replace')) {
-								result = decision.result
-								isFailure = decision.isFailure
-								replaced = true
-							}
-						}
-
-						return replaced ? HookDecision.replace({ result, isFailure }) : HookDecision.keep()
-					}).pipe(
-						Effect.withSpan('fold.hook_runner.post_tool_use', {
-							attributes: postToolUseSpanAttributes(input),
-						}),
-					),
-
-				onComplete: (input) =>
-					Effect.gen(function* () {
-						for (const hook of hooks.onComplete ?? []) {
-							const decision = yield* runOnCompleteHook(hook, input)
-
-							if (Predicate.isTagged(decision, 'continueWith')) return decision
-						}
-
-						return HookDecision.complete()
-					}).pipe(
-						Effect.withSpan('fold.hook_runner.on_complete', {
-							attributes: onCompleteSpanAttributes(input),
-						}),
-					),
-			}
-
-			return service
-		}),
-	)
+	Layer.effect(HookRunner, makeHookRunner(hooks))

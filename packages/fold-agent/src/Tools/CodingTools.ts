@@ -10,7 +10,7 @@ import { type FileSystem, Layer, type Path } from 'effect'
 import { FetchHttpClient, type HttpClient } from 'effect/http'
 import type { ChildProcessSpawner } from 'effect/process'
 
-import { layerOutputStore, type OutputStore } from '../OutputStore/OutputStore'
+import { OutputStore } from '../OutputStore/OutputStore'
 import { bashTool, type BashToolOptions } from './BashTool'
 import { fileTools } from './FileTools'
 import { Photon } from './Image/Photon'
@@ -54,5 +54,5 @@ export const layerCodingToolServices = (options: {
 		NodeServices.layer,
 		FetchHttpClient.layer,
 		Photon.layer,
-		layerOutputStore({ directory: options.outputDirectory }).pipe(Layer.provide(NodeServices.layer)),
+		OutputStore.layer({ directory: options.outputDirectory }).pipe(Layer.provide(NodeServices.layer)),
 	)

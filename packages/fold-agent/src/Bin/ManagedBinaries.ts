@@ -179,7 +179,18 @@ const readHostEnvironment: Effect.Effect<HostEnvironment> = Effect.gen(function*
 	}
 })
 
-const makeManagedBinaries = (registry: ReadonlyArray<ManagedBinaryDefinition>) =>
+/** The per-process managed-binary resolver's interface. */
+export type ManagedBinariesService = {
+	readonly ensure: (options: EnsureManagedBinariesOptions) => Effect.Effect<ReadonlyArray<ManagedBinaryStatus>>
+}
+
+const makeManagedBinaries = (
+	registry: ReadonlyArray<ManagedBinaryDefinition>,
+): Effect.Effect<
+	ManagedBinariesService,
+	never,
+	FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient
+> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -483,19 +494,17 @@ const makeManagedBinaries = (registry: ReadonlyArray<ManagedBinaryDefinition>) =
 			return resolved
 		})
 
-		return ManagedBinaries.of({ ensure })
+		return { ensure }
 	})
 
 /**
  * The per-process managed-binary resolver. `ensure` never fails; see the file header for the
  * resolution ladder.
  */
-export class ManagedBinaries extends Context.Service<
-	ManagedBinaries,
-	{
-		readonly ensure: (options: EnsureManagedBinariesOptions) => Effect.Effect<ReadonlyArray<ManagedBinaryStatus>>
-	}
->()('fold-agent/Bin/ManagedBinaries') {
+export class ManagedBinaries extends Context.Service<ManagedBinaries, ManagedBinariesService>()(
+	'fold-agent/Bin/ManagedBinaries',
+	{ make: makeManagedBinaries },
+) {
 	/** A resolver over a given registry (tests pass a small one). */
 	static readonly layerWith = (
 		registry: ReadonlyArray<ManagedBinaryDefinition>,
@@ -503,7 +512,7 @@ export class ManagedBinaries extends Context.Service<
 		ManagedBinaries,
 		never,
 		FileSystem.FileSystem | ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient
-	> => Layer.effect(ManagedBinaries, makeManagedBinaries(registry))
+	> => Layer.effect(this, this.make(registry))
 
 	/** The resolver over fold's pinned {@link managedBinaryRegistry}. */
 	static readonly layer = ManagedBinaries.layerWith(managedBinaryRegistry)

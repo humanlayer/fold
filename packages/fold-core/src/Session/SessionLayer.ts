@@ -22,8 +22,7 @@ import {
 } from './SessionService'
 
 /** Live Session layer wiring EventLog, Ids, AgentRuntime, and AgentEvents into the public facade. */
-export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | AgentRuntime | AgentEvents> = Layer.effect(
-	Session,
+export const makeSession: Effect.Effect<SessionService, never, EventLog | Ids | AgentRuntime | AgentEvents> =
 	Effect.gen(function* () {
 		const eventLog = yield* EventLog
 		const ids = yield* Ids
@@ -173,5 +172,10 @@ export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | Agen
 			)
 
 		return { start, adopt, send, switchModel, compact, events }
-	}),
+	})
+
+/** The layer over {@link makeSession}. */
+export const liveSessionLayer: Layer.Layer<Session, never, EventLog | Ids | AgentRuntime | AgentEvents> = Layer.effect(
+	Session,
+	makeSession,
 )
